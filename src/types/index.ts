@@ -247,6 +247,10 @@ export interface EffectiveDraw {
   shantenAfter: number                // 摸到后的向听数
   shantenReduction: number            // 向听数降低了多少
   formedCombinations: FormedCombination[] // 形成的组合（UI展示用）
+  // 经线逻辑扩展
+  weight?: number                     // 综合进张权重（默认 1.0）
+  adjustedCount?: number              // 加权后的进张数
+  isGolden?: boolean                  // 是否为黄金进张（极大概率摸到）
 }
 
 // 有效进张分析结果
@@ -264,12 +268,29 @@ export interface DiscardAnalysis {
   effectiveDraws: EffectiveDraw[]     // 打出后的有效进张列表
   effectiveCount: number              // 有效进张总张数
   acceptanceRate: number              // 进张率
+  // 经线逻辑扩展
+  safetyScore?: number                // 防碰杠评分（越高越安全）
+  feedUpperScore?: number             // 喂上家加速得分
+  isUpperFeed?: boolean               // 是否推荐作为“喂上家”战术打出
 }
 
 // 打-摸联动完整结果
 export interface DiscardRecommendation {
   options: DiscardAnalysis[]          // 所有打牌选项（已排序，最优在前）
   bestDiscard: DiscardAnalysis        // 推荐打出的牌
+}
+
+// ============================================================
+// 经线逻辑与对手模型 - 类型定义
+// ============================================================
+
+// 对手上下文（用于算法计算时参考全场局势）
+export interface OpponentContext {
+  id: number
+  seatRelation: 'upper' | 'lower' | 'opposite' // 相对于当前玩家的座位（上家、下家、对家）
+  missingSuits: TileSuit[]                     // 确定的或疑似的缺门花色
+  safeTiles: Tile[]                            // 推测出的高置信度安全牌（别人不要的牌）
+  hoardedSuits: TileSuit[]                     // 疑似在囤积的花色（如正在做清一色）
 }
 
 // ============================================================

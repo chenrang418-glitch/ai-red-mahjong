@@ -19,6 +19,8 @@ import { calcProbability } from '@/algorithms/probability'
 import { pongDecision, gangDecision } from '@/algorithms/pong-decision'
 import { analyzeEffectiveDraws, analyzeDiscardOptions } from '@/algorithms/effective-draw'
 import { calculateShanten } from '@/algorithms/shanten'
+import { analyzeOpponentHand } from '@/algorithms/discardReader'
+import { OpponentContext } from '@/types'
 
 // 对手数据结构
 interface Opponent {
@@ -190,11 +192,39 @@ export const useGameStore = defineStore('game', () => {
     return playerHand.value.length + meldCount
   }
 
+  // 提取对手局势上下文
+  function getOpponentContexts(): OpponentContext[] {
+    return opponents.value.map((opp, index) => {
+      // 座位关系：0=对手A(右/下家), 1=对手B(对家), 2=对手C(左/上家)
+      let seatRelation: 'lower' | 'opposite' | 'upper' = 'lower'
+      if (index === 0) seatRelation = 'lower'
+      if (index === 1) seatRelation = 'opposite'
+      if (index === 2) seatRelation = 'upper'
+
+      // 获取该对手的推测结果
+      const readResult = analyzeOpponentHand(opp.river, opp.melds, round.value || 1)
+      
+      const highConf = readResult.deductions.filter(d => d.confidence >= 0.5)
+      const safeTiles: Tile[] = []
+      for (const d of highConf) {
+        if (d.safeTiles) safeTiles.push(...d.safeTiles)
+      }
+
+      return {
+        id: opp.id,
+        seatRelation,
+        missingSuits: readResult.missingSuits,
+        hoardedSuits: readResult.hoardedSuits,
+        safeTiles
+      }
+    })
+  }
+
   const effectiveDrawResult = computed(() => {
     const handLen = getEffectiveHandLength()
     // 只在13张（等摸牌状态）时分析有效进张
     if (handLen !== 13) return null
-    return analyzeEffectiveDraws(playerHand.value, playerMelds.value, deck.value)
+    return analyzeEffectiveDraws(playerHand.value, playerMelds.value, deck.value, getOpponentContexts())
   })
 
   // 打摸联动分析（14张手牌时：摸牌后需要打出）
@@ -202,7 +232,7 @@ export const useGameStore = defineStore('game', () => {
     const handLen = getEffectiveHandLength()
     // 只在14张（需出牌状态）时分析打摸联动
     if (handLen !== 14) return null
-    return analyzeDiscardOptions(playerHand.value, playerMelds.value, deck.value)
+    return analyzeDiscardOptions(playerHand.value, playerMelds.value, deck.value, getOpponentContexts())
   })
 
   // 局势快照捕获函数
@@ -215,13 +245,13 @@ export const useGameStore = defineStore('game', () => {
     let effTiles: Tile[] = []
 
     if (is13) {
-      const res = analyzeEffectiveDraws(playerHand.value, playerMelds.value, deck.value)
+      const res = analyzeEffectiveDraws(playerHand.value, playerMelds.value, deck.value, getOpponentContexts())
       if (res) {
         effCount = res.totalEffectiveCount
         effTiles = res.effectiveDraws.map(d => d.tile)
       }
     } else if (handLen === 14) {
-      const res = analyzeDiscardOptions(playerHand.value, playerMelds.value, deck.value)
+      const res = analyzeDiscardOptions(playerHand.value, playerMelds.value, deck.value, getOpponentContexts())
       if (res && res.bestDiscard) {
         effCount = res.bestDiscard.effectiveCount
         effTiles = res.bestDiscard.effectiveDraws.map(d => d.tile)

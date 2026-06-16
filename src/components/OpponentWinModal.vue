@@ -48,26 +48,33 @@
           </div>
         </div>
 
-        <!-- 抓马展示（仅记分模式） -->
-        <div v-if="scoringInfo && scoringInfo.bonusDrawTiles && scoringInfo.bonusDrawTiles.length > 0" class="bonus-area">
-          <div class="area-label">
-            🐴 抓马
-            <span class="bonus-count">共 {{ scoringInfo?.bonusDrawCount }} 个</span>
-            <span v-if="scoringInfo?.streak && scoringInfo.streak > 1" class="streak-badge">
-              🔥 {{ scoringInfo.streak }}连胜
-            </span>
-          </div>
-          <div class="bonus-tiles-row">
-            <div
-              v-for="(tile, i) in (scoringInfo?.bonusDrawTiles || [])"
-              :key="i"
-              class="bonus-tile-wrap"
-              :class="{ hit: isBonusTile(tile) }"
-            >
-              <TileView :tile="tile" />
-              <span v-if="isBonusTile(tile)" class="hit-badge">+10</span>
+        <!-- 抓马展示与记分总计（仅记分模式） -->
+        <div v-if="scoringInfo" class="bonus-area">
+          <template v-if="scoringInfo.bonusDrawTiles && scoringInfo.bonusDrawTiles.length > 0">
+            <div class="area-label">
+              🐴 抓马
+              <span class="bonus-count">共 {{ scoringInfo?.bonusDrawCount }} 个</span>
+              <span v-if="scoringInfo?.streak && scoringInfo.streak > 1" class="streak-badge">
+                🔥 {{ scoringInfo.streak }}连胜
+              </span>
             </div>
-          </div>
+            <div class="bonus-tiles-row">
+              <div
+                v-for="(tile, i) in scoringInfo.bonusDrawTiles"
+                :key="i"
+                class="bonus-tile-wrap"
+                :class="{ hit: isHitTile(tile) }"
+              >
+                <TileView :tile="tile" />
+                <span v-if="isHitTile(tile)" class="hit-badge">+{{ getHitTileScore(tile) }}</span>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div class="area-label">
+              🐴 无马可抓（牌堆已空）
+            </div>
+          </template>
           <!-- 胡牌类型（红中杠麻专用） -->
           <div v-if="scoringInfo?.huTypeName" class="hu-type-badge">
             {{ scoringInfo.huTypeName }}
@@ -132,7 +139,7 @@ import type { Tile, Meld } from '@/types'
 import { TileSuit } from '@/types'
 import TileView from './TileView.vue'
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   data: {
     opponentId: number
@@ -174,10 +181,30 @@ function getMeldTileCount(type: string): number {
   return 3
 }
 
-function isBonusTile(tile: Tile): boolean {
+function isHitTile(tile: Tile): boolean {
+  if (props.scoringInfo?.huType) {
+    // 红中杠麻模式：一码全中（非红中）
+    return tile.suit !== TileSuit.RED_ZHONG
+  }
+  // 传统红中模式：1、5、9、红中为马
   if (tile.suit === TileSuit.RED_ZHONG) return true
   if (tile.number === 1 || tile.number === 5 || tile.number === 9) return true
   return false
+}
+
+function getHitTileScore(tile: Tile): number {
+  if (props.scoringInfo?.huType) {
+    if (tile.suit === TileSuit.RED_ZHONG || tile.number === null) return 0
+    let base = 0
+    switch (tile.number) {
+      case 1: base = 100; break
+      case 2: base = 20; break
+      case 3: base = 30; break
+      default: base = tile.number * 10; break
+    }
+    return base * (props.scoringInfo.scoreMultiplier || 1)
+  }
+  return 10
 }
 </script>
 

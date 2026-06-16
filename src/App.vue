@@ -319,6 +319,21 @@
           :discard-result="game.discardRecommendation"
         />
 
+        <!-- 历史操作记录移到此处 -->
+        <div class="history-section">
+          <div class="section-label">📜 操作记录</div>
+          <div class="history-list">
+            <div v-for="(action, i) in game.history.slice(-25)" :key="i" class="history-item">
+              <span class="history-round">{{ action.round }}</span>
+              <span class="history-type" :class="action.type">{{ actionLabel(action.type) }}</span>
+              <span v-if="action.tile"><TileView :tile="action.tile" mini /></span>
+              <span v-if="action.fromOpponent !== undefined" class="history-from">
+                {{ game.opponents[action.fromOpponent]?.name }}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <!-- 碰决策 -->
         <DecisionPanel
           v-if="game.gamePhase === 'waiting_pong' && game.pongResult"
@@ -372,14 +387,6 @@
           </div>
         </div>
 
-        <!-- 贝叶斯对手分析面板 -->
-        <BayesianPanel
-          v-if="game.gamePhase !== 'init'"
-          :opponents="game.opponents"
-          :history="game.history"
-          :target-tiles="game.waiting.waitingTiles"
-          :deck-remaining="game.deck.remainingCount"
-        />
       </section>
 
       <!-- ========== 右侧面板 ========== -->
@@ -395,19 +402,14 @@
           :visible-tiles="game.deck.visibleTiles"
         />
 
-        <div class="history-section">
-          <div class="section-label">📜 操作记录</div>
-          <div class="history-list">
-            <div v-for="(action, i) in game.history.slice(-25)" :key="i" class="history-item">
-              <span class="history-round">{{ action.round }}</span>
-              <span class="history-type" :class="action.type">{{ actionLabel(action.type) }}</span>
-              <span v-if="action.tile"><TileView :tile="action.tile" mini /></span>
-              <span v-if="action.fromOpponent !== undefined" class="history-from">
-                {{ game.opponents[action.fromOpponent]?.name }}
-              </span>
-            </div>
-          </div>
-        </div>
+        <!-- 贝叶斯对手分析面板 -->
+        <BayesianPanel
+          v-if="game.gamePhase !== 'init'"
+          :opponents="game.opponents"
+          :history="game.history"
+          :target-tiles="game.waiting.waitingTiles"
+          :deck-remaining="game.deck.remainingCount"
+        />
       </aside>
     </main>
 
@@ -741,7 +743,8 @@ function getScoringInfo() {
   const history = game.roundHistory
   if (history.length === 0) return undefined
   const last = history[history.length - 1]
-  if (!last.bonusDrawTiles || last.bonusDrawTiles.length === 0) return undefined
+  // 即使没有抓马，也应该返回计分信息（例如海底捞月时牌堆已空）
+  if (!last) return undefined
   
   const result: {
     bonusDrawCount: number

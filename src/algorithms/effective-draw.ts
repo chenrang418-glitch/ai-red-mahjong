@@ -9,6 +9,7 @@ import {
   EffectiveDraw, EffectiveDrawResult,
   FormedCombination,
   DiscardAnalysis, DiscardRecommendation,
+  OpponentContext
 } from '@/types'
 import { calculateShantenFast } from './shanten'
 
@@ -25,6 +26,7 @@ export function analyzeEffectiveDraws(
   hand: Tile[],
   melds: Meld[] = [],
   deck?: DeckState,
+  oppContext: OpponentContext[] = []
 ): EffectiveDrawResult {
   // 当前向听数
   const currentShanten = calculateShantenFast(hand, melds)
@@ -59,6 +61,23 @@ export function analyzeEffectiveDraws(
 
     // 有效进张 = 摸到后向听数降低
     if (reduction > 0) {
+      // 计算权重（经线逻辑）
+      let weight = 1.0
+      for (const opp of oppContext) {
+        if (opp.safeTiles.some(t => t.suit === candidateTile.suit && t.number === candidateTile.number)) {
+          weight += 0.5
+        }
+        if (opp.missingSuits.includes(candidateTile.suit)) {
+          weight += 0.3
+        }
+        if (opp.hoardedSuits.includes(candidateTile.suit)) {
+          weight -= 0.8
+        }
+      }
+      weight = Math.max(0.1, weight) // 权重不能为负
+      const adjustedCount = remaining * weight
+      const isGolden = weight >= 1.2
+
       // 分析形成的组合（用于UI展示）
       const formedCombinations = analyzeFormedCombinations(hand, candidateTile, melds)
 
@@ -68,17 +87,22 @@ export function analyzeEffectiveDraws(
         shantenAfter,
         shantenReduction: reduction,
         formedCombinations,
+        weight,
+        adjustedCount,
+        isGolden,
       })
     }
   }
 
-  // 按优先级排序：向听数降低最多 → 剩余张数最多
+  // 按优先级排序：向听数降低最多 → 加权张数最多 → 真实剩余张数最多
   effectiveDraws.sort((a, b) => {
     if (a.shantenReduction !== b.shantenReduction) return b.shantenReduction - a.shantenReduction
+    if (a.adjustedCount !== b.adjustedCount) return (b.adjustedCount || 0) - (a.adjustedCount || 0)
     return b.remainingCount - a.remainingCount
   })
 
-  const totalEffectiveCount = effectiveDraws.reduce((sum, d) => sum + d.remainingCount, 0)
+  // 这里的总数可以是加权后的，也可以是原本的，这里我们使用加权数（展示给策略参考）
+  const totalEffectiveCount = effectiveDraws.reduce((sum, d) => sum + (d.adjustedCount || d.remainingCount), 0)
   const deckRemaining = deck ? deck.remainingCount : 112 - hand.length - melds.length * 3
 
   return {
@@ -102,6 +126,7 @@ export function analyzeDiscardOptions(
   hand: Tile[],
   melds: Meld[] = [],
   deck?: DeckState,
+  oppContext: OpponentContext[] = []
 ): DiscardRecommendation {
   const currentShanten = calculateShantenFast(hand, melds)
 
@@ -126,21 +151,58 @@ export function analyzeDiscardOptions(
     if (shantenAfter > currentShanten) continue
 
     // 分析打出后的有效进张
-    const drawResult = analyzeEffectiveDraws(handAfterDiscard, melds, deck)
+    const drawResult = analyzeEffectiveDraws(handAfterDiscard, melds, deck, oppContext)
+
+    // 分析打牌安全性与“上碰加速”
+    let safetyScore = 0
+    let feedUpperScore = 0
+    for (const opp of oppContext) {
+      // 安全牌奖励
+      if (opp.safeTiles.some(t => t.suit === discard.suit && t.number === discard.number)) {
+        safetyScore += 2
+      } else if (opp.missingSuits.includes(discard.suit)) {
+        safetyScore += 1
+      }
+      
+      // 囤积牌惩罚 / 喂上家奖励
+      if (opp.hoardedSuits.includes(discard.suit)) {
+        if (opp.seatRelation === 'upper') {
+          feedUpperScore += 5 // 极度推荐喂给上家
+        } else {
+          safetyScore -= 3 // 不能打给对家和下家
+        }
+      }
+    }
+
+    // 只有在当前接近听牌(<=1) 或 牌极其烂(>=3)且早巡时（这里由于无法获取早巡信息，粗略只判断向听数），推荐上碰加速
+    const isUpperFeed = feedUpperScore > 0 && (currentShanten <= 1 || currentShanten >= 3)
 
     options.push({
       discard,
       shantenAfter: drawResult.currentShanten,
       effectiveDraws: drawResult.effectiveDraws,
-      effectiveCount: drawResult.totalEffectiveCount,
+      effectiveCount: drawResult.totalEffectiveCount, // 这里用的是加权后的总数
       acceptanceRate: drawResult.acceptanceRate,
+      safetyScore,
+      feedUpperScore,
+      isUpperFeed,
     })
   }
 
-  // 排序：向听数最低 → 有效进张最多 → 进张率最高
+  // 排序：向听数最低 → 有效进张(加权)最多 → 上碰加速最高 → 安全分最高
   options.sort((a, b) => {
     if (a.shantenAfter !== b.shantenAfter) return a.shantenAfter - b.shantenAfter
-    if (a.effectiveCount !== b.effectiveCount) return b.effectiveCount - a.effectiveCount
+    // 允许容忍进张数的微小劣势来换取上家碰牌机会（例如相差不到 1 张）
+    const countDiff = b.effectiveCount - a.effectiveCount
+    if (a.isUpperFeed && !b.isUpperFeed && countDiff <= 2.0) return -1
+    if (!a.isUpperFeed && b.isUpperFeed && countDiff >= -2.0) return 1
+
+    if (Math.abs(countDiff) > 0.01) return countDiff
+    
+    // 如果进张差不多，看安全性
+    const safeDiff = (b.safetyScore || 0) - (a.safetyScore || 0)
+    if (safeDiff !== 0) return safeDiff
+
     return b.acceptanceRate - a.acceptanceRate
   })
 

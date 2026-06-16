@@ -21,8 +21,37 @@
 
       <template v-else>
         <!-- 各对手出牌分析 -->
-        <div v-for="opp in opponentAnalyses" :key="opp.id" class="opponent-row">
-          <div class="opp-name">{{ opp.name }}</div>
+        <div v-for="opp in opponentAnalyses" :key="opp.id" class="opponent-card">
+          <div class="opp-header">
+            <span class="opp-name">{{ opp.name }}</span>
+            <span v-if="opp.readResult && opp.readResult.missingSuits.length > 0" class="missing-suit-badge">
+              缺门: {{ opp.readResult.missingSuits.map(s => formatSuit(s)).join('、') }}
+            </span>
+          </div>
+
+          <div class="opp-advice" v-if="opp.readResult && opp.readResult.advice">
+            <span class="advice-icon">💡</span> {{ opp.readResult.advice }}
+          </div>
+
+          <!-- 高阶推测逻辑展示 (置信度 >= 50%) -->
+          <template v-if="opp.highConfDeductions && opp.highConfDeductions.length > 0">
+            <div class="opp-deductions">
+              <div v-for="(deduction, i) in opp.highConfDeductions" :key="i" class="deduction-row">
+                <span class="deduction-rule">[{{ deduction.ruleId }}]</span>
+                <span class="deduction-desc">{{ deduction.description }}</span>
+                <span class="deduction-conf">{{ (deduction.confidence * 100).toFixed(0) }}%</span>
+              </div>
+            </div>
+            
+            <!-- 推测的安全牌 -->
+            <div class="safe-tiles-area" v-if="opp.safeTiles.length > 0">
+              <span class="safe-badge">🔰 推测安全牌:</span>
+              <div class="safe-tiles-row">
+                <span v-for="(t, i) in opp.safeTiles" :key="i" class="safe-tile-label">{{ t.label }}</span>
+              </div>
+            </div>
+          </template>
+
           <div class="opp-tiles">
             <div
               v-for="(item, i) in opp.discards"
@@ -71,6 +100,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { bayesianUpdate } from '@/algorithms/bayesian'
+import { analyzeOpponentHand } from '@/algorithms/discardReader'
 import { formatTile } from '@/algorithms/deck'
 import type { Tile, GameAction } from '@/types'
 
@@ -139,7 +169,25 @@ const opponentAnalyses = computed(() => {
       }
     })
 
-    return { id: opp.id, name: opp.name, discards }
+    // 调用读牌算法
+    const pureDiscards = discardActions.map(a => a.tile!)
+    const currentRound = props.history.length > 0 ? props.history[props.history.length - 1].round : 1
+    const readResult = analyzeOpponentHand(pureDiscards, opp.melds, currentRound)
+
+    // 提取高置信度推测和安全牌
+    const highConfDeductions = readResult.deductions.filter(d => d.confidence >= 0.5)
+    const safeTilesMap = new Map<string, string>()
+    for (const d of highConfDeductions) {
+      if (d.safeTiles) {
+        for (const t of d.safeTiles) {
+          const key = `${t.suit}_${t.number}`
+          safeTilesMap.set(key, formatTile(t))
+        }
+      }
+    }
+    const safeTiles = Array.from(safeTilesMap.entries()).map(([k, label]) => ({ key: k, label }))
+
+    return { id: opp.id, name: opp.name, discards, readResult, highConfDeductions, safeTiles }
   }).filter(opp => opp.discards.length > 0)
 })
 
@@ -197,6 +245,10 @@ const adviceText = computed(() => {
   if (safetyWarnings.value.length === 0) return '对手出牌对你的目标牌影响较小，可继续等待'
   return `${safetyWarnings.value.map(w => w.label).join('、')} 受对手出牌影响，摸到概率略低，注意节奏`
 })
+
+function formatSuit(suit: string) {
+  return { dot: '筒', bamboo: '条', char: '万', red_zhong: '红中' }[suit] || suit
+}
 </script>
 
 <style scoped>
@@ -269,25 +321,127 @@ const adviceText = computed(() => {
   padding: 12px 0;
 }
 
-/* 对手行 */
-.opponent-row {
+/* 对手卡片 */
+.opponent-card {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-surface);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.opp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .opp-name {
   font-size: 14px;
-  color: var(--color-text-muted);
-  min-width: 48px;
-  padding-top: 4px;
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.missing-suit-badge {
+  font-size: 11px;
+  background: rgba(255,107,107,0.1);
+  color: var(--color-primary);
+  padding: 2px 8px;
+  border-radius: 12px;
   font-weight: 700;
+}
+
+/* 取消的倾向分析 CSS 可以移除或忽略 */
+
+.opp-advice {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: rgba(0,0,0,0.15);
+  padding: 6px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
 }
 
 .opp-tiles {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  margin-top: 4px;
+}
+
+/* 高阶推测 */
+.opp-deductions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.deduction-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.deduction-rule {
+  font-weight: 800;
+  color: var(--color-accent);
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(254, 202, 87, 0.15);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.deduction-desc {
+  color: var(--color-text);
+  flex: 1;
+}
+
+.deduction-conf {
+  font-weight: 700;
+  color: var(--color-success);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* 安全牌区域 */
+.safe-tiles-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  background: rgba(72, 219, 251, 0.1);
+  border: 1px solid rgba(72, 219, 251, 0.3);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.safe-badge {
+  font-size: 12px;
+  font-weight: 800;
+  color: #48dbfb;
+}
+
+.safe-tiles-row {
+  display: flex;
+  gap: 6px;
+}
+
+.safe-tile-label {
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--color-success);
+  color: #0f0f1a;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 /* 出牌标签 */

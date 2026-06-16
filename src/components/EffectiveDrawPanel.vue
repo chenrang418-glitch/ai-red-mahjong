@@ -50,6 +50,7 @@
         >
           <div class="eff-tile-wrap">
             <TileView :tile="draw.tile" mini />
+            <span v-if="draw.isGolden" class="golden-star" title="极佳进张">⭐</span>
             <span class="eff-remaining">×{{ draw.remainingCount }}</span>
           </div>
           <div class="eff-combos">
@@ -88,6 +89,7 @@
         >
           <div class="discard-tile-wrap">
             <span v-if="i === 0" class="best-tag">最优</span>
+            <span v-if="opt.isUpperFeed" class="upper-feed-tag" title="上家可能碰牌，有助于加速摸牌轮次">🚀 喂上家</span>
             <TileView :tile="opt.discard" mini />
           </div>
           <div class="discard-stats">
@@ -114,6 +116,7 @@
               :tile="d.tile"
               mini
               :count="d.remainingCount"
+              :class="{ 'golden-tile': d.isGolden }"
             />
             <span v-if="opt.effectiveDraws.length > 12" class="more-hint">
               +{{ opt.effectiveDraws.length - 12 }}
@@ -299,6 +302,15 @@ function comboLabel(type: string): string {
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
 }
+.golden-star {
+  font-size: 14px;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
 .eff-combos {
   display: flex;
   gap: 8px;
@@ -368,6 +380,15 @@ function comboLabel(type: string): string {
   color: #0f0f1a;
   font-weight: 800;
 }
+.upper-feed-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(254, 202, 87, 0.2);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 800;
+}
 .discard-stats {
   display: flex;
   gap: 12px;
@@ -399,6 +420,10 @@ function comboLabel(type: string): string {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--color-border);
+}
+.discard-draws :deep(.tile.golden-tile) {
+  box-shadow: 0 0 4px 1px var(--color-gold);
+  border-color: var(--color-gold);
 }
 .more-hint {
   font-size: 11px;
