@@ -4,6 +4,8 @@
 
 ## 直接游玩
 
+在线版：<https://ai-red-mahjong.pages.dev/>
+
 已构建过项目时，双击 `启动游戏.cmd`，浏览器会打开：
 
 ```text
