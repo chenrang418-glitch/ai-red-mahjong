@@ -33,6 +33,7 @@ npm-debug.log*
 
 # Temp
 *.tsbuildinfo
+work/
 
 # Generated icon source
 app-icon.png
