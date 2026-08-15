@@ -137,7 +137,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     padding-left: max(10px, env(safe-area-inset-left));
     padding-right: max(10px, env(safe-area-inset-right));
   }
-  .topbar-optional { display: none; }
   .action-dock {
     position: fixed;
     z-index: 30;
@@ -163,8 +162,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .brand strong { font-size: 12px; }
   .brand small { display: none; }
   .status-pill { padding: 6px 9px; font-size: 9px; }
-  .topbar nav { gap: 4px; }
-  .topbar nav button { min-height: 34px; padding: 6px 8px; font-size: 10px; }
+  .topbar nav { gap: 3px; }
+  .topbar nav button { min-height: 34px; padding: 6px 7px; font-size: 9px; }
   .game-layout {
     --table-height: max(240px, calc(100dvh - 120px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     grid-template-columns: clamp(108px, 14vw, 150px) minmax(0, 1fr) clamp(122px, 16vw, 175px);
@@ -202,9 +201,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar { flex-wrap: wrap; gap: 8px; padding-top: max(9px, env(safe-area-inset-top)); padding-bottom: 9px; }
   .brand { min-width: 150px; flex: 1; }
   .brand > span { width: 34px; height: 34px; font-size: 20px; }
-  .topbar nav { margin-left: auto; gap: 5px; }
-  .topbar nav button { min-height: 38px; padding: 7px 9px; font-size: 10px; }
-  .status-pill { order: 3; flex-basis: 100%; padding: 7px 10px; }
+  .topbar nav { order: 3; flex: 1 0 100%; width: 100%; margin-left: 0; gap: 4px; }
+  .topbar nav > button, .topbar nav > .audio-control { flex: 1 1 0; min-width: 0; }
+  .topbar nav > .audio-control button { width: 100%; min-width: 0; }
+  .topbar nav button { min-height: 36px; padding: 6px 4px; font-size: 9px; white-space: nowrap; }
+  .status-pill { order: 4; flex-basis: 100%; padding: 7px 10px; }
   .game-layout {
     --table-height: max(610px, calc(100dvh - 190px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     grid-template-columns: minmax(0, 1fr);
@@ -222,7 +223,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
 @media (max-width: 430px) and (pointer: coarse) {
   .brand small { display: none; }
-  .topbar nav button { padding-inline: 7px; }
+  .topbar nav { gap: 3px; }
+  .topbar nav button { padding-inline: 3px; font-size: 9px; }
   .action-dock { gap: 6px; font-size: 10px; }
   .action-dock button { min-width: 58px; }
 }

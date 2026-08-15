@@ -121,15 +121,14 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
   --seat-tile-height: clamp(18px, 3.22cqw, 39px);
   --discard-columns: 12;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  grid-template-areas: "seat-header seat-header" "seat-meta seat-meta" "seat-hand seat-river" "seat-meld seat-meld";
-  column-gap: clamp(5px, 1cqw, 12px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "seat-header" "seat-meta" "seat-hand" "seat-meld" "seat-river";
 }
 .top-seat :deep(header) { grid-area: seat-header; }
 .top-seat :deep(.ai-meta) { grid-area: seat-meta; }
 .top-seat :deep(.concealed-hand) { grid-area: seat-hand; }
 .top-seat :deep(.meld-row) { grid-area: seat-meld; }
-.top-seat :deep(.discard-row) { grid-area: seat-river; margin-top: 0; justify-self: end; }
+.top-seat :deep(.discard-row) { grid-area: seat-river; margin-top: 4px; justify-self: start; }
 .left-seat, .right-seat {
   width: 100%;
   align-self: center;
