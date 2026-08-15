@@ -92,6 +92,12 @@ function ensureContext(): AudioContext | null {
   return context
 }
 
+function unlock() {
+  const audio = ensureContext()
+  if (!audio || audio.state === 'running') return
+  void audio.resume().then(syncGains).catch(() => undefined)
+}
+
 function tone(
   frequency: number,
   start: number,
@@ -212,8 +218,8 @@ function prepareMatch(matchId: string, existingEvents: GameEvent[] = [], playExi
   startMusic()
 }
 
-function processEvents(state: GameState) {
-  const humanId = state.players.find((player) => player.isHuman)?.id ?? 0
+function processEvents(state: GameState, listenerPlayerId?: number) {
+  const humanId = listenerPlayerId ?? state.players.find((player) => player.isHuman)?.id ?? 0
   const fresh = state.events.filter((event) => !processedEvents.has(event.id))
   fresh.forEach((event, index) => {
     processedEvents.add(event.id)
@@ -249,6 +255,7 @@ if (typeof document !== 'undefined') {
 export const gameAudio = {
   settings: gameAudioSettings,
   setSetting,
+  unlock,
   prepareMatch,
   processEvents,
   stopMatch,

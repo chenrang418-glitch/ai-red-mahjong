@@ -34,6 +34,7 @@ type ScheduledJobKind =
   | 'claim-deadline'
   | 'resolve-no-claim'
   | 'disconnect-trustee'
+  | 'lobby-disconnect-remove'
 
 interface ScheduledJob {
   id: string
@@ -76,6 +77,7 @@ export interface RoundLeaderboardResult {
 const TRUSTEE_AI: AIProfile = { personality: 'humanlike', difficulty: 'standard', speed: 'normal' }
 const TABLE_AI: AIProfile = { personality: 'balanced', difficulty: 'standard', speed: 'normal' }
 const DISCONNECT_GRACE_MS = 30_000
+const LOBBY_DISCONNECT_GRACE_MS = 60_000
 
 function emptySeat(seatId: number): StoredSeat {
   return {
@@ -163,7 +165,10 @@ export class RoomCoordinator {
     }
     seat.name = user.nickname
     seat.connected = true
-    this.state.jobs = this.state.jobs.filter((job) => !(job.kind === 'disconnect-trustee' && job.seatId === seat!.seatId))
+    this.state.jobs = this.state.jobs.filter((job) => !(
+      ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
+      && job.seatId === seat!.seatId
+    ))
     this.touch(now)
     return seat.seatId
   }
@@ -171,11 +176,15 @@ export class RoomCoordinator {
   disconnect(userId: string, now = Date.now()): void {
     const seat = this.humanSeatByUser(userId)
     seat.connected = false
-    this.state.jobs = this.state.jobs.filter((job) => !(job.kind === 'disconnect-trustee' && job.seatId === seat.seatId))
+    this.state.jobs = this.state.jobs.filter((job) => !(
+      ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
+      && job.seatId === seat.seatId
+    ))
+    const lobby = !this.state.game
     this.state.jobs.push({
       id: `disconnect-${seat.seatId}-${now}`,
-      kind: 'disconnect-trustee',
-      dueAt: now + DISCONNECT_GRACE_MS,
+      kind: lobby ? 'lobby-disconnect-remove' : 'disconnect-trustee',
+      dueAt: now + (lobby ? LOBBY_DISCONNECT_GRACE_MS : DISCONNECT_GRACE_MS),
       stageKey: 'presence',
       seatId: seat.seatId,
     })
@@ -200,6 +209,11 @@ export class RoomCoordinator {
   handle(userId: string, command: RoomCommand, now = Date.now()): ChatMessage | null {
     const seat = this.humanSeatByUser(userId)
     if (command.type === 'chat') return this.addChat(seat, command.text, command.quick, now)
+    if (command.type === 'leave-room') {
+      if (this.state.game) this.disconnect(userId, now)
+      else this.removeLobbyUser(userId, now)
+      return null
+    }
     if (command.type === 'ready') {
       if (this.state.game) throw new Error('牌局已经开始')
       seat.ready = command.ready
@@ -264,9 +278,17 @@ export class RoomCoordinator {
       this.state.jobs = this.state.jobs.filter((candidate) => candidate.id !== job.id)
       if (job.kind === 'disconnect-trustee') {
         const seat = this.state.seats[job.seatId ?? -1]
-        if (seat?.kind === 'human' && !seat.connected) {
+        if (this.state.game && seat?.kind === 'human' && !seat.connected) {
           seat.trustee = true
           this.reschedule(now)
+          changed = true
+        }
+        continue
+      }
+      if (job.kind === 'lobby-disconnect-remove') {
+        const seat = this.state.seats[job.seatId ?? -1]
+        if (!this.state.game && seat?.kind === 'human' && !seat.connected && seat.userId) {
+          this.removeLobbyUser(seat.userId, now)
           changed = true
         }
         continue
@@ -387,15 +409,24 @@ export class RoomCoordinator {
   }
 
   private returnToLobby(now: number): void {
+    this.state.jobs = []
     for (const seat of this.state.seats) {
       if (seat.kind === 'ai') this.state.seats[seat.seatId] = emptySeat(seat.seatId)
       else {
         seat.ready = seat.userId === this.state.hostUserId
         seat.trustee = false
+        if (!seat.connected) {
+          this.state.jobs.push({
+            id: `lobby-disconnect-${seat.seatId}-${now}`,
+            kind: 'lobby-disconnect-remove',
+            dueAt: now + LOBBY_DISCONNECT_GRACE_MS,
+            stageKey: 'presence',
+            seatId: seat.seatId,
+          })
+        }
       }
     }
     this.state.game = null
-    this.state.jobs = this.state.jobs.filter((job) => job.kind === 'disconnect-trustee')
     this.state.stageKey = ''
     this.state.claimResponses = {}
     this.touch(now)

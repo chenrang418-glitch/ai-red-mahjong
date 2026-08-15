@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import AudioControl from '@/components/game/AudioControl.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import ChatPanel from './ChatPanel.vue'
+import { gameAudio } from '@/composables/useGameAudio'
 import { tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
 import type { OnlineRoomView, RoomActionDraft, RoomCommand } from '@/online/types'
@@ -13,9 +15,30 @@ const sideTab = ref<'events' | 'chat'>('events')
 const mobileChatOpen = ref(false)
 const clock = ref(Date.now())
 const clockTimer = window.setInterval(() => { clock.value = Date.now() }, 100)
+let audioMatchId = ''
 
-onBeforeUnmount(() => window.clearInterval(clockTimer))
+onBeforeUnmount(() => {
+  window.clearInterval(clockTimer)
+  if (audioMatchId) gameAudio.stopMatch()
+})
 watch(() => props.room.game?.currentPlayer, () => { selectedTileId.value = '' })
+watch(() => props.room.game, (game) => {
+  if (!game) {
+    if (audioMatchId) gameAudio.stopMatch()
+    audioMatchId = ''
+    return
+  }
+  if (game.matchId !== audioMatchId) {
+    audioMatchId = game.matchId
+    gameAudio.prepareMatch(game.matchId, game.events, true)
+  }
+  gameAudio.processEvents(game, props.room.selfSeatId)
+}, { immediate: true })
+watch(() => props.connected, (connected) => {
+  if (!audioMatchId) return
+  if (connected) gameAudio.startMusic()
+  else gameAudio.stopMusic()
+})
 
 const isHost = computed(() => props.room.selfUserId === props.room.hostUserId)
 const selfSeat = computed(() => props.room.seats[props.room.selfSeatId])
@@ -61,11 +84,11 @@ function sendChat(text: string, quick: boolean) {
 </script>
 
 <template>
-  <main v-if="room.phase === 'lobby'" class="online-lobby-page">
+  <main v-if="room.phase === 'lobby'" class="online-lobby-page" @pointerdown.capture="gameAudio.unlock">
     <header class="lobby-header">
       <button type="button" @click="emit('leave')">← 返回联机大厅</button>
-      <div><small>ROOM CODE</small><strong>{{ room.code }}</strong></div>
-      <span :class="{ online: connected }">{{ connected ? '已连接' : '重连中…' }}</span>
+      <div class="lobby-room-code"><small>ROOM CODE</small><strong>{{ room.code }}</strong></div>
+      <div class="lobby-header-actions"><AudioControl /><span :class="{ online: connected }">{{ connected ? '已连接' : '重连中…' }}</span></div>
     </header>
 
     <section class="lobby-card">
@@ -94,12 +117,13 @@ function sendChat(text: string, quick: boolean) {
     </section>
   </main>
 
-  <div v-else-if="room.game" class="game-page online-game-page">
+  <div v-else-if="room.game" class="game-page online-game-page" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
       <div class="brand"><span>中</span><div><strong>联机红中麻将</strong><small>房间 {{ room.code }}</small></div></div>
       <div class="status-pill" :class="room.game.phase">{{ connected ? room.notice : '连接中断，正在重连…' }}</div>
       <nav>
         <button type="button" :class="{ trustee: selfSeat.trustee }" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ selfSeat.trustee ? '取消托管' : 'AI托管' }}</button>
+        <AudioControl />
         <button class="mobile-chat-button" type="button" @click="mobileChatOpen = true">聊天</button>
         <button class="danger" type="button" @click="leave">退出房间</button>
       </nav>
@@ -187,11 +211,12 @@ function sendChat(text: string, quick: boolean) {
 .online-lobby-page { min-height: 100vh; min-height: 100dvh; padding: 28px clamp(18px, 6vw, 70px); color: #f5efdd; background: radial-gradient(circle at 15% 0, #24483d, transparent 35%), #091410; }
 .lobby-header { width: min(1100px, 100%); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .lobby-header > button { padding: 9px 12px; border: 1px solid #345047; border-radius: 9px; background: #10251f; color: #d8dfda; cursor: pointer; }
-.lobby-header > div { display: grid; text-align: center; }
+.lobby-room-code { display: grid; text-align: center; }
 .lobby-header small { color: #778c85; font-size: 9px; letter-spacing: .2em; }
 .lobby-header strong { color: #efd074; font-size: 25px; letter-spacing: .15em; }
-.lobby-header > span, .online-seats i { color: #c97c72; font-size: 10px; font-style: normal; }
-.lobby-header > span.online, .online-seats i.online { color: #73c693; }
+.lobby-header > .lobby-header-actions { display: flex; align-items: center; gap: 10px; }
+.lobby-header-actions > span, .online-seats i { color: #c97c72; font-size: 10px; font-style: normal; }
+.lobby-header-actions > span.online, .online-seats i.online { color: #73c693; }
 .lobby-card { width: min(1100px, 100%); margin: 28px auto 0; padding: 26px; border: 1px solid #385248; border-radius: 23px; background: rgba(14,34,29,.94); box-shadow: 0 24px 80px rgba(0,0,0,.3); }
 .lobby-heading { display: flex; justify-content: space-between; gap: 20px; }
 .lobby-heading small { color: #72877f; letter-spacing: .2em; }
@@ -228,7 +253,7 @@ function sendChat(text: string, quick: boolean) {
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
   .online-lobby-page { padding: max(18px, env(safe-area-inset-top)) 12px max(18px, env(safe-area-inset-bottom)); }
   .lobby-header { flex-wrap: wrap; }
-  .lobby-header > div { order: -1; flex-basis: 100%; }
+  .lobby-room-code { order: -1; flex-basis: 100%; }
   .lobby-card { padding: 16px; }
   .online-seats { grid-template-columns: 1fr 1fr; gap: 8px; }
   .online-seats article { min-height: 135px; }

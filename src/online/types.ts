@@ -91,6 +91,7 @@ export interface OnlineRoomView {
 export type RoomCommand =
   | { type: 'ready'; ready: boolean }
   | { type: 'start-game' }
+  | { type: 'leave-room' }
   | { type: 'discard'; tileId: string; actionId: string; version: number }
   | { type: 'win'; actionId: string; version: number }
   | { type: 'gang'; gangType: 'an-gang' | 'bu-gang'; face: string; actionId: string; version: number }

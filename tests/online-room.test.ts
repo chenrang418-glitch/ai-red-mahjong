@@ -37,6 +37,35 @@ describe('联机房间协调器', () => {
     expect(view.seats[1].ready).toBe(true)
   })
 
+  it('等待页意外断线会保留座位60秒，期间重连可回到原座位', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '玩家二' }, 1100)
+    room.disconnect('u2', 2000)
+
+    expect(room.view('u1').seats[1]).toMatchObject({ kind: 'human', connected: false, name: '玩家二' })
+    room.runDueJobs(61_999)
+    expect(room.view('u1').seats[1].kind).toBe('human')
+
+    expect(room.connect({ userId: 'u2', nickname: '玩家二' }, 62_000)).toBe(1)
+    room.runDueJobs(100_000)
+    expect(room.view('u1').seats[1]).toMatchObject({ kind: 'human', connected: true, name: '玩家二' })
+  })
+
+  it('等待页断线超过60秒才释放座位并移交房主', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '玩家二' }, 1100)
+    room.disconnect('u1', 2000)
+
+    room.runDueJobs(61_999)
+    expect(room.view('u2').hostUserId).toBe('u1')
+    room.runDueJobs(62_000)
+
+    const view = room.view('u2')
+    expect(view.hostUserId).toBe('u2')
+    expect(view.seats[0].kind).toBe('empty')
+    expect(view.seats[1].isHost).toBe(true)
+  })
+
   it('仅向玩家发送自己的真实手牌，其他暗牌使用占位牌', () => {
     const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '小陈' }, settings, 1000)
     room.handle('u1', { type: 'start-game' }, 1200)

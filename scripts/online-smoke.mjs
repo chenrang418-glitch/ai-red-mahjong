@@ -45,11 +45,25 @@ function waitForMessage(socket, predicate) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('等待服务器消息超时')), 5000)
     const listener = (event) => {
-      const message = JSON.parse(String(event.data))
+      let message
+      try { message = JSON.parse(String(event.data)) } catch { return }
       if (!predicate(message)) return
       clearTimeout(timer)
       socket.removeEventListener('message', listener)
       resolve(message)
+    }
+    socket.addEventListener('message', listener)
+  })
+}
+
+function waitForRawMessage(socket, expected) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('等待心跳应答超时')), 5000)
+    const listener = (event) => {
+      if (String(event.data) !== expected) return
+      clearTimeout(timer)
+      socket.removeEventListener('message', listener)
+      resolve(event.data)
     }
     socket.addEventListener('message', listener)
   })
@@ -110,6 +124,9 @@ try {
   await waitForOpen(socket)
   const initialState = await initialStatePromise
   assert(initialState.room.phase === 'lobby', '连接后没有进入房间等待页')
+  const pongPromise = waitForRawMessage(socket, 'pong')
+  socket.send('ping')
+  await pongPromise
 
   const startedPromise = waitForMessage(socket, (message) => message.type === 'room-state' && message.room.game)
   socket.send(JSON.stringify({ type: 'start-game' }))
@@ -160,14 +177,28 @@ try {
   guestSocket.close()
   await guestClosed
   await new Promise((resolve) => setTimeout(resolve, 30))
+  const roomsAfterGuestDropped = await jsonRequest(`${baseUrl}/api/rooms`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  })
+  const lobbyAfterGuestDropped = roomsAfterGuestDropped.rooms.find((room) => room.code === lobbyRoom.code)
+  assert(lobbyAfterGuestDropped?.occupiedSeats === 2 && lobbyAfterGuestDropped?.players.some((player) => player.nickname === '联调访客' && !player.connected), '等待页意外断线后没有保留座位')
+
+  const guestReconnectSocket = new WebSocket(guestSocketUrl)
+  const guestReconnected = waitForMessage(guestReconnectSocket, (message) => message.type === 'room-state' && message.room.seats[1]?.connected)
+  await waitForOpen(guestReconnectSocket)
+  await guestReconnected
+  const guestLeft = waitForClose(guestReconnectSocket)
+  guestReconnectSocket.send(JSON.stringify({ type: 'leave-room' }))
+  await guestLeft
+  await new Promise((resolve) => setTimeout(resolve, 30))
   const roomsAfterGuestLeft = await jsonRequest(`${baseUrl}/api/rooms`, {
     headers: { authorization: `Bearer ${session.token}` },
   })
   const lobbyAfterGuestLeft = roomsAfterGuestLeft.rooms.find((room) => room.code === lobbyRoom.code)
-  assert(lobbyAfterGuestLeft?.occupiedSeats === 1 && lobbyAfterGuestLeft?.availableSeats === 3, '等待页离开后没有释放座位')
+  assert(lobbyAfterGuestLeft?.occupiedSeats === 1 && lobbyAfterGuestLeft?.availableSeats === 3, '明确离开等待页后没有释放座位')
   lobbyHostSocket.close()
 
-  console.log(`联机冒烟验证通过：房间 ${created.code}，昵称登录、WebSocket、AI补位和快捷聊天正常。`)
+  console.log(`联机冒烟验证通过：房间 ${created.code}，昵称登录、心跳、断线重连、AI补位和快捷聊天正常。`)
 } finally {
   await miniflare.dispose()
 }

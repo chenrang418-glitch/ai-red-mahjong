@@ -15,7 +15,9 @@ interface Env {
   DB: D1Database
 }
 
-interface SocketAttachment extends RoomUser {}
+interface SocketAttachment extends RoomUser {
+  leaving?: boolean
+}
 
 interface SessionPayload extends RoomUser {}
 
@@ -258,6 +260,7 @@ export class MahjongRoom {
   private readonly chatRate = new Map<string, number[]>()
 
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
+    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     this.ready = state.blockConcurrencyWhile(async () => {
       const stored = await state.storage.get<StoredRoomState>('room')
       if (stored) this.coordinator = new RoomCoordinator(stored)
@@ -272,7 +275,7 @@ export class MahjongRoom {
       const body = await request.json<{ code: string; user: RoomUser; settings: OnlineRoomSettings }>()
       this.coordinator = RoomCoordinator.create(body.code, body.user, body.settings)
       await this.persist()
-      await this.syncRoomDirectory()
+      this.state.waitUntil(this.syncRoomDirectory())
       return json({ code: body.code }, 201)
     }
     if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
@@ -287,8 +290,8 @@ export class MahjongRoom {
       server.serializeAttachment(attachment)
       this.state.acceptWebSocket(server, [`user:${user.userId}`])
       await this.persist()
-      if (!this.coordinator.state.game) await this.syncRoomDirectory()
-      await this.broadcastState()
+      if (!this.coordinator.state.game) this.state.waitUntil(this.syncRoomDirectory())
+      this.broadcastState()
       return new Response(null, { status: 101, webSocket: client })
     }
     return json({ error: '房间接口不存在' }, 404)
@@ -300,9 +303,28 @@ export class MahjongRoom {
     const user = socket.deserializeAttachment() as SocketAttachment | null
     if (!user) return this.send(socket, { type: 'error', message: '连接身份无效' })
     try {
-      const parsed = JSON.parse(typeof raw === 'string' ? raw : new TextDecoder().decode(raw)) as RoomCommand | { type: 'ping' }
+      const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
+      if (text === 'ping') {
+        socket.send('pong')
+        return
+      }
+      const parsed = JSON.parse(text) as RoomCommand | { type: 'ping' }
       if (parsed.type === 'ping') {
         this.send(socket, { type: 'pong', at: Date.now() })
+        return
+      }
+      if (parsed.type === 'leave-room') {
+        socket.serializeAttachment({ ...user, leaving: true })
+        if (this.coordinator.state.game) this.coordinator.disconnect(user.userId)
+        else this.coordinator.removeLobbyUser(user.userId)
+        if (await this.deleteEmptyLobby()) {
+          socket.close(1000, 'left room')
+          return
+        }
+        await this.persist()
+        if (!this.coordinator.state.game) await this.syncRoomDirectory()
+        this.broadcastState()
+        socket.close(1000, 'left room')
         return
       }
       if (parsed.type === 'chat') this.assertChatRate(user.userId)
@@ -311,7 +333,7 @@ export class MahjongRoom {
       if (parsed.type === 'start-game' || parsed.type === 'return-to-lobby') await this.syncRoomDirectory()
       await this.syncLeaderboard()
       if (chatMessage) this.broadcast({ type: 'chat', message: chatMessage })
-      else await this.broadcastState()
+      else this.broadcastState()
     } catch (cause) {
       this.send(socket, { type: 'error', message: cause instanceof Error ? cause.message : String(cause) })
       await this.sendState(socket, user.userId)
@@ -322,41 +344,26 @@ export class MahjongRoom {
     await this.ready
     if (!this.coordinator) return
     const user = socket.deserializeAttachment() as SocketAttachment | null
-    if (!user) return
+    if (!user || user.leaving) return
     const remaining = this.state.getWebSockets(`user:${user.userId}`).filter((candidate) => candidate !== socket && candidate.readyState === WebSocket.OPEN)
-    if (remaining.length === 0 && !this.coordinator.state.game) {
-      const code = this.coordinator.state.code
-      this.coordinator.removeLobbyUser(user.userId)
-      const hasHumanPlayers = this.coordinator.state.seats.some((seat) => seat.kind === 'human' && seat.userId)
-      if (!hasHumanPlayers) {
-        this.coordinator = null
-        await this.state.storage.deleteAll()
-        try {
-          await this.env.DB.prepare('DELETE FROM room_directory WHERE code = ?').bind(code).run()
-        } catch (cause) {
-          console.error('移除空房间失败', cause)
-        }
-        return
-      }
-      await this.persist()
-      await this.syncRoomDirectory()
-      await this.broadcastState()
-      return
-    }
-    if (remaining.length === 0) this.coordinator.disconnect(user.userId)
+    const seat = this.coordinator.state.seats.find((candidate) => candidate.userId === user.userId)
+    if (!seat) return
+    if (remaining.length === 0 && seat.connected) this.coordinator.disconnect(user.userId)
     await this.persist()
     if (!this.coordinator.state.game) await this.syncRoomDirectory()
-    await this.broadcastState()
+    this.broadcastState()
   }
 
   async alarm(): Promise<void> {
     await this.ready
     if (!this.coordinator) return
     const changed = this.coordinator.runDueJobs()
+    if (await this.deleteEmptyLobby()) return
     await this.persist()
     if (changed) {
       await this.syncLeaderboard()
-      await this.broadcastState()
+      if (!this.coordinator.state.game) await this.syncRoomDirectory()
+      this.broadcastState()
     }
   }
 
@@ -436,6 +443,22 @@ export class MahjongRoom {
     }
   }
 
+  private async deleteEmptyLobby(): Promise<boolean> {
+    if (!this.coordinator || this.coordinator.state.game) return false
+    const hasHumanPlayers = this.coordinator.state.seats.some((seat) => seat.kind === 'human' && seat.userId)
+    if (hasHumanPlayers) return false
+    const code = this.coordinator.state.code
+    this.coordinator = null
+    await this.state.storage.deleteAll()
+    await this.state.storage.deleteAlarm()
+    try {
+      await this.env.DB.prepare('DELETE FROM room_directory WHERE code = ?').bind(code).run()
+    } catch (cause) {
+      console.error('移除空房间失败', cause)
+    }
+    return true
+  }
+
   private assertChatRate(userId: string): void {
     const now = Date.now()
     const recent = (this.chatRate.get(userId) ?? []).filter((timestamp) => now - timestamp < 10_000)
@@ -444,15 +467,15 @@ export class MahjongRoom {
     this.chatRate.set(userId, recent)
   }
 
-  private async broadcastState(): Promise<void> {
+  private broadcastState(): void {
     if (!this.coordinator) return
     for (const socket of this.state.getWebSockets()) {
       const user = socket.deserializeAttachment() as SocketAttachment | null
-      if (user) await this.sendState(socket, user.userId)
+      if (user && !user.leaving) this.sendState(socket, user.userId)
     }
   }
 
-  private async sendState(socket: WebSocket, userId: string): Promise<void> {
+  private sendState(socket: WebSocket, userId: string): void {
     if (!this.coordinator || socket.readyState !== WebSocket.OPEN) return
     this.send(socket, { type: 'room-state', room: this.coordinator.view(userId) })
   }

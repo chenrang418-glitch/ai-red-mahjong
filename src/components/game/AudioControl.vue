@@ -7,11 +7,16 @@ const open = ref(false)
 function numberValue(event: Event) {
   return Number((event.target as HTMLInputElement).value)
 }
+
+function toggleOpen() {
+  gameAudio.unlock()
+  open.value = !open.value
+}
 </script>
 
 <template>
   <div class="audio-control">
-    <button class="audio-trigger" type="button" :aria-expanded="open" @click="open = !open">
+    <button class="audio-trigger" type="button" :aria-expanded="open" @click="toggleOpen">
       {{ gameAudioSettings.muted ? '静音' : '声音' }}
     </button>
     <div v-if="open" class="audio-popover">

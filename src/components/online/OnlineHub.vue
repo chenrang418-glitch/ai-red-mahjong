@@ -80,7 +80,7 @@ function back() {
             <label>抢牌窗口<select v-model.number="settings.claimWindowMs"><option :value="2000">2秒</option><option :value="3000">3秒</option><option :value="4000">4秒（推荐）</option><option :value="5000">5秒</option><option :value="6000">6秒</option><option :value="7000">7秒</option></select></label>
           </div>
           <p>普通操作限时固定30秒；空位开局时自动补充凡人AI。</p>
-          <button class="primary" type="button" :disabled="online.busy.value" @click="createRoom">{{ online.busy.value ? '创建中…' : '创建新房间' }}</button>
+          <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value" @click="createRoom">{{ online.busy.value ? '创建中…' : online.connecting.value ? '正在进入…' : '创建新房间' }}</button>
         </article>
 
         <article class="hub-card room-action-card join-card">
@@ -89,7 +89,7 @@ function back() {
           <p>可以从下方房间列表直接加入，也可以输入6位房间号。</p>
           <form @submit.prevent="online.joinRoom(joinCode)">
             <label>房间号<input v-model="joinCode" maxlength="6" autocomplete="off" placeholder="例如：7K9M2Q" @input="joinCode = joinCode.toUpperCase()"></label>
-            <button class="primary" type="submit">加入房间</button>
+            <button class="primary" type="submit" :disabled="online.connecting.value">{{ online.connecting.value ? '正在加入…' : '加入房间' }}</button>
           </form>
           <div class="login-user"><span>当前昵称</span><strong>{{ online.session.value.nickname }}</strong></div>
         </article>
@@ -116,8 +116,8 @@ function back() {
               <span>抢牌 {{ entry.settings.claimWindowMs / 1000 }}秒</span>
               <b>{{ entry.occupiedSeats }}/4 人</b>
             </div>
-            <button class="primary" type="button" :disabled="entry.availableSeats === 0" @click="online.joinRoom(entry.code)">
-              {{ entry.availableSeats === 0 ? '房间已满' : '加入房间' }}
+            <button class="primary" type="button" :disabled="entry.availableSeats === 0 || online.connecting.value" @click="online.joinRoom(entry.code)">
+              {{ entry.availableSeats === 0 ? '房间已满' : online.connecting.value ? '正在加入…' : '加入房间' }}
             </button>
           </section>
         </div>

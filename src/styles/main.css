@@ -204,6 +204,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar nav { order: 3; flex: 1 0 100%; width: 100%; margin-left: 0; gap: 4px; }
   .topbar nav > button, .topbar nav > .audio-control { flex: 1 1 0; min-width: 0; }
   .topbar nav > .audio-control button { width: 100%; min-width: 0; }
+  .topbar nav > .audio-control .audio-popover {
+    position: fixed;
+    top: calc(max(9px, env(safe-area-inset-top)) + 89px);
+    right: max(8px, env(safe-area-inset-right));
+    left: max(8px, env(safe-area-inset-left));
+    width: auto;
+    max-height: calc(100dvh - 108px - env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
   .topbar nav button { min-height: 40px; padding: 7px 4px; font-size: 10px; white-space: nowrap; }
   .status-pill { order: 4; flex-basis: 100%; padding: 8px 10px; font-size: 11px; }
   .game-layout {
