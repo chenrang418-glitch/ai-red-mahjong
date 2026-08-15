@@ -119,6 +119,7 @@ export interface RoundResult {
   winnerId?: number
   winKind?: 'normal' | 'seven-pairs'
   hasRedZhong?: boolean
+  winningTile?: Tile
   maTiles: Tile[]
   maCount: number
   detail: string

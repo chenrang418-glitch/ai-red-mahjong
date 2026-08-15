@@ -209,6 +209,10 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <section class="result-card">
         <small>{{ game.state.value.phase === 'match-over' ? 'MATCH OVER' : 'ROUND RESULT' }}</small>
         <h2>{{ game.state.value.result?.detail }}</h2>
+        <div v-if="game.state.value.result?.winningTile" class="win-result">
+          <div><span>自摸牌</span><b>{{ tileLabel(game.state.value.result.winningTile) }}</b></div>
+          <MahjongTile :tile="game.state.value.result.winningTile" disabled />
+        </div>
         <div v-if="game.state.value.result?.maTiles.length" class="ma-result">
           <div><span>抓码</span><b>{{ game.state.value.result.maCount }}码</b></div>
           <MahjongTile v-for="tile in game.state.value.result.maTiles" :key="tile.id" :tile="tile" disabled />

@@ -331,6 +331,11 @@ export class GameEngine {
     const win = this.winResult(playerId)
     if (!win.won || !win.kind) throw new Error('当前手牌不能胡')
     const winner = this.player(playerId)
+    const winningTile = [...this.state.events]
+      .reverse()
+      .find((event) => event.round === this.state.round && event.type === 'draw' && event.playerId === playerId && event.tile)
+      ?.tile ?? winner.hand.at(-1)
+    if (!winningTile) throw new Error('无法确认本次自摸牌')
     const hasRedZhong = winner.hand.some((tile) => tile.suit === 'zhong')
     const drawCount = hasRedZhong ? 4 : 6
     const maTiles = this.state.maReserve.splice(Math.max(0, this.state.maReserve.length - drawCount), drawCount)
@@ -346,9 +351,10 @@ export class GameEngine {
       winnerId: playerId,
       winKind: win.kind,
       hasRedZhong,
+      winningTile: clone(winningTile),
       maTiles: clone(maTiles),
       maCount,
-      detail: `${winner.name}${win.kind === 'seven-pairs' ? '七对' : '普通'}自摸，中${maCount}码`,
+      detail: `${winner.name}${win.kind === 'seven-pairs' ? '七对' : '普通'}自摸${tileLabel(winningTile)}，中${maCount}码`,
     }
     this.state.result = result
     this.addEvent('win', result.detail, playerId)

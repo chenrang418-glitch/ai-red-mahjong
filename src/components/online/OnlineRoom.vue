@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AudioControl from '@/components/game/AudioControl.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
+import MahjongTile from '@/components/game/MahjongTile.vue'
 import ChatPanel from './ChatPanel.vue'
 import { gameAudio } from '@/composables/useGameAudio'
 import { tileFromFace, tileLabel } from '@/game/tiles'
@@ -193,6 +194,14 @@ function sendChat(text: string, quick: boolean) {
       <section class="result-card">
         <small>{{ room.game.phase === 'match-over' ? 'MATCH OVER' : 'ROUND RESULT' }}</small>
         <h2>{{ room.game.result?.detail }}</h2>
+        <div v-if="room.game.result?.winningTile" class="win-result">
+          <div><span>自摸牌</span><b>{{ tileLabel(room.game.result.winningTile) }}</b></div>
+          <MahjongTile :tile="room.game.result.winningTile" disabled />
+        </div>
+        <div v-if="room.game.result?.maTiles.length" class="ma-result">
+          <div><span>抓码</span><b>{{ room.game.result.maCount }}码</b></div>
+          <MahjongTile v-for="tile in room.game.result.maTiles" :key="tile.id" :tile="tile" disabled />
+        </div>
         <ol class="final-scores"><li v-for="player in sortedScores" :key="player.id"><span>{{ player.name }}</span><b>{{ player.points === null ? `净分 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}积分` }}</b><small>胡{{ player.stats.wins }} · 杠{{ player.stats.gangCount }} · 码{{ player.stats.maCount }}</small></li></ol>
         <div class="result-actions">
           <button v-if="room.game.phase === 'settlement' && room.legal.canNextRound" class="primary" type="button" @click="emit('command', { type: 'next-round' })">开始下一局</button>

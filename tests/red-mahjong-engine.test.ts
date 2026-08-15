@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GameEngine } from '@/game/engine'
-import { faceKey } from '@/game/tiles'
+import { faceKey, tileLabel } from '@/game/tiles'
 import type { GameState, MatchConfig, Tile } from '@/game/types'
 
 function config(points = 20, mode: MatchConfig['mode'] = 'finite'): MatchConfig {
@@ -138,8 +138,20 @@ describe('红中麻将四人引擎', () => {
   it('有红中自摸抓四张码并向三家收取基础分和码分', () => {
     const engine = new GameEngine(config())
     arrangeWinningScenario(engine)
+    const winningTile = engine.state.players[0].hand.find((tile) => faceKey(tile) === 'wan-1')!
+    engine.state.events.push({
+      id: 'test-winning-draw',
+      round: engine.state.round,
+      type: 'draw',
+      playerId: 0,
+      tile: structuredClone(winningTile),
+      detail: `玩家摸到${tileLabel(winningTile)}`,
+      at: Date.now(),
+    })
     expect(engine.winResult(0)).toEqual({ won: true, kind: 'normal' })
     engine.declareWin(0)
+    expect(engine.state.result?.winningTile).toEqual(winningTile)
+    expect(engine.state.result?.detail).toContain(`自摸${tileLabel(winningTile)}`)
     expect(engine.state.result?.maTiles).toHaveLength(4)
     expect(engine.state.result?.maCount).toBe(2)
     expect(engine.state.players[0].points).toBe(29)
