@@ -1,7 +1,7 @@
 {
   "name": "ai-red-mahjong",
   "version": "1.0.0",
-  "description": "可在本地浏览器游玩的光山红中麻将",
+  "description": "可在浏览器游玩的四人红中麻将",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -11,20 +11,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "dev:online": "vite build --config server/vite.config.ts --configLoader runner && wrangler d1 migrations apply DB --local --config server/wrangler.jsonc && wrangler dev --config server/wrangler.jsonc --local --port 8787",
+    "build": "vue-tsc --noEmit && vite build --configLoader runner",
+    "build:online": "vite build --config server/vite.config.ts --configLoader runner && wrangler deploy --dry-run --config server/wrangler.jsonc",
+    "typecheck:online": "tsc -p server/tsconfig.json",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --config server/wrangler.jsonc",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config server/wrangler.jsonc",
+    "deploy:online": "npm run typecheck:online && vite build --config server/vite.config.ts --configLoader runner && npm run db:migrate:remote && wrangler deploy --config server/wrangler.jsonc",
     "start": "node server.mjs",
     "preview": "vite preview",
-    "test": "vitest",
-    "test:run": "vitest run"
+    "test": "vitest --configLoader runner",
+    "test:run": "vitest run --configLoader runner",
+    "test:online:smoke": "vite build --config server/vite.config.ts --configLoader runner && node scripts/online-smoke.mjs"
   },
   "dependencies": {
     "vue": "^3.5.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260815.1",
     "@vitejs/plugin-vue": "^5.0.0",
+    "miniflare": "5.20260811.1-alpha",
     "typescript": "^5.0.0",
     "vite": "^6.0.0",
     "vitest": "^3.0.0",
-    "vue-tsc": "^2.0.0"
+    "vue-tsc": "^2.0.0",
+    "wrangler": "^4.123.0"
   }
 }

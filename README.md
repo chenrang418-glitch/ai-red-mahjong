@@ -1,10 +1,10 @@
-# AI 红中麻将（光山离线 AI 版）
+# AI 红中麻将
 
-这是一个可直接在浏览器中游玩的四人红中麻将：你与三个本地 AI 对局，不接入大模型，不上传牌局，也不需要安装桌面软件。项目可在 Windows 本地运行，也可部署为静态网站公开访问。
+这是一个可直接在浏览器中游玩的四人红中麻将，提供彼此独立的单机游戏和联机模式。单机游戏仍是 1 名真人与 3 个本地 AI，不接入大模型、不上传牌局；联机模式通过房间号实时对局，支持空位 AI、掉线托管、聊天和排行榜。电脑与手机都不需要安装桌面软件。
 
 ## 直接游玩
 
-在线版：<https://ai-red-mahjong.pages.dev/>
+公开地址：<https://ai-red-mahjong.pages.dev/>
 
 已构建过项目时，双击 `启动游戏.cmd`，浏览器会打开：
 
@@ -14,7 +14,7 @@ http://127.0.0.1:4173
 
 服务只监听本机回环地址，局域网和互联网无法访问。关闭浏览器不会清除牌局；下次打开可继续。需要停止服务时，可在任务管理器结束对应的 `node.exe`，或者在手动运行服务的终端按 `Ctrl+C`。
 
-公开网站与本地版本使用相同的纯前端引擎。每位访问者的积分、存档、声音设置和牌谱只保存在自己的浏览器中，不会上传或与其他设备同步。
+单机游戏的积分、存档、声音设置和牌谱仍只保存在当前浏览器中，不会上传或与其他设备同步。联机模式只把实时牌局状态、聊天消息和排行榜统计发送到联机服务器。
 
 首次从源码运行：
 
@@ -31,7 +31,46 @@ npm start
 npm run dev
 ```
 
-## 第一版完整功能
+## 联机模式
+
+- 使用昵称直接注册或登录，不使用密码、手机号、验证码，也不在浏览器持久保存登录密钥；刷新页面后需要重新输入昵称。
+- 房主创建房间后分享 6 位房间号，最多 4 名真人进入；没有坐满时由房主直接开局，空位自动补充 AI。
+- 联机大厅显示尚未开局的房间、当前玩家和剩余空位，可以直接加入；也保留手动输入房间号的方式，满员房间不能加入。
+- 房间 AI 固定为平衡型、凡人、猴急；真人掉线 30 秒或操作超时 30 秒后，由真人波动型、凡人、猴急的 AI 接管。重连后可以取消托管。
+- 服务器保存权威牌局状态，客户端只接收自己的手牌和公开信息；不提供观战入口。
+- 聊天保留最近 30 条，支持文字、通用 emoji，以及“快点快点”“这也碰？”“你太菜了”“乐乐”快捷消息。
+- 排行榜记录胜局数、总局数、胜率、七对次数、杠牌次数和中码数，依次按胜局、胜率、总局、七对、杠、码降序排列。
+
+联机后端采用 Cloudflare Worker、Durable Objects 和 D1。房间只在状态变化时推送消息，不轮询；房间列表只在进入大厅或手动刷新时读取；AI 计时和断线托管由 Durable Object alarm 驱动，适合少量房间长期稳定运行。
+
+本地联调需要两个 PowerShell 窗口：
+
+```powershell
+# 窗口一：联机服务器，首次运行会自动建立本地 D1 表
+npm run dev:online
+
+# 窗口二：网页
+npm run dev
+```
+
+本地网页会自动连接 `http://127.0.0.1:8787`。如果联机服务器使用其他地址，可复制 `.env.example` 为 `.env.local`，再修改 `VITE_ONLINE_API_BASE`。
+
+## Cloudflare 部署
+
+推送到 `main` 后，GitHub Actions 会按顺序执行测试、联机服务器类型检查、Worker 构建、D1 迁移、Worker 部署、网页构建和 Pages 部署。网页构建时会自动使用本次 Worker 的部署地址，不需要在源码中写死服务器网址。
+
+仓库需要配置以下 GitHub Actions secrets：
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`：除原有 Pages 权限外，还需要 Workers Scripts 和 D1 的编辑权限。
+
+Wrangler 会按 `server/wrangler.jsonc` 中的名称创建或复用 `ai-red-mahjong` D1 数据库。手动部署前先登录 Wrangler，然后执行：
+
+```powershell
+npm run deploy:online
+```
+
+## 游戏功能
 
 - 112 张牌：万、筒、条各 1～9 四张，加 4 张红中。
 - 仅允许自摸；支持普通胡和未副露七对。
@@ -75,24 +114,29 @@ AI 不依赖联网模型。它基于可见牌计数、牌型结构、有效进�
 ```powershell
 npm run test:run
 npm run build
+npm run typecheck:online
+npm run test:online:smoke
 ```
 
-自动测试覆盖胡牌、七对、红中限制、112 张守恒、六码隔离、三种杠分、自摸抓码、余额封顶、无限积分、庄家轮换和 AI 暗牌隔离。测试采用小而有针对性的场景，不批量模拟无意义的大量牌局。
+自动测试覆盖胡牌、七对、红中限制、112 张守恒、六码隔离、三种杠分、自摸抓码、余额封顶、无限积分、庄家轮换、AI 暗牌隔离，以及联机房间、手牌脱敏、AI 托管、聊天上限和操作幂等。联机冒烟测试会在本机启动隔离的 Worker、D1 和 Durable Object，验证昵称登录、WebSocket、创建房间、AI 补位和快捷聊天的完整链路。
 
 ## 项目结构
 
 ```text
 src/game/                 纯 TypeScript 规则、胡牌、AI、持久化
-src/composables/          对局调度、AI 轮转、抢牌计时
+src/online/               联机协议和共享类型
+src/composables/          单机与联机状态调度
 src/components/game/      开局、牌桌、AI 设置、牌谱回放
-tests/                    规则和引擎测试
+src/components/online/    联机大厅、等待页和聊天界面
+server/                   Worker、Durable Object、D1 迁移
+tests/                    规则、引擎和联机房间测试
 server.mjs                仅本机可访问的静态网页服务
 启动游戏.cmd              Windows 双击启动入口
 ```
 
 ## 参考项目
 
-麻将牌 SVG 资源和早期工程参考来自 [QTprincekin/HongZhongMaJiang](https://github.com/QTprincekin/HongZhongMaJiang)。本版本重写了四人对局引擎、光山规则、AI、计分、存档回放和主界面。详见 `THIRD_PARTY_NOTICES.md`。
+麻将牌 SVG 资源和早期工程参考来自 [QTprincekin/HongZhongMaJiang](https://github.com/QTprincekin/HongZhongMaJiang)。本版本重写了四人对局引擎、红中麻将规则、AI、计分、存档回放和主界面。详见 `THIRD_PARTY_NOTICES.md`。
 
 ## 许可证
 

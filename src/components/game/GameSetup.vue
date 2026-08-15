@@ -4,7 +4,7 @@ import AudioControl from './AudioControl.vue'
 import type { AIProfile, Difficulty, MatchConfig, MatchMode, Personality, ThinkingSpeed } from '@/game/types'
 
 defineProps<{ savedGameAvailable: boolean }>()
-const emit = defineEmits<{ start: [config: MatchConfig]; resume: []; history: []; rules: [] }>()
+const emit = defineEmits<{ start: [config: MatchConfig]; resume: []; history: []; rules: []; back: [] }>()
 
 const personalityLabels: Record<Personality, string> = {
   fast: '快攻型',
@@ -51,7 +51,7 @@ function submit() {
   <main class="setup-page">
     <section class="hero">
       <div class="seal">中</div>
-      <p class="eyebrow">本地离线 · 光山玩法</p>
+      <p class="eyebrow">本地离线 · 红中麻将</p>
       <h1>AI 红中麻将</h1>
       <p class="subtitle">你与三个不看暗牌的离线AI，在浏览器里完整打一场。</p>
       <div class="rule-chips">
@@ -63,6 +63,7 @@ function submit() {
       <div class="card-heading">
         <div><small>NEW MATCH</small><h2>开局设置</h2></div>
         <div class="heading-actions">
+          <button class="ghost-button" type="button" @click="emit('back')">返回首页</button>
           <AudioControl />
           <button class="ghost-button" type="button" @click="emit('rules')">玩法规则</button>
           <button class="ghost-button" type="button" @click="emit('history')">牌谱回放</button>

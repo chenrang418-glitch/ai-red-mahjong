@@ -4,7 +4,7 @@ import { GameEngine } from '@/game/engine'
 import { faceKey } from '@/game/tiles'
 import type { GameState, MatchConfig, Tile } from '@/game/types'
 
-const ACTIVE_GAME_KEY = 'guangshan-mahjong-active-v1'
+const ACTIVE_GAME_KEY = 'red-mahjong-active-v1'
 
 function config(seed: number): MatchConfig {
   return {

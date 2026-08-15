@@ -96,7 +96,7 @@ function arrangeWinningScenario(engine: GameEngine, points = 20) {
   engine.assertTileInvariant()
 }
 
-describe('光山红中四人引擎', () => {
+describe('红中麻将四人引擎', () => {
   it('开局固定保留六码且实体牌守恒', () => {
     const engine = new GameEngine(config())
     expect(engine.state.maReserve).toHaveLength(6)

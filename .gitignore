@@ -34,6 +34,8 @@ npm-debug.log*
 # Temp
 *.tsbuildinfo
 work/
+server/.wrangler/
+server/dist/
 
 # Generated icon source
 app-icon.png

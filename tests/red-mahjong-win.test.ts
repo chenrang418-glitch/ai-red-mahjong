@@ -7,7 +7,7 @@ function hand(faces: string[]): Tile[] {
   return faces.map((face, index) => ({ ...tileFromFace(face, index), id: `test-${face}-${index}` }))
 }
 
-describe('光山红中胡牌规则', () => {
+describe('红中麻将胡牌规则', () => {
   it('支持普通胡且红中可补低位顺子', () => {
     const tiles = hand([
       'wan-1', 'wan-1',

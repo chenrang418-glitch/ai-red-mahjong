@@ -11,7 +11,8 @@ interface GameAudioSettings {
   muted: boolean
 }
 
-const STORAGE_KEY = 'guangshan-mahjong-audio-v1'
+const STORAGE_KEY = 'red-mahjong-audio-v1'
+const LEGACY_STORAGE_KEY = atob('Z3VhbmdzaGFuLW1haGpvbmctYXVkaW8tdjE=')
 const defaults: GameAudioSettings = {
   musicEnabled: true,
   effectsEnabled: true,
@@ -22,7 +23,13 @@ const defaults: GameAudioSettings = {
 
 function loadSettings(): GameAudioSettings {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Partial<GameAudioSettings>
+    const current = localStorage.getItem(STORAGE_KEY)
+    const legacy = current ? null : localStorage.getItem(LEGACY_STORAGE_KEY)
+    const saved = JSON.parse(current ?? legacy ?? '{}') as Partial<GameAudioSettings>
+    if (legacy) {
+      localStorage.setItem(STORAGE_KEY, legacy)
+      localStorage.removeItem(LEGACY_STORAGE_KEY)
+    }
     return {
       musicEnabled: typeof saved.musicEnabled === 'boolean' ? saved.musicEnabled : defaults.musicEnabled,
       effectsEnabled: typeof saved.effectsEnabled === 'boolean' ? saved.effectsEnabled : defaults.effectsEnabled,

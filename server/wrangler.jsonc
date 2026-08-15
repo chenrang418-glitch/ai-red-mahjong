@@ -1,0 +1,28 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "ai-red-mahjong-online",
+  "main": "dist/worker.js",
+  "no_bundle": true,
+  "compatibility_date": "2026-08-15",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOMS",
+        "class_name": "MahjongRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MahjongRoom"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ai-red-mahjong",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import ModeHome from '@/components/ModeHome.vue'
 import AISettingsDrawer from '@/components/game/AISettingsDrawer.vue'
 import AudioControl from '@/components/game/AudioControl.vue'
 import GameSetup from '@/components/game/GameSetup.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
 import ReplayCenter from '@/components/game/ReplayCenter.vue'
+import OnlineHub from '@/components/online/OnlineHub.vue'
 import { useMahjongGame } from '@/composables/useMahjongGame'
 import { downloadJson } from '@/game/persistence'
 import { countFaces, faceKey, tileFromFace, tileLabel } from '@/game/tiles'
@@ -13,6 +15,7 @@ import type { Tile } from '@/game/types'
 import { checkWin } from '@/game/win'
 
 const game = useMahjongGame()
+const appMode = ref<'home' | 'local' | 'online'>('home')
 const selectedTileId = ref('')
 const settingsOpen = ref(false)
 const replayOpen = ref(false)
@@ -99,6 +102,11 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 </script>
 
 <template>
+  <ModeHome v-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" />
+
+  <OnlineHub v-else-if="appMode === 'online'" @back="appMode = 'home'" />
+
+  <template v-else>
   <GameSetup
     v-if="!game.state.value"
     :saved-game-available="game.savedGameAvailable.value"
@@ -106,11 +114,12 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     @resume="game.resumeMatch"
     @history="replayOpen = true"
     @rules="rulesOpen = true"
+    @back="appMode = 'home'"
   />
 
   <div v-else class="game-page">
     <header class="topbar">
-      <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>光山本地离线版</small></div></div>
+      <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
         <button @click="rulesOpen = true">规则</button>
@@ -222,7 +231,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
   <div v-if="rulesOpen" class="rules-backdrop" @click.self="rulesOpen = false">
     <section class="rules-card">
-      <header><h2>光山红中规则</h2><button @click="rulesOpen = false">×</button></header>
+      <header><h2>红中麻将规则</h2><button @click="rulesOpen = false">×</button></header>
       <div class="rules-grid">
         <article><b>胡牌</b><p>只能自摸；红中为万能牌；支持普通胡与未副露七对；红中不能碰杠。</p></article>
         <article><b>抓码</b><p>固定预留六码。有红中胡抓4张，无红中胡抓6张；1、5、9和红中算码。</p></article>
@@ -234,4 +243,5 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       </div>
     </section>
   </div>
+  </template>
 </template>
