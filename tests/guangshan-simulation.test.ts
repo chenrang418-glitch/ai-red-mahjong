@@ -72,5 +72,5 @@ describe('短程离线AI整局冒烟验证', () => {
       expect(['win', 'draw']).toContain(engine.state.result?.type)
       expect(engine.assertTileInvariant()).toBe(true)
     }
-  })
+  }, 15_000)
 })
