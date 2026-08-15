@@ -52,7 +52,7 @@ function back() {
 
     <section v-if="!online.apiConfigured" class="server-notice">
       <strong>联机服务器尚未配置</strong>
-      <p>本地开发请同时运行联机服务器；生产环境需要设置 <code>VITE_ONLINE_API_BASE</code>。</p>
+      <p>本地开发请同时运行联机服务器；生产环境默认使用当前网页域名，也可以通过 <code>VITE_ONLINE_API_BASE</code> 覆盖。</p>
     </section>
 
     <section class="hub-grid" :class="{ logged: online.session.value }">

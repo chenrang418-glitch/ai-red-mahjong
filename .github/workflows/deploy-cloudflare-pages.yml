@@ -43,7 +43,6 @@ jobs:
         run: npx vite build --config server/vite.config.ts --configLoader runner
 
       - name: Deploy online Worker
-        id: deploy-worker
         uses: cloudflare/wrangler-action@v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -54,8 +53,6 @@ jobs:
 
       - name: Build production site
         run: npm run build
-        env:
-          VITE_ONLINE_API_BASE: ${{ steps.deploy-worker.outputs.deployment-url }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4.0.0
@@ -63,5 +60,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.123.0"
-          command: pages deploy dist --project-name=ai-red-mahjong --branch=main
+          command: pages deploy --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ai-red-mahjong",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-15",
+  "services": [
+    {
+      "binding": "ONLINE_SERVICE",
+      "service": "ai-red-mahjong-online"
+    }
+  ]
+}

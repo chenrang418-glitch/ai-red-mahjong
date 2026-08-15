@@ -10,11 +10,11 @@ import type {
   RoomServerMessage,
 } from '@/online/types'
 
-function resolveApiBase(): string {
+export function resolveApiBase(): string {
   const configured = import.meta.env.VITE_ONLINE_API_BASE?.trim().replace(/\/$/, '')
   if (configured) return configured
   if (['127.0.0.1', 'localhost'].includes(window.location.hostname)) return 'http://127.0.0.1:8787'
-  return ''
+  return window.location.origin
 }
 
 export function useOnlineGame() {

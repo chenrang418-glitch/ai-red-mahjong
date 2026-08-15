@@ -34,6 +34,7 @@ npm-debug.log*
 # Temp
 *.tsbuildinfo
 work/
+.wrangler/
 server/.wrangler/
 server/dist/
 
