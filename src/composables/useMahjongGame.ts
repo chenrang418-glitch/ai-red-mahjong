@@ -2,6 +2,7 @@ import { computed, ref, shallowRef } from 'vue'
 import { gameAudio } from './useGameAudio'
 import { AI_SPEED_DELAY_RANGES, decideClaim, decideTurn } from '@/game/ai'
 import { GameEngine } from '@/game/engine'
+import { claimMaskDelay } from '@/game/timing'
 import {
   clearActiveGame,
   deleteActiveReplay,
@@ -44,6 +45,8 @@ export function useMahjongGame() {
   let runToken = 0
   let claimTimerIds: number[] = []
   let pendingClaimPlayers = new Set<number>()
+  let claimEarliestResolveAt = 0
+  let noClaimTimerId: number | null = null
   let replaySaved = false
   let replaySaving = false
   let activeReplayQueue = Promise.resolve()
@@ -63,6 +66,8 @@ export function useMahjongGame() {
     claimTimerIds = []
     claimDeadline.value = null
     pendingClaimPlayers.clear()
+    claimEarliestResolveAt = 0
+    noClaimTimerId = null
   }
 
   function recordFrame() {
@@ -227,21 +232,29 @@ export function useMahjongGame() {
     cancelClaimTimers()
     humanPassed.value = false
     const current = engine.value.state
+    const latestEvent = current.events.at(-1)
+    const discardedAt = latestEvent?.type === 'discard' ? latestEvent.at : Date.now()
+    claimEarliestResolveAt = discardedAt + claimMaskDelay()
     pendingClaimPlayers = new Set(current.claimOptions.map((option) => option.playerId))
-    claimDeadline.value = Date.now() + current.config.claimWindowMs
-    notice.value = '抢碰/抢杠阶段：先喊先得'
+    claimDeadline.value = current.claimOptions.length > 0 ? Date.now() + current.config.claimWindowMs : null
+    notice.value = '等待其他玩家响应…'
     sync()
+
+    if (current.claimOptions.length === 0) {
+      requestNoClaimResolution(token)
+      return
+    }
 
     for (const option of current.claimOptions) {
       const player = current.players[option.playerId]
       if (player.isHuman) continue
       const observation = engine.value.createObservation(player.id, option.actions)
-      const plan = decideClaim(observation, player.ai!, current.events.length + player.id * 17)
+      const plan = decideClaim(observation, player.ai!, current.events.length + player.id * 17, current.config.claimWindowMs)
       const timerId = window.setTimeout(() => {
         if (!engine.value || token !== runToken || engine.value.state.phase !== 'claiming') return
         if (plan.action === 'pass') {
           pendingClaimPlayers.delete(player.id)
-          if (pendingClaimPlayers.size === 0) resolveNoClaim(token)
+          if (pendingClaimPlayers.size === 0) requestNoClaimResolution(token)
           return
         }
         try {
@@ -256,11 +269,25 @@ export function useMahjongGame() {
       claimTimerIds.push(timerId)
     }
 
-    const timeoutId = window.setTimeout(() => resolveNoClaim(token), current.config.claimWindowMs)
+    const timeoutId = window.setTimeout(() => requestNoClaimResolution(token), current.config.claimWindowMs)
     claimTimerIds.push(timeoutId)
   }
 
-  function resolveNoClaim(token: number) {
+  function requestNoClaimResolution(token: number) {
+    if (!engine.value || token !== runToken || engine.value.state.phase !== 'claiming' || noClaimTimerId !== null) return
+    const remaining = Math.max(0, claimEarliestResolveAt - Date.now())
+    if (remaining > 0) {
+      noClaimTimerId = window.setTimeout(() => {
+        noClaimTimerId = null
+        finalizeNoClaim(token)
+      }, remaining)
+      claimTimerIds.push(noClaimTimerId)
+      return
+    }
+    finalizeNoClaim(token)
+  }
+
+  function finalizeNoClaim(token: number) {
     if (!engine.value || token !== runToken || engine.value.state.phase !== 'claiming') return
     try {
       cancelClaimTimers()
@@ -321,7 +348,7 @@ export function useMahjongGame() {
     humanPassed.value = true
     pendingClaimPlayers.delete(humanPlayer.value.id)
     notice.value = '你已选择过，等待其他玩家'
-    if (pendingClaimPlayers.size === 0) resolveNoClaim(runToken)
+    if (pendingClaimPlayers.size === 0) requestNoClaimResolution(runToken)
   }
 
   function nextRound() {

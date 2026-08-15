@@ -1,5 +1,6 @@
 import { checkWin } from './win'
 import { countFaces, faceKey, sameFace, tileFromFace } from './tiles'
+import { claimReactionDelay } from './timing'
 import type { AIObservation, AIProfile, ClaimAction, Meld, ThinkingSpeed, Tile } from './types'
 
 export type AITurnDecision =
@@ -220,18 +221,13 @@ export function decideTurn(observation: AIObservation, profile: AIProfile): AITu
   return { action: 'discard', tileId: best.tile.id }
 }
 
-function claimDelay(profile: AIProfile, salt: number): number {
-  const [min, max] = AI_SPEED_DELAY_RANGES[profile.speed]
-  const ratio = Math.abs(Math.sin(salt * 12.9898))
-  return Math.round(min + (max - min) * ratio)
-}
-
 export function decideClaim(
   observation: AIObservation,
   profile: AIProfile,
   salt: number,
+  claimWindowMs = 4000,
 ): AIClaimDecision {
-  const delayMs = claimDelay(profile, salt)
+  const delayMs = claimReactionDelay(profile.speed, salt, claimWindowMs)
   const weights = strategyWeights(observation, profile)
   if (observation.legalClaims.includes('ming-gang')) {
     return { action: weights.closed >= 0.75 ? 'pass' : 'ming-gang', delayMs }

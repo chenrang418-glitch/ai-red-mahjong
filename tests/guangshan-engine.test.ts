@@ -127,6 +127,9 @@ describe('光山红中四人引擎', () => {
       engine.state.players[dealer].hand[0] = red
     }
     engine.discard(dealer, red.id)
+    expect(engine.state.phase).toBe('claiming')
+    expect(engine.state.claimOptions).toHaveLength(0)
+    engine.resolveNoClaim()
     expect(engine.state.phase).toBe('playing')
     expect(engine.state.currentPlayer).toBe((dealer + 1) % 4)
     expect(engine.assertTileInvariant()).toBe(true)
@@ -233,6 +236,8 @@ describe('光山红中四人引擎', () => {
     drawEngine.state.turnStage = 'must-discard'
     drawEngine.assertTileInvariant()
     drawEngine.discard(dealer, red.id)
+    expect(drawEngine.state.phase).toBe('claiming')
+    drawEngine.resolveNoClaim()
     expect(drawEngine.state.phase).toBe('settlement')
     expect(drawEngine.state.dealer).toBe(dealer)
     drawEngine.continueAfterSettlement()

@@ -206,7 +206,6 @@ export class GameEngine {
     this.addEvent('discard', `${player.name}打出${tileLabel(tile)}`, playerId, tile)
     this.state.claimOptions = this.calculateClaimOptions(playerId, tile)
     this.state.phase = 'claiming'
-    if (this.state.claimOptions.length === 0) this.resolveNoClaim()
     this.assertTileInvariant()
   }
 
