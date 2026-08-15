@@ -9,5 +9,5 @@
     },
     "noEmit": true
   },
-  "include": ["./**/*.ts", "../src/online/types.ts"]
+  "include": ["./worker.ts", "./room-core.ts", "../src/online/types.ts"]
 }
