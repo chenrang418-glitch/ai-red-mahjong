@@ -22,6 +22,7 @@
     {
       "binding": "DB",
       "database_name": "ai-red-mahjong",
+      "database_id": "84722346-19ac-4d47-a4c5-34ab75b3cef0",
       "migrations_dir": "migrations"
     }
   ]
