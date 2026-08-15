@@ -63,11 +63,14 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
 <style scoped>
 .seat {
+  --seat-tile-width: 25px;
+  --seat-tile-height: 35px;
+  --discard-columns: 10;
+  min-width: 0;
   background: rgba(4, 28, 24, .76);
   border: 1px solid rgba(220, 193, 113, .18);
   border-radius: 14px;
   padding: 9px;
-  min-width: 220px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
   transition: border-color .2s, box-shadow .2s;
 }
@@ -77,15 +80,45 @@ header strong { font-size: 13px; }
 .points { margin-left: auto; font-size: 12px; color: #f2d27b; }
 .dealer { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; }
 .ai-meta { color: #91aaa2; font-size: 10px; margin: 2px 0 5px; }
-.concealed-hand, .discard-row, .meld-row { display: flex; flex-wrap: wrap; gap: 2px; }
+.concealed-hand, .meld-row { display: flex; flex-wrap: nowrap; gap: 1px; }
 .concealed-hand {
-  min-height: 47px;
-  max-height: 90px;
-  overflow: hidden;
+  min-width: 0;
+  min-height: var(--seat-tile-height);
+  max-height: none;
+  overflow: visible;
   align-content: flex-start;
 }
-.discard-row { min-height: 43px; margin-top: 7px; max-width: 260px; }
-.meld-row { margin-top: 6px; gap: 7px; }
+.discard-row {
+  display: grid;
+  grid-template-columns: repeat(var(--discard-columns), var(--seat-tile-width));
+  grid-auto-rows: var(--seat-tile-height);
+  gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  min-height: 0;
+  margin-top: 6px;
+}
+.meld-row { margin-top: 5px; gap: clamp(2px, .5vw, 7px); }
 .meld-group { display: flex; gap: 1px; position: relative; padding-top: 10px; }
 .meld-group small { position: absolute; top: -3px; left: 0; color: #efce7a; font-size: 9px; }
+:deep(.mahjong-tile.compact) {
+  width: var(--seat-tile-width);
+  height: var(--seat-tile-height);
+  padding: 1px;
+  border-radius: clamp(3px, .4vw, 5px);
+}
+:deep(.mahjong-tile.compact .tile-back-mark) { font-size: clamp(7px, 1vw, 12px); }
+
+@media (pointer: coarse), (max-width: 700px), (max-height: 600px) {
+  .seat { padding: 5px; border-radius: 9px; }
+  header { gap: 4px; }
+  header strong { font-size: 10px; }
+  .points { font-size: 9px; }
+  .dealer { width: 18px; height: 18px; font-size: 8px; }
+  .ai-meta { margin: 1px 0 3px; font-size: 7px; }
+  .discard-row { gap: 1px; margin-top: 3px; }
+  .meld-row { margin-top: 3px; }
+  .meld-group { padding-top: 7px; }
+  .meld-group small { top: -2px; font-size: 6px; }
+}
 </style>

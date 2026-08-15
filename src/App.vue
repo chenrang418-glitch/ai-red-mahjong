@@ -113,12 +113,12 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>光山本地离线版</small></div></div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
-        <button @click="rulesOpen = true">规则</button>
+        <button class="topbar-optional" @click="rulesOpen = true">规则</button>
         <button @click="replayOpen = true">牌谱</button>
         <button @click="settingsOpen = true">AI设置</button>
         <AudioControl />
-        <button @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
-        <button @click="endMatch">结束</button>
+        <button class="topbar-optional" @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
+        <button class="topbar-optional" @click="endMatch">结束</button>
         <button class="danger" @click="newMatch">新牌局</button>
       </nav>
     </header>
