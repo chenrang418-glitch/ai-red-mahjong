@@ -40,7 +40,7 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
     <PlayerSeat class="right-seat" :player="right" :active="state.currentPlayer === right.id" :reveal-hand="revealAll" :dealer="state.dealer === right.id" />
 
     <div class="table-center">
-      <div class="center-brand"><span>光山</span><b>红中麻将</b></div>
+      <div class="center-brand"><b>红中麻将</b></div>
       <div class="round-data">
         <span>第 {{ state.round }} 局</span>
         <span>牌墙 {{ state.wall.length }}</span>
@@ -88,15 +88,15 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 
 <style scoped>
 .table-shell {
-  --human-tile-width: clamp(22px, 4.15cqw, 46px);
-  --human-tile-height: clamp(31px, 5.78cqw, 64px);
-  --human-compact-width: clamp(13px, 2.25cqw, 28px);
-  --human-compact-height: clamp(18px, 3.15cqw, 39px);
+  --human-tile-width: clamp(24px, 4.35cqw, 50px);
+  --human-tile-height: clamp(34px, 6.05cqw, 70px);
+  --human-compact-width: clamp(15px, 2.45cqw, 30px);
+  --human-compact-height: clamp(21px, 3.42cqw, 42px);
   min-height: var(--table-height, 720px);
   position: relative;
   container-type: inline-size;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(118px, 17cqw, 190px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) clamp(132px, 18cqw, 205px) minmax(0, 1fr);
   grid-template-rows: auto minmax(min-content, 1fr) auto;
   grid-template-areas:
     "top top top"
@@ -116,9 +116,9 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 .top-seat {
   grid-area: top;
   justify-self: center;
-  width: min(72cqw, 760px);
-  --seat-tile-width: clamp(13px, 2.3cqw, 28px);
-  --seat-tile-height: clamp(18px, 3.22cqw, 39px);
+  width: min(74cqw, 820px);
+  --seat-tile-width: clamp(15px, 2.55cqw, 31px);
+  --seat-tile-height: clamp(21px, 3.56cqw, 43px);
   --discard-columns: 12;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -132,8 +132,8 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 .left-seat, .right-seat {
   width: 100%;
   align-self: center;
-  --seat-tile-width: clamp(12px, 1.85cqw, 23px);
-  --seat-tile-height: clamp(17px, 2.6cqw, 32px);
+  --seat-tile-width: clamp(13px, 2.05cqw, 25px);
+  --seat-tile-height: clamp(18px, 2.87cqw, 35px);
   --discard-columns: 10;
 }
 .left-seat { grid-area: left; }
@@ -142,8 +142,8 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
   grid-area: center;
   align-self: center;
   justify-self: center;
-  width: clamp(118px, 16cqw, 190px);
-  min-height: 92px;
+  width: clamp(132px, 17cqw, 198px);
+  min-height: 112px;
   padding: clamp(9px, 1.2cqw, 13px);
   text-align: center;
   background: rgba(4,29,25,.94);
@@ -151,11 +151,11 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
   border-radius: 17px;
   box-shadow: 0 10px 30px rgba(0,0,0,.25);
 }
-.center-brand { display: flex; justify-content: center; align-items: baseline; gap: 7px; color: #d9c07b; font-size: 10px; letter-spacing: 2px; }
-.center-brand b { font-size: clamp(13px, 1.6cqw, 16px); color: #fff4d5; letter-spacing: 1px; }
-.round-data { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 9px; color: #9ebcb3; font-size: 9px; }
+.center-brand { display: flex; justify-content: center; align-items: baseline; color: #d9c07b; }
+.center-brand b { font-size: clamp(12px, 1.35cqw, 14px); color: #fff4d5; letter-spacing: 1px; }
+.round-data { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; color: #9ebcb3; font-size: 9px; }
 .round-data span { padding: 4px 2px; border-radius: 5px; background: rgba(255,255,255,.035); white-space: nowrap; }
-.last-action { margin-top: 8px; padding-top: 7px; overflow: hidden; border-top: 1px solid rgba(255,255,255,.08); color: #f5d57d; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; animation: action-flash .32s ease; }
+.last-action { min-height: 34px; margin-top: 8px; padding: 8px 7px 2px; overflow: hidden; border-top: 1px solid rgba(255,255,255,.1); color: #ffe08a; font-size: clamp(12px, 1.35cqw, 14px); font-weight: 800; line-height: 1.3; white-space: normal; text-wrap: balance; animation: action-flash .32s ease; }
 .human-seat {
   grid-area: human;
   min-width: 0;
@@ -171,6 +171,7 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 }
 .human-seat.active { border-color: #f3ca69; box-shadow: 0 0 0 2px rgba(243,202,105,.13); }
 .human-seat header { grid-area: human-header; display: flex; align-items: center; gap: 8px; color: #f8efd4; margin-bottom: 5px; }
+.human-seat header strong { font-size: 15px; }
 .human-seat header span:last-child { margin-left: auto; color: #f3cf75; font-size: 12px; }
 .dealer { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; }
 .human-hand { grid-area: human-hand; min-width: 0; display: flex; flex-wrap: nowrap; align-items: flex-end; gap: clamp(1px, .3cqw, 4px); justify-content: center; min-height: var(--human-tile-height); padding-top: 7px; }
@@ -186,17 +187,19 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 @keyframes action-flash { from { opacity: .25; transform: translateY(-3px); } }
 
 @media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 600px) {
-  .table-shell { gap: 4px; padding: 5px; border-radius: 16px; }
-  .top-seat { width: min(78cqw, 650px); --discard-columns: 12; }
+  .table-shell { --human-tile-width: clamp(28px, 4.55cqw, 44px); --human-tile-height: clamp(39px, 6.35cqw, 62px); --human-compact-width: clamp(17px, 2.55cqw, 25px); --human-compact-height: clamp(24px, 3.57cqw, 35px); gap: 4px; padding: 5px; border-radius: 16px; }
+  .top-seat { width: min(80cqw, 680px); --seat-tile-width: clamp(17px, 2.65cqw, 26px); --seat-tile-height: clamp(24px, 3.7cqw, 36px); --discard-columns: 12; }
+  .left-seat, .right-seat { --seat-tile-width: clamp(15px, 2.15cqw, 21px); --seat-tile-height: clamp(21px, 3cqw, 29px); }
   .left-seat, .right-seat { --discard-columns: 10; }
-  .table-center { min-height: 70px; padding: 6px; border-radius: 11px; }
-  .center-brand { gap: 4px; font-size: 7px; }
-  .round-data { gap: 2px; margin-top: 5px; font-size: 6px; }
+  .table-center { min-height: 86px; padding: 7px; border-radius: 11px; }
+  .center-brand b { font-size: 11px; }
+  .round-data { gap: 2px; margin-top: 5px; font-size: 7px; }
   .round-data span { padding: 3px 1px; }
-  .last-action { margin-top: 4px; padding-top: 4px; font-size: 7px; }
+  .last-action { min-height: 28px; margin-top: 4px; padding: 6px 4px 1px; font-size: 10px; }
   .human-seat { padding: 5px 6px; border-radius: 11px; }
-  .human-seat header { margin-bottom: 2px; font-size: 10px; }
-  .human-seat header span:last-child { font-size: 9px; }
+  .human-seat header { margin-bottom: 2px; }
+  .human-seat header strong { font-size: 12px; }
+  .human-seat header span:last-child { font-size: 10px; }
   .dealer { width: 18px; height: 18px; font-size: 8px; }
   .human-hand { padding-top: 4px; }
   .human-discards { gap: 1px; margin-top: 3px; }
@@ -205,6 +208,10 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
   .table-shell {
+    --human-tile-width: clamp(24px, 6.25cqw, 25px);
+    --human-tile-height: clamp(34px, 8.75cqw, 35px);
+    --human-compact-width: clamp(16px, 4.4cqw, 18px);
+    --human-compact-height: clamp(23px, 6.15cqw, 25px);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: auto auto auto auto;
     grid-template-areas:
@@ -217,15 +224,18 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
     padding: 7px;
     border-radius: 18px;
   }
-  .top-seat { width: 100%; display: block; --discard-columns: 12; }
+  .top-seat { width: 100%; display: block; --seat-tile-width: clamp(18px, 4.9cqw, 20px); --seat-tile-height: clamp(25px, 6.85cqw, 28px); --discard-columns: 12; }
   .top-seat :deep(.discard-row) { margin-top: 3px; justify-self: auto; }
-  .left-seat, .right-seat { align-self: start; --seat-tile-width: clamp(11px, 2.9cqw, 16px); --seat-tile-height: clamp(15px, 4cqw, 22px); --discard-columns: 8; }
-  .table-center { width: min(46cqw, 170px); min-height: 72px; padding: 7px; }
-  .center-brand { font-size: 8px; }
-  .round-data { margin-top: 5px; font-size: 7px; }
-  .last-action { margin-top: 4px; padding-top: 4px; font-size: 8px; }
-  .human-seat { grid-template-columns: auto minmax(0, 1fr); padding: 6px; }
+  .left-seat, .right-seat { align-self: start; --seat-tile-width: clamp(12px, 3.35cqw, 14px); --seat-tile-height: clamp(17px, 4.7cqw, 20px); --discard-columns: 8; }
+  .table-center { width: min(59cqw, 235px); min-height: 108px; padding: 9px; }
+  .center-brand b { font-size: 11px; }
+  .round-data { margin-top: 7px; font-size: 8px; }
+  .last-action { min-height: 37px; margin-top: 6px; padding: 8px 5px 1px; font-size: 14px; }
+  .human-seat { grid-template-columns: auto minmax(0, 1fr); padding: 7px; }
   .human-seat header { margin-bottom: 3px; }
+  .human-seat header strong { font-size: 14px; }
+  .human-seat header span:last-child { font-size: 11px; }
+  .dealer { width: 21px; height: 21px; font-size: 10px; }
   .human-hand { padding-top: 5px; }
   .human-discards { gap: 1px; margin-top: 4px; }
   .meld-row { padding-top: 5px; }

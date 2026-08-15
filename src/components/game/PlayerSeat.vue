@@ -112,13 +112,21 @@ header strong { font-size: 13px; }
 @media (pointer: coarse), (max-width: 700px), (max-height: 600px) {
   .seat { padding: 5px; border-radius: 9px; }
   header { gap: 4px; }
-  header strong { font-size: 10px; }
-  .points { font-size: 9px; }
+  header strong { font-size: 11px; }
+  .points { font-size: 10px; }
   .dealer { width: 18px; height: 18px; font-size: 8px; }
-  .ai-meta { margin: 1px 0 3px; font-size: 7px; }
+  .ai-meta { margin: 1px 0 3px; font-size: 8px; }
   .discard-row { gap: 1px; margin-top: 3px; }
   .meld-row { margin-top: 3px; }
   .meld-group { padding-top: 7px; }
   .meld-group small { top: -2px; font-size: 6px; }
+}
+
+@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
+  header strong { font-size: 12px; }
+  .points { font-size: 11px; }
+  .dealer { width: 20px; height: 20px; font-size: 9px; }
+  .ai-meta { font-size: 9px; }
+  .meld-group small { font-size: 7px; }
 }
 </style>

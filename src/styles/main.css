@@ -70,7 +70,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .empty { color: #637971; font-size: 10px; }
 .table-column { grid-area: table; min-width: 0; display: flex; flex-direction: column; }
 .action-dock { min-height: 66px; margin-top: 10px; padding: 10px 14px; display: flex; justify-content: center; align-items: center; gap: 9px; border: 1px solid #2b453d; border-radius: 15px; background: #10251f; color: #96aaa4; font-size: 12px; }
-.action-dock button { min-width: 72px; padding: 11px 14px; border: 1px solid #3b574f; border-radius: 9px; background: #19332c; color: #f0e6cd; cursor: pointer; font-weight: 700; }
+.action-dock button { min-width: 72px; padding: 11px 14px; border: 1px solid #3b574f; border-radius: 9px; background: #19332c; color: #f0e6cd; cursor: pointer; font-size: 13px; font-weight: 700; }
 .action-dock button:disabled { opacity: .42; cursor: default; }
 .action-dock button.gold { border-color: #9b813d; background: #594a25; color: #ffe49a; }
 .action-dock button.red { border-color: #954640; background: #662d2a; color: #ffd8d4; }
@@ -163,7 +163,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .brand small { display: none; }
   .status-pill { padding: 6px 9px; font-size: 9px; }
   .topbar nav { gap: 3px; }
-  .topbar nav button { min-height: 34px; padding: 6px 7px; font-size: 9px; }
+  .topbar nav button { min-height: 36px; padding: 6px 7px; font-size: 10px; }
   .game-layout {
     --table-height: max(240px, calc(100dvh - 120px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     grid-template-columns: clamp(108px, 14vw, 150px) minmax(0, 1fr) clamp(122px, 16vw, 175px);
@@ -189,12 +189,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .event-list { gap: 5px; }
   .event-list article { padding: 6px; }
   .event-list article p { font-size: 8px; }
-  .action-dock { min-height: 52px; }
+  .action-dock { min-height: 56px; font-size: 12px; }
   .action-dock {
     left: calc(max(6px, env(safe-area-inset-left)) + clamp(108px, 14vw, 150px) + 6px);
     right: calc(max(6px, env(safe-area-inset-right)) + clamp(122px, 16vw, 175px) + 6px);
   }
-  .action-dock button { min-width: 64px; min-height: 38px; }
+  .action-dock button { min-width: 64px; min-height: 40px; font-size: 12px; }
 }
 
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
@@ -204,12 +204,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar nav { order: 3; flex: 1 0 100%; width: 100%; margin-left: 0; gap: 4px; }
   .topbar nav > button, .topbar nav > .audio-control { flex: 1 1 0; min-width: 0; }
   .topbar nav > .audio-control button { width: 100%; min-width: 0; }
-  .topbar nav button { min-height: 36px; padding: 6px 4px; font-size: 9px; white-space: nowrap; }
-  .status-pill { order: 4; flex-basis: 100%; padding: 7px 10px; }
+  .topbar nav button { min-height: 40px; padding: 7px 4px; font-size: 10px; white-space: nowrap; }
+  .status-pill { order: 4; flex-basis: 100%; padding: 8px 10px; font-size: 11px; }
   .game-layout {
-    --table-height: max(610px, calc(100dvh - 190px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+    --table-height: max(620px, calc(100dvh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: calc(var(--table-height) + 68px) auto auto;
+    grid-template-rows: calc(var(--table-height) + 76px) auto auto;
     grid-template-areas: "table" "score" "events";
     gap: 8px;
     padding: 8px max(7px, env(safe-area-inset-right)) calc(76px + env(safe-area-inset-bottom)) max(7px, env(safe-area-inset-left));
@@ -217,14 +217,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .score-panel, .event-panel { display: block; max-height: min(55dvh, 460px); }
   .side-panel { border-radius: 13px; }
   .rules-grid { grid-template-columns: 1fr; }
-  .action-dock { flex-wrap: wrap; }
+  .action-dock { min-height: 64px; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+  .action-dock button { min-height: 46px; font-size: 13px; }
   .action-dock .discard-button { min-width: min(220px, 72vw); }
 }
 
 @media (max-width: 430px) and (pointer: coarse) {
   .brand small { display: none; }
   .topbar nav { gap: 3px; }
-  .topbar nav button { padding-inline: 3px; font-size: 9px; }
-  .action-dock { gap: 6px; font-size: 10px; }
+  .topbar nav button { padding-inline: 3px; font-size: 10px; }
+  .action-dock { gap: 6px; font-size: 12px; }
   .action-dock button { min-width: 58px; }
 }
