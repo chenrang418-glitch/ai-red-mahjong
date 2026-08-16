@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import MahjongTile from './MahjongTile.vue'
+import SeatCountdown from './SeatCountdown.vue'
 import type { PlayerState } from '@/game/types'
 
 withDefaults(defineProps<{
@@ -8,11 +9,13 @@ withDefaults(defineProps<{
   dealer?: boolean
   revealHand?: boolean
   compact?: boolean
+  countdown?: { progress: number; seconds: number; ai: boolean } | null
 }>(), {
   active: false,
   dealer: false,
   revealHand: false,
   compact: true,
+  countdown: null,
 })
 
 const meldLabel: Record<string, string> = {
@@ -34,6 +37,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     <header>
       <span class="dealer" v-if="dealer">庄</span>
       <strong>{{ player.name }}</strong>
+      <SeatCountdown v-if="countdown" v-bind="countdown" />
       <span class="points">{{ player.points === null ? `净 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}分` }}</span>
     </header>
     <div class="ai-meta" v-if="player.ai">
@@ -77,6 +81,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 .seat.active { border-color: #f3ca69; box-shadow: 0 0 0 2px rgba(243,202,105,.14), 0 0 24px rgba(243,202,105,.14); }
 header { display: flex; gap: 7px; align-items: center; color: #f7f0d9; }
 header strong { font-size: 13px; }
+header :deep(.seat-countdown) { margin-left: 2px; }
 .points { margin-left: auto; font-size: 12px; color: #f2d27b; }
 .dealer { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; }
 .ai-meta { color: #91aaa2; font-size: 10px; margin: 2px 0 5px; }

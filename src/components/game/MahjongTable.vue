@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import MahjongTile from './MahjongTile.vue'
 import PlayerSeat from './PlayerSeat.vue'
+import SeatCountdown from './SeatCountdown.vue'
 import type { GameState, Tile } from '@/game/types'
 
 const props = withDefaults(defineProps<{
@@ -10,10 +11,14 @@ const props = withDefaults(defineProps<{
   selectedTileId?: string
   readonly?: boolean
   revealAll?: boolean
+  turnTimer?: { seatId: number; startedAt: number; deadlineAt: number; kind: 'turn' | 'ai' } | null
+  timerNow?: number
 }>(), {
   selectedTileId: '',
   readonly: false,
   revealAll: false,
+  turnTimer: null,
+  timerNow: 0,
 })
 
 const emit = defineEmits<{ selectTile: [tile: Tile] }>()
@@ -30,14 +35,32 @@ const humanDrawTile = computed(() => {
   return human.value.hand.find((tile) => tile.id === latestEvent.tile!.id) ?? null
 })
 const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.id !== humanDrawTile.value?.id))
+const activeCountdown = computed(() => {
+  const timer = props.turnTimer
+  if (!timer) return null
+  const duration = Math.max(1, timer.deadlineAt - timer.startedAt)
+  const remaining = Math.max(0, timer.deadlineAt - (props.timerNow || Date.now()))
+  return {
+    seatId: timer.seatId,
+    progress: remaining / duration,
+    seconds: remaining / 1000,
+    ai: timer.kind === 'ai',
+  }
+})
+
+function countdownFor(seatId: number) {
+  const countdown = activeCountdown.value
+  if (!countdown || countdown.seatId !== seatId) return null
+  return { progress: countdown.progress, seconds: countdown.seconds, ai: countdown.ai }
+}
 </script>
 
 <template>
   <div class="table-shell">
     <div class="felt-pattern"></div>
-    <PlayerSeat class="top-seat" :player="top" :active="state.currentPlayer === top.id" :reveal-hand="revealAll" :dealer="state.dealer === top.id" />
-    <PlayerSeat class="left-seat" :player="left" :active="state.currentPlayer === left.id" :reveal-hand="revealAll" :dealer="state.dealer === left.id" />
-    <PlayerSeat class="right-seat" :player="right" :active="state.currentPlayer === right.id" :reveal-hand="revealAll" :dealer="state.dealer === right.id" />
+    <PlayerSeat class="top-seat" :player="top" :active="state.currentPlayer === top.id" :reveal-hand="revealAll" :dealer="state.dealer === top.id" :countdown="countdownFor(top.id)" />
+    <PlayerSeat class="left-seat" :player="left" :active="state.currentPlayer === left.id" :reveal-hand="revealAll" :dealer="state.dealer === left.id" :countdown="countdownFor(left.id)" />
+    <PlayerSeat class="right-seat" :player="right" :active="state.currentPlayer === right.id" :reveal-hand="revealAll" :dealer="state.dealer === right.id" :countdown="countdownFor(right.id)" />
 
     <div class="table-center">
       <div class="center-brand"><b>红中麻将</b></div>
@@ -53,6 +76,7 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
       <header>
         <span class="dealer" v-if="state.dealer === human.id">庄</span>
         <strong>{{ human.name }}</strong>
+        <SeatCountdown v-if="countdownFor(human.id)" v-bind="countdownFor(human.id)!" />
         <span>{{ human.points === null ? `本场净分 ${human.stats.netPoints >= 0 ? '+' : ''}${human.stats.netPoints}` : `${human.points}积分` }}</span>
       </header>
       <div class="meld-row" v-if="human.melds.length">

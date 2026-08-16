@@ -1,6 +1,8 @@
 import { onBeforeUnmount, ref } from 'vue'
 import type {
   LeaderboardEntry,
+  LobbyServerMessage,
+  OnlinePendingAction,
   OnlineRoomDirectoryEntry,
   OnlineRoomSettings,
   OnlineRoomView,
@@ -32,7 +34,9 @@ export function useOnlineGame() {
   const connecting = ref(false)
   const busy = ref(false)
   const error = ref('')
+  const pendingAction = ref<OnlinePendingAction | null>(null)
   let socket: WebSocket | null = null
+  let directorySocket: WebSocket | null = null
   let roomCode = ''
   let reconnectTimer: number | null = null
   let heartbeatTimer: number | null = null
@@ -42,6 +46,10 @@ export function useOnlineGame() {
   let manualClose = false
   let socketGeneration = 0
   let lastPongAt = 0
+  let directoryReconnectTimer: number | null = null
+  let directoryHeartbeatTimer: number | null = null
+  let directoryRefreshTimer: number | null = null
+  let pendingActionTimer: number | null = null
 
   function assertConfigured() {
     if (!apiBase) throw new Error('联机服务器地址尚未配置')
@@ -77,6 +85,7 @@ export function useOnlineGame() {
       })
       session.value = result
       await Promise.all([refreshLeaderboard(), refreshRooms()])
+      connectDirectorySocket()
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause)
     } finally {
@@ -165,6 +174,7 @@ export function useOnlineGame() {
       connected.value = false
       connecting.value = false
       stopHeartbeat()
+      clearPendingAction()
       if (!manualClose && session.value && roomCode) scheduleReconnect()
     })
     currentSocket.addEventListener('error', () => {
@@ -182,12 +192,16 @@ export function useOnlineGame() {
     const message = JSON.parse(raw) as RoomServerMessage
     if (message.type === 'room-state') {
       room.value = message.room
+      reconcilePendingAction(message.room)
       error.value = ''
       reconnectAttempt = 0
     } else if (message.type === 'chat' && room.value) {
       if (!room.value.chat.some((item) => item.id === message.message.id)) room.value.chat.push(message.message)
       if (room.value.chat.length > 30) room.value.chat.splice(0, room.value.chat.length - 30)
-    } else if (message.type === 'error') error.value = message.message
+    } else if (message.type === 'error') {
+      clearPendingAction()
+      error.value = message.message
+    }
     else if (message.type === 'pong') {
       lastPongAt = Date.now()
       clearHeartbeatDeadline()
@@ -199,7 +213,16 @@ export function useOnlineGame() {
       error.value = '尚未连接到房间'
       return
     }
-    socket.send(JSON.stringify(command))
+    if ((command.type === 'discard' || command.type === 'trustee') && pendingAction.value) return
+    if (command.type === 'discard') setPendingAction({ type: 'discard', tileId: command.tileId, version: room.value?.version ?? 0 })
+    else if (command.type === 'trustee') setPendingAction({ type: 'trustee', enabled: command.enabled, version: room.value?.version ?? 0 })
+    try {
+      socket.send(JSON.stringify(command))
+    } catch {
+      clearPendingAction()
+      error.value = '操作发送失败，正在重新连接'
+      socket.close()
+    }
   }
 
   function sendGameAction(command: RoomActionDraft) {
@@ -208,11 +231,21 @@ export function useOnlineGame() {
   }
 
   function leaveRoom() {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'leave-room' }))
+    const leavingSocket = socket
+    if (leavingSocket?.readyState === WebSocket.OPEN) leavingSocket.send(JSON.stringify({ type: 'leave-room' }))
     manualClose = true
     roomCode = ''
     room.value = null
-    cleanupSocket(true)
+    clearPendingAction()
+    cancelReconnect()
+    stopHeartbeat()
+    clearConnectTimeout()
+    connected.value = false
+    connecting.value = false
+    if (!leavingSocket || leavingSocket.readyState !== WebSocket.OPEN) disposeSocket()
+    else window.setTimeout(() => {
+      if (socket === leavingSocket) disposeSocket()
+    }, 1500)
   }
 
   function logout() {
@@ -220,6 +253,7 @@ export function useOnlineGame() {
     session.value = null
     rooms.value = []
     leaderboard.value = []
+    closeDirectorySocket()
   }
 
   function scheduleReconnect(immediate = false) {
@@ -267,6 +301,7 @@ export function useOnlineGame() {
     disposeSocket()
     connected.value = false
     connecting.value = false
+    clearPendingAction()
   }
 
   function disposeSocket() {
@@ -289,6 +324,88 @@ export function useOnlineGame() {
   function clearConnectTimeout() {
     if (connectTimeoutTimer !== null) window.clearTimeout(connectTimeoutTimer)
     connectTimeoutTimer = null
+  }
+
+  function setPendingAction(action: OnlinePendingAction) {
+    clearPendingAction()
+    pendingAction.value = action
+    pendingActionTimer = window.setTimeout(() => {
+      if (!pendingAction.value) return
+      pendingAction.value = null
+      error.value = '操作确认超时，请按服务器最新状态重试'
+    }, 8000)
+  }
+
+  function clearPendingAction() {
+    pendingAction.value = null
+    if (pendingActionTimer !== null) window.clearTimeout(pendingActionTimer)
+    pendingActionTimer = null
+  }
+
+  function reconcilePendingAction(nextRoom: OnlineRoomView) {
+    const pending = pendingAction.value
+    if (!pending) return
+    if (pending.type === 'discard') {
+      const hand = nextRoom.game?.players[nextRoom.selfSeatId]?.hand ?? []
+      if (!hand.some((tile) => tile.id === pending.tileId)) clearPendingAction()
+      return
+    }
+    if (nextRoom.seats[nextRoom.selfSeatId]?.trustee === pending.enabled) clearPendingAction()
+  }
+
+  function connectDirectorySocket() {
+    if (!session.value || directorySocket?.readyState === WebSocket.OPEN || directorySocket?.readyState === WebSocket.CONNECTING) return
+    if (directoryReconnectTimer !== null) window.clearTimeout(directoryReconnectTimer)
+    directoryReconnectTimer = null
+    const url = new URL(`${apiBase}/api/lobby/socket`)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.searchParams.set('session', session.value.token)
+    const currentSocket = new WebSocket(url)
+    directorySocket = currentSocket
+    currentSocket.addEventListener('open', () => {
+      if (directorySocket !== currentSocket) return
+      currentSocket.send('ping')
+      if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
+      directoryHeartbeatTimer = window.setInterval(() => {
+        if (directorySocket === currentSocket && currentSocket.readyState === WebSocket.OPEN) currentSocket.send('ping')
+      }, ONLINE_HEARTBEAT_INTERVAL_MS)
+    })
+    currentSocket.addEventListener('message', (event) => {
+      if (directorySocket !== currentSocket || event.data === 'pong') return
+      try {
+        const message = JSON.parse(String(event.data)) as LobbyServerMessage
+        if (message.type === 'rooms-updated') scheduleDirectoryRefresh()
+      } catch {
+        // Ignore malformed lobby notifications; the room connection remains authoritative.
+      }
+    })
+    currentSocket.addEventListener('close', () => {
+      if (directorySocket !== currentSocket) return
+      directorySocket = null
+      if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
+      directoryHeartbeatTimer = null
+      if (session.value) directoryReconnectTimer = window.setTimeout(connectDirectorySocket, 1500)
+    })
+  }
+
+  function scheduleDirectoryRefresh() {
+    if (directoryRefreshTimer !== null) return
+    directoryRefreshTimer = window.setTimeout(() => {
+      directoryRefreshTimer = null
+      void refreshRooms()
+    }, 120)
+  }
+
+  function closeDirectorySocket() {
+    if (directoryReconnectTimer !== null) window.clearTimeout(directoryReconnectTimer)
+    if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
+    if (directoryRefreshTimer !== null) window.clearTimeout(directoryRefreshTimer)
+    directoryReconnectTimer = null
+    directoryHeartbeatTimer = null
+    directoryRefreshTimer = null
+    const previous = directorySocket
+    directorySocket = null
+    previous?.close()
   }
 
   function resumeConnection() {
@@ -321,6 +438,7 @@ export function useOnlineGame() {
     window.removeEventListener('pageshow', resumeConnection)
     document.removeEventListener('visibilitychange', handleVisible)
     cleanupSocket(true)
+    closeDirectorySocket()
   })
 
   return {
@@ -333,6 +451,7 @@ export function useOnlineGame() {
     connecting,
     busy,
     error,
+    pendingAction,
     login,
     logout,
     refreshLeaderboard,

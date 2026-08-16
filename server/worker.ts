@@ -12,6 +12,7 @@ import type {
 
 interface Env {
   ROOMS: DurableObjectNamespace
+  LOBBY: DurableObjectNamespace
   DB: D1Database
 }
 
@@ -154,10 +155,10 @@ async function leaderboard(env: Env): Promise<Response> {
 
 async function listRooms(request: Request, env: Env): Promise<Response> {
   readSessionToken(request)
-  const cutoff = Date.now() - 12 * 60 * 60 * 1000
   const result = await env.DB.prepare(`
     SELECT
       code,
+      phase,
       host_nickname,
       players_json,
       occupied_seats,
@@ -166,11 +167,11 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
       claim_window_ms,
       updated_at
     FROM room_directory
-    WHERE updated_at >= ?
-    ORDER BY updated_at DESC
+    ORDER BY CASE phase WHEN 'lobby' THEN 0 ELSE 1 END, updated_at DESC
     LIMIT 40
-  `).bind(cutoff).all<{
+  `).all<{
     code: string
+    phase: 'lobby' | 'playing'
     host_nickname: string
     players_json: string
     occupied_seats: number
@@ -183,12 +184,20 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
     let players: OnlineRoomDirectoryPlayer[] = []
     try {
       const parsed = JSON.parse(row.players_json) as OnlineRoomDirectoryPlayer[]
-      if (Array.isArray(parsed)) players = parsed
+      if (Array.isArray(parsed)) {
+        players = parsed.map((player) => ({
+          ...player,
+          kind: player.kind === 'ai' ? 'ai' : 'human',
+          trustee: Boolean(player.trustee),
+        }))
+      }
     } catch {
       players = []
     }
     return {
       code: row.code,
+      phase: row.phase,
+      joinable: row.phase === 'lobby' && row.occupied_seats < 4,
       hostNickname: row.host_nickname,
       players,
       occupiedSeats: row.occupied_seats,
@@ -203,6 +212,12 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
     }
   })
   return json({ rooms })
+}
+
+async function lobbySocket(request: Request, env: Env): Promise<Response> {
+  readSessionToken(request)
+  const stub = env.LOBBY.get(env.LOBBY.idFromName('global-directory'))
+  return stub.fetch('https://lobby.internal/socket', { headers: request.headers })
 }
 
 async function createRoom(request: Request, env: Env): Promise<Response> {
@@ -239,6 +254,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET' && url.pathname === '/api/leaderboard') return leaderboard(env)
   if (request.method === 'GET' && url.pathname === '/api/rooms') return listRooms(request, env)
   if (request.method === 'POST' && url.pathname === '/api/rooms') return createRoom(request, env)
+  if (request.method === 'GET' && url.pathname === '/api/lobby/socket') return lobbySocket(request, env)
   const socketMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{6})\/socket$/)
   if (request.method === 'GET' && socketMatch) return roomSocket(request, env, socketMatch[1])
   return json({ error: '接口不存在' }, 404)
@@ -263,12 +279,16 @@ export class MahjongRoom {
     state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     this.ready = state.blockConcurrencyWhile(async () => {
       const stored = await state.storage.get<StoredRoomState>('room')
-      if (stored) this.coordinator = new RoomCoordinator(stored)
+      if (stored) {
+        this.coordinator = new RoomCoordinator(stored)
+        if (this.coordinator.ensureOfflineExpiry()) await this.persist()
+      }
     })
   }
 
   async fetch(request: Request): Promise<Response> {
     await this.ready
+    if (this.coordinator?.shouldDeleteRoom()) await this.deleteRoom()
     const url = new URL(request.url)
     if (url.pathname === '/create' && request.method === 'POST') {
       if (this.coordinator) return json({ error: '房间号已存在' }, 409)
@@ -290,7 +310,7 @@ export class MahjongRoom {
       server.serializeAttachment(attachment)
       this.state.acceptWebSocket(server, [`user:${user.userId}`])
       await this.persist()
-      if (!this.coordinator.state.game) this.state.waitUntil(this.syncRoomDirectory())
+      this.state.waitUntil(this.syncRoomDirectory())
       this.broadcastState()
       return new Response(null, { status: 101, webSocket: client })
     }
@@ -315,14 +335,13 @@ export class MahjongRoom {
       }
       if (parsed.type === 'leave-room') {
         socket.serializeAttachment({ ...user, leaving: true })
-        if (this.coordinator.state.game) this.coordinator.disconnect(user.userId)
-        else this.coordinator.removeLobbyUser(user.userId)
-        if (await this.deleteEmptyLobby()) {
+        this.coordinator.leave(user.userId)
+        if (await this.deleteRequestedRoom() || await this.deleteEmptyLobby()) {
           socket.close(1000, 'left room')
           return
         }
         await this.persist()
-        if (!this.coordinator.state.game) await this.syncRoomDirectory()
+        this.state.waitUntil(this.syncRoomDirectory())
         this.broadcastState()
         socket.close(1000, 'left room')
         return
@@ -330,7 +349,9 @@ export class MahjongRoom {
       if (parsed.type === 'chat') this.assertChatRate(user.userId)
       const chatMessage = this.coordinator.handle(user.userId, parsed)
       await this.persist()
-      if (parsed.type === 'start-game' || parsed.type === 'return-to-lobby') await this.syncRoomDirectory()
+      if (parsed.type === 'start-game' || parsed.type === 'return-to-lobby' || parsed.type === 'trustee') {
+        this.state.waitUntil(this.syncRoomDirectory())
+      }
       await this.syncLeaderboard()
       if (chatMessage) this.broadcast({ type: 'chat', message: chatMessage })
       else this.broadcastState()
@@ -350,19 +371,20 @@ export class MahjongRoom {
     if (!seat) return
     if (remaining.length === 0 && seat.connected) this.coordinator.disconnect(user.userId)
     await this.persist()
-    if (!this.coordinator.state.game) await this.syncRoomDirectory()
+    this.state.waitUntil(this.syncRoomDirectory())
     this.broadcastState()
   }
 
   async alarm(): Promise<void> {
     await this.ready
     if (!this.coordinator) return
+    const directoryBefore = this.directorySignature()
     const changed = this.coordinator.runDueJobs()
-    if (await this.deleteEmptyLobby()) return
+    if (await this.deleteRequestedRoom() || await this.deleteEmptyLobby()) return
     await this.persist()
     if (changed) {
       await this.syncLeaderboard()
-      if (!this.coordinator.state.game) await this.syncRoomDirectory()
+      if (directoryBefore !== this.directorySignature()) this.state.waitUntil(this.syncRoomDirectory())
       this.broadcastState()
     }
   }
@@ -401,26 +423,29 @@ export class MahjongRoom {
     if (!this.coordinator) return
     const room = this.coordinator.state
     try {
-      if (room.game) {
-        await this.env.DB.prepare('DELETE FROM room_directory WHERE code = ?').bind(room.code).run()
-        return
-      }
       const humanSeats = room.seats.filter((seat) => seat.kind === 'human' && seat.userId)
       const host = humanSeats.find((seat) => seat.userId === room.hostUserId)
       if (!host) {
         await this.env.DB.prepare('DELETE FROM room_directory WHERE code = ?').bind(room.code).run()
+        await this.notifyLobbyDirectory()
         return
       }
-      const players: OnlineRoomDirectoryPlayer[] = humanSeats.map((seat) => ({
+      const directorySeats = room.game
+        ? room.seats.filter((seat) => seat.kind !== 'empty')
+        : humanSeats
+      const players: OnlineRoomDirectoryPlayer[] = directorySeats.map((seat) => ({
         nickname: seat.name,
         connected: seat.connected,
         isHost: seat.userId === room.hostUserId,
+        kind: seat.kind === 'ai' ? 'ai' : 'human',
+        trustee: seat.trustee,
       }))
       await this.env.DB.prepare(`
         INSERT INTO room_directory
-          (code, host_nickname, players_json, occupied_seats, mode, initial_points, claim_window_ms, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (code, phase, host_nickname, players_json, occupied_seats, mode, initial_points, claim_window_ms, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(code) DO UPDATE SET
+          phase = excluded.phase,
           host_nickname = excluded.host_nickname,
           players_json = excluded.players_json,
           occupied_seats = excluded.occupied_seats,
@@ -430,14 +455,16 @@ export class MahjongRoom {
           updated_at = excluded.updated_at
       `).bind(
         room.code,
+        room.game ? 'playing' : 'lobby',
         host.name,
         JSON.stringify(players),
-        humanSeats.length,
+        directorySeats.length,
         room.settings.mode,
         room.settings.initialPoints,
         room.settings.claimWindowMs,
         Date.now(),
       ).run()
+      await this.notifyLobbyDirectory()
     } catch (cause) {
       console.error('同步房间列表失败', cause)
     }
@@ -447,16 +474,44 @@ export class MahjongRoom {
     if (!this.coordinator || this.coordinator.state.game) return false
     const hasHumanPlayers = this.coordinator.state.seats.some((seat) => seat.kind === 'human' && seat.userId)
     if (hasHumanPlayers) return false
+    await this.deleteRoom()
+    return true
+  }
+
+  private async deleteRequestedRoom(): Promise<boolean> {
+    if (!this.coordinator?.shouldDeleteRoom()) return false
+    await this.deleteRoom()
+    return true
+  }
+
+  private async deleteRoom(): Promise<void> {
+    if (!this.coordinator) return
     const code = this.coordinator.state.code
     this.coordinator = null
     await this.state.storage.deleteAll()
     await this.state.storage.deleteAlarm()
     try {
       await this.env.DB.prepare('DELETE FROM room_directory WHERE code = ?').bind(code).run()
+      await this.notifyLobbyDirectory()
     } catch (cause) {
-      console.error('移除空房间失败', cause)
+      console.error('移除房间失败', cause)
     }
-    return true
+    for (const socket of this.state.getWebSockets()) socket.close(1000, 'room deleted')
+  }
+
+  private async notifyLobbyDirectory(): Promise<void> {
+    const stub = this.env.LOBBY.get(this.env.LOBBY.idFromName('global-directory'))
+    await stub.fetch('https://lobby.internal/notify', { method: 'POST' })
+  }
+
+  private directorySignature(): string {
+    if (!this.coordinator) return ''
+    const room = this.coordinator.state
+    return JSON.stringify({
+      phase: room.game ? 'playing' : 'lobby',
+      hostUserId: room.hostUserId,
+      seats: room.seats.map((seat) => [seat.kind, seat.userId, seat.connected, seat.trustee]),
+    })
   }
 
   private assertChatRate(userId: string): void {
@@ -486,5 +541,29 @@ export class MahjongRoom {
 
   private send(socket: WebSocket, message: RoomServerMessage): void {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+  }
+}
+
+export class MahjongLobby {
+  constructor(private readonly state: DurableObjectState) {
+    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const pair = new WebSocketPair()
+      const [client, server] = Object.values(pair)
+      this.state.acceptWebSocket(server)
+      return new Response(null, { status: 101, webSocket: client })
+    }
+    if (url.pathname === '/notify' && request.method === 'POST') {
+      const message = JSON.stringify({ type: 'rooms-updated', at: Date.now() })
+      for (const socket of this.state.getWebSockets()) {
+        if (socket.readyState === WebSocket.OPEN) socket.send(message)
+      }
+      return json(null, 204)
+    }
+    return json({ error: '大厅接口不存在' }, 404)
   }
 }

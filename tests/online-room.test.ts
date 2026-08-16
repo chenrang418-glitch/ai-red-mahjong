@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RoomCoordinator } from '../server/room-core'
+import { ROOM_RECONNECT_GRACE_MS, RoomCoordinator } from '../server/room-core'
 import type { OnlineRoomSettings } from '@/online/types'
 
 const settings: OnlineRoomSettings = {
@@ -88,6 +88,67 @@ describe('联机房间协调器', () => {
     expect(room.view('u1').seats[0].trustee).toBe(false)
     room.runDueJobs(32_000)
     expect(room.view('u1').seats[0].trustee).toBe(true)
+  })
+
+  it('所有真人明确退出进行中牌局后立即请求删除房间', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '玩家二' }, 1100)
+    room.handle('u2', { type: 'ready', ready: true }, 1200)
+    room.handle('u1', { type: 'start-game' }, 1300)
+
+    room.leave('u1', 2000)
+    expect(room.shouldDeleteRoom()).toBe(false)
+    room.leave('u2', 2100)
+    expect(room.shouldDeleteRoom()).toBe(true)
+  })
+
+  it('所有真人异常掉线会保留五分钟，期间重连会取消删除', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '玩家二' }, 1100)
+    room.disconnect('u1', 2000)
+    room.disconnect('u2', 3000)
+    room.state.jobs = room.state.jobs.filter((job) => job.kind === 'all-offline-expire')
+
+    room.runDueJobs(3000 + ROOM_RECONNECT_GRACE_MS - 1)
+    expect(room.shouldDeleteRoom()).toBe(false)
+    room.connect({ userId: 'u1', nickname: '房主' }, 3000 + ROOM_RECONNECT_GRACE_MS - 1)
+    room.runDueJobs(3000 + ROOM_RECONNECT_GRACE_MS + 10_000)
+    expect(room.shouldDeleteRoom()).toBe(false)
+  })
+
+  it('所有真人异常掉线满五分钟后请求删除房间', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.disconnect('u1', 2000)
+    room.state.jobs = room.state.jobs.filter((job) => job.kind === 'all-offline-expire')
+
+    room.runDueJobs(2000 + ROOM_RECONNECT_GRACE_MS - 1)
+    expect(room.shouldDeleteRoom()).toBe(false)
+    room.runDueJobs(2000 + ROOM_RECONNECT_GRACE_MS)
+    expect(room.shouldDeleteRoom()).toBe(true)
+  })
+
+  it('旧版本遗留的离线房间恢复时按最后更新时间补建清理任务', () => {
+    const original = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    original.disconnect('u1', 2000)
+    const stored = original.snapshot()
+    stored.jobs = []
+    stored.updatedAt = 2000
+    const restored = new RoomCoordinator(stored)
+
+    expect(restored.ensureOfflineExpiry(2000 + ROOM_RECONNECT_GRACE_MS - 1)).toBe(true)
+    expect(restored.shouldDeleteRoom()).toBe(false)
+    restored.state.jobs = []
+    expect(restored.ensureOfflineExpiry(2000 + ROOM_RECONNECT_GRACE_MS)).toBe(true)
+    expect(restored.shouldDeleteRoom()).toBe(true)
+  })
+
+  it('牌局进行时向所有玩家公开当前行动座位的倒计时', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.handle('u1', { type: 'start-game' }, 1200)
+    const view = room.view('u1')
+
+    expect(view.turnTimer?.seatId).toBe(view.game?.currentPlayer)
+    expect(view.turnTimer?.deadlineAt).toBeGreaterThan(view.turnTimer?.startedAt ?? 0)
   })
 
   it('聊天只保留最近30条且不推进牌局版本', () => {

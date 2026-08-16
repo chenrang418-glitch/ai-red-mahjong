@@ -8,6 +8,7 @@ import type {
   OnlineRoomSettings,
   OnlineRoomView,
   OnlineSeatView,
+  OnlineTurnTimer,
   RoomCommand,
 } from '../src/online/types'
 
@@ -24,6 +25,7 @@ interface StoredSeat {
   connected: boolean
   ready: boolean
   trustee: boolean
+  leftRoom: boolean
   ai: AIProfile | null
 }
 
@@ -35,6 +37,7 @@ type ScheduledJobKind =
   | 'resolve-no-claim'
   | 'disconnect-trustee'
   | 'lobby-disconnect-remove'
+  | 'all-offline-expire'
 
 interface ScheduledJob {
   id: string
@@ -62,6 +65,7 @@ export interface StoredRoomState {
   claimResponses: Record<string, ClaimAction | 'pass'>
   recentActionIds: string[]
   recordedRounds: string[]
+  deleteRequested: boolean
 }
 
 export interface RoundLeaderboardResult {
@@ -78,6 +82,7 @@ const TRUSTEE_AI: AIProfile = { personality: 'humanlike', difficulty: 'standard'
 const TABLE_AI: AIProfile = { personality: 'balanced', difficulty: 'standard', speed: 'normal' }
 const DISCONNECT_GRACE_MS = 30_000
 const LOBBY_DISCONNECT_GRACE_MS = 60_000
+export const ROOM_RECONNECT_GRACE_MS = 5 * 60_000
 
 function emptySeat(seatId: number): StoredSeat {
   return {
@@ -88,6 +93,7 @@ function emptySeat(seatId: number): StoredSeat {
     connected: false,
     ready: false,
     trustee: false,
+    leftRoom: false,
     ai: null,
   }
 }
@@ -101,6 +107,7 @@ function humanSeat(seatId: number, user: RoomUser, ready = false): StoredSeat {
     connected: true,
     ready,
     trustee: false,
+    leftRoom: false,
     ai: null,
   }
 }
@@ -127,6 +134,8 @@ export class RoomCoordinator {
 
   constructor(state: StoredRoomState) {
     this.state = structuredClone(state)
+    for (const seat of this.state.seats) seat.leftRoom ??= false
+    this.state.deleteRequested ??= false
   }
 
   static create(code: string, host: RoomUser, settings: OnlineRoomSettings, now = Date.now()): RoomCoordinator {
@@ -147,6 +156,7 @@ export class RoomCoordinator {
       claimResponses: {},
       recentActionIds: [],
       recordedRounds: [],
+      deleteRequested: false,
     })
   }
 
@@ -165,10 +175,12 @@ export class RoomCoordinator {
     }
     seat.name = user.nickname
     seat.connected = true
+    seat.leftRoom = false
+    this.state.deleteRequested = false
     this.state.jobs = this.state.jobs.filter((job) => !(
       ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
       && job.seatId === seat!.seatId
-    ))
+    ) && job.kind !== 'all-offline-expire')
     this.touch(now)
     return seat.seatId
   }
@@ -176,6 +188,7 @@ export class RoomCoordinator {
   disconnect(userId: string, now = Date.now()): void {
     const seat = this.humanSeatByUser(userId)
     seat.connected = false
+    seat.leftRoom = false
     this.state.jobs = this.state.jobs.filter((job) => !(
       ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
       && job.seatId === seat.seatId
@@ -188,6 +201,22 @@ export class RoomCoordinator {
       stageKey: 'presence',
       seatId: seat.seatId,
     })
+    this.scheduleAllOfflineExpiry(now)
+    this.touch(now)
+  }
+
+  leave(userId: string, now = Date.now()): void {
+    if (!this.state.game) {
+      this.removeLobbyUser(userId, now)
+      return
+    }
+    const seat = this.humanSeatByUser(userId)
+    seat.connected = false
+    seat.leftRoom = true
+    seat.trustee = true
+    this.state.jobs = this.state.jobs.filter((job) => job.seatId !== seat.seatId)
+    this.reschedule(now)
+    this.scheduleAllOfflineExpiry(now)
     this.touch(now)
   }
 
@@ -203,6 +232,7 @@ export class RoomCoordinator {
         nextHost.ready = true
       }
     }
+    this.scheduleAllOfflineExpiry(now)
     this.touch(now)
   }
 
@@ -210,8 +240,7 @@ export class RoomCoordinator {
     const seat = this.humanSeatByUser(userId)
     if (command.type === 'chat') return this.addChat(seat, command.text, command.quick, now)
     if (command.type === 'leave-room') {
-      if (this.state.game) this.disconnect(userId, now)
-      else this.removeLobbyUser(userId, now)
+      this.leave(userId, now)
       return null
     }
     if (command.type === 'ready') {
@@ -285,8 +314,20 @@ export class RoomCoordinator {
         }
         continue
       }
+      if (job.kind === 'all-offline-expire') {
+        if (this.allHumanSeats().length > 0 && this.allHumanSeats().every((seat) => !seat.connected)) {
+          this.state.deleteRequested = true
+          changed = true
+        }
+        continue
+      }
       if (job.kind === 'lobby-disconnect-remove') {
         const seat = this.state.seats[job.seatId ?? -1]
+        if (this.allHumanSeats().length > 0 && this.allHumanSeats().every((candidate) => !candidate.connected)) {
+          const expiry = this.state.jobs.find((candidate) => candidate.kind === 'all-offline-expire')
+          if (expiry && expiry.dueAt > now) this.state.jobs.push({ ...job, dueAt: expiry.dueAt })
+          continue
+        }
         if (!this.state.game && seat?.kind === 'human' && !seat.connected && seat.userId) {
           this.removeLobbyUser(seat.userId, now)
           changed = true
@@ -352,6 +393,7 @@ export class RoomCoordinator {
       game,
       legal: this.legalActions(seat),
       deadlineAt: this.deadlineFor(seat),
+      turnTimer: this.turnTimer(),
       notice: this.noticeFor(seat),
       chat: structuredClone(this.state.chat),
     }
@@ -585,6 +627,23 @@ export class RoomCoordinator {
     return null
   }
 
+  private turnTimer(): OnlineTurnTimer | null {
+    const game = this.state.game
+    if (!game || game.phase !== 'playing') return null
+    const job = this.state.jobs.find((candidate) => (
+      candidate.stageKey === this.state.stageKey
+      && candidate.seatId === game.currentPlayer
+      && (candidate.kind === 'ai-turn' || candidate.kind === 'turn-timeout')
+    ))
+    if (!job) return null
+    return {
+      seatId: game.currentPlayer,
+      startedAt: this.state.stageStartedAt,
+      deadlineAt: job.dueAt,
+      kind: job.kind === 'ai-turn' ? 'ai' : 'turn',
+    }
+  }
+
   private noticeFor(seat: StoredSeat): string {
     const game = this.state.game
     if (!game) return '等待玩家准备'
@@ -634,6 +693,45 @@ export class RoomCoordinator {
 
   private assertFreshAction(version: number): void {
     if (version !== this.state.version) throw new Error('牌局状态已经更新，请按最新状态操作')
+  }
+
+  shouldDeleteRoom(): boolean {
+    if (this.state.deleteRequested) return true
+    const humans = this.allHumanSeats()
+    return humans.length > 0 && humans.every((seat) => seat.leftRoom)
+  }
+
+  ensureOfflineExpiry(now = Date.now()): boolean {
+    const humans = this.allHumanSeats()
+    if (!humans.length || humans.some((seat) => seat.connected)) return false
+    if (this.state.jobs.some((job) => job.kind === 'all-offline-expire')) return false
+    const dueAt = this.state.updatedAt + ROOM_RECONNECT_GRACE_MS
+    if (dueAt <= now) this.state.deleteRequested = true
+    else {
+      this.state.jobs.push({
+        id: `all-offline-expire-restored-${dueAt}`,
+        kind: 'all-offline-expire',
+        dueAt,
+        stageKey: 'presence',
+      })
+    }
+    return true
+  }
+
+  private allHumanSeats(): StoredSeat[] {
+    return this.state.seats.filter((seat) => seat.kind === 'human' && !!seat.userId)
+  }
+
+  private scheduleAllOfflineExpiry(now: number): void {
+    this.state.jobs = this.state.jobs.filter((job) => job.kind !== 'all-offline-expire')
+    const humans = this.allHumanSeats()
+    if (!humans.length || humans.some((seat) => seat.connected)) return
+    this.state.jobs.push({
+      id: `all-offline-expire-${now}`,
+      kind: 'all-offline-expire',
+      dueAt: now + ROOM_RECONNECT_GRACE_MS,
+      stageKey: 'presence',
+    })
   }
 
   private rememberAction(actionId: string): void {

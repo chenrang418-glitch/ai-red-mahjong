@@ -5,6 +5,7 @@ const script = await readFile(new URL('../server/dist/worker.js', import.meta.ur
 const migrations = await Promise.all([
   readFile(new URL('../server/migrations/0001_online.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server/migrations/0002_room_directory.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../server/migrations/0003_room_phase.sql', import.meta.url), 'utf8'),
 ])
 
 const miniflare = new Miniflare(convertV4MiniflareOptions({
@@ -15,6 +16,7 @@ const miniflare = new Miniflare(convertV4MiniflareOptions({
     script,
     durableObjects: {
       ROOMS: { className: 'MahjongRoom', useSQLite: true },
+      LOBBY: { className: 'MahjongLobby', useSQLite: true },
     },
     d1Databases: {
       DB: 'online-smoke-db',
@@ -99,6 +101,13 @@ try {
   })
   assert(session.token && session.userId, '昵称登录没有返回会话')
 
+  const directorySocketUrl = new URL(`${baseUrl}/api/lobby/socket`)
+  directorySocketUrl.protocol = directorySocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+  directorySocketUrl.searchParams.set('session', session.token)
+  const directorySocket = new WebSocket(directorySocketUrl)
+  await waitForOpen(directorySocket)
+
+  const createdNotification = waitForMessage(directorySocket, (message) => message.type === 'rooms-updated')
   const created = await jsonRequest(`${baseUrl}/api/rooms`, {
     method: 'POST',
     headers: {
@@ -107,6 +116,7 @@ try {
     },
     body: JSON.stringify({ settings: { mode: 'finite', initialPoints: 30, claimWindowMs: 4000 } }),
   })
+  await createdNotification
   assert(/^[A-Z0-9]{6}$/.test(created.code), '房间号格式不正确')
 
   const listed = await jsonRequest(`${baseUrl}/api/rooms`, {
@@ -129,20 +139,32 @@ try {
   await pongPromise
 
   const startedPromise = waitForMessage(socket, (message) => message.type === 'room-state' && message.room.game)
+  const startedNotification = waitForMessage(directorySocket, (message) => message.type === 'rooms-updated')
   socket.send(JSON.stringify({ type: 'start-game' }))
   const started = await startedPromise
+  await startedNotification
   assert(started.room.seats.filter((seat) => seat.kind === 'ai').length === 3, '空位没有自动补充AI')
+  assert(started.room.turnTimer?.seatId === started.room.game.currentPlayer, '当前行动座位没有倒计时')
 
   const roomsAfterStart = await jsonRequest(`${baseUrl}/api/rooms`, {
     headers: { authorization: `Bearer ${session.token}` },
   })
-  assert(!roomsAfterStart.rooms.some((room) => room.code === created.code), '已开局房间仍出现在可加入列表')
+  const activeRoom = roomsAfterStart.rooms.find((room) => room.code === created.code)
+  assert(activeRoom?.phase === 'playing' && activeRoom?.joinable === false, '进行中房间没有按不可加入状态显示')
 
   const chatPromise = waitForMessage(socket, (message) => message.type === 'chat' && message.message.text === '乐乐')
   socket.send(JSON.stringify({ type: 'chat', text: '乐乐', quick: true }))
   await chatPromise
 
-  socket.close()
+  const activeRoomDeleted = waitForMessage(directorySocket, (message) => message.type === 'rooms-updated')
+  const activeSocketClosed = waitForClose(socket)
+  socket.send(JSON.stringify({ type: 'leave-room' }))
+  await activeSocketClosed
+  await activeRoomDeleted
+  const roomsAfterActiveLeave = await jsonRequest(`${baseUrl}/api/rooms`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  })
+  assert(!roomsAfterActiveLeave.rooms.some((room) => room.code === created.code), '最后一名真人明确退出后没有删除牌局')
 
   const lobbyRoom = await jsonRequest(`${baseUrl}/api/rooms`, {
     method: 'POST',
@@ -196,9 +218,12 @@ try {
   })
   const lobbyAfterGuestLeft = roomsAfterGuestLeft.rooms.find((room) => room.code === lobbyRoom.code)
   assert(lobbyAfterGuestLeft?.occupiedSeats === 1 && lobbyAfterGuestLeft?.availableSeats === 3, '明确离开等待页后没有释放座位')
-  lobbyHostSocket.close()
+  const lobbyHostLeft = waitForClose(lobbyHostSocket)
+  lobbyHostSocket.send(JSON.stringify({ type: 'leave-room' }))
+  await lobbyHostLeft
+  directorySocket.close()
 
-  console.log(`联机冒烟验证通过：房间 ${created.code}，昵称登录、心跳、断线重连、AI补位和快捷聊天正常。`)
+  console.log(`联机冒烟验证通过：房间 ${created.code}，实时目录、进行中状态、座位倒计时、明确退出删除、断线重连、AI补位和快捷聊天正常。`)
 } finally {
   await miniflare.dispose()
 }

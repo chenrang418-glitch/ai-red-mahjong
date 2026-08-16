@@ -39,6 +39,7 @@ function back() {
     v-if="online.room.value"
     :room="online.room.value"
     :connected="online.connected.value"
+    :pending-action="online.pendingAction.value"
     @command="online.send"
     @leave="leaveRoom"
   />
@@ -97,18 +98,18 @@ function back() {
 
       <article v-if="online.session.value" class="hub-card room-directory-card">
         <header>
-          <div><small>OPEN ROOMS</small><h2>可加入的房间</h2></div>
+          <div><small>LIVE ROOMS</small><h2>房间动态</h2></div>
           <button type="button" @click="online.refreshRooms">刷新房间</button>
         </header>
         <div v-if="online.rooms.value.length" class="room-directory-list">
           <section v-for="entry in online.rooms.value" :key="entry.code" class="room-directory-row">
             <div class="room-directory-main">
-              <div><strong>房间 {{ entry.code }}</strong><span>房主：{{ entry.hostNickname }}</span></div>
+              <div><strong>房间 {{ entry.code }}</strong><span>房主：{{ entry.hostNickname }}</span><b :class="entry.phase">{{ entry.phase === 'lobby' ? '等待加入' : '牌局进行中' }}</b></div>
               <div class="room-directory-players">
-                <span v-for="player in entry.players" :key="`${entry.code}-${player.nickname}`" :class="{ offline: !player.connected }">
-                  {{ player.nickname }}<i v-if="player.isHost">房主</i><i v-else-if="!player.connected">离线</i>
+                <span v-for="player in entry.players" :key="`${entry.code}-${player.nickname}`" :class="{ offline: !player.connected && player.kind === 'human', ai: player.kind === 'ai' || player.trustee }">
+                  {{ player.nickname }}<i v-if="player.isHost">房主</i><i v-if="player.kind === 'ai'">AI</i><i v-else-if="player.trustee">托管</i><i v-if="player.kind === 'human' && !player.connected">离线</i>
                 </span>
-                <span v-for="seat in entry.availableSeats" :key="`${entry.code}-empty-${seat}`" class="empty-seat">空位</span>
+                <span v-for="seat in entry.phase === 'lobby' ? entry.availableSeats : 0" :key="`${entry.code}-empty-${seat}`" class="empty-seat">空位</span>
               </div>
             </div>
             <div class="room-directory-rules">
@@ -116,12 +117,12 @@ function back() {
               <span>抢牌 {{ entry.settings.claimWindowMs / 1000 }}秒</span>
               <b>{{ entry.occupiedSeats }}/4 人</b>
             </div>
-            <button class="primary" type="button" :disabled="entry.availableSeats === 0 || online.connecting.value" @click="online.joinRoom(entry.code)">
-              {{ entry.availableSeats === 0 ? '房间已满' : online.connecting.value ? '正在加入…' : '加入房间' }}
+            <button class="primary" type="button" :disabled="!entry.joinable || online.connecting.value" @click="online.joinRoom(entry.code)">
+              {{ entry.phase === 'playing' ? '进行中' : entry.availableSeats === 0 ? '房间已满' : online.connecting.value ? '正在加入…' : '加入房间' }}
             </button>
           </section>
         </div>
-        <p v-else class="empty-ranking">暂时没有可加入的房间，可以创建新房间或输入房间号。</p>
+        <p v-else class="empty-ranking">暂时没有等待中或进行中的房间，可以创建新房间。</p>
       </article>
 
       <article class="hub-card leaderboard-card">
@@ -183,8 +184,12 @@ function back() {
 .room-directory-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 112px; gap: 14px; align-items: center; padding: 14px; border: 1px solid #29443b; border-radius: 12px; background: #10261f; }
 .room-directory-main > div:first-child { display: flex; align-items: baseline; gap: 10px; }
 .room-directory-main > div:first-child span { color: #80958e; font-size: 9px; }
+.room-directory-main > div:first-child b { margin-left: auto; padding: 3px 7px; border-radius: 99px; font-size: 8px; white-space: nowrap; }
+.room-directory-main > div:first-child b.lobby { background: rgba(91,184,130,.13); color: #7bd19e; }
+.room-directory-main > div:first-child b.playing { background: rgba(224,178,73,.13); color: #e3bd63; }
 .room-directory-players { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .room-directory-players > span { padding: 5px 7px; border-radius: 7px; background: #1a392f; color: #dfe7e2; font-size: 9px; }
+.room-directory-players > span.ai { border: 1px solid rgba(214,179,88,.22); background: #20372c; }
 .room-directory-players > span.offline { opacity: .58; }
 .room-directory-players > span.empty-seat { border: 1px dashed #3a574e; background: transparent; color: #71867f; }
 .room-directory-players i { margin-left: 5px; color: #d9bc67; font-style: normal; font-size: 7px; }

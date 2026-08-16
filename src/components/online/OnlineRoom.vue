@@ -7,9 +7,9 @@ import ChatPanel from './ChatPanel.vue'
 import { gameAudio } from '@/composables/useGameAudio'
 import { tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
-import type { OnlineRoomView, RoomActionDraft, RoomCommand } from '@/online/types'
+import type { OnlinePendingAction, OnlineRoomView, RoomActionDraft, RoomCommand } from '@/online/types'
 
-const props = defineProps<{ room: OnlineRoomView; connected: boolean }>()
+const props = defineProps<{ room: OnlineRoomView; connected: boolean; pendingAction: OnlinePendingAction | null }>()
 const emit = defineEmits<{ command: [command: RoomCommand]; leave: [] }>()
 const selectedTileId = ref('')
 const sideTab = ref<'events' | 'chat'>('events')
@@ -44,6 +44,20 @@ watch(() => props.connected, (connected) => {
 const isHost = computed(() => props.room.selfUserId === props.room.hostUserId)
 const selfSeat = computed(() => props.room.seats[props.room.selfSeatId])
 const human = computed(() => props.room.game?.players[props.room.selfSeatId] ?? null)
+const displayedGame = computed(() => {
+  const game = props.room.game
+  const pending = props.pendingAction
+  if (!game || pending?.type !== 'discard') return game
+  const player = game.players[props.room.selfSeatId]
+  const tile = player.hand.find((candidate) => candidate.id === pending.tileId)
+  if (!tile) return game
+  const optimistic = structuredClone(game)
+  const optimisticPlayer = optimistic.players[props.room.selfSeatId]
+  optimisticPlayer.hand = optimisticPlayer.hand.filter((candidate) => candidate.id !== pending.tileId)
+  optimisticPlayer.discards.push(structuredClone(tile))
+  return optimistic
+})
+const displayedTrustee = computed(() => props.pendingAction?.type === 'trustee' ? props.pendingAction.enabled : selfSeat.value.trustee)
 const selectedTile = computed(() => human.value?.hand.find((tile) => tile.id === selectedTileId.value) ?? null)
 const sortedScores = computed(() => props.room.game ? [...props.room.game.players].sort((left, right) => (right.points ?? right.stats.netPoints) - (left.points ?? left.stats.netPoints)) : [])
 const claimSeconds = computed(() => props.room.deadlineAt ? Math.max(0, (props.room.deadlineAt - clock.value) / 1000).toFixed(1) : '')
@@ -123,7 +137,7 @@ function sendChat(text: string, quick: boolean) {
       <div class="brand"><span>中</span><div><strong>联机红中麻将</strong><small>房间 {{ room.code }}</small></div></div>
       <div class="status-pill" :class="room.game.phase">{{ connected ? room.notice : '连接中断，正在重连…' }}</div>
       <nav>
-        <button type="button" :class="{ trustee: selfSeat.trustee }" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ selfSeat.trustee ? '取消托管' : 'AI托管' }}</button>
+        <button type="button" :class="{ trustee: displayedTrustee, pending: pendingAction?.type === 'trustee' }" :disabled="!!pendingAction" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ pendingAction?.type === 'trustee' ? pendingAction.enabled ? '开启托管中…' : '取消托管中…' : selfSeat.trustee ? '取消托管' : 'AI托管' }}</button>
         <AudioControl />
         <button class="mobile-chat-button" type="button" @click="mobileChatOpen = true">聊天</button>
         <button class="danger" type="button" @click="leave">退出房间</button>
@@ -150,15 +164,23 @@ function sendChat(text: string, quick: boolean) {
 
       <section class="table-column">
         <MahjongTable
-          :state="room.game"
+          :state="displayedGame!"
           :human-id="room.selfSeatId"
           :selected-tile-id="selectedTileId"
-          :readonly="!room.legal.canDiscard"
+          :readonly="!room.legal.canDiscard || !!pendingAction"
           :reveal-all="room.game.phase === 'settlement' || room.game.phase === 'match-over'"
+          :turn-timer="room.turnTimer"
+          :timer-now="clock"
           @select-tile="selectTile"
         />
         <div class="action-dock">
-          <template v-if="selfSeat.trustee">
+          <template v-if="pendingAction?.type === 'discard'">
+            <span class="waiting-dot"></span><span>出牌已显示，正在等待服务器确认…</span>
+          </template>
+          <template v-else-if="pendingAction?.type === 'trustee'">
+            <span class="waiting-dot"></span><span>{{ pendingAction.enabled ? '正在开启AI托管…' : '正在取消AI托管…' }}</span>
+          </template>
+          <template v-else-if="selfSeat.trustee">
             <span class="waiting-dot"></span><span>AI 正在以真人波动型 · 凡人 · 猴急托管</span><button type="button" @click="emit('command', { type: 'trustee', enabled: false })">取消托管</button>
           </template>
           <template v-else-if="room.legal.claimActions.length">
@@ -244,6 +266,7 @@ function sendChat(text: string, quick: boolean) {
 .lobby-card footer p { margin-right: auto; color: #7e938c; font-size: 11px; }
 .lobby-card footer button { min-width: 150px; padding: 13px; border: 0; border-radius: 10px; background: #e2c168; color: #20261e; font-weight: 900; cursor: pointer; }
 .topbar nav button.trustee { border-color: #bd9c48; color: #f0cf73; }
+.topbar nav button.pending { opacity: .78; cursor: wait; }
 .room-facts { display: grid; gap: 7px; }
 .room-facts span { display: flex; justify-content: space-between; color: #7f948d; font-size: 9px; }
 .room-facts b { color: #d9c47e; }

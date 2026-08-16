@@ -30,10 +30,14 @@ export interface OnlineRoomDirectoryPlayer {
   nickname: string
   connected: boolean
   isHost: boolean
+  kind: 'human' | 'ai'
+  trustee: boolean
 }
 
 export interface OnlineRoomDirectoryEntry {
   code: string
+  phase: RoomPhase
+  joinable: boolean
   hostNickname: string
   players: OnlineRoomDirectoryPlayer[]
   occupiedSeats: number
@@ -41,6 +45,17 @@ export interface OnlineRoomDirectoryEntry {
   settings: OnlineRoomSettings
   updatedAt: number
 }
+
+export interface OnlineTurnTimer {
+  seatId: number
+  startedAt: number
+  deadlineAt: number
+  kind: 'turn' | 'ai'
+}
+
+export type OnlinePendingAction =
+  | { type: 'discard'; tileId: string; version: number }
+  | { type: 'trustee'; enabled: boolean; version: number }
 
 export interface OnlineSeatView {
   seatId: number
@@ -84,6 +99,7 @@ export interface OnlineRoomView {
   game: GameState | null
   legal: OnlineLegalActions
   deadlineAt: number | null
+  turnTimer: OnlineTurnTimer | null
   notice: string
   chat: ChatMessage[]
 }
@@ -113,6 +129,9 @@ export type RoomServerMessage =
   | { type: 'chat'; message: ChatMessage }
   | { type: 'error'; message: string }
   | { type: 'pong'; at: number }
+
+export type LobbyServerMessage =
+  | { type: 'rooms-updated'; at: number }
 
 export const QUICK_CHAT_MESSAGES = ['快点快点', '这也碰？', '你太菜了', '乐乐'] as const
 export const QUICK_CHAT_EMOJIS = ['😂', '👍', '😅', '😎', '😡', '😭', '🀄', '🎉'] as const

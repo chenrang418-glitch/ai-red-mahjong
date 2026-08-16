@@ -9,6 +9,10 @@
       {
         "name": "ROOMS",
         "class_name": "MahjongRoom"
+      },
+      {
+        "name": "LOBBY",
+        "class_name": "MahjongLobby"
       }
     ]
   },
@@ -16,6 +20,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["MahjongRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["MahjongLobby"]
     }
   ],
   "d1_databases": [

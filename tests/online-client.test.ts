@@ -4,6 +4,15 @@ import {
   ONLINE_PONG_TIMEOUT_MS,
   useOnlineGame,
 } from '../src/composables/useOnlineGame'
+import { RoomCoordinator } from '../server/room-core'
+import type { OnlineRoomSettings } from '@/online/types'
+
+const roomSettings: OnlineRoomSettings = {
+  mode: 'finite',
+  initialPoints: 30,
+  claimWindowMs: 4000,
+  turnWindowMs: 30_000,
+}
 
 class FakeWebSocket extends EventTarget {
   static readonly CONNECTING = 0
@@ -78,10 +87,11 @@ function installBrowserGlobals() {
 async function connectedClient() {
   const online = useOnlineGame()
   await online.login('测试玩家')
+  const directorySocket = FakeWebSocket.instances.at(-1)!
   online.joinRoom('ABC234')
   const socket = FakeWebSocket.instances.at(-1)!
   socket.open()
-  return { online, socket }
+  return { online, socket, directorySocket }
 }
 
 beforeEach(() => {
@@ -105,17 +115,17 @@ describe('联机客户端连接恢复', () => {
     socket.close()
 
     await vi.advanceTimersByTimeAsync(799)
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(1)
     expect(FakeWebSocket.instances).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(FakeWebSocket.instances).toHaveLength(3)
 
-    const reconnected = FakeWebSocket.instances[1]
+    const reconnected = FakeWebSocket.instances[2]
     reconnected.open()
     online.leaveRoom()
     expect(reconnected.sent).toContain(JSON.stringify({ type: 'leave-room' }))
 
     await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS * 2)
-    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(FakeWebSocket.instances).toHaveLength(3)
   })
 
   it('心跳超过10秒没有应答时关闭旧连接并重连', async () => {
@@ -127,7 +137,7 @@ describe('联机客户端连接恢复', () => {
     expect(online.error.value).toContain('连接响应超时')
 
     await vi.advanceTimersByTimeAsync(800)
-    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(FakeWebSocket.instances).toHaveLength(3)
   })
 
   it('Safari从后台恢复时会立即替换已经失活的连接', async () => {
@@ -139,6 +149,46 @@ describe('联机客户端连接恢复', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
-    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(FakeWebSocket.instances).toHaveLength(3)
+  })
+
+  it('大厅目录收到推送后会合并短时间通知并自动刷新', async () => {
+    const online = useOnlineGame()
+    await online.login('测试玩家')
+    const directorySocket = FakeWebSocket.instances.at(-1)!
+    directorySocket.open()
+    const fetchMock = vi.mocked(fetch)
+    const initialRoomRequests = fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/api/rooms')).length
+
+    directorySocket.message({ type: 'rooms-updated', at: Date.now() })
+    directorySocket.message({ type: 'rooms-updated', at: Date.now() + 1 })
+    await vi.advanceTimersByTimeAsync(119)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/api/rooms'))).toHaveLength(initialRoomRequests)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/api/rooms'))).toHaveLength(initialRoomRequests + 1)
+  })
+
+  it('出牌和托管发送后立即进入待确认状态，成功或失败都会回到权威状态', async () => {
+    const { online, socket } = await connectedClient()
+    const coordinator = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '测试玩家' }, roomSettings, Date.now())
+    coordinator.handle('u1', { type: 'start-game' }, Date.now() + 1)
+    const initialRoom = coordinator.view('u1')
+    socket.message({ type: 'room-state', room: initialRoom })
+    const tileId = initialRoom.game!.players[0].hand[0].id
+
+    online.send({ type: 'discard', tileId, actionId: 'pending-discard', version: initialRoom.version })
+    expect(online.pendingAction.value).toEqual({ type: 'discard', tileId, version: initialRoom.version })
+
+    const acceptedRoom = structuredClone(initialRoom)
+    acceptedRoom.version += 1
+    acceptedRoom.game!.players[0].hand = acceptedRoom.game!.players[0].hand.filter((tile) => tile.id !== tileId)
+    socket.message({ type: 'room-state', room: acceptedRoom })
+    expect(online.pendingAction.value).toBeNull()
+
+    online.send({ type: 'trustee', enabled: true })
+    expect(online.pendingAction.value).toEqual({ type: 'trustee', enabled: true, version: acceptedRoom.version })
+    socket.message({ type: 'error', message: '服务器拒绝测试操作' })
+    expect(online.pendingAction.value).toBeNull()
+    expect(online.error.value).toBe('服务器拒绝测试操作')
   })
 })
