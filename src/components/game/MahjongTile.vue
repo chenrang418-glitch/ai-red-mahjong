@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { tileLabel } from '@/game/tiles'
+import { isPlaceholderTile, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
 
 const props = withDefaults(defineProps<{
@@ -25,8 +25,12 @@ const assets = import.meta.glob('../../assets/MaJong-UI/*.svg', {
   import: 'default',
 }) as Record<string, string>
 
+// 服务器发来的占位牌（别人的手牌、暗杠、牌墙）一律按牌背渲染，
+// 不能因为占位牌的花色恰好写成红中就把它画成红中。
+const concealed = computed(() => props.hidden || (!!props.tile && isPlaceholderTile(props.tile)))
+
 const assetUrl = computed(() => {
-  if (!props.tile || props.hidden) return ''
+  if (!props.tile || concealed.value) return ''
   const filename = props.tile.suit === 'zhong'
     ? '红中.svg'
     : `${props.tile.suit === 'dot' ? 'bing' : props.tile.suit === 'bamboo' ? 'tiao' : 'wan'}-${props.tile.rank}.svg`
@@ -34,7 +38,7 @@ const assetUrl = computed(() => {
 })
 
 function choose() {
-  if (!props.disabled && props.tile && !props.hidden) emit('select', props.tile)
+  if (!props.disabled && props.tile && !concealed.value) emit('select', props.tile)
 }
 </script>
 
@@ -42,12 +46,12 @@ function choose() {
   <button
     type="button"
     class="mahjong-tile"
-    :class="{ hidden, selected, disabled, compact }"
+    :class="{ hidden: concealed, selected, disabled, compact }"
     :disabled="disabled"
-    :aria-label="hidden ? '牌背' : tile ? tileLabel(tile) : '空牌'"
+    :aria-label="concealed ? '牌背' : tile ? tileLabel(tile) : '空牌'"
     @click="choose"
   >
-    <span v-if="hidden" class="tile-back-mark">中</span>
+    <span v-if="concealed" class="tile-back-mark">中</span>
     <img v-else-if="assetUrl" :src="assetUrl" :alt="tile ? tileLabel(tile) : ''">
     <span v-else-if="tile" class="tile-fallback">{{ tileLabel(tile) }}</span>
   </button>

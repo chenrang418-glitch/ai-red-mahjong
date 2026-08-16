@@ -9,7 +9,12 @@ import { tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
 import type { OnlinePendingAction, OnlineRoomView, RoomActionDraft, RoomCommand } from '@/online/types'
 
-const props = defineProps<{ room: OnlineRoomView; connected: boolean; pendingAction: OnlinePendingAction | null }>()
+const props = defineProps<{
+  room: OnlineRoomView
+  connected: boolean
+  pendingAction: OnlinePendingAction | null
+  chatBubbles: Record<number, { id: string; text: string }>
+}>()
 const emit = defineEmits<{ command: [command: RoomCommand]; leave: [] }>()
 const selectedTileId = ref('')
 const sideTab = ref<'events' | 'chat'>('events')
@@ -121,6 +126,23 @@ const selfTurnSeconds = computed(() => {
   return String(Math.max(0, Math.ceil((timer.deadlineAt - serverClock.value) / 1000)))
 })
 
+// 座位上直接标出「谁在托管、谁掉线了」，不用再去积分面板里比对。
+const seatStatus = computed(() => {
+  const result: Record<number, string> = {}
+  for (const seat of props.room.seats) {
+    if (seat.kind === 'ai') result[seat.seatId] = '房间AI'
+    else if (seat.trustee) result[seat.seatId] = 'AI托管'
+    else if (!seat.connected) result[seat.seatId] = '离线'
+  }
+  return result
+})
+
+const seatBubbles = computed(() => {
+  const result: Record<number, string> = {}
+  for (const [seatId, bubble] of Object.entries(props.chatBubbles)) result[Number(seatId)] = bubble.text
+  return result
+})
+
 const eventTypeLabel: Record<string, string> = {
   'match-start': '整场开始', dice: '投骰', 'round-start': '本局开始', draw: '摸牌',
   discard: '出牌', peng: '碰', 'ming-gang': '明杠', 'an-gang': '暗杠',
@@ -144,7 +166,7 @@ function discardSelected() {
 }
 
 function leave() {
-  if (window.confirm('离开房间后，断线超过30秒将由AI托管。确定离开吗？')) emit('leave')
+  if (window.confirm('离开后你的座位会立即由 AI 接管，牌局继续。用同一个昵称输入房间号还能回来。确定离开吗？')) emit('leave')
 }
 
 function sendChat(text: string, quick: boolean) {
@@ -225,6 +247,8 @@ function sendChat(text: string, quick: boolean) {
           :reveal-all="room.game.phase === 'settlement' || room.game.phase === 'match-over'"
           :turn-timer="room.turnTimer"
           :timer-now="serverClock"
+          :seat-status="seatStatus"
+          :bubbles="seatBubbles"
           @select-tile="selectTile"
         />
         <div class="action-dock">

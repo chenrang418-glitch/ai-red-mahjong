@@ -8,6 +8,7 @@ import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
 import ReplayCenter from '@/components/game/ReplayCenter.vue'
 import OnlineHub from '@/components/online/OnlineHub.vue'
+import { gameAudio } from '@/composables/useGameAudio'
 import { useMahjongGame } from '@/composables/useMahjongGame'
 import { downloadJson } from '@/game/persistence'
 import { countFaces, faceKey, tileFromFace, tileLabel } from '@/game/tiles'
@@ -22,11 +23,27 @@ const replayOpen = ref(false)
 const rulesOpen = ref(false)
 const diceOpen = ref(false)
 const clock = ref(Date.now())
-const clockTimer = window.setInterval(() => { clock.value = Date.now() }, 100)
+let clockTimer: number | null = null
 let diceTimer: number | null = null
 
+// 只有抢牌倒计时在跑时才需要刷新时钟，否则常驻的 100ms 定时器会让整桌牌一直重绘。
+function syncTicking() {
+  clock.value = Date.now()
+  const needsTicking = game.claimDeadline.value !== null && !document.hidden
+  if (!needsTicking) {
+    if (clockTimer !== null) window.clearInterval(clockTimer)
+    clockTimer = null
+    return
+  }
+  if (clockTimer === null) clockTimer = window.setInterval(() => { clock.value = Date.now() }, 100)
+}
+
+watch(() => game.claimDeadline.value, syncTicking, { immediate: true })
+document.addEventListener('visibilitychange', syncTicking)
+
 onBeforeUnmount(() => {
-  window.clearInterval(clockTimer)
+  if (clockTimer !== null) window.clearInterval(clockTimer)
+  document.removeEventListener('visibilitychange', syncTicking)
   if (diceTimer !== null) window.clearTimeout(diceTimer)
 })
 
@@ -38,8 +55,9 @@ const anGangFaces = computed(() => {
   if (!human.value || !game.state.value || game.state.value.wall.length === 0 || !game.isHumanTurn.value || !isAfterDraw.value) return []
   return [...countFaces(human.value.hand).entries()].filter(([face, count]) => face !== 'zhong' && count === 4).map(([face]) => face)
 })
+// 补杠不要求刚摸完牌：碰完手上还留着第四张时，可以直接杠。
 const buGangFaces = computed(() => {
-  if (!human.value || !game.state.value || game.state.value.wall.length === 0 || !game.isHumanTurn.value || !isAfterDraw.value) return []
+  if (!human.value || !game.state.value || game.state.value.wall.length === 0 || !game.isHumanTurn.value) return []
   const faces = countFaces(human.value.hand)
   return human.value.melds.filter((meld) => meld.type === 'peng').map((meld) => faceKey(meld.tiles[0])).filter((face) => (faces.get(face) ?? 0) > 0)
 })
@@ -117,7 +135,8 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     @back="appMode = 'home'"
   />
 
-  <div v-else class="game-page">
+  <!-- iOS 只允许在用户手势里恢复音频，所以牌桌上任何一次触摸都顺带解锁一次 -->
+  <div v-else class="game-page" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
       <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
@@ -173,7 +192,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
         />
         <div class="action-dock">
           <template v-if="game.state.value.phase === 'claiming' && game.humanClaimOption.value">
-            <div class="claim-clock"><b>{{ claimSeconds }}</b><span>秒内先喊先得</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
+            <div class="claim-clock"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
             <button v-if="game.humanClaimOption.value.actions.includes('peng')" class="gold" @click="game.humanClaim('peng')">碰</button>
             <button v-if="game.humanClaimOption.value.actions.includes('ming-gang')" class="red" @click="game.humanClaim('ming-gang')">杠</button>
             <button @click="game.humanPassClaim">过</button>
@@ -241,7 +260,8 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
         <article><b>抓码</b><p>固定预留六码。有红中胡抓4张，无红中胡抓6张；1、5、9和红中算码。</p></article>
         <article><b>积分</b><p>自摸向三家各收1分，每码再向三家各收1分；余额不足时最多付到0。</p></article>
         <article><b>杠</b><p>暗杠、补杠三家各付1分；明杠由出牌者付1分。杠分立即结算并保留。</p></article>
-        <article><b>抢牌</b><p>每次出牌都先等待响应；碰和明杠不设固定优先级，谁先有效声明谁获得弃牌。无人可抢或全部选择过时，会短暂停留后再由下家摸牌。</p></article>
+        <article><b>抢牌</b><p>每次出牌都先开一个响应窗口。同一张牌最多只有一家能碰或杠（四张同牌凑不出两家各两张），所以不存在抢先冲突。无人可抢或都选择过之后，会短暂停留再由下家摸牌。</p></article>
+        <article><b>补杠</b><p>刚碰完手上还留着第四张时，可以直接补杠，不必等下一次摸牌；暗杠仍然要摸牌后才能开。</p></article>
         <article><b>庄家</b><p>四家投骰最高者首庄；后续赢家坐庄，流局留庄；庄家不加倍。</p></article>
         <article><b>AI设置</b><p>性格决定策略偏好，智能决定计算深度，速度只控制行动等待；三项均可在对局中切换。</p></article>
       </div>

@@ -181,4 +181,14 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
 .ghost-button { background: transparent; }
 @media (max-width: 900px) { .players-grid { grid-template-columns: 1fr 1fr; } .ai-guide { grid-template-columns: 1fr; } .guide-title { padding-bottom: 2px; } .ai-guide article { border-left: 0; border-top: 1px solid #29453d; } }
 @media (max-width: 620px) { .players-grid, .mode-switch { grid-template-columns: 1fr; } .setup-footer, .card-heading { flex-wrap: wrap; } .setup-footer p { flex-basis: 100%; } .heading-actions { width: 100%; } .heading-actions button { flex: 1; } .seal { display: none; } }
+
+/* 触屏上手指点不准 33px 高的下拉框，开局页的每个控件都放大到能一次点中 */
+@media (pointer: coarse) {
+  input, select { min-height: 46px; padding: 11px 12px; font-size: 15px; }
+  input[type="radio"] { min-height: 0; }
+  .mode-switch input { width: 22px; height: 22px; }
+  button { min-height: 48px; padding: 13px 18px; font-size: 14px; }
+  .player-config label, .claim-setting { gap: 6px; font-size: 12px; margin-top: 12px; }
+  .inline-fields { gap: 9px; }
+}
 </style>

@@ -92,10 +92,12 @@ describe('抢牌响应流程', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-15T00:00:00Z'))
     vi.stubGlobal('localStorage', memoryStorage())
-    vi.stubGlobal('document', { hidden: false })
+    vi.stubGlobal('document', { hidden: false, addEventListener: () => {}, removeEventListener: () => {} })
     vi.stubGlobal('window', {
       clearTimeout: globalThis.clearTimeout.bind(globalThis),
       setTimeout: globalThis.setTimeout.bind(globalThis),
+      addEventListener: () => {},
+      removeEventListener: () => {},
     })
     vi.spyOn(Math, 'random').mockReturnValue(0)
   })

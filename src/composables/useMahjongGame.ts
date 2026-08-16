@@ -1,15 +1,16 @@
-import { computed, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { gameAudio } from './useGameAudio'
 import { AI_SPEED_DELAY_RANGES, decideClaim, decideTurn } from '@/game/ai'
 import { GameEngine } from '@/game/engine'
 import { claimMaskDelay } from '@/game/timing'
 import {
+  activeReplayChunkId,
   clearActiveGame,
   deleteActiveReplay,
   loadActiveReplay,
   loadActiveGame,
   saveActiveGame,
-  saveActiveReplay,
+  saveActiveReplayChunk,
   saveReplay,
   type ReplayFrame,
   type ReplayRecord,
@@ -29,6 +30,9 @@ function turnDelay(profile: AIProfile): number {
 function actionPacingDelay() {
   return 180 + Math.round(Math.random() * 140)
 }
+
+const SAVE_THROTTLE_MS = 600
+const MAX_REPLAY_FRAMES = 3000
 
 export function useMahjongGame() {
   const engine = shallowRef<GameEngine | null>(null)
@@ -50,6 +54,17 @@ export function useMahjongGame() {
   let replaySaved = false
   let replaySaving = false
   let activeReplayQueue = Promise.resolve()
+  let saveTimer: number | null = null
+
+  // 离开页面前把攒着的存档写下去，否则刷新会丢掉最后几步。
+  const flushBeforeUnload = () => flushSave()
+  window.addEventListener('pagehide', flushBeforeUnload)
+  document.addEventListener('visibilitychange', flushBeforeUnload)
+  onBeforeUnmount(() => {
+    window.removeEventListener('pagehide', flushBeforeUnload)
+    document.removeEventListener('visibilitychange', flushBeforeUnload)
+    cancelScheduledSave()
+  })
 
   const humanPlayer = computed(() => state.value?.players.find((player) => player.isHuman) ?? null)
   const isHumanTurn = computed(() => {
@@ -76,21 +91,34 @@ export function useMahjongGame() {
     const eventCount = state.value.events.length
     if (previous?.eventCount === eventCount && previous.state.phase === state.value.phase) return
     const frameState = structuredClone(state.value)
+    const wallCount = frameState.wall.length
+    const maReserveCount = frameState.maReserve.length
     frameState.events = frameState.events.slice(-1)
     frameState.transfers = frameState.transfers.slice(-8)
-    frames.value.push({ index: frames.value.length, eventCount, state: frameState })
+    // 回放只需要牌墙和码区还剩几张，牌面本身丢掉，单帧体积能省三成以上。
+    frameState.wall = []
+    frameState.maReserve = []
+    frames.value.push({ index: frames.value.length, eventCount, state: frameState, wallCount, maReserveCount })
+    if (frames.value.length > MAX_REPLAY_FRAMES) frames.value.splice(0, frames.value.length - MAX_REPLAY_FRAMES)
   }
 
+  // 只写当前这一局的分片。以前每走一步都要把整场牌谱重写一遍，
+  // 打到二十局时单次写入已经是七兆多，手机上会明显卡顿。
   function persistActiveReplay() {
     if (!state.value || state.value.phase === 'match-over') return
-    const record = {
-      id: state.value.matchId,
+    const round = state.value.round
+    const roundFrames = frames.value.filter((frame) => frame.state.round === round)
+    if (!roundFrames.length) return
+    const chunk = {
+      id: activeReplayChunkId(state.value.matchId, round),
+      matchId: state.value.matchId,
+      round,
       startedAt: startedAt.value,
-      frames: structuredClone(frames.value),
+      frames: structuredClone(roundFrames),
     }
     activeReplayQueue = activeReplayQueue
       .catch(() => undefined)
-      .then(() => saveActiveReplay(record))
+      .then(() => saveActiveReplayChunk(chunk))
       .catch((cause) => { error.value = `进行中牌谱保存失败：${cause instanceof Error ? cause.message : String(cause)}` })
   }
 
@@ -105,11 +133,36 @@ export function useMahjongGame() {
     if (!engine.value) return
     state.value = engine.value.snapshot()
     gameAudio.processEvents(state.value)
-    saveActiveGame(state.value)
-    savedGameAvailable.value = true
     recordFrame()
-    if (state.value.phase === 'match-over') void persistReplay()
-    else persistActiveReplay()
+    if (state.value.phase === 'match-over') {
+      cancelScheduledSave()
+      void persistReplay()
+      return
+    }
+    // 出牌节奏里每一步都写存档没有必要，合并成定时落盘；关键节点再强制写一次。
+    if (state.value.phase === 'settlement') flushSave()
+    else scheduleSave()
+  }
+
+  function scheduleSave() {
+    if (saveTimer !== null) return
+    saveTimer = window.setTimeout(() => {
+      saveTimer = null
+      flushSave()
+    }, SAVE_THROTTLE_MS)
+  }
+
+  function cancelScheduledSave() {
+    if (saveTimer !== null) window.clearTimeout(saveTimer)
+    saveTimer = null
+  }
+
+  function flushSave() {
+    cancelScheduledSave()
+    if (!state.value || state.value.phase === 'match-over') return
+    if (saveActiveGame(state.value)) savedGameAvailable.value = true
+    else error.value = '本地存档空间不足，当前牌局可能无法续玩'
+    persistActiveReplay()
   }
 
   async function persistReplay() {
@@ -140,6 +193,7 @@ export function useMahjongGame() {
   function startMatch(config: MatchConfig) {
     runToken += 1
     cancelClaimTimers()
+    cancelScheduledSave()
     const previous = loadActiveGame()
     if (previous) queueActiveReplayDelete(previous.matchId)
     clearActiveGame()
@@ -176,6 +230,7 @@ export function useMahjongGame() {
   function abandonMatch() {
     runToken += 1
     cancelClaimTimers()
+    cancelScheduledSave()
     if (state.value) queueActiveReplayDelete(state.value.matchId)
     engine.value = null
     state.value = null

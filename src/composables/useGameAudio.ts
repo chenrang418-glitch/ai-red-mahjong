@@ -16,8 +16,9 @@ const LEGACY_STORAGE_KEY = atob('Z3VhbmdzaGFuLW1haGpvbmctYXVkaW8tdjE=')
 const defaults: GameAudioSettings = {
   musicEnabled: true,
   effectsEnabled: true,
-  musicVolume: 0.18,
-  effectsVolume: 0.62,
+  // 默认拉满，进来就听得到；嫌吵可以在声音面板里随时调低，调过一次就会记住。
+  musicVolume: 1,
+  effectsVolume: 1,
   muted: false,
 }
 
@@ -92,10 +93,21 @@ function ensureContext(): AudioContext | null {
   return context
 }
 
-function unlock() {
+// 手机切到别的应用或别的标签页时，浏览器会挂起（iOS 上是 interrupted）音频上下文。
+// 回到页面后必须显式恢复并重设增益，否则整局都是哑的——而且这时候
+// 不能依赖「音乐正在放」之类的前置条件，音效同样要靠它救回来。
+function resumeAudio() {
   const audio = ensureContext()
-  if (!audio || audio.state === 'running') return
+  if (!audio) return
+  if (audio.state === 'running') {
+    syncGains()
+    return
+  }
   void audio.resume().then(syncGains).catch(() => undefined)
+}
+
+function unlock() {
+  resumeAudio()
 }
 
 function tone(
@@ -142,7 +154,8 @@ function playEffect(effect: EffectName, delay = 0) {
   if (!gameAudioSettings.effectsEnabled || gameAudioSettings.effectsVolume <= 0 || gameAudioSettings.muted || document.hidden) return
   const audio = ensureContext()
   if (!audio) return
-  void audio.resume()
+  // 上下文被挂起过的话，这里顺手救活并重设增益，下一声就能正常响。
+  if (audio.state !== 'running') resumeAudio()
   const start = audio.currentTime + 0.015 + delay
   const volume = 1
   if (effect === 'dice') {
@@ -246,10 +259,19 @@ function stopMatch() {
 }
 
 if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopMusic()
-    else if (activeMatchId) startMusic()
-  })
+  const handleReturn = () => {
+    if (document.hidden) {
+      stopMusic()
+      return
+    }
+    // 切回来先把上下文救活，再决定要不要续上音乐。
+    resumeAudio()
+    if (activeMatchId) startMusic()
+  }
+  document.addEventListener('visibilitychange', handleReturn)
+  // iOS 从后台恢复、或从 bfcache 回来时不一定触发 visibilitychange。
+  window.addEventListener('pageshow', handleReturn)
+  window.addEventListener('focus', handleReturn)
 }
 
 export const gameAudio = {

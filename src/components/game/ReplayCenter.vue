@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import MahjongTable from './MahjongTable.vue'
 import { deleteReplay, downloadJson, getReplay, listReplays, type ReplayRecord, type ReplaySummary } from '@/game/persistence'
+import { placeholderTiles } from '@/game/tiles'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -11,7 +12,17 @@ const selected = ref<ReplayRecord | null>(null)
 const frameIndex = ref(0)
 const loading = ref(false)
 const revealAll = ref(false)
-const frame = computed(() => selected.value?.frames[frameIndex.value]?.state ?? null)
+// 帧里不再保存牌墙和码区的牌面，只有数量；渲染这一帧时补回占位牌，牌桌上的计数才对得上。
+const frame = computed(() => {
+  const record = selected.value?.frames[frameIndex.value]
+  if (!record) return null
+  if (record.wallCount === undefined && record.maReserveCount === undefined) return record.state
+  return {
+    ...record.state,
+    wall: placeholderTiles(record.wallCount ?? 0, 'replay-wall'),
+    maReserve: placeholderTiles(record.maReserveCount ?? 0, 'replay-ma'),
+  }
+})
 const humanId = computed(() => frame.value?.players.find((player) => player.isHuman)?.id ?? 0)
 
 watch(() => props.open, async (open) => {

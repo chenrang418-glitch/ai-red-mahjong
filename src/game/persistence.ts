@@ -6,6 +6,8 @@ const DB_VERSION = 2
 const REPLAY_STORE = 'replays'
 const ACTIVE_REPLAY_STORE = 'active-replays'
 const DB_MIGRATION_KEY = 'red-mahjong-storage-migrated-v1'
+// 牌谱按局分片保存。整场重写一次要写好几 MB，越打越卡；按局写每次只碰当前这一局。
+const CHUNK_SEPARATOR = '::r'
 
 // 旧版本名称只用于一次性迁移，避免改名后丢失已有存档与牌谱。
 const LEGACY_ACTIVE_GAME_KEY = atob('Z3VhbmdzaGFuLW1haGpvbmctYWN0aXZlLXYx')
@@ -15,10 +17,21 @@ export interface ReplayFrame {
   index: number
   eventCount: number
   state: GameState
+  // 牌墙和码区的具体牌面回放时用不到，只存数量，单帧体积能省三成以上。
+  wallCount?: number
+  maReserveCount?: number
 }
 
 export interface ActiveReplayRecord {
   id: string
+  startedAt: number
+  frames: ReplayFrame[]
+}
+
+export interface ActiveReplayChunk {
+  id: string
+  matchId: string
+  round: number
   startedAt: number
   frames: ReplayFrame[]
 }
@@ -39,8 +52,14 @@ export interface ReplaySummary {
   frameCount: number
 }
 
-export function saveActiveGame(state: GameState) {
-  localStorage.setItem(ACTIVE_GAME_KEY, JSON.stringify(state))
+// 存档随局数增长，写满配额时不能直接把异常抛进牌局流程里，只回报失败。
+export function saveActiveGame(state: GameState): boolean {
+  try {
+    localStorage.setItem(ACTIVE_GAME_KEY, JSON.stringify(state))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function loadActiveGame(): GameState | null {
@@ -126,33 +145,57 @@ async function openDatabase(): Promise<IDBDatabase> {
   return database
 }
 
-export async function saveActiveReplay(record: ActiveReplayRecord): Promise<void> {
+export function activeReplayChunkId(matchId: string, round: number): string {
+  return `${matchId}${CHUNK_SEPARATOR}${String(round).padStart(4, '0')}`
+}
+
+function chunkRange(matchId: string): IDBKeyRange {
+  return IDBKeyRange.bound(`${matchId}${CHUNK_SEPARATOR}`, `${matchId}${CHUNK_SEPARATOR}￿`)
+}
+
+export async function saveActiveReplayChunk(chunk: ActiveReplayChunk): Promise<void> {
   const database = await openDatabase()
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(ACTIVE_REPLAY_STORE, 'readwrite')
-    transaction.objectStore(ACTIVE_REPLAY_STORE).put(record)
+    transaction.objectStore(ACTIVE_REPLAY_STORE).put(chunk)
     transaction.oncomplete = () => resolve()
     transaction.onerror = () => reject(transaction.error)
   })
   database.close()
 }
 
-export async function loadActiveReplay(id: string): Promise<ActiveReplayRecord | null> {
+export async function loadActiveReplay(matchId: string): Promise<ActiveReplayRecord | null> {
   const database = await openDatabase()
-  const record = await new Promise<ActiveReplayRecord | undefined>((resolve, reject) => {
-    const request = database.transaction(ACTIVE_REPLAY_STORE, 'readonly').objectStore(ACTIVE_REPLAY_STORE).get(id)
+  const store = database.transaction(ACTIVE_REPLAY_STORE, 'readonly').objectStore(ACTIVE_REPLAY_STORE)
+  const chunks = await new Promise<ActiveReplayChunk[]>((resolve, reject) => {
+    const request = store.getAll(chunkRange(matchId))
+    request.onsuccess = () => resolve(request.result as ActiveReplayChunk[])
+    request.onerror = () => reject(request.error)
+  })
+  // 旧版本把整场牌谱存成一条记录，升级后仍要能接着回放。
+  const legacy = chunks.length ? null : await new Promise<ActiveReplayRecord | undefined>((resolve, reject) => {
+    const request = store.get(matchId)
     request.onsuccess = () => resolve(request.result as ActiveReplayRecord | undefined)
     request.onerror = () => reject(request.error)
   })
   database.close()
-  return record ?? null
+  if (legacy) return legacy
+  if (!chunks.length) return null
+  const ordered = [...chunks].sort((left, right) => left.round - right.round)
+  return {
+    id: matchId,
+    startedAt: ordered[0].startedAt,
+    frames: ordered.flatMap((chunk) => chunk.frames),
+  }
 }
 
-export async function deleteActiveReplay(id: string): Promise<void> {
+export async function deleteActiveReplay(matchId: string): Promise<void> {
   const database = await openDatabase()
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(ACTIVE_REPLAY_STORE, 'readwrite')
-    transaction.objectStore(ACTIVE_REPLAY_STORE).delete(id)
+    const store = transaction.objectStore(ACTIVE_REPLAY_STORE)
+    store.delete(chunkRange(matchId))
+    store.delete(matchId)
     transaction.oncomplete = () => resolve()
     transaction.onerror = () => reject(transaction.error)
   })
@@ -218,5 +261,6 @@ export function downloadJson(filename: string, value: unknown) {
   anchor.href = url
   anchor.download = filename
   anchor.click()
-  URL.revokeObjectURL(url)
+  // 立即回收有的浏览器会来不及取数据，留一秒缓冲。
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
