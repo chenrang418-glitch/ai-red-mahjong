@@ -17,6 +17,20 @@ export function createDeck(): Tile[] {
   return tiles
 }
 
+// 牌背占位：联机时代替别人的暗牌，回放时代替只存了数量的牌墙。
+// id 以 hidden- 开头，界面据此一律渲染成牌背。
+export function placeholderTiles(count: number, prefix: string): Tile[] {
+  return Array.from({ length: Math.max(0, count) }, (_, index) => ({
+    id: `hidden-${prefix}-${index}`,
+    suit: 'zhong' as const,
+    rank: null,
+  }))
+}
+
+export function isPlaceholderTile(tile: Pick<Tile, 'id'>): boolean {
+  return tile.id.startsWith('hidden-')
+}
+
 export function faceKey(tile: Pick<Tile, 'suit' | 'rank'>): string {
   return tile.suit === 'zhong' ? 'zhong' : `${tile.suit}-${tile.rank}`
 }

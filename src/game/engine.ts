@@ -270,11 +270,12 @@ export class GameEngine {
   }
 
   declareGang(playerId: number, type: 'an-gang' | 'bu-gang', face: string) {
-    if (
-      this.state.phase !== 'playing'
-      || this.state.currentPlayer !== playerId
-      || this.state.turnStage !== 'after-draw'
-    ) throw new Error('只有摸牌后才能暗杠或补杠')
+    if (this.state.phase !== 'playing' || this.state.currentPlayer !== playerId) {
+      throw new Error('现在不能暗杠或补杠')
+    }
+    // 暗杠必须摸牌后才能开；补杠只要牌在自己手上就允许，
+    // 包括刚碰完还没出牌的时候——否则要白等一圈，中间很可能被别人先胡。
+    if (type === 'an-gang' && this.state.turnStage !== 'after-draw') throw new Error('只有摸牌后才能暗杠')
     if (face === 'zhong') throw new Error('红中不能碰或杠')
     const player = this.player(playerId)
     if (type === 'an-gang') {
@@ -479,7 +480,7 @@ export class GameEngine {
       legalClaims,
       canWin: this.state.turnStage === 'after-draw' && this.winResult(playerId).won,
       anGangFaces: this.state.turnStage === 'after-draw' ? this.anGangFaces(playerId) : [],
-      buGangFaces: this.state.turnStage === 'after-draw' ? this.buGangFaces(playerId) : [],
+      buGangFaces: this.buGangFaces(playerId),
     }
   }
 

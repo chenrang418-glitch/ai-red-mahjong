@@ -1,5 +1,7 @@
 import { onBeforeUnmount, ref } from 'vue'
+import { ROOM_REJECT_CLOSE_CODE } from '@/online/types'
 import type {
+  ChatMessage,
   LeaderboardEntry,
   LobbyServerMessage,
   OnlinePendingAction,
@@ -15,6 +17,8 @@ import type {
 export const ONLINE_HEARTBEAT_INTERVAL_MS = 20_000
 export const ONLINE_PONG_TIMEOUT_MS = 10_000
 export const ONLINE_CONNECT_TIMEOUT_MS = 15_000
+export const ONLINE_ERROR_VISIBLE_MS = 5_000
+export const CHAT_BUBBLE_VISIBLE_MS = 4_000
 const ONLINE_REQUEST_TIMEOUT_MS = 20_000
 
 export function resolveApiBase(): string {
@@ -35,6 +39,7 @@ export function useOnlineGame() {
   const busy = ref(false)
   const error = ref('')
   const pendingAction = ref<OnlinePendingAction | null>(null)
+  const chatBubbles = ref<Record<number, { id: string; text: string }>>({})
   let socket: WebSocket | null = null
   let directorySocket: WebSocket | null = null
   let roomCode = ''
@@ -50,9 +55,41 @@ export function useOnlineGame() {
   let directoryHeartbeatTimer: number | null = null
   let directoryRefreshTimer: number | null = null
   let pendingActionTimer: number | null = null
+  let errorTimer: number | null = null
 
   function assertConfigured() {
     if (!apiBase) throw new Error('联机服务器地址尚未配置')
+  }
+
+  // 服务器每次报错后都会紧跟一次房间状态推送。以前状态一到就把 error 清空，
+  // 结果「还有玩家未准备」「请先取消托管」这些提示还没来得及看到就没了。
+  function setError(message: string) {
+    error.value = message
+    if (errorTimer !== null) window.clearTimeout(errorTimer)
+    errorTimer = window.setTimeout(() => {
+      errorTimer = null
+      error.value = ''
+    }, ONLINE_ERROR_VISIBLE_MS)
+  }
+
+  function clearError() {
+    if (errorTimer !== null) window.clearTimeout(errorTimer)
+    errorTimer = null
+    error.value = ''
+  }
+
+  // 聊天气泡：消息除了进聊天面板，还要在发言人座位上短暂冒出来，
+  // 这样牌桌上不用切到聊天页也知道谁说了话。
+  function showChatBubble(message: ChatMessage) {
+    const seatId = room.value?.seats.find((seat) => seat.userId === message.userId)?.seatId
+    if (seatId === undefined) return
+    chatBubbles.value = { ...chatBubbles.value, [seatId]: { id: message.id, text: message.text } }
+    window.setTimeout(() => {
+      if (chatBubbles.value[seatId]?.id !== message.id) return
+      const next = { ...chatBubbles.value }
+      delete next[seatId]
+      chatBubbles.value = next
+    }, CHAT_BUBBLE_VISIBLE_MS)
   }
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -77,7 +114,7 @@ export function useOnlineGame() {
 
   async function login(nickname: string) {
     busy.value = true
-    error.value = ''
+    clearError()
     try {
       const result = await request<OnlineSession>('/api/session', {
         method: 'POST',
@@ -87,7 +124,7 @@ export function useOnlineGame() {
       await Promise.all([refreshLeaderboard(), refreshRooms()])
       connectDirectorySocket()
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause)
+      setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       busy.value = false
     }
@@ -98,7 +135,7 @@ export function useOnlineGame() {
       const result = await request<{ entries: LeaderboardEntry[] }>('/api/leaderboard')
       leaderboard.value = result.entries
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause)
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -108,13 +145,13 @@ export function useOnlineGame() {
       const result = await request<{ rooms: OnlineRoomDirectoryEntry[] }>('/api/rooms')
       rooms.value = result.rooms
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause)
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
   async function createRoom(settings: OnlineRoomSettings) {
     busy.value = true
-    error.value = ''
+    clearError()
     try {
       const result = await request<{ code: string }>('/api/rooms', {
         method: 'POST',
@@ -122,7 +159,7 @@ export function useOnlineGame() {
       })
       connectRoom(result.code)
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause)
+      setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       busy.value = false
     }
@@ -131,7 +168,7 @@ export function useOnlineGame() {
   function joinRoom(code: string) {
     const normalized = code.trim().toUpperCase()
     if (!/^[A-Z0-9]{6}$/.test(normalized)) {
-      error.value = '请输入 6 位房间号'
+      setError('请输入 6 位房间号')
       return
     }
     connectRoom(normalized)
@@ -152,7 +189,7 @@ export function useOnlineGame() {
     socket = currentSocket
     connectTimeoutTimer = window.setTimeout(() => {
       if (socket !== currentSocket || socketGeneration !== currentGeneration || currentSocket.readyState !== WebSocket.CONNECTING) return
-      error.value = '连接房间超时，正在重新连接'
+      setError('连接房间超时，正在重新连接')
       currentSocket.close()
     }, ONLINE_CONNECT_TIMEOUT_MS)
     currentSocket.addEventListener('open', () => {
@@ -167,7 +204,7 @@ export function useOnlineGame() {
     currentSocket.addEventListener('message', (event) => {
       if (socket === currentSocket && socketGeneration === currentGeneration) handleMessage(event.data)
     })
-    currentSocket.addEventListener('close', () => {
+    currentSocket.addEventListener('close', (event) => {
       if (socket !== currentSocket || socketGeneration !== currentGeneration) return
       socket = null
       clearConnectTimeout()
@@ -175,11 +212,20 @@ export function useOnlineGame() {
       connecting.value = false
       stopHeartbeat()
       clearPendingAction()
+      // 房间满员、牌局已开始、房间不存在这类拒绝，重连多少次都没用，直接退回大厅并说明原因。
+      if (event.code === ROOM_REJECT_CLOSE_CODE) {
+        manualClose = true
+        roomCode = ''
+        room.value = null
+        setError(event.reason || '无法加入这个房间')
+        return
+      }
       if (!manualClose && session.value && roomCode) scheduleReconnect()
     })
     currentSocket.addEventListener('error', () => {
       if (socket !== currentSocket || socketGeneration !== currentGeneration) return
-      error.value = '联机连接中断，正在尝试重连'
+      if (manualClose) return
+      setError('联机连接中断，正在尝试重连')
     })
   }
 
@@ -193,14 +239,14 @@ export function useOnlineGame() {
     if (message.type === 'room-state') {
       room.value = message.room
       reconcilePendingAction(message.room)
-      error.value = ''
       reconnectAttempt = 0
     } else if (message.type === 'chat' && room.value) {
       if (!room.value.chat.some((item) => item.id === message.message.id)) room.value.chat.push(message.message)
       if (room.value.chat.length > 30) room.value.chat.splice(0, room.value.chat.length - 30)
+      showChatBubble(message.message)
     } else if (message.type === 'error') {
       clearPendingAction()
-      error.value = message.message
+      setError(message.message)
     }
     else if (message.type === 'pong') {
       lastPongAt = Date.now()
@@ -210,7 +256,7 @@ export function useOnlineGame() {
 
   function send(command: RoomCommand) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      error.value = '尚未连接到房间'
+      setError('尚未连接到房间')
       return
     }
     if ((command.type === 'discard' || command.type === 'trustee') && pendingAction.value) return
@@ -220,7 +266,7 @@ export function useOnlineGame() {
       socket.send(JSON.stringify(command))
     } catch {
       clearPendingAction()
-      error.value = '操作发送失败，正在重新连接'
+      setError('操作发送失败，正在重新连接')
       socket.close()
     }
   }
@@ -236,6 +282,7 @@ export function useOnlineGame() {
     manualClose = true
     roomCode = ''
     room.value = null
+    chatBubbles.value = {}
     clearPendingAction()
     cancelReconnect()
     stopHeartbeat()
@@ -281,7 +328,7 @@ export function useOnlineGame() {
     heartbeatDeadlineTimer = window.setTimeout(() => {
       if (socket !== currentSocket || socketGeneration !== generation || currentSocket.readyState !== WebSocket.OPEN) return
       if (Date.now() - lastPongAt >= ONLINE_PONG_TIMEOUT_MS) {
-        error.value = '连接响应超时，正在重新连接'
+        setError('连接响应超时，正在重新连接')
         currentSocket.close()
       }
     }, ONLINE_PONG_TIMEOUT_MS)
@@ -332,7 +379,7 @@ export function useOnlineGame() {
     pendingActionTimer = window.setTimeout(() => {
       if (!pendingAction.value) return
       pendingAction.value = null
-      error.value = '操作确认超时，请按服务器最新状态重试'
+      setError('操作确认超时，请按服务器最新状态重试')
     }, 8000)
   }
 
@@ -425,7 +472,7 @@ export function useOnlineGame() {
   const handleVisible = () => { if (!document.hidden) resumeConnection() }
   const handleOffline = () => {
     connected.value = false
-    error.value = '网络已断开，恢复后将自动重连'
+    setError('网络已断开，恢复后将自动重连')
   }
   window.addEventListener('online', resumeConnection)
   window.addEventListener('offline', handleOffline)
@@ -452,6 +499,7 @@ export function useOnlineGame() {
     busy,
     error,
     pendingAction,
+    chatBubbles,
     login,
     logout,
     refreshLeaderboard,

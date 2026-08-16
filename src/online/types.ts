@@ -136,7 +136,11 @@ export type RoomServerMessage =
 export type LobbyServerMessage =
   | { type: 'rooms-updated'; at: number }
 
-export const QUICK_CHAT_MESSAGES = ['快点快点', '这也碰？', '你太菜了', '乐乐'] as const
+// 房间明确拒绝加入（满员、牌局已开始、房间不存在）时用的 WebSocket 关闭码。
+// 客户端据此停止重连并把原因显示出来。放在共享类型里，Worker 入口不能导出普通常量。
+export const ROOM_REJECT_CLOSE_CODE = 4001
+
+export const QUICK_CHAT_MESSAGES = ['快点快点', '这也碰？', '你太菜了', '你会不会玩？', '666', '乐乐'] as const
 export const QUICK_CHAT_EMOJIS = ['😂', '👍', '😅', '😎', '😡', '😭', '🀄', '🎉'] as const
 
 export const DEFAULT_ONLINE_SETTINGS: OnlineRoomSettings = {

@@ -2,6 +2,7 @@
 
 import { RoomCoordinator } from './room-core'
 import type { RoomUser, StoredRoomState } from './room-core'
+import { ROOM_REJECT_CLOSE_CODE } from '../src/online/types'
 import type {
   OnlineRoomDirectoryEntry,
   OnlineRoomDirectoryPlayer,
@@ -23,6 +24,16 @@ interface SocketAttachment extends RoomUser {
 interface SessionPayload extends RoomUser {}
 
 const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+
+function rejectSocket(reason: string): Response {
+  const pair = new WebSocketPair()
+  const [client, server] = Object.values(pair)
+  server.accept()
+  server.send(JSON.stringify({ type: 'error', message: reason }))
+  // close reason 上限 123 字节，中文按 3 字节算最多 40 字。
+  server.close(ROOM_REJECT_CLOSE_CODE, reason.slice(0, 40))
+  return new Response(null, { status: 101, webSocket: client })
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(status === 204 ? null : JSON.stringify(data), {
@@ -299,11 +310,13 @@ export class MahjongRoom {
       return json({ code: body.code }, 201)
     }
     if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      if (!this.coordinator) return json({ error: '房间不存在或已经关闭' }, 404)
       const userId = request.headers.get('x-user-id') ?? ''
       const encodedNickname = request.headers.get('x-user-nickname') ?? ''
       const user: RoomUser = { userId, nickname: normalizeNickname(decodeURIComponent(encodedNickname)) }
-      this.coordinator.connect(user)
+      // 房间不存在、满员、牌局已开始这些情况，握手前直接失败客户端只会看到「连接中断」并无限重连，
+      // 所以先接受连接，再用专用关闭码把真实原因送到前端。
+      const rejection = !this.coordinator ? '房间不存在或已经关闭' : this.tryConnect(user)
+      if (rejection) return rejectSocket(rejection)
       const pair = new WebSocketPair()
       const [client, server] = Object.values(pair)
       const attachment: SocketAttachment = user
@@ -375,11 +388,27 @@ export class MahjongRoom {
     this.broadcastState()
   }
 
+  private tryConnect(user: RoomUser): string | null {
+    try {
+      this.coordinator!.connect(user)
+      return null
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause)
+    }
+  }
+
   async alarm(): Promise<void> {
     await this.ready
     if (!this.coordinator) return
     const directoryBefore = this.directorySignature()
-    const changed = this.coordinator.runDueJobs()
+    let changed = false
+    try {
+      changed = this.coordinator.runDueJobs()
+    } catch (cause) {
+      // alarm 抛异常会让整个房间不再被唤醒，宁可记录后继续保存状态并重排下一次唤醒。
+      console.error('房间定时唤醒失败', cause)
+      changed = true
+    }
     if (await this.deleteRequestedRoom() || await this.deleteEmptyLobby()) return
     await this.persist()
     if (changed) {

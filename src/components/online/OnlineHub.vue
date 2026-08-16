@@ -40,6 +40,7 @@ function back() {
     :room="online.room.value"
     :connected="online.connected.value"
     :pending-action="online.pendingAction.value"
+    :chat-bubbles="online.chatBubbles.value"
     @command="online.send"
     @leave="leaveRoom"
   />
@@ -137,9 +138,10 @@ function back() {
         <p v-else class="empty-ranking">还没有已结算的联机牌局。</p>
       </article>
     </section>
-
-    <div v-if="online.error.value" class="online-error" @click="online.error.value = ''">{{ online.error.value }} ×</div>
   </main>
+
+  <!-- 提示条挂在最外层：进了房间也要看得到「还有玩家未准备」这类服务器反馈 -->
+  <div v-if="online.error.value" class="online-error" @click="online.error.value = ''">{{ online.error.value }} ×</div>
 </template>
 
 <style scoped>
@@ -210,7 +212,7 @@ function back() {
 .leaderboard-card li b { color: #efcf72; }
 .leaderboard-card li em { color: #8fa29b; font-style: normal; }
 .empty-ranking { padding: 35px 0; text-align: center; }
-.online-error { position: fixed; z-index: 90; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 11px 15px; border: 1px solid #ad5148; border-radius: 10px; background: #542925; color: #ffd8d3; cursor: pointer; font-size: 12px; }
+.online-error { position: fixed; z-index: 90; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #ad5148; border-radius: 12px; background: rgba(94, 45, 40, .97); color: #ffd8d3; cursor: pointer; font-size: 13px; text-align: center; box-shadow: 0 14px 36px rgba(0,0,0,.45); }
 @media (max-width: 800px) {
   .hub-grid, .hub-grid.logged { grid-template-columns: 1fr; }
   .room-directory-card, .leaderboard-card, .hub-grid.logged .leaderboard-card { grid-column: 1; grid-row: auto; }

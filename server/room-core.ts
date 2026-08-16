@@ -1,7 +1,8 @@
 import { decideClaim, decideTurn, AI_SPEED_DELAY_RANGES } from '../src/game/ai'
 import { GameEngine } from '../src/game/engine'
 import { claimMaskDelay } from '../src/game/timing'
-import type { AIProfile, ClaimAction, GameState, Tile } from '../src/game/types'
+import { placeholderTiles } from '../src/game/tiles'
+import type { AIProfile, ClaimAction, GameState } from '../src/game/types'
 import type {
   ChatMessage,
   OnlineLegalActions,
@@ -66,6 +67,7 @@ export interface StoredRoomState {
   recentActionIds: string[]
   recordedRounds: string[]
   deleteRequested: boolean
+  chatSeq: number
 }
 
 export interface RoundLeaderboardResult {
@@ -121,13 +123,17 @@ function stageKey(game: GameState): string {
   return `${game.matchId}:${game.round}:${game.phase}:${game.turnStage}:${game.currentPlayer}:${game.events.length}`
 }
 
-function hiddenTiles(count: number, prefix: string): Tile[] {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `hidden-${prefix}-${index}`,
-    suit: 'zhong' as const,
-    rank: null,
-  }))
+// 阶段内重建定时任务时必须拿到同一个随机值，否则托管切换会让 AI 的等待时间跳变。
+function stageSalt(key: string): number {
+  let hash = 2166136261
+  for (const char of key) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
 }
+
+const hiddenTiles = placeholderTiles
 
 export class RoomCoordinator {
   state: StoredRoomState
@@ -136,6 +142,7 @@ export class RoomCoordinator {
     this.state = structuredClone(state)
     for (const seat of this.state.seats) seat.leftRoom ??= false
     this.state.deleteRequested ??= false
+    this.state.chatSeq ??= this.state.chat.length
   }
 
   static create(code: string, host: RoomUser, settings: OnlineRoomSettings, now = Date.now()): RoomCoordinator {
@@ -157,6 +164,7 @@ export class RoomCoordinator {
       recentActionIds: [],
       recordedRounds: [],
       deleteRequested: false,
+      chatSeq: 0,
     })
   }
 
@@ -177,6 +185,7 @@ export class RoomCoordinator {
     seat.connected = true
     seat.leftRoom = false
     this.state.deleteRequested = false
+    this.ensureActiveHost()
     this.state.jobs = this.state.jobs.filter((job) => !(
       ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
       && job.seatId === seat!.seatId
@@ -215,9 +224,24 @@ export class RoomCoordinator {
     seat.leftRoom = true
     seat.trustee = true
     this.state.jobs = this.state.jobs.filter((job) => job.seatId !== seat.seatId)
+    this.ensureActiveHost()
     this.rescheduleSeat(seat.seatId, now)
     this.scheduleAllOfflineExpiry(now)
     this.touch(now)
+  }
+
+  // 对局中房主退出或掉线托管后，房主身份要交给还在线的真人，
+  // 否则结算界面上谁都点不了「开始下一局」，整个房间就永久停在那里。
+  private ensureActiveHost(): boolean {
+    if (!this.state.game) return false
+    const host = this.state.seats.find((seat) => seat.kind === 'human' && seat.userId === this.state.hostUserId)
+    if (host?.connected && !host.leftRoom) return false
+    const candidate = this.state.seats.find((seat) => (
+      seat.kind === 'human' && !!seat.userId && seat.connected && !seat.leftRoom
+    ))
+    if (!candidate?.userId || candidate.userId === this.state.hostUserId) return false
+    this.state.hostUserId = candidate.userId
+    return true
   }
 
   removeLobbyUser(userId: string, now = Date.now()): void {
@@ -305,64 +329,75 @@ export class RoomCoordinator {
       const job = [...this.state.jobs].sort((left, right) => left.dueAt - right.dueAt).find((candidate) => candidate.dueAt <= now)
       if (!job) break
       this.state.jobs = this.state.jobs.filter((candidate) => candidate.id !== job.id)
-      if (job.kind === 'disconnect-trustee') {
-        const seat = this.state.seats[job.seatId ?? -1]
-        if (this.state.game && seat?.kind === 'human' && !seat.connected) {
-          seat.trustee = true
-          this.rescheduleSeat(seat.seatId, now)
-          changed = true
-        }
-        continue
-      }
-      if (job.kind === 'all-offline-expire') {
-        if (this.allHumanSeats().length > 0 && this.allHumanSeats().every((seat) => !seat.connected)) {
-          this.state.deleteRequested = true
-          changed = true
-        }
-        continue
-      }
-      if (job.kind === 'lobby-disconnect-remove') {
-        const seat = this.state.seats[job.seatId ?? -1]
-        if (this.allHumanSeats().length > 0 && this.allHumanSeats().every((candidate) => !candidate.connected)) {
-          const expiry = this.state.jobs.find((candidate) => candidate.kind === 'all-offline-expire')
-          if (expiry && expiry.dueAt > now) this.state.jobs.push({ ...job, dueAt: expiry.dueAt })
-          continue
-        }
-        if (!this.state.game && seat?.kind === 'human' && !seat.connected && seat.userId) {
-          this.removeLobbyUser(seat.userId, now)
-          changed = true
-        }
-        continue
-      }
-      if (!this.state.game || job.stageKey !== this.state.stageKey) continue
-      const engine = this.engine()
-      if (job.kind === 'ai-turn' || job.kind === 'turn-timeout') {
-        const seat = this.state.seats[job.seatId ?? -1]
-        if (!seat || engine.state.phase !== 'playing' || engine.state.currentPlayer !== seat.seatId) continue
-        if (job.kind === 'turn-timeout' && seat.kind === 'human') seat.trustee = true
-        this.performAITurn(engine, seat)
-        this.state.game = engine.snapshot()
-        this.reconcile(now)
-        changed = true
-      } else if (job.kind === 'ai-claim') {
-        const seatId = job.seatId ?? -1
-        if (engine.state.phase !== 'claiming' || this.state.claimResponses[String(seatId)]) continue
-        if (job.claimAction && job.claimAction !== 'pass') engine.claim(seatId, job.claimAction)
-        else this.state.claimResponses[String(seatId)] = 'pass'
-        this.state.game = engine.snapshot()
-        if (job.claimAction === 'pass') this.resolveIfAllPassed(now)
-        this.reconcile(now)
-        changed = true
-      } else if (job.kind === 'claim-deadline' || job.kind === 'resolve-no-claim') {
-        if (engine.state.phase !== 'claiming') continue
-        engine.resolveNoClaim()
-        this.state.game = engine.snapshot()
-        this.reconcile(now)
+      try {
+        if (this.runJob(job, now)) changed = true
+      } catch (cause) {
+        // 单个定时任务失败不能让整个房间停摆：丢掉这个任务，重新给当前阶段排一个。
+        console.error('房间定时任务执行失败', job.kind, cause)
+        if (this.state.game) this.reconcile(now)
         changed = true
       }
     }
     if (changed) this.touch(now)
     return changed
+  }
+
+  private runJob(job: ScheduledJob, now: number): boolean {
+    if (job.kind === 'disconnect-trustee') {
+      const seat = this.state.seats[job.seatId ?? -1]
+      if (!this.state.game || seat?.kind !== 'human' || seat.connected) return false
+      seat.trustee = true
+      this.ensureActiveHost()
+      this.rescheduleSeat(seat.seatId, now)
+      return true
+    }
+    if (job.kind === 'all-offline-expire') {
+      const humans = this.allHumanSeats()
+      if (humans.length === 0 || humans.some((seat) => seat.connected)) return false
+      this.state.deleteRequested = true
+      return true
+    }
+    if (job.kind === 'lobby-disconnect-remove') {
+      const seat = this.state.seats[job.seatId ?? -1]
+      const humans = this.allHumanSeats()
+      if (humans.length > 0 && humans.every((candidate) => !candidate.connected)) {
+        const expiry = this.state.jobs.find((candidate) => candidate.kind === 'all-offline-expire')
+        if (expiry && expiry.dueAt > now) this.state.jobs.push({ ...job, dueAt: expiry.dueAt })
+        return false
+      }
+      if (this.state.game || seat?.kind !== 'human' || seat.connected || !seat.userId) return false
+      this.removeLobbyUser(seat.userId, now)
+      return true
+    }
+    if (!this.state.game || job.stageKey !== this.state.stageKey) return false
+    const engine = this.engine()
+    if (job.kind === 'ai-turn' || job.kind === 'turn-timeout') {
+      const seat = this.state.seats[job.seatId ?? -1]
+      if (!seat || engine.state.phase !== 'playing' || engine.state.currentPlayer !== seat.seatId) return false
+      if (job.kind === 'turn-timeout' && seat.kind === 'human') seat.trustee = true
+      this.performAITurn(engine, seat)
+      this.state.game = engine.snapshot()
+      this.reconcile(now)
+      return true
+    }
+    if (job.kind === 'ai-claim') {
+      const seatId = job.seatId ?? -1
+      if (engine.state.phase !== 'claiming' || this.state.claimResponses[String(seatId)]) return false
+      if (job.claimAction && job.claimAction !== 'pass') engine.claim(seatId, job.claimAction)
+      else this.state.claimResponses[String(seatId)] = 'pass'
+      this.state.game = engine.snapshot()
+      if (job.claimAction !== 'peng' && job.claimAction !== 'ming-gang') this.resolveIfAllPassed(now)
+      this.reconcile(now)
+      return true
+    }
+    if (job.kind === 'claim-deadline' || job.kind === 'resolve-no-claim') {
+      if (engine.state.phase !== 'claiming') return false
+      engine.resolveNoClaim()
+      this.state.game = engine.snapshot()
+      this.reconcile(now)
+      return true
+    }
+    return false
   }
 
   nextAlarmAt(): number | null {
@@ -477,11 +512,19 @@ export class RoomCoordinator {
 
   private performAITurn(engine: GameEngine, seat: StoredSeat): void {
     const profile = seat.kind === 'ai' ? seat.ai ?? TABLE_AI : TRUSTEE_AI
-    const observation = engine.createObservation(seat.seatId)
-    const decision = decideTurn(observation, profile)
-    if (decision.action === 'win') engine.declareWin(seat.seatId)
-    else if (decision.action === 'an-gang' || decision.action === 'bu-gang') engine.declareGang(seat.seatId, decision.action, decision.face)
-    else if (decision.action === 'discard') engine.discard(seat.seatId, decision.tileId)
+    try {
+      const observation = engine.createObservation(seat.seatId)
+      const decision = decideTurn(observation, profile)
+      if (decision.action === 'win') engine.declareWin(seat.seatId)
+      else if (decision.action === 'an-gang' || decision.action === 'bu-gang') engine.declareGang(seat.seatId, decision.action, decision.face)
+      else if (decision.action === 'discard') engine.discard(seat.seatId, decision.tileId)
+      return
+    } catch (cause) {
+      console.error('AI 决策失败，改为打出手中第一张牌', seat.seatId, cause)
+    }
+    // 兜底：宁可打一张不够好的牌，也不能让这个座位卡住整局。
+    const fallback = engine.state.players[seat.seatId]?.hand[0]
+    if (fallback) engine.discard(seat.seatId, fallback.id)
   }
 
   private reconcile(now: number): void {
@@ -493,18 +536,22 @@ export class RoomCoordinator {
       this.state.stageStartedAt = now
       this.state.claimResponses = {}
       this.state.jobs = this.state.jobs.filter((job) => job.stageKey === 'presence')
+      this.bumpVersion()
     }
+    const salt = stageSalt(currentKey)
     if (game.phase === 'playing') {
       const seat = this.state.seats[game.currentPlayer]
       const existing = this.state.jobs.some((job) => job.stageKey === currentKey && (job.kind === 'ai-turn' || job.kind === 'turn-timeout'))
       if (!existing) {
         const auto = seat.kind === 'ai' || seat.trustee
         const profile = seat.kind === 'ai' ? seat.ai ?? TABLE_AI : TRUSTEE_AI
-        const delay = auto ? deterministicDelay(AI_SPEED_DELAY_RANGES[profile.speed], this.state.version + seat.seatId * 17) : this.state.settings.turnWindowMs
+        const delay = auto ? deterministicDelay(AI_SPEED_DELAY_RANGES[profile.speed], salt + seat.seatId * 17) : this.state.settings.turnWindowMs
+        // 以阶段开始时间为基准，取消托管、重连都不会让自己的倒计时回到满格。
+        const dueAt = this.state.stageStartedAt + delay
         this.state.jobs.push({
           id: `${auto ? 'ai-turn' : 'turn-timeout'}-${currentKey}`,
           kind: auto ? 'ai-turn' : 'turn-timeout',
-          dueAt: now + delay,
+          dueAt: auto ? Math.max(now, dueAt) : dueAt,
           stageKey: currentKey,
           seatId: seat.seatId,
         })
@@ -521,7 +568,7 @@ export class RoomCoordinator {
         this.state.jobs.push({
           id: `no-claim-${currentKey}`,
           kind: 'resolve-no-claim',
-          dueAt: now + claimMaskDelay(Math.abs(Math.sin(this.state.version))),
+          dueAt: this.state.stageStartedAt + claimMaskDelay(Math.abs(Math.sin(salt))),
           stageKey: currentKey,
         })
       }
@@ -534,11 +581,11 @@ export class RoomCoordinator {
       if (this.state.claimResponses[String(option.playerId)]) continue
       if (this.state.jobs.some((job) => job.stageKey === currentKey && job.kind === 'ai-claim' && job.seatId === option.playerId)) continue
       const profile = optionSeat.kind === 'ai' ? optionSeat.ai ?? TABLE_AI : TRUSTEE_AI
-      const plan = decideClaim(claimEngine.createObservation(option.playerId, option.actions), profile, this.state.version + option.playerId * 31, game.config.claimWindowMs)
+      const plan = decideClaim(claimEngine.createObservation(option.playerId, option.actions), profile, salt + option.playerId * 31, game.config.claimWindowMs)
       this.state.jobs.push({
         id: `ai-claim-${currentKey}-${option.playerId}`,
         kind: 'ai-claim',
-        dueAt: now + plan.delayMs,
+        dueAt: Math.max(now, this.state.stageStartedAt + plan.delayMs),
         stageKey: currentKey,
         seatId: option.playerId,
         claimAction: plan.action,
@@ -567,7 +614,7 @@ export class RoomCoordinator {
     if (!game || game.phase !== 'claiming' || game.claimOptions.length === 0) return
     const allPassed = game.claimOptions.every((option) => this.state.claimResponses[String(option.playerId)] === 'pass')
     if (!allPassed) return
-    const minimumResolveAt = this.state.stageStartedAt + claimMaskDelay(Math.abs(Math.sin(this.state.version)))
+    const minimumResolveAt = this.state.stageStartedAt + claimMaskDelay(Math.abs(Math.sin(stageSalt(this.state.stageKey))))
     this.state.jobs = this.state.jobs.filter((job) => !(job.stageKey === this.state.stageKey && job.kind === 'resolve-no-claim'))
     this.state.jobs.push({
       id: `all-passed-${this.state.stageKey}`,
@@ -586,11 +633,21 @@ export class RoomCoordinator {
     game.rngState = 0
     game.claimOptions = game.claimOptions.filter((option) => option.playerId === selfSeatId)
     for (const player of game.players) {
-      if (!reveal && player.id !== selfSeatId) player.hand = hiddenTiles(player.hand.length, `seat-${player.id}`)
+      if (reveal || player.id === selfSeatId) continue
+      player.hand = hiddenTiles(player.hand.length, `seat-${player.id}`)
+      // 暗杠是暗牌：别人只该知道「他暗杠了」，不该知道杠的是什么。
+      for (const meld of player.melds) {
+        if (meld.type !== 'an-gang') continue
+        meld.tiles = hiddenTiles(meld.tiles.length, `an-gang-${player.id}-${meld.id}`)
+      }
     }
     game.events = game.events.map((event) => {
-      if (event.type !== 'draw' || event.playerId === selfSeatId) return event
-      return { ...event, tile: undefined, detail: `${game.players[event.playerId ?? 0].name}摸牌` }
+      if (event.playerId === selfSeatId) return event
+      if (event.type === 'draw') return { ...event, tile: undefined, detail: `${game.players[event.playerId ?? 0].name}摸牌` }
+      if (event.type === 'an-gang' && !reveal) {
+        return { ...event, tile: undefined, detail: `${game.players[event.playerId ?? 0].name}暗杠` }
+      }
+      return event
     })
     return game
   }
@@ -618,11 +675,12 @@ export class RoomCoordinator {
     }
     if (game.phase !== 'playing' || game.currentPlayer !== seat.seatId) return empty
     empty.canDiscard = true
+    const engine = this.engine()
+    // 补杠在刚碰完（还没出牌）时也允许，所以不再限定摸牌后。
+    empty.buGangFaces = engine.buGangFaces(seat.seatId)
     if (game.turnStage === 'after-draw') {
-      const engine = this.engine()
       empty.canWin = engine.winResult(seat.seatId).won
       empty.anGangFaces = engine.anGangFaces(seat.seatId)
-      empty.buGangFaces = engine.buGangFaces(seat.seatId)
     }
     return empty
   }
@@ -674,8 +732,9 @@ export class RoomCoordinator {
   private addChat(seat: StoredSeat, rawText: string, quick: boolean, now: number): ChatMessage {
     const text = rawText.trim().replace(/[\r\n\t]+/g, ' ').slice(0, 100)
     if (!text) throw new Error('消息不能为空')
+    this.state.chatSeq += 1
     const message: ChatMessage = {
-      id: `chat-${now}-${this.state.version}`,
+      id: `chat-${now}-${this.state.chatSeq}`,
       userId: seat.userId!,
       nickname: seat.name,
       text,
@@ -703,8 +762,10 @@ export class RoomCoordinator {
     if (this.state.hostUserId !== userId) throw new Error('只有房主可以执行此操作')
   }
 
+  // version 只跟随牌局阶段推进，不跟随聊天、进出房间、托管这类与出牌无关的变化。
+  // 否则别人一掉线或一发言，你手上正要提交的操作就会被判成过期。
   private assertFreshAction(version: number): void {
-    if (version !== this.state.version) throw new Error('牌局状态已经更新，请按最新状态操作')
+    if (version !== this.state.version) throw new Error('牌局已经进入下一步，请按最新牌面重新操作')
   }
 
   shouldDeleteRoom(): boolean {
@@ -754,6 +815,9 @@ export class RoomCoordinator {
 
   private touch(now: number): void {
     this.state.updatedAt = now
+  }
+
+  private bumpVersion(): void {
     this.state.version += 1
   }
 }

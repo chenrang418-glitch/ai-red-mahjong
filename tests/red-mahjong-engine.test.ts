@@ -263,6 +263,48 @@ describe('红中麻将四人引擎', () => {
     expect(winEngine.state.currentPlayer).toBe(0)
   })
 
+  it('碰牌后手上还有第四张时可以直接补杠，不用等到下次摸牌', () => {
+    const engine = new GameEngine(config())
+    const pool = resetTable(engine)
+    const face = 'wan-4'
+    const four = take(pool, face, 4)
+    engine.state.players[2].hand = [...four.slice(0, 3), ...pool.splice(0, 10)]
+    engine.state.players[0].hand = [four[3], ...pool.splice(0, 13)]
+    fillOtherHands(engine, pool, [0, 2])
+    engine.state.currentPlayer = 0
+    engine.state.turnStage = 'after-draw'
+    engine.assertTileInvariant()
+
+    engine.discard(0, four[3].id)
+    expect(engine.state.claimOptions.find((option) => option.playerId === 2)?.actions).toContain('peng')
+    engine.claim(2, 'peng')
+
+    expect(engine.state.turnStage).toBe('must-discard')
+    expect(engine.buGangFaces(2)).toContain(face)
+    engine.declareGang(2, 'bu-gang', face)
+
+    const meld = engine.state.players[2].melds.find((candidate) => faceKey(candidate.tiles[0]) === face)
+    expect(meld?.type).toBe('bu-gang')
+    expect(meld?.tiles).toHaveLength(4)
+    // 杠完从牌尾补一张，回到「摸牌后」状态
+    expect(engine.state.turnStage).toBe('after-draw')
+    expect(engine.state.currentPlayer).toBe(2)
+    expect(engine.assertTileInvariant()).toBe(true)
+  })
+
+  it('暗杠仍然只能在摸牌后开', () => {
+    const engine = new GameEngine(config())
+    const pool = resetTable(engine)
+    const four = take(pool, 'dot-7', 4)
+    engine.state.players[0].hand = [...four, ...pool.splice(0, 10)]
+    fillOtherHands(engine, pool, [0])
+    engine.state.currentPlayer = 0
+    engine.state.turnStage = 'must-discard'
+    engine.assertTileInvariant()
+
+    expect(() => engine.declareGang(0, 'an-gang', 'dot-7')).toThrow('只有摸牌后才能暗杠')
+  })
+
   it('AI观察只包含其他玩家手牌数量，不泄露暗牌内容', () => {
     const engine = new GameEngine(config())
     const observation = engine.createObservation(1)
