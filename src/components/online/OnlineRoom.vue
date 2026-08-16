@@ -15,11 +15,57 @@ const selectedTileId = ref('')
 const sideTab = ref<'events' | 'chat'>('events')
 const mobileChatOpen = ref(false)
 const clock = ref(Date.now())
-const clockTimer = window.setInterval(() => { clock.value = Date.now() }, 100)
 let audioMatchId = ''
 
-onBeforeUnmount(() => {
+// —— 服务器时钟校准 ——
+// deadlineAt 与 turnTimer 都是服务器时间戳，直接和本地 Date.now() 相减，
+// 设备时间不准就会把剩余秒数算错。每个样本恒等于「真实偏移 - 单程延迟」，
+// 所以取历次最大值，等价于采用网络延迟最小的那次采样。
+const clockOffset = ref(0)
+let clockCalibrated = false
+const serverClock = computed(() => clock.value + clockOffset.value)
+
+function calibrateClock(serverNow: number) {
+  if (!serverNow) return
+  const sample = serverNow - Date.now()
+  if (!clockCalibrated || sample > clockOffset.value) {
+    clockOffset.value = sample
+    clockCalibrated = true
+  }
+}
+
+// 没有任何倒计时要显示时不空转，避免等待开局和结算弹窗期间持续重绘牌桌
+const timerActive = computed(() => props.room.deadlineAt !== null || props.room.turnTimer !== null)
+let clockTimer: number | null = null
+
+function stopTicking() {
+  if (clockTimer === null) return
   window.clearInterval(clockTimer)
+  clockTimer = null
+}
+
+function syncTicking() {
+  clock.value = Date.now()
+  if (!timerActive.value || document.hidden) {
+    stopTicking()
+    return
+  }
+  if (clockTimer === null) clockTimer = window.setInterval(() => { clock.value = Date.now() }, 250)
+}
+
+// 后台标签页会被浏览器把定时器节流到 1 秒以上，切回时先纠正一次读数再恢复节奏
+function handleVisibilityChange() {
+  syncTicking()
+}
+
+watch(() => props.room.serverNow, calibrateClock, { immediate: true })
+watch(() => props.connected, (isConnected) => { if (!isConnected) clockCalibrated = false })
+watch(timerActive, syncTicking, { immediate: true })
+document.addEventListener('visibilitychange', handleVisibilityChange)
+
+onBeforeUnmount(() => {
+  stopTicking()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (audioMatchId) gameAudio.stopMatch()
 })
 watch(() => props.room.game?.currentPlayer, () => { selectedTileId.value = '' })
@@ -60,11 +106,19 @@ const displayedGame = computed(() => {
 const displayedTrustee = computed(() => props.pendingAction?.type === 'trustee' ? props.pendingAction.enabled : selfSeat.value.trustee)
 const selectedTile = computed(() => human.value?.hand.find((tile) => tile.id === selectedTileId.value) ?? null)
 const sortedScores = computed(() => props.room.game ? [...props.room.game.players].sort((left, right) => (right.points ?? right.stats.netPoints) - (left.points ?? left.stats.netPoints)) : [])
-const claimSeconds = computed(() => props.room.deadlineAt ? Math.max(0, (props.room.deadlineAt - clock.value) / 1000).toFixed(1) : '')
+const claimSeconds = computed(() => props.room.deadlineAt
+  ? String(Math.max(0, Math.ceil((props.room.deadlineAt - serverClock.value) / 1000)))
+  : '')
 const claimProgress = computed(() => {
   if (!props.room.deadlineAt || !props.room.game) return 0
-  const remaining = Math.max(0, props.room.deadlineAt - clock.value)
+  const remaining = Math.max(0, props.room.deadlineAt - serverClock.value)
   return Math.min(100, (remaining / props.room.game.config.claimWindowMs) * 100)
+})
+// 移动端操作栏固定在底部，是出牌时的视线焦点，牌桌上方的进度环容易被忽略
+const selfTurnSeconds = computed(() => {
+  const timer = props.room.turnTimer
+  if (!timer || timer.kind !== 'turn' || timer.seatId !== props.room.selfSeatId) return ''
+  return String(Math.max(0, Math.ceil((timer.deadlineAt - serverClock.value) / 1000)))
 })
 
 const eventTypeLabel: Record<string, string> = {
@@ -170,7 +224,7 @@ function sendChat(text: string, quick: boolean) {
           :readonly="!room.legal.canDiscard || !!pendingAction"
           :reveal-all="room.game.phase === 'settlement' || room.game.phase === 'match-over'"
           :turn-timer="room.turnTimer"
-          :timer-now="clock"
+          :timer-now="serverClock"
           @select-tile="selectTile"
         />
         <div class="action-dock">
@@ -184,12 +238,13 @@ function sendChat(text: string, quick: boolean) {
             <span class="waiting-dot"></span><span>AI 正在以真人波动型 · 凡人 · 猴急托管</span><button type="button" @click="emit('command', { type: 'trustee', enabled: false })">取消托管</button>
           </template>
           <template v-else-if="room.legal.claimActions.length">
-            <div class="claim-clock"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
+            <div class="claim-clock" role="timer" :aria-label="`抢牌响应剩余 ${claimSeconds} 秒`"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
             <button v-if="room.legal.claimActions.includes('peng')" class="gold" type="button" @click="action({ type: 'claim', action: 'peng' })">碰</button>
             <button v-if="room.legal.claimActions.includes('ming-gang')" class="red" type="button" @click="action({ type: 'claim', action: 'ming-gang' })">杠</button>
             <button type="button" @click="action({ type: 'pass-claim' })">过</button>
           </template>
           <template v-else-if="room.legal.canDiscard">
+            <span v-if="selfTurnSeconds" class="turn-clock" role="timer" :aria-label="`本回合剩余 ${selfTurnSeconds} 秒`">剩 {{ selfTurnSeconds }} 秒</span>
             <button v-if="room.legal.canWin" class="red" type="button" @click="action({ type: 'win' })">自摸</button>
             <button v-for="face in room.legal.anGangFaces" :key="`an-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'an-gang', face })">暗杠 {{ tileLabel(tileFromFace(face)) }}</button>
             <button v-for="face in room.legal.buGangFaces" :key="`bu-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'bu-gang', face })">补杠 {{ tileLabel(tileFromFace(face)) }}</button>

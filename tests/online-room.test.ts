@@ -90,6 +90,46 @@ describe('联机房间协调器', () => {
     expect(room.view('u1').seats[0].trustee).toBe(true)
   })
 
+  it('他人切换托管不会重置当前玩家的回合倒计时', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '小陈' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '小李' }, 1100)
+    room.handle('u2', { type: 'ready', ready: true }, 1300)
+    room.handle('u1', { type: 'start-game' }, 1400)
+
+    const before = room.view('u1').turnTimer
+    expect(before).not.toBeNull()
+    // 选一个不是当前行动玩家的真人去开托管
+    const actor = before!.seatId === 0 ? 'u2' : 'u1'
+    room.handle(actor, { type: 'trustee', enabled: true }, 11_400)
+
+    const after = room.view('u1').turnTimer
+    expect(after?.seatId).toBe(before!.seatId)
+    expect(after?.startedAt).toBe(before!.startedAt)
+    expect(after?.deadlineAt).toBe(before!.deadlineAt)
+  })
+
+  it('他人切换托管不会清空抢牌响应，也不会延长抢牌窗口', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '小陈' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '小李' }, 1100)
+    room.handle('u2', { type: 'ready', ready: true }, 1300)
+    room.handle('u1', { type: 'start-game' }, 1400)
+
+    // 构造抢牌阶段：只让真人 seat0 有碰的选项
+    room.state.game!.phase = 'claiming'
+    room.state.game!.claimOptions = [{ playerId: 0, actions: ['peng'] }]
+    ;(room as unknown as { reschedule: (now: number) => void }).reschedule(20_000)
+    const openedAt = room.state.jobs.find((job) => job.kind === 'claim-deadline')?.dueAt
+    expect(openedAt).toBe(20_000 + settings.claimWindowMs)
+
+    // 窗口过半后，另一名玩家开托管
+    room.state.claimResponses = { '2': 'pass' }
+    room.handle('u2', { type: 'trustee', enabled: true }, 22_000)
+
+    expect(room.state.claimResponses).toEqual({ '2': 'pass' })
+    expect(room.state.jobs.find((job) => job.kind === 'claim-deadline')?.dueAt).toBe(openedAt)
+    expect(room.view('u1').deadlineAt).toBe(openedAt)
+  })
+
   it('所有真人明确退出进行中牌局后立即请求删除房间', () => {
     const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
     room.connect({ userId: 'u2', nickname: '玩家二' }, 1100)

@@ -102,6 +102,9 @@ export interface OnlineRoomView {
   turnTimer: OnlineTurnTimer | null
   notice: string
   chat: ChatMessage[]
+  // 下发时的服务器时间。deadlineAt 和 turnTimer 都是服务器时间戳，
+  // 客户端必须先用它校正本地时钟，否则设备时间不准就会算错剩余秒数。
+  serverNow: number
 }
 
 export type RoomCommand =

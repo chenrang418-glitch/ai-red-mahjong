@@ -75,11 +75,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .action-dock button.gold { border-color: #9b813d; background: #594a25; color: #ffe49a; }
 .action-dock button.red { border-color: #954640; background: #662d2a; color: #ffd8d4; }
 .action-dock .discard-button { min-width: 180px; background: #23463b; }
-.claim-clock { display: grid; text-align: center; margin-right: 6px; }
-.claim-clock b { color: #f1cd69; font-size: 20px; }
-.claim-clock span { font-size: 8px; color: #83968f; }
-.claim-clock i { width: 78px; height: 3px; margin-top: 5px; overflow: hidden; border-radius: 99px; background: #2b443c; }
-.claim-clock em { display: block; height: 100%; border-radius: inherit; background: #dfbd5e; transition: width .1s linear; }
+/* 抢牌窗口只有几秒，且牌桌上不公开显示（避免暴露谁有碰杠机会），
+   这条横条是玩家唯一的时间参考，所以字号和进度条都需要足够醒目 */
+.claim-clock { display: grid; text-align: center; margin-right: 8px; }
+.claim-clock b { color: #f1cd69; font-size: 28px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.claim-clock span { font-size: 11px; color: #9bb0a8; }
+.claim-clock i { width: 96px; height: 5px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: #2b443c; }
+.claim-clock em { display: block; height: 100%; border-radius: inherit; background: #dfbd5e; transition: width .25s linear; }
+.turn-clock { margin-right: 4px; color: #d9c47e; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .waiting-dot { width: 8px; height: 8px; border-radius: 50%; background: #dabb61; box-shadow: 0 0 12px #dabb61; animation: pulse 1s infinite; }
 .event-panel { grid-area: events; }
 .event-list { display: grid; gap: 7px; }
@@ -121,6 +124,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .rules-grid p { margin: 4px 0 0; color: #91a59e; font-size: 11px; line-height: 1.7; }
 @keyframes pulse { 50% { opacity: .4; } }
 @keyframes enter { from { opacity: 0; transform: translate(-50%, -10px); } }
+/* 倒计时脉冲和等待点是持续循环的动画，对前庭敏感的用户需要可以关掉 */
+@media (prefers-reduced-motion: reduce) {
+  .waiting-dot { animation: none; }
+  .dice-toast { animation: none; }
+  .claim-clock em { transition: none; }
+}
 @media (max-width: 1380px) and (pointer: fine) {
   .game-layout { grid-template-columns: 160px minmax(0, 1fr) 175px; gap: 8px; }
   .side-panel { padding: 9px; }
@@ -199,6 +208,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     right: calc(max(6px, env(safe-area-inset-right)) + clamp(122px, 16vw, 175px) + 6px);
   }
   .action-dock button { min-width: 64px; min-height: 40px; font-size: 12px; }
+  .claim-clock b { font-size: 22px; }
+  .claim-clock span { font-size: 9px; }
+  .claim-clock i { width: 72px; height: 4px; margin-top: 4px; }
+  .turn-clock { font-size: 12px; }
 }
 
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
@@ -241,4 +254,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar nav button { padding-inline: 3px; font-size: 10px; }
   .action-dock { gap: 6px; font-size: 12px; }
   .action-dock button { min-width: 58px; }
+  .claim-clock { margin-right: 4px; }
+  .claim-clock b { font-size: 24px; }
+  .claim-clock i { width: 78px; }
 }

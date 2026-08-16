@@ -215,7 +215,7 @@ export class RoomCoordinator {
     seat.leftRoom = true
     seat.trustee = true
     this.state.jobs = this.state.jobs.filter((job) => job.seatId !== seat.seatId)
-    this.reschedule(now)
+    this.rescheduleSeat(seat.seatId, now)
     this.scheduleAllOfflineExpiry(now)
     this.touch(now)
   }
@@ -257,7 +257,7 @@ export class RoomCoordinator {
     if (command.type === 'trustee') {
       if (!this.state.game) throw new Error('牌局尚未开始')
       seat.trustee = command.enabled
-      this.reschedule(now)
+      this.rescheduleSeat(seat.seatId, now)
       this.touch(now)
       return null
     }
@@ -309,7 +309,7 @@ export class RoomCoordinator {
         const seat = this.state.seats[job.seatId ?? -1]
         if (this.state.game && seat?.kind === 'human' && !seat.connected) {
           seat.trustee = true
-          this.reschedule(now)
+          this.rescheduleSeat(seat.seatId, now)
           changed = true
         }
         continue
@@ -369,7 +369,7 @@ export class RoomCoordinator {
     return this.state.jobs.length ? Math.min(...this.state.jobs.map((job) => job.dueAt)) : null
   }
 
-  view(userId: string): OnlineRoomView {
+  view(userId: string, now = Date.now()): OnlineRoomView {
     const seat = this.humanSeatByUser(userId)
     const game = this.state.game ? this.redactedGame(seat.seatId) : null
     return {
@@ -396,6 +396,7 @@ export class RoomCoordinator {
       turnTimer: this.turnTimer(),
       notice: this.noticeFor(seat),
       chat: structuredClone(this.state.chat),
+      serverNow: now,
     }
   }
 
@@ -547,6 +548,17 @@ export class RoomCoordinator {
 
   private reschedule(now: number): void {
     this.state.stageKey = ''
+    this.reconcile(now)
+  }
+
+  // 座位自身状态（托管开关、离开）变化时，只重排该座位的定时任务。
+  // 不能走 reschedule：那会让 reconcile 误判为进入新阶段，从而重置 stageStartedAt、
+  // 清空所有人的抢牌响应，并把当前回合和抢牌窗口的倒计时一起推回满格。
+  private rescheduleSeat(seatId: number, now: number): void {
+    this.state.jobs = this.state.jobs.filter((job) => !(
+      job.seatId === seatId
+      && (job.kind === 'ai-turn' || job.kind === 'turn-timeout' || job.kind === 'ai-claim')
+    ))
     this.reconcile(now)
   }
 
