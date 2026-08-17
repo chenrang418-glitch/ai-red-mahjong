@@ -219,7 +219,24 @@ async function adminResetLeaderboard(env: Env): Promise<Response> {
 }
 
 async function adminRoute(request: Request, env: Env, url: URL): Promise<Response> {
-  if (!isAdmin(request, env)) return NOT_FOUND()
+  if (!isAdmin(request, env)) {
+    // 对外一律 404，但在 Worker 日志里留下够定位的线索（`wrangler tail` 可见）。
+    // 只记形状不记内容：有没有配密钥、请求有没有带密钥、两边长度差多少，
+    // 足以区分「服务器没配」「请求没带」「值不一样」，又不会把密钥写进日志。
+    const configured = (env.ADMIN_TOKEN ?? '').trim()
+    const authorization = request.headers.get('authorization') ?? ''
+    const presented = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+    console.log('admin rejected', JSON.stringify({
+      path: url.pathname,
+      serverHasToken: configured.length > 0,
+      serverTokenLength: configured.length,
+      requestHasAuthHeader: authorization.length > 0,
+      requestUsesBearer: authorization.startsWith('Bearer '),
+      presentedLength: presented.length,
+      lengthMatches: presented.length === configured.length,
+    }))
+    return NOT_FOUND()
+  }
   if (request.method === 'POST' && url.pathname === '/api/admin/session') return json({ ok: true })
   if (request.method === 'GET' && url.pathname === '/api/admin/users') return adminUsers(env)
   if (request.method === 'POST' && url.pathname === '/api/admin/leaderboard/reset') return adminResetLeaderboard(env)
