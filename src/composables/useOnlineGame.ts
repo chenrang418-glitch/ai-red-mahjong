@@ -280,6 +280,10 @@ export function useOnlineGame() {
     const leavingSocket = socket
     if (leavingSocket?.readyState === WebSocket.OPEN) leavingSocket.send(JSON.stringify({ type: 'leave-room' }))
     manualClose = true
+    // 连接要再留一会儿把「离开房间」发出去，但从这一刻起它推来的任何消息都不能再采信：
+    // 退出请求还在路上时服务器可能刚好广播了一条房间状态，那会把已经回到大厅的界面
+    // 重新拉回牌桌，而且因为不再重连，会一直卡在「连接中断，正在重连…」。
+    socketGeneration += 1
     roomCode = ''
     room.value = null
     chatBubbles.value = {}
