@@ -3,24 +3,21 @@ import MahjongTile from './MahjongTile.vue'
 import SeatCountdown from './SeatCountdown.vue'
 import type { PlayerState } from '@/game/types'
 
+// 座位只负责「这个人是谁、什么状态、亮了什么牌」。
+// 牌河统一画在牌桌中央（跟真牌桌一样），不再挤在各自的座位块里。
 withDefaults(defineProps<{
   player: PlayerState
   active?: boolean
   dealer?: boolean
   revealHand?: boolean
-  compact?: boolean
   countdown?: { progress: number; seconds: number; ai: boolean } | null
-  // 竖屏时别人的手牌只显示张数：牌背本来就没有信息，省下的宽度留给牌河和自己的手牌。
-  handAsCount?: boolean
   status?: string
   bubble?: string
 }>(), {
   active: false,
   dealer: false,
   revealHand: false,
-  compact: true,
   countdown: null,
-  handAsCount: false,
   status: '',
   bubble: '',
 })
@@ -51,30 +48,20 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <span v-if="status" class="seat-status">{{ status }}</span>
       <span v-if="player.ai">{{ personalityLabel[player.ai.personality] }} · {{ difficultyLabel[player.ai.difficulty] }}</span>
     </div>
-    <div class="concealed-hand" :class="{ counted: handAsCount && !revealHand }">
-      <template v-if="handAsCount && !revealHand">
-        <span class="hand-count"><b>{{ player.hand.length }}</b>张</span>
-      </template>
-      <template v-else>
-        <MahjongTile
-          v-for="tile in player.hand"
-          :key="tile.id"
-          :tile="tile"
-          :hidden="!revealHand"
-          disabled
-          compact
-        />
-      </template>
+
+    <!-- 别人的暗牌不画牌背：十三张牌背没有任何信息，只占地方。结算亮牌时才摊开。 -->
+    <div v-if="revealHand" class="revealed-hand">
+      <MahjongTile v-for="tile in player.hand" :key="tile.id" :tile="tile" disabled compact />
     </div>
+    <div v-else class="hand-count"><b>{{ player.hand.length }}</b>张</div>
+
     <div class="meld-row" v-if="player.melds.length">
       <div v-for="meld in player.melds" :key="meld.id" class="meld-group">
         <small>{{ meldLabel[meld.type] }}</small>
         <MahjongTile v-for="tile in meld.tiles" :key="tile.id" :tile="tile" disabled compact />
       </div>
     </div>
-    <div class="discard-row" aria-label="牌河">
-      <MahjongTile v-for="tile in player.discards" :key="tile.id" :tile="tile" disabled compact />
-    </div>
+
     <transition name="bubble">
       <p v-if="bubble" class="seat-bubble">{{ bubble }}</p>
     </transition>
@@ -83,74 +70,59 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
 <style scoped>
 .seat {
-  --seat-tile-width: 25px;
-  --seat-tile-height: 35px;
-  --discard-columns: 10;
+  --seat-tile-width: 22px;
+  --seat-tile-height: 31px;
   position: relative;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   background: linear-gradient(180deg, rgba(9, 41, 34, .82), rgba(4, 26, 22, .82));
   border: 1px solid rgba(220, 193, 113, .16);
-  border-radius: 14px;
-  padding: 9px;
+  border-radius: 13px;
+  padding: 8px 9px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
   transition: border-color .2s, box-shadow .2s;
 }
 .seat.active { border-color: #f3ca69; box-shadow: 0 0 0 2px rgba(243,202,105,.16), 0 0 26px rgba(243,202,105,.16); }
-header { display: flex; gap: 7px; align-items: center; color: #f7f0d9; }
-header strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header { display: flex; gap: 6px; align-items: center; min-width: 0; color: #f7f0d9; }
+header strong { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header :deep(.seat-countdown) { margin-left: 2px; }
 .points { margin-left: auto; font-size: 12px; color: #f2d27b; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.dealer { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; flex: 0 0 auto; }
-.seat-meta { display: flex; flex-wrap: wrap; gap: 4px; color: #91aaa2; font-size: 10px; margin: 2px 0 5px; }
+.dealer { display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; flex: 0 0 auto; }
+.seat-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; color: #91aaa2; font-size: 10px; }
 .seat-status { color: #e0c273; }
-.concealed-hand, .meld-row { display: flex; flex-wrap: nowrap; gap: 1px; }
-.concealed-hand {
-  min-width: 0;
-  min-height: var(--seat-tile-height);
-  max-height: none;
-  overflow: visible;
-  align-content: flex-start;
-}
-.concealed-hand.counted { min-height: 0; }
 .hand-count {
+  align-self: flex-start;
   display: inline-flex;
   align-items: baseline;
-  gap: 2px;
-  padding: 2px 7px;
-  border: 1px solid rgba(220, 193, 113, .3);
+  gap: 3px;
+  padding: 3px 9px;
+  border: 1px solid rgba(220, 193, 113, .28);
   border-radius: 99px;
   background: rgba(9, 39, 32, .9);
   color: #9db4ac;
-  font-size: 9px;
+  font-size: 10px;
 }
-.hand-count b { color: #f0dca2; font-size: 12px; font-variant-numeric: tabular-nums; }
-.discard-row {
-  display: grid;
-  grid-template-columns: repeat(var(--discard-columns), var(--seat-tile-width));
-  grid-auto-rows: var(--seat-tile-height);
-  gap: 2px;
-  width: max-content;
-  max-width: 100%;
-  min-height: 0;
-  margin-top: 6px;
-}
-.meld-row { margin-top: 5px; gap: clamp(2px, .5vw, 7px); }
-.meld-group { display: flex; gap: 1px; position: relative; padding-top: 10px; }
-.meld-group small { position: absolute; top: -3px; left: 0; color: #efce7a; font-size: 9px; }
+.hand-count b { color: #f0dca2; font-size: 13px; font-variant-numeric: tabular-nums; }
+.revealed-hand, .meld-row { display: flex; flex-wrap: wrap; gap: 2px; }
+.meld-row { gap: 6px; }
+.meld-group { display: flex; gap: 1px; position: relative; padding-top: 9px; }
+.meld-group small { position: absolute; top: -2px; left: 0; color: #efce7a; font-size: 9px; }
 :deep(.mahjong-tile.compact) {
   width: var(--seat-tile-width);
   height: var(--seat-tile-height);
   padding: 1px;
-  border-radius: clamp(3px, .4vw, 5px);
+  border-radius: 4px;
 }
-:deep(.mahjong-tile.compact .tile-back-mark) { font-size: clamp(7px, 1vw, 12px); }
+:deep(.mahjong-tile.compact .tile-back-mark) { font-size: 10px; }
 
 /* 聊天气泡挂在座位上，牌桌上不用切到聊天面板也知道谁说了话 */
 .seat-bubble {
   position: absolute;
   z-index: 6;
-  left: 8px;
-  right: 8px;
+  left: 6px;
+  right: 6px;
   bottom: calc(100% - 2px);
   margin: 0;
   padding: 7px 10px;
@@ -168,25 +140,18 @@ header :deep(.seat-countdown) { margin-left: 2px; }
 .bubble-enter-from, .bubble-leave-to { opacity: 0; transform: translateY(6px); }
 
 @media (pointer: coarse), (max-width: 700px), (max-height: 600px) {
-  .seat { padding: 5px; border-radius: 9px; }
+  .seat { padding: 6px 7px; gap: 3px; border-radius: 10px; }
   header { gap: 4px; }
-  header strong { font-size: 11px; }
-  .points { font-size: 10px; }
-  .dealer { width: 18px; height: 18px; font-size: 8px; }
-  .seat-meta { margin: 1px 0 3px; font-size: 8px; }
-  .discard-row { gap: 1px; margin-top: 3px; }
-  .meld-row { margin-top: 3px; }
-  .meld-group { padding-top: 7px; }
-  .meld-group small { top: -2px; font-size: 6px; }
-  .seat-bubble { left: 4px; right: 4px; padding: 5px 8px; font-size: 11px; }
-}
-
-@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
   header strong { font-size: 12px; }
   .points { font-size: 11px; }
-  .dealer { width: 20px; height: 20px; font-size: 9px; }
+  .dealer { width: 18px; height: 18px; font-size: 9px; }
   .seat-meta { font-size: 9px; }
+  .hand-count { padding: 2px 7px; font-size: 9px; }
+  .hand-count b { font-size: 12px; }
+  .meld-row { gap: 4px; }
+  .meld-group { padding-top: 8px; }
   .meld-group small { font-size: 7px; }
+  .seat-bubble { left: 4px; right: 4px; padding: 5px 8px; font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

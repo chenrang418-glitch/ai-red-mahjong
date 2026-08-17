@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AudioControl from '@/components/game/AudioControl.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
+import TopbarMenu from '@/components/game/TopbarMenu.vue'
 import ChatPanel from './ChatPanel.vue'
 import { gameAudio } from '@/composables/useGameAudio'
 import { tileFromFace, tileLabel } from '@/game/tiles'
@@ -119,13 +120,6 @@ const claimProgress = computed(() => {
   const remaining = Math.max(0, props.room.deadlineAt - serverClock.value)
   return Math.min(100, (remaining / props.room.game.config.claimWindowMs) * 100)
 })
-// 移动端操作栏固定在底部，是出牌时的视线焦点，牌桌上方的进度环容易被忽略
-const selfTurnSeconds = computed(() => {
-  const timer = props.room.turnTimer
-  if (!timer || timer.kind !== 'turn' || timer.seatId !== props.room.selfSeatId) return ''
-  return String(Math.max(0, Math.ceil((timer.deadlineAt - serverClock.value) / 1000)))
-})
-
 // 座位上直接标出「谁在托管、谁掉线了」，不用再去积分面板里比对。
 const seatStatus = computed(() => {
   const result: Record<number, string> = {}
@@ -210,13 +204,20 @@ function sendChat(text: string, quick: boolean) {
 
   <div v-else-if="room.game" class="game-page online-game-page" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
-      <div class="brand"><span>中</span><div><strong>联机红中麻将</strong><small>房间 {{ room.code }}</small></div></div>
+      <!-- 房间号是联机时最需要念给别人听的信息，手机上原本要横屏才看得到，现在提到顶栏 -->
+      <div class="brand">
+        <span>中</span>
+        <div><strong class="room-code">{{ room.code }}</strong><small>{{ connected ? '联机中' : '重连中…' }}</small></div>
+      </div>
       <div class="status-pill" :class="room.game.phase">{{ connected ? room.notice : '连接中断，正在重连…' }}</div>
       <nav>
         <button type="button" :class="{ trustee: displayedTrustee, pending: pendingAction?.type === 'trustee' }" :disabled="!!pendingAction" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ pendingAction?.type === 'trustee' ? pendingAction.enabled ? '开启托管中…' : '取消托管中…' : selfSeat.trustee ? '取消托管' : 'AI托管' }}</button>
-        <AudioControl />
-        <button class="mobile-chat-button" type="button" @click="mobileChatOpen = true">聊天</button>
-        <button class="danger" type="button" @click="leave">退出房间</button>
+        <AudioControl class="desktop-only" />
+        <button class="danger desktop-only" type="button" @click="leave">退出房间</button>
+        <TopbarMenu class="mobile-only">
+          <AudioControl />
+          <button class="danger" type="button" @click="leave">退出房间</button>
+        </TopbarMenu>
       </nav>
     </header>
 
@@ -267,12 +268,12 @@ function sendChat(text: string, quick: boolean) {
             <button v-if="room.legal.claimActions.includes('ming-gang')" class="red" type="button" @click="action({ type: 'claim', action: 'ming-gang' })">杠</button>
             <button type="button" @click="action({ type: 'pass-claim' })">过</button>
           </template>
+          <!-- 倒计时已经画在自己座位的圆环上了，这里不再重复一遍秒数 -->
           <template v-else-if="room.legal.canDiscard">
-            <span v-if="selfTurnSeconds" class="turn-clock" role="timer" :aria-label="`本回合剩余 ${selfTurnSeconds} 秒`">剩 {{ selfTurnSeconds }} 秒</span>
             <button v-if="room.legal.canWin" class="red" type="button" @click="action({ type: 'win' })">自摸</button>
             <button v-for="face in room.legal.anGangFaces" :key="`an-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'an-gang', face })">暗杠 {{ tileLabel(tileFromFace(face)) }}</button>
             <button v-for="face in room.legal.buGangFaces" :key="`bu-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'bu-gang', face })">补杠 {{ tileLabel(tileFromFace(face)) }}</button>
-            <button class="discard-button" type="button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '请先选择一张手牌' }}</button>
+            <button class="discard-button" type="button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '出牌' }}</button>
           </template>
           <template v-else><span class="waiting-dot"></span><span>{{ room.notice }}</span></template>
         </div>
@@ -354,7 +355,9 @@ function sendChat(text: string, quick: boolean) {
 .side-tabs button { padding: 7px 3px; border: 1px solid #2e493f; border-radius: 7px; background: #10261f; color: #81968f; cursor: pointer; font-size: 9px; }
 .side-tabs button.active { border-color: #927b3e; color: #edcd71; }
 .side-tabs .drawer-close { display: none; }
-.mobile-chat-button, .chat-fab, .drawer-mask { display: none; }
+.chat-fab, .drawer-mask { display: none; }
+.mobile-only { display: none; }
+.room-code { font-size: 17px; letter-spacing: .12em; color: #f0d68a; font-variant-numeric: tabular-nums; }
 .result-actions span { color: #83978f; font-size: 11px; }
 @media (max-width: 800px) {
   .online-seats { grid-template-columns: 1fr 1fr; }
@@ -371,8 +374,13 @@ function sendChat(text: string, quick: boolean) {
   .lobby-card footer { flex-wrap: wrap; }
   .lobby-card footer p { flex-basis: 100%; }
   .lobby-card footer button { width: 100%; }
-  .mobile-chat-button, .chat-fab { display: block; }
-  .chat-fab { position: fixed; z-index: 32; right: max(12px, env(safe-area-inset-right)); bottom: calc(78px + env(safe-area-inset-bottom)); width: 46px; height: 46px; border: 1px solid #d1af54; border-radius: 50%; background: #17372e; color: #f1cf71; font-weight: 900; box-shadow: 0 8px 25px rgba(0,0,0,.35); }
+  /* 聊天只保留右下角这一个入口，顶栏不再重复放一个按钮 */
+  .chat-fab { display: block; position: fixed; z-index: 32; right: max(12px, env(safe-area-inset-right)); bottom: calc(82px + env(safe-area-inset-bottom)); width: 48px; height: 48px; border: 1px solid #d1af54; border-radius: 50%; background: #17372e; color: #f1cf71; font-weight: 900; box-shadow: 0 8px 25px rgba(0,0,0,.35); }
+  .mobile-only { display: block; }
+  .desktop-only { display: none; }
+  /* 状态在座位圆环和底部按钮上都有，顶栏这条重复的横幅在竖屏收起来 */
+  .status-pill { display: none; }
+  .room-code { font-size: 16px; }
   .online-right-panel { display: none; }
   .online-right-panel.mobile-open { position: fixed; z-index: 45; left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); height: min(70dvh, 590px); display: grid; border-color: #715f32; box-shadow: 0 -20px 55px rgba(0,0,0,.5); }
   .online-right-panel.mobile-open .side-tabs .drawer-close { display: block; }

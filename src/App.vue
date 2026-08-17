@@ -8,6 +8,7 @@ import GameSetup from '@/components/game/GameSetup.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
 import ReplayCenter from '@/components/game/ReplayCenter.vue'
+import TopbarMenu from '@/components/game/TopbarMenu.vue'
 import OnlineHub from '@/components/online/OnlineHub.vue'
 import { gameAudio } from '@/composables/useGameAudio'
 import { useMahjongGame } from '@/composables/useMahjongGame'
@@ -150,13 +151,22 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
-        <button @click="rulesOpen = true">规则</button>
-        <button @click="replayOpen = true">牌谱</button>
+        <button class="desktop-only" @click="rulesOpen = true">规则</button>
+        <button class="desktop-only" @click="replayOpen = true">牌谱</button>
         <button @click="settingsOpen = true">AI设置</button>
-        <AudioControl />
-        <button @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
-        <button @click="endMatch">结束</button>
-        <button class="danger" @click="newMatch">新牌局</button>
+        <AudioControl class="desktop-only" />
+        <button class="desktop-only" @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
+        <button class="desktop-only" @click="endMatch">结束</button>
+        <button class="danger desktop-only" @click="newMatch">新牌局</button>
+        <!-- 竖屏顶栏只留「AI设置」，其余七个按钮收进菜单 -->
+        <TopbarMenu class="mobile-only">
+          <AudioControl />
+          <button @click="rulesOpen = true">玩法规则</button>
+          <button @click="replayOpen = true">牌谱回放</button>
+          <button @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出牌局</button>
+          <button @click="endMatch">结束整场</button>
+          <button class="danger" @click="newMatch">新牌局</button>
+        </TopbarMenu>
       </nav>
     </header>
 
@@ -210,7 +220,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
             <button v-if="canHumanWin" class="red" @click="game.humanWin">自摸</button>
             <button v-for="face in anGangFaces" :key="`an-${face}`" class="gold" @click="game.humanGang('an-gang', face)">暗杠 {{ tileLabel(tileFromFace(face)) }}</button>
             <button v-for="face in buGangFaces" :key="`bu-${face}`" class="gold" @click="game.humanGang('bu-gang', face)">补杠 {{ tileLabel(tileFromFace(face)) }}</button>
-            <button class="discard-button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '请先选择一张手牌' }}</button>
+            <button class="discard-button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '出牌' }}</button>
           </template>
           <template v-else>
             <span class="waiting-dot"></span><span>{{ game.busy.value ? 'AI正在本地计算' : game.notice.value }}</span>

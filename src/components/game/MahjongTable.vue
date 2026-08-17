@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import MahjongTile from './MahjongTile.vue'
 import PlayerSeat from './PlayerSeat.vue'
 import SeatCountdown from './SeatCountdown.vue'
-import { useViewport } from '@/composables/useViewport'
 import type { GameState, Tile } from '@/game/types'
 
 const props = withDefaults(defineProps<{
@@ -28,13 +27,12 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ selectTile: [tile: Tile] }>()
 
-const { isPortrait } = useViewport()
-
 const human = computed(() => props.state.players[props.humanId])
 const right = computed(() => props.state.players[(props.humanId + 1) % 4])
 const top = computed(() => props.state.players[(props.humanId + 2) % 4])
 const left = computed(() => props.state.players[(props.humanId + 3) % 4])
 const canSelect = computed(() => !props.readonly && props.state.phase === 'playing' && props.state.currentPlayer === props.humanId)
+const isHumanTurn = computed(() => props.state.currentPlayer === props.humanId && props.state.phase === 'playing')
 const humanDrawTile = computed(() => {
   if (props.state.turnStage !== 'after-draw' || props.state.currentPlayer !== props.humanId) return null
   const latestEvent = props.state.events.at(-1)
@@ -42,6 +40,8 @@ const humanDrawTile = computed(() => {
   return human.value.hand.find((tile) => tile.id === latestEvent.tile!.id) ?? null
 })
 const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.id !== humanDrawTile.value?.id))
+// 最后一张弃牌单独高亮：牌河堆满之后，光靠位置很难看出刚打的是哪张。
+const lastDiscardId = computed(() => props.state.lastDiscard?.tile.id ?? '')
 const activeCountdown = computed(() => {
   const timer = props.turnTimer
   if (!timer) return null
@@ -63,8 +63,9 @@ function countdownFor(seatId: number) {
 </script>
 
 <template>
-  <div class="table-shell" :class="{ portrait: isPortrait }">
+  <div class="table-shell" :class="{ 'my-turn': isHumanTurn }">
     <div class="felt-pattern"></div>
+
     <PlayerSeat
       class="top-seat"
       :player="top"
@@ -82,7 +83,6 @@ function countdownFor(seatId: number) {
       :reveal-hand="revealAll"
       :dealer="state.dealer === left.id"
       :countdown="countdownFor(left.id)"
-      :hand-as-count="isPortrait"
       :status="seatStatus[left.id] ?? ''"
       :bubble="bubbles[left.id] ?? ''"
     />
@@ -93,56 +93,71 @@ function countdownFor(seatId: number) {
       :reveal-hand="revealAll"
       :dealer="state.dealer === right.id"
       :countdown="countdownFor(right.id)"
-      :hand-as-count="isPortrait"
       :status="seatStatus[right.id] ?? ''"
       :bubble="bubbles[right.id] ?? ''"
     />
 
+    <!-- 牌桌中央：四家的弃牌按方位堆在中间，和真牌桌一样 -->
     <div class="table-center">
-      <div class="round-data">
-        <span>第 <b>{{ state.round }}</b> 局</span>
-        <span>牌墙 <b>{{ state.wall.length }}</b></span>
-        <span>码区 <b>{{ state.maReserve.length }}</b></span>
+      <div class="river river-top" :class="{ active: state.currentPlayer === top.id }" :aria-label="`${top.name}的牌河`">
+        <MahjongTile v-for="tile in top.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
       </div>
-      <div class="last-action" v-if="state.events.length">{{ state.events.at(-1)?.detail }}</div>
+      <div class="river river-left" :class="{ active: state.currentPlayer === left.id }" :aria-label="`${left.name}的牌河`">
+        <MahjongTile v-for="tile in left.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
+      </div>
+
+      <div class="center-info">
+        <div class="round-data">
+          <span>第 <b>{{ state.round }}</b> 局</span>
+          <span>牌墙 <b>{{ state.wall.length }}</b></span>
+          <span>码区 <b>{{ state.maReserve.length }}</b></span>
+        </div>
+        <div class="last-action" v-if="state.events.length">{{ state.events.at(-1)?.detail }}</div>
+      </div>
+
+      <div class="river river-right" :class="{ active: state.currentPlayer === right.id }" :aria-label="`${right.name}的牌河`">
+        <MahjongTile v-for="tile in right.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
+      </div>
+      <div class="river river-bottom" :class="{ active: isHumanTurn }" aria-label="你的牌河">
+        <MahjongTile v-for="tile in human.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
+      </div>
     </div>
 
-    <section class="human-seat" :class="{ active: state.currentPlayer === human.id }">
+    <section class="human-seat" :class="{ active: isHumanTurn }">
       <header>
         <span class="dealer" v-if="state.dealer === human.id">庄</span>
         <strong>{{ human.name }}</strong>
         <SeatCountdown v-if="countdownFor(human.id)" v-bind="countdownFor(human.id)!" />
-        <span class="human-points">{{ human.points === null ? `本场净分 ${human.stats.netPoints >= 0 ? '+' : ''}${human.stats.netPoints}` : `${human.points}积分` }}</span>
+        <span class="human-points">{{ human.points === null ? `净分 ${human.stats.netPoints >= 0 ? '+' : ''}${human.stats.netPoints}` : `${human.points}分` }}</span>
       </header>
       <transition name="bubble">
         <p v-if="bubbles[human.id]" class="self-bubble">{{ bubbles[human.id] }}</p>
       </transition>
-      <div class="meld-row" v-if="human.melds.length">
-        <div v-for="meld in human.melds" :key="meld.id" class="meld-group">
-          <MahjongTile v-for="tile in meld.tiles" :key="tile.id" :tile="tile" compact disabled />
+      <div class="hand-row">
+        <div class="meld-row" v-if="human.melds.length">
+          <div v-for="meld in human.melds" :key="meld.id" class="meld-group">
+            <MahjongTile v-for="tile in meld.tiles" :key="tile.id" :tile="tile" compact disabled />
+          </div>
         </div>
-      </div>
-      <div class="human-hand">
-        <MahjongTile
-          v-for="tile in arrangedHumanHand"
-          :key="tile.id"
-          :tile="tile"
-          :selected="selectedTileId === tile.id"
-          :disabled="!canSelect"
-          @select="emit('selectTile', $event)"
-        />
-        <div v-if="humanDrawTile" class="drawn-tile-slot">
-          <small>刚摸</small>
+        <div class="human-hand">
           <MahjongTile
-            :tile="humanDrawTile"
-            :selected="selectedTileId === humanDrawTile.id"
+            v-for="tile in arrangedHumanHand"
+            :key="tile.id"
+            :tile="tile"
+            :selected="selectedTileId === tile.id"
             :disabled="!canSelect"
             @select="emit('selectTile', $event)"
           />
+          <div v-if="humanDrawTile" class="drawn-tile-slot">
+            <small>刚摸</small>
+            <MahjongTile
+              :tile="humanDrawTile"
+              :selected="selectedTileId === humanDrawTile.id"
+              :disabled="!canSelect"
+              @select="emit('selectTile', $event)"
+            />
+          </div>
         </div>
-      </div>
-      <div class="human-discards">
-        <MahjongTile v-for="tile in human.discards" :key="tile.id" :tile="tile" compact disabled />
       </div>
     </section>
   </div>
@@ -150,105 +165,136 @@ function countdownFor(seatId: number) {
 
 <style scoped>
 .table-shell {
-  /* 手牌是玩家全程盯着、还要点的东西，尺寸给足：十四张大约占牌桌宽度的四分之三 */
   --human-tile-width: clamp(26px, 5.3cqw, 56px);
   --human-tile-height: clamp(36px, 7.4cqw, 78px);
-  --human-compact-width: clamp(15px, 2.5cqw, 31px);
-  --human-compact-height: clamp(21px, 3.5cqw, 43px);
+  --meld-tile-width: clamp(15px, 2.5cqw, 31px);
+  --meld-tile-height: clamp(21px, 3.5cqw, 43px);
+  --river-tile-width: clamp(15px, 2.2cqw, 26px);
+  --river-tile-height: clamp(21px, 3.1cqw, 36px);
+  /* 四家牌河都按固定列数、往下加行：列数一旦浮动，打到二十张时左右两堆会把中央撑爆 */
+  --river-columns: 12;
+  --river-side-columns: 4;
+  /* 牌桌高度锁死：牌河堆到二十多张时，中央区不能把对家和自己的手牌挤出屏幕 */
   min-height: var(--table-height, 720px);
+  max-height: var(--table-height, 720px);
   position: relative;
   container-type: inline-size;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(132px, 18cqw, 205px) minmax(0, 1fr);
-  grid-template-rows: auto minmax(min-content, 1fr) auto;
+  grid-template-columns: clamp(96px, 15cqw, 190px) minmax(0, 1fr) clamp(96px, 15cqw, 190px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "top top top"
     "left center right"
     "human human human";
   align-items: start;
   gap: clamp(6px, 1cqw, 14px);
-  padding: clamp(10px, 1.4cqw, 22px);
+  padding: clamp(8px, 1.2cqw, 20px);
   overflow: hidden;
   border: 1px solid rgba(237, 205, 113, .32);
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 50% 42%, #1a7461 0, #0f5346 42%, #073730 78%, #042722 100%);
+  border-radius: 26px;
+  background: radial-gradient(circle at 50% 42%, #1a7461 0, #0f5346 42%, #073730 78%, #042722 100%);
   box-shadow: inset 0 0 90px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06), 0 22px 60px rgba(0,0,0,.4);
+  transition: border-color .3s, box-shadow .3s;
 }
+/* 轮到自己时整张桌子透一层光，比再加一行字更快被看到 */
+.table-shell.my-turn { border-color: rgba(243, 202, 105, .6); animation: table-breathe 2.4s ease-in-out infinite; }
 .felt-pattern { position: absolute; inset: 0; opacity: .05; background-image: repeating-linear-gradient(45deg, transparent 0 16px, #fff 17px 18px); pointer-events: none; }
-.top-seat, .left-seat, .right-seat, .table-center, .human-seat { z-index: 1; }
-.top-seat {
-  grid-area: top;
-  justify-self: center;
-  width: min(74cqw, 820px);
-  --seat-tile-width: clamp(15px, 2.55cqw, 31px);
-  --seat-tile-height: clamp(21px, 3.56cqw, 43px);
-  --discard-columns: 12;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "seat-header" "seat-meta" "seat-hand" "seat-meld" "seat-river";
-}
-.top-seat :deep(header) { grid-area: seat-header; }
-.top-seat :deep(.seat-meta) { grid-area: seat-meta; }
-.top-seat :deep(.concealed-hand) { grid-area: seat-hand; }
-.top-seat :deep(.meld-row) { grid-area: seat-meld; }
-.top-seat :deep(.discard-row) { grid-area: seat-river; margin-top: 4px; justify-self: start; }
-.left-seat, .right-seat {
-  width: 100%;
-  align-self: center;
-  --seat-tile-width: clamp(13px, 2.05cqw, 25px);
-  --seat-tile-height: clamp(18px, 2.87cqw, 35px);
-  --discard-columns: 10;
-}
-.left-seat { grid-area: left; }
-.right-seat { grid-area: right; }
+.top-seat, .left-seat, .right-seat, .table-center, .human-seat { z-index: 1; min-width: 0; }
+.top-seat { grid-area: top; justify-self: center; width: min(72cqw, 760px); }
+.left-seat { grid-area: left; align-self: start; }
+.right-seat { grid-area: right; align-self: start; }
+
 .table-center {
   grid-area: center;
   align-self: center;
   justify-self: center;
-  width: clamp(132px, 17cqw, 198px);
-  min-height: 104px;
-  padding: clamp(9px, 1.2cqw, 14px);
+  /* 极端牌数下宁可让中央这块自己滚，也不挤压手牌区 */
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) auto;
+  grid-template-rows: auto auto auto;
+  /* 上下两家的牌河横跨整个中央区，左右两家各占一侧——和真牌桌上四堆弃牌的方位一致 */
+  grid-template-areas:
+    "river-top    river-top    river-top"
+    "river-left   center-info  river-right"
+    "river-bottom river-bottom river-bottom";
+  gap: clamp(4px, .7cqw, 10px);
+  padding: clamp(6px, .9cqw, 12px);
+  border-radius: 18px;
+  background: rgba(3, 26, 22, .34);
+  box-shadow: inset 0 0 34px rgba(0,0,0,.24);
+}
+.table-center::-webkit-scrollbar { display: none; }
+.river { display: grid; gap: 2px; align-content: start; justify-content: center; transition: opacity .2s; }
+.river :deep(.mahjong-tile.compact) {
+  width: var(--river-tile-width);
+  height: var(--river-tile-height);
+  padding: 1px;
+  border-radius: 4px;
+}
+/* 上下两家横着堆，左右两家竖着堆，牌面朝向和座位方位对应 */
+.river-top, .river-bottom {
+  grid-template-columns: repeat(var(--river-columns), var(--river-tile-width));
+  grid-auto-rows: var(--river-tile-height);
+}
+.river-top { grid-area: river-top; }
+.river-bottom { grid-area: river-bottom; }
+.river-left, .river-right {
+  grid-template-columns: repeat(var(--river-side-columns), var(--river-tile-width));
+  grid-auto-rows: var(--river-tile-height);
+}
+.river-left { grid-area: river-left; }
+.river-right { grid-area: river-right; }
+.river :deep(.just-discarded) {
+  box-shadow: 0 0 0 2px #f3ca69, 0 4px 12px rgba(243, 202, 105, .35);
+  transform: translateY(-2px);
+}
+
+.center-info {
+  grid-area: center-info;
+  min-width: clamp(112px, 15cqw, 190px);
+  align-self: center;
+  padding: clamp(7px, 1cqw, 12px) clamp(8px, 1.1cqw, 14px);
   text-align: center;
-  background: linear-gradient(180deg, rgba(6, 36, 30, .95), rgba(3, 24, 20, .95));
+  background: linear-gradient(180deg, rgba(6, 36, 30, .96), rgba(3, 24, 20, .96));
   border: 1px solid rgba(245,210,113,.28);
-  border-radius: 17px;
+  border-radius: 14px;
   box-shadow: 0 12px 32px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.05);
 }
 .round-data { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; color: #8ba9a1; font-size: 9px; }
-.round-data span { padding: 5px 2px; border-radius: 6px; background: rgba(255,255,255,.04); white-space: nowrap; }
-.round-data b { display: block; color: #ecd591; font-size: clamp(12px, 1.35cqw, 15px); font-variant-numeric: tabular-nums; }
-.last-action { min-height: 34px; margin-top: 9px; padding: 9px 7px 2px; overflow: hidden; border-top: 1px solid rgba(255,255,255,.1); color: #ffe08a; font-size: clamp(12px, 1.35cqw, 15px); font-weight: 800; line-height: 1.35; white-space: normal; text-wrap: balance; animation: action-flash .32s ease; }
+.round-data span { padding: 4px 2px; border-radius: 6px; background: rgba(255,255,255,.04); white-space: nowrap; }
+.round-data b { display: block; color: #ecd591; font-size: clamp(12px, 1.3cqw, 15px); font-variant-numeric: tabular-nums; }
+.last-action { min-height: 30px; margin-top: 7px; padding: 7px 5px 1px; overflow: hidden; border-top: 1px solid rgba(255,255,255,.1); color: #ffe08a; font-size: clamp(11px, 1.25cqw, 14px); font-weight: 800; line-height: 1.3; text-wrap: balance; animation: action-flash .32s ease; }
+
 .human-seat {
   grid-area: human;
   position: relative;
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: "human-header human-header" "human-meld human-hand" "human-river human-river";
-  align-items: end;
-  column-gap: clamp(5px, 1cqw, 12px);
-  padding: clamp(7px, 1cqw, 11px) clamp(8px, 1.35cqw, 14px);
-  border-radius: 18px;
+  padding: clamp(6px, .9cqw, 11px) clamp(8px, 1.2cqw, 14px);
+  border-radius: 16px;
   background: linear-gradient(180deg, rgba(7, 38, 31, .86), rgba(3, 24, 20, .9));
   border: 1px solid rgba(220,193,113,.2);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
 }
 .human-seat.active { border-color: #f3ca69; box-shadow: 0 0 0 2px rgba(243,202,105,.14), inset 0 1px 0 rgba(255,255,255,.06); }
-.human-seat header { grid-area: human-header; display: flex; align-items: center; gap: 8px; color: #f8efd4; margin-bottom: 5px; }
-.human-seat header strong { font-size: 15px; }
+.human-seat header { display: flex; align-items: center; gap: 8px; color: #f8efd4; margin-bottom: 4px; }
+.human-seat header strong { font-size: 14px; }
 .human-points { margin-left: auto; color: #f3cf75; font-size: 12px; font-variant-numeric: tabular-nums; }
-.dealer { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; }
-.human-hand { grid-area: human-hand; min-width: 0; display: flex; flex-wrap: nowrap; align-items: flex-end; gap: clamp(1px, .3cqw, 4px); justify-content: center; min-height: var(--human-tile-height); padding-top: 9px; }
+.dealer { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #a52e2b; color: white; font-size: 11px; }
+.hand-row { display: flex; align-items: flex-end; gap: clamp(5px, 1cqw, 12px); min-width: 0; }
+.meld-row { display: flex; flex-wrap: nowrap; gap: clamp(2px, .6cqw, 8px); flex: 0 0 auto; }
+.meld-group { display: flex; gap: 1px; }
+.meld-row :deep(.mahjong-tile.compact) { width: var(--meld-tile-width); height: var(--meld-tile-height); padding: 1px; border-radius: 4px; }
+.human-hand { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: flex-end; justify-content: center; gap: clamp(1px, .3cqw, 4px); min-height: var(--human-tile-height); padding-top: 9px; }
 .human-hand :deep(.mahjong-tile) { width: var(--human-tile-width); height: var(--human-tile-height); padding: clamp(1px, .28cqw, 3px); border-radius: clamp(4px, .62cqw, 7px); }
 .drawn-tile-slot { position: relative; display: flex; margin-left: clamp(4px, 1cqw, 13px); padding-left: clamp(4px, 1cqw, 13px); }
 .drawn-tile-slot::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 2px; width: 1px; background: rgba(243,202,105,.45); }
 .drawn-tile-slot small { position: absolute; z-index: 1; top: -10px; left: 7px; padding: 1px 4px; border-radius: 99px; background: #c49d3e; color: #17211b; font-size: clamp(6px, .7cqw, 8px); font-weight: 800; white-space: nowrap; }
 .drawn-tile-slot :deep(.mahjong-tile) { box-shadow: 0 4px 0 #b9ad8c, 0 0 0 2px #efc85f, 0 8px 18px rgba(239,200,95,.2); }
-.human-discards { grid-area: human-river; display: grid; grid-template-columns: repeat(18, var(--human-compact-width)); grid-auto-rows: var(--human-compact-height); gap: 2px; width: max-content; max-width: 100%; min-height: 0; margin: 6px auto 0; justify-content: center; }
-.human-discards :deep(.mahjong-tile.compact), .meld-row :deep(.mahjong-tile.compact) { width: var(--human-compact-width); height: var(--human-compact-height); padding: 1px; border-radius: clamp(3px, .45cqw, 5px); }
-.meld-row { grid-area: human-meld; display: flex; flex-wrap: nowrap; gap: clamp(2px, .65cqw, 8px); justify-content: flex-start; margin: 0; padding-top: 7px; }
-.meld-group { display: flex; gap: 1px; }
 .self-bubble {
   position: absolute;
   z-index: 6;
@@ -269,92 +315,102 @@ function countdownFor(seatId: number) {
 .bubble-enter-active, .bubble-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .bubble-enter-from, .bubble-leave-to { opacity: 0; transform: translateY(6px); }
 @keyframes action-flash { from { opacity: .25; transform: translateY(-3px); } }
+@keyframes table-breathe {
+  50% { box-shadow: inset 0 0 90px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06), 0 22px 60px rgba(0,0,0,.4), 0 0 30px rgba(243,202,105,.22); }
+}
 
-@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 600px) {
-  .table-shell { --human-tile-width: clamp(30px, 4.85cqw, 48px); --human-tile-height: clamp(42px, 6.8cqw, 67px); --human-compact-width: clamp(17px, 2.55cqw, 25px); --human-compact-height: clamp(24px, 3.57cqw, 35px); gap: 4px; padding: 5px; border-radius: 16px; }
-  .top-seat { width: min(80cqw, 680px); --seat-tile-width: clamp(17px, 2.65cqw, 26px); --seat-tile-height: clamp(24px, 3.7cqw, 36px); --discard-columns: 12; }
-  .left-seat, .right-seat { --seat-tile-width: clamp(15px, 2.15cqw, 21px); --seat-tile-height: clamp(21px, 3cqw, 29px); --discard-columns: 10; }
-  .table-center { min-height: 82px; padding: 7px; border-radius: 11px; }
+/* 横屏／矮窗口：高度紧张，牌河压到两行，中央信息收窄 */
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .table-shell {
+    --human-tile-width: clamp(30px, 4.85cqw, 48px);
+    --human-tile-height: clamp(42px, 6.8cqw, 67px);
+    --meld-tile-width: clamp(16px, 2.4cqw, 24px);
+    --meld-tile-height: clamp(22px, 3.36cqw, 34px);
+    --river-tile-width: clamp(12px, 1.7cqw, 18px);
+    --river-tile-height: clamp(16px, 2.35cqw, 25px);
+    --river-columns: 16;
+    --river-side-columns: 6;
+    grid-template-columns: clamp(88px, 12.5cqw, 150px) minmax(0, 1fr) clamp(88px, 12.5cqw, 150px);
+    gap: 5px;
+    padding: 5px;
+    border-radius: 15px;
+  }
+  .top-seat { width: min(78cqw, 640px); }
+  .table-center { gap: 3px; padding: 5px; border-radius: 12px; }
+  .center-info { min-width: clamp(96px, 13cqw, 150px); padding: 6px 7px; border-radius: 11px; }
   .round-data { gap: 2px; font-size: 7px; }
   .round-data span { padding: 3px 1px; }
   .round-data b { font-size: 11px; }
-  .last-action { min-height: 26px; margin-top: 5px; padding: 5px 4px 1px; font-size: 11px; }
+  .last-action { min-height: 24px; margin-top: 5px; padding: 5px 3px 1px; font-size: 11px; }
   .human-seat { padding: 5px 7px; border-radius: 12px; }
   .human-seat header { margin-bottom: 2px; }
   .human-seat header strong { font-size: 12px; }
-  .human-points { font-size: 10px; }
-  .dealer { width: 18px; height: 18px; font-size: 8px; }
+  .human-points { font-size: 11px; }
+  .dealer { width: 18px; height: 18px; font-size: 9px; }
   .human-hand { padding-top: 6px; }
-  .human-discards { gap: 1px; margin-top: 3px; }
-  .meld-row { padding-top: 4px; }
 }
 
-/* 竖屏是完全另一套排布：对家在顶上，上下家压成左右两条窄边，
-   中间是牌河和最新动作，下半屏整块留给自己的手牌和操作。 */
+/* 竖屏：左右两家收成窄条，中央牌河列数减少，下半屏全部留给手牌 */
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
   .table-shell {
-    /* 十四张牌加上「刚摸」那一格必须塞进一行，所以宽度直接按容器算，间隙压到零 */
     --human-tile-width: clamp(23px, 6.5cqw, 38px);
     --human-tile-height: clamp(32px, 9.1cqw, 53px);
-    --human-compact-width: clamp(15px, 4.1cqw, 22px);
-    --human-compact-height: clamp(21px, 5.75cqw, 31px);
-    grid-template-columns: clamp(58px, 17cqw, 96px) minmax(0, 1fr) clamp(58px, 17cqw, 96px);
+    --meld-tile-width: clamp(14px, 3.9cqw, 21px);
+    --meld-tile-height: clamp(20px, 5.5cqw, 29px);
+    --river-tile-width: clamp(14px, 3.75cqw, 19px);
+    --river-tile-height: clamp(19px, 5.2cqw, 26px);
+    --river-columns: 10;
+    --river-side-columns: 5;
+    grid-template-columns: clamp(72px, 21cqw, 104px) minmax(0, 1fr) clamp(72px, 21cqw, 104px);
     grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "top top top"
-      "left center right"
-      "human human human";
-    align-content: stretch;
-    gap: 6px;
-    padding: 8px 7px;
-    border-radius: 20px;
+    gap: 5px;
+    padding: 7px 6px;
+    border-radius: 18px;
   }
-  .top-seat {
-    width: 100%;
-    --seat-tile-width: clamp(15px, 4cqw, 21px);
-    --seat-tile-height: clamp(21px, 5.6cqw, 29px);
-    --discard-columns: 12;
-  }
-  .top-seat :deep(.concealed-hand) { overflow: hidden; }
-  .top-seat :deep(.discard-row) { margin-top: 3px; }
-  .left-seat, .right-seat {
-    align-self: stretch;
-    padding: 6px 4px;
-    --seat-tile-width: clamp(13px, 3.6cqw, 19px);
-    --seat-tile-height: clamp(18px, 5cqw, 26px);
-    --discard-columns: 3;
-  }
-  .left-seat :deep(header), .right-seat :deep(header) { flex-wrap: wrap; gap: 3px; }
+  .top-seat { width: 100%; }
+  .left-seat :deep(header), .right-seat :deep(header) { flex-wrap: wrap; gap: 2px 5px; }
   .left-seat :deep(.points), .right-seat :deep(.points) { margin-left: 0; }
   .left-seat :deep(.meld-row), .right-seat :deep(.meld-row) { flex-wrap: wrap; gap: 3px; }
-  .left-seat :deep(.discard-row), .right-seat :deep(.discard-row) { margin-inline: auto; }
-  .table-center { width: 100%; min-height: 0; align-self: center; padding: 9px 8px; border-radius: 14px; }
-  .round-data { font-size: 9px; }
-  .round-data b { font-size: 14px; }
-  .last-action { min-height: 36px; margin-top: 7px; padding: 7px 5px 1px; font-size: 14px; }
-  .human-seat {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "human-header" "human-meld" "human-hand" "human-river";
-    align-items: stretch;
-    padding: 8px;
-    border-radius: 16px;
+  /* 竖屏中央只有一百八十来像素宽，「左牌河＋信息卡＋右牌河」三栏并排会把信息卡压没。
+     改成四行：信息条独占一行，左右两家的牌河并排放在中间，方位感还在，宽度也够了。 */
+  .table-center {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas:
+      "center-info  center-info"
+      "river-top    river-top"
+      "river-left   river-right"
+      "river-bottom river-bottom";
+    gap: 4px 3px;
+    padding: 5px 4px;
+    border-radius: 13px;
   }
-  .human-seat header { margin-bottom: 4px; }
-  .human-seat header strong { font-size: 14px; }
+  .center-info { min-width: 0; padding: 5px 6px; border-radius: 10px; }
+  .round-data { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; font-size: 8px; }
+  .round-data span { display: flex; align-items: baseline; justify-content: center; gap: 3px; padding: 3px 2px; }
+  .round-data b { display: inline; font-size: 12px; }
+  .last-action { min-height: 0; margin-top: 5px; padding: 5px 2px 1px; font-size: 12px; }
+  .river-left { justify-content: end; }
+  .river-right { justify-content: start; }
+  .human-seat { padding: 7px 8px; border-radius: 15px; }
+  .human-seat header strong { font-size: 13px; }
   .human-points { font-size: 12px; }
-  .dealer { width: 21px; height: 21px; font-size: 10px; }
-  /* 极窄屏（比如 320px）真的塞不下十四张时允许横向滑动，而不是把牌桌撑破 */
-  .human-hand { justify-content: center; padding-top: 11px; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  .dealer { width: 20px; height: 20px; font-size: 10px; }
+  .hand-row { flex-direction: column; align-items: stretch; gap: 3px; }
+  .meld-row { justify-content: center; flex-wrap: wrap; }
+  /* 极窄屏塞不下十四张时允许横向滑动，而不是把牌桌撑破 */
+  .human-hand { justify-content: center; padding-top: 10px; gap: 0; overflow-x: auto; scrollbar-width: none; }
   .human-hand::-webkit-scrollbar { display: none; }
   .human-hand :deep(.mahjong-tile) { padding: 2px; border-radius: 5px; }
   .drawn-tile-slot { margin-left: 4px; padding-left: 3px; }
-  .human-discards { grid-template-columns: repeat(12, var(--human-compact-width)); gap: 2px; margin-top: 6px; }
-  .meld-row { justify-content: center; padding-top: 0; padding-bottom: 2px; flex-wrap: wrap; }
   .self-bubble { left: 8px; max-width: 78%; font-size: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .last-action { animation: none; }
+  .table-shell.my-turn { animation: none; }
   .bubble-enter-active, .bubble-leave-active { transition: none; }
+  .river :deep(.just-discarded) { transform: none; }
 }
 </style>
