@@ -26,6 +26,9 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+# 本地跑 Worker 时的密钥（管理密钥等），绝不能进仓库
+.dev.vars
+.dev.vars.*
 
 # Logs
 *.log

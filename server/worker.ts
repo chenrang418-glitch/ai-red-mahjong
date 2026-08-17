@@ -15,6 +15,8 @@ interface Env {
   ROOMS: DurableObjectNamespace
   LOBBY: DurableObjectNamespace
   DB: D1Database
+  // 通过 wrangler secret 单独配置。没配置时管理接口整体不存在。
+  ADMIN_TOKEN?: string
 }
 
 interface SocketAttachment extends RoomUser {
@@ -42,7 +44,7 @@ function json(data: unknown, status = 200): Response {
       'content-type': 'application/json; charset=utf-8',
       'access-control-allow-origin': '*',
       'access-control-allow-headers': 'content-type, authorization',
-      'access-control-allow-methods': 'GET, POST, OPTIONS',
+      'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
     },
   })
 }
@@ -123,6 +125,109 @@ async function login(request: Request, env: Env): Promise<Response> {
   ])
   const session: SessionPayload = { userId: user.id, nickname: user.nickname }
   return json({ token: createSessionToken(session), ...session })
+}
+
+// —— 管理接口 ——
+// 三条硬规则：
+// 1. 没配置 ADMIN_TOKEN 时，这些接口一律当作不存在；
+// 2. token 不对也返回 404 而不是 401，避免让人从状态码判断「这里有管理入口」；
+// 3. token 只从请求头读，不接受 URL 查询参数，免得跟着链接、日志、浏览器历史泄露出去。
+const NOT_FOUND = () => json({ error: '接口不存在' }, 404)
+
+function timingSafeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false
+  let diff = 0
+  for (let index = 0; index < left.length; index += 1) diff |= left.charCodeAt(index) ^ right.charCodeAt(index)
+  return diff === 0
+}
+
+function isAdmin(request: Request, env: Env): boolean {
+  const expected = env.ADMIN_TOKEN?.trim()
+  if (!expected) return false
+  const authorization = request.headers.get('authorization') ?? ''
+  if (!authorization.startsWith('Bearer ')) return false
+  return timingSafeEqual(authorization.slice(7).trim(), expected)
+}
+
+async function adminUsers(env: Env): Promise<Response> {
+  const result = await env.DB.prepare(`
+    SELECT
+      u.id AS user_id,
+      u.nickname AS nickname,
+      u.created_at AS created_at,
+      u.last_seen_at AS last_seen_at,
+      COALESCE(s.total_games, 0) AS total_games,
+      COALESCE(s.wins, 0) AS wins,
+      COALESCE(s.seven_pairs, 0) AS seven_pairs,
+      COALESCE(s.gang_count, 0) AS gang_count,
+      COALESCE(s.ma_count, 0) AS ma_count
+    FROM users u
+    LEFT JOIN user_stats s ON s.user_id = u.id
+    ORDER BY u.last_seen_at DESC
+    LIMIT 500
+  `).all<{
+    user_id: string
+    nickname: string
+    created_at: number
+    last_seen_at: number
+    total_games: number
+    wins: number
+    seven_pairs: number
+    gang_count: number
+    ma_count: number
+  }>()
+  return json({
+    users: result.results.map((row) => ({
+      userId: row.user_id,
+      nickname: row.nickname,
+      createdAt: row.created_at,
+      lastSeenAt: row.last_seen_at,
+      totalGames: row.total_games,
+      wins: row.wins,
+      sevenPairs: row.seven_pairs,
+      gangCount: row.gang_count,
+      maCount: row.ma_count,
+    })),
+  })
+}
+
+async function adminDeleteUser(env: Env, userId: string): Promise<Response> {
+  const user = await env.DB.prepare('SELECT nickname FROM users WHERE id = ?').bind(userId).first<{ nickname: string }>()
+  if (!user) return json({ error: '用户不存在' }, 404)
+  // round_player_results 和 user_stats 都有 ON DELETE CASCADE，删用户会一并清掉。
+  await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
+  return json({ ok: true, nickname: user.nickname })
+}
+
+async function adminResetUser(env: Env, userId: string): Promise<Response> {
+  const user = await env.DB.prepare('SELECT nickname FROM users WHERE id = ?').bind(userId).first<{ nickname: string }>()
+  if (!user) return json({ error: '用户不存在' }, 404)
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM round_player_results WHERE user_id = ?').bind(userId),
+    env.DB.prepare('UPDATE user_stats SET total_games = 0, wins = 0, seven_pairs = 0, gang_count = 0, ma_count = 0 WHERE user_id = ?').bind(userId),
+  ])
+  return json({ ok: true, nickname: user.nickname })
+}
+
+async function adminResetLeaderboard(env: Env): Promise<Response> {
+  // 只清战绩，账号保留：下次用同一个昵称登录还是原来那个人，只是从零开始。
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM round_player_results'),
+    env.DB.prepare('UPDATE user_stats SET total_games = 0, wins = 0, seven_pairs = 0, gang_count = 0, ma_count = 0'),
+  ])
+  return json({ ok: true })
+}
+
+async function adminRoute(request: Request, env: Env, url: URL): Promise<Response> {
+  if (!isAdmin(request, env)) return NOT_FOUND()
+  if (request.method === 'POST' && url.pathname === '/api/admin/session') return json({ ok: true })
+  if (request.method === 'GET' && url.pathname === '/api/admin/users') return adminUsers(env)
+  if (request.method === 'POST' && url.pathname === '/api/admin/leaderboard/reset') return adminResetLeaderboard(env)
+  const userMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})$/)
+  if (request.method === 'DELETE' && userMatch) return adminDeleteUser(env, userMatch[1])
+  const resetMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})\/reset$/)
+  if (request.method === 'POST' && resetMatch) return adminResetUser(env, resetMatch[1])
+  return NOT_FOUND()
 }
 
 async function leaderboard(env: Env): Promise<Response> {
@@ -260,6 +365,8 @@ async function roomSocket(request: Request, env: Env, code: string): Promise<Res
 async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'OPTIONS') return json(null, 204)
   const url = new URL(request.url)
+  // 管理接口必须在所有玩家接口之前拦下，避免前缀写错时被后面的路由捡走。
+  if (url.pathname.startsWith('/api/admin/')) return adminRoute(request, env, url)
   if (request.method === 'GET' && url.pathname === '/api/health') return json({ ok: true })
   if (request.method === 'POST' && url.pathname === '/api/session') return login(request, env)
   if (request.method === 'GET' && url.pathname === '/api/leaderboard') return leaderboard(env)
@@ -561,6 +668,9 @@ export class MahjongRoom {
 
   private sendState(socket: WebSocket, userId: string): void {
     if (!this.coordinator || socket.readyState !== WebSocket.OPEN) return
+    // 已经宣布离开的连接不再接收房间状态，否则出错回执那条路径会把人又「送回」房间。
+    const attachment = socket.deserializeAttachment() as SocketAttachment | null
+    if (attachment?.leaving) return
     this.send(socket, { type: 'room-state', room: this.coordinator.view(userId) })
   }
 

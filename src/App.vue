@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import AdminPanel from '@/components/AdminPanel.vue'
 import ModeHome from '@/components/ModeHome.vue'
 import AISettingsDrawer from '@/components/game/AISettingsDrawer.vue'
 import AudioControl from '@/components/game/AudioControl.vue'
@@ -17,6 +18,11 @@ import { checkWin } from '@/game/win'
 
 const game = useMahjongGame()
 const appMode = ref<'home' | 'local' | 'online'>('home')
+// 管理面板不在界面上留任何入口，只能在地址栏加 #admin 打开。
+// 真正拦人的是服务器上的管理密钥，这个 hash 只是不想让它出现在正常游玩的路径里。
+const adminMode = ref(location.hash === '#admin')
+const syncAdminMode = () => { adminMode.value = location.hash === '#admin' }
+window.addEventListener('hashchange', syncAdminMode)
 const selectedTileId = ref('')
 const settingsOpen = ref(false)
 const replayOpen = ref(false)
@@ -44,6 +50,7 @@ document.addEventListener('visibilitychange', syncTicking)
 onBeforeUnmount(() => {
   if (clockTimer !== null) window.clearInterval(clockTimer)
   document.removeEventListener('visibilitychange', syncTicking)
+  window.removeEventListener('hashchange', syncAdminMode)
   if (diceTimer !== null) window.clearTimeout(diceTimer)
 })
 
@@ -120,7 +127,9 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 </script>
 
 <template>
-  <ModeHome v-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" />
+  <AdminPanel v-if="adminMode" />
+
+  <ModeHome v-else-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" />
 
   <OnlineHub v-else-if="appMode === 'online'" @back="appMode = 'home'" />
 

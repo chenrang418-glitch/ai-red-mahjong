@@ -59,6 +59,31 @@ npm run dev
 
 本地网页会自动连接 `http://127.0.0.1:8787`。如果联机服务器使用其他地址，可复制 `.env.example` 为 `.env.local`，再修改 `VITE_ONLINE_API_BASE`。
 
+## 管理入口
+
+用来删除用户和清理排行榜，默认关闭：**没有配置管理密钥时，管理接口完全不存在**，任何人访问都只会拿到 404。
+
+启用方式（只需做一次）：
+
+```powershell
+npx wrangler secret put ADMIN_TOKEN --config server/wrangler.jsonc
+```
+
+按提示粘贴一串足够长的随机密钥（建议 32 位以上）。也可以在 Cloudflare 控制台的 Workers → ai-red-mahjong-online → Settings → Variables and Secrets 里添加同名 Secret。密钥只存在 Cloudflare，不进仓库、不进网页代码。
+
+用法：在网址后面加 `#admin`（例如 <https://ai-red-mahjong.pages.dev/#admin>），输入密钥进入。页面上没有任何指向它的链接或按钮，普通玩家不会碰到。
+
+- 可以清空某个玩家的战绩（账号保留，从零开始）、删除某个玩家（账号连同全部对局记录一起消失），也可以一次性清空所有人的排行榜数据（账号都保留）。
+- 密钥只保存在当前标签页，关掉就没了；换设备或换标签页都要重新输入。
+- 密钥错误和接口未启用返回的是同一个 404，从外面看不出这里有没有管理入口。
+- 密钥只能通过请求头发送，不接受写在网址里，避免跟着链接或浏览器历史泄露。
+
+本地联调时把密钥写在项目根目录的 `.dev.vars`（该文件已被 git 忽略）：
+
+```text
+ADMIN_TOKEN=你的本地测试密钥
+```
+
 ## Cloudflare 部署
 
 推送到 `main` 后，GitHub Actions 会按顺序执行测试、联机服务器类型检查、Worker 构建、D1 迁移、Worker 部署、网页构建和 Pages 部署。网页构建时会自动使用本次 Worker 的部署地址，不需要在源码中写死服务器网址。
@@ -67,6 +92,8 @@ npm run dev
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`：除原有 Pages 权限外，还需要 Workers Scripts 和 D1 的编辑权限。
+
+管理密钥 `ADMIN_TOKEN` 不走 GitHub，用 `wrangler secret put` 单独配置一次即可，后续部署不会覆盖它。
 
 Wrangler 会按 `server/wrangler.jsonc` 中的名称创建或复用 `ai-red-mahjong` D1 数据库。手动部署前先登录 Wrangler，然后执行：
 
@@ -135,6 +162,7 @@ src/online/               联机协议和共享类型
 src/composables/          单机与联机状态调度
 src/components/game/      开局、牌桌、AI 设置、牌谱回放
 src/components/online/    联机大厅、等待页和聊天界面
+src/components/AdminPanel.vue  管理入口（#admin，需要密钥）
 server/                   Worker、Durable Object、D1 迁移
 tests/                    规则、引擎和联机房间测试
 server.mjs                仅本机可访问的静态网页服务
