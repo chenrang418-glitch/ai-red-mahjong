@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { AI_SPEED_DELAY_RANGES, decideClaim, decideTurn } from '@/game/ai'
+import { decideClaim, decideTurn } from '@/game/ai'
 import { GameEngine } from '@/game/engine'
 import type { AIProfile, MatchConfig } from '@/game/types'
 
 const profiles: AIProfile[] = [
-  { personality: 'fast', difficulty: 'beginner', speed: 'fast' },
-  { personality: 'balanced', difficulty: 'beginner', speed: 'normal' },
-  { personality: 'closed', difficulty: 'expert', speed: 'slow' },
-  { personality: 'humanlike', difficulty: 'standard', speed: 'dreamy' },
+  { difficulty: 'beginner' },
+  { difficulty: 'beginner' },
+  { difficulty: 'expert' },
+  { difficulty: 'standard' },
 ]
 
 function simulationConfig(seed: number): MatchConfig {
@@ -56,15 +56,6 @@ function playOneRound(seed: number) {
 }
 
 describe('短程离线AI整局冒烟验证', () => {
-  it('四档速度使用固定等待区间', () => {
-    expect(AI_SPEED_DELAY_RANGES).toEqual({
-      fast: [1000, 2000],
-      normal: [3000, 4000],
-      slow: [5000, 6000],
-      dreamy: [6000, 7000],
-    })
-  })
-
   it('三个固定种子都能完成一局且不破坏牌张守恒', () => {
     for (let seed = 1; seed <= 3; seed += 1) {
       const engine = playOneRound(seed)

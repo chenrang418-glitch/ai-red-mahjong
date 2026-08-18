@@ -2,7 +2,7 @@
 
 import { RoomCoordinator } from './room-core'
 import type { RoomUser, StoredRoomState } from './room-core'
-import { ROOM_REJECT_CLOSE_CODE } from '../src/online/types'
+import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE } from '../src/online/types'
 import type {
   OnlineRoomDirectoryEntry,
   OnlineRoomDirectoryPlayer,
@@ -24,6 +24,63 @@ interface SocketAttachment extends RoomUser {
 }
 
 interface SessionPayload extends RoomUser {}
+
+// 全局设置：托管 AI 档位、维护模式开关和提示文案。
+// 放在 LOBBY 这个单例 Durable Object 里——建房时要读它，D1 每次都走网络太慢。
+export interface ServerSettings {
+  trusteeDifficulty: 'beginner' | 'standard' | 'expert'
+  maintenance: boolean
+  maintenanceMessage: string
+}
+
+const DEFAULT_SERVER_SETTINGS: ServerSettings = {
+  trusteeDifficulty: 'beginner',
+  maintenance: false,
+  maintenanceMessage: '服务器正在维护更新，暂时无法创建新房间，请稍后再来。',
+}
+
+function sanitizeServerSettings(input: Partial<ServerSettings>): ServerSettings {
+  const difficulties = ['beginner', 'standard', 'expert']
+  const message = typeof input.maintenanceMessage === 'string' ? input.maintenanceMessage.trim().slice(0, 120) : ''
+  return {
+    trusteeDifficulty: difficulties.includes(String(input.trusteeDifficulty))
+      ? input.trusteeDifficulty as ServerSettings['trusteeDifficulty']
+      : DEFAULT_SERVER_SETTINGS.trusteeDifficulty,
+    maintenance: input.maintenance === true,
+    maintenanceMessage: message || DEFAULT_SERVER_SETTINGS.maintenanceMessage,
+  }
+}
+
+async function readServerSettings(env: Env): Promise<ServerSettings> {
+  try {
+    const stub = env.LOBBY.get(env.LOBBY.idFromName('global-directory'))
+    const response = await stub.fetch('https://lobby.internal/settings')
+    if (!response.ok) return { ...DEFAULT_SERVER_SETTINGS }
+    return sanitizeServerSettings(await response.json<Partial<ServerSettings>>())
+  } catch {
+    // 读不到就按默认放行：维护开关坏掉不该把正常游玩也堵死
+    return { ...DEFAULT_SERVER_SETTINGS }
+  }
+}
+
+async function writeServerSettings(env: Env, settings: ServerSettings): Promise<void> {
+  const stub = env.LOBBY.get(env.LOBBY.idFromName('global-directory'))
+  await stub.fetch('https://lobby.internal/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+}
+
+async function recordAudit(env: Env, action: string, target: string | null, detail: string): Promise<void> {
+  try {
+    await env.DB.prepare('INSERT INTO admin_audit (action, target, detail, created_at) VALUES (?, ?, ?, ?)')
+      .bind(action, target, detail, Date.now())
+      .run()
+  } catch (cause) {
+    // 审计写失败不该挡住管理操作本身
+    console.error('写管理日志失败', cause)
+  }
+}
 
 const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 
@@ -95,15 +152,19 @@ function roomCode(): string {
   return [...bytes].map((byte) => ROOM_ALPHABET[byte % ROOM_ALPHABET.length]).join('')
 }
 
-function sanitizeSettings(input: Partial<OnlineRoomSettings>): OnlineRoomSettings {
+function sanitizeSettings(input: Partial<OnlineRoomSettings>, trusteeDifficulty?: OnlineRoomSettings['trusteeDifficulty']): OnlineRoomSettings {
   const claimWindowMs = [2000, 3000, 4000, 5000, 6000, 7000].includes(Number(input.claimWindowMs))
     ? Number(input.claimWindowMs)
     : 4000
+  const difficulties = ['beginner', 'standard', 'expert']
   return {
     mode: input.mode === 'unlimited' ? 'unlimited' : 'finite',
     initialPoints: Math.max(1, Math.min(9999, Math.floor(Number(input.initialPoints) || 30))),
     claimWindowMs,
     turnWindowMs: 30_000,
+    // 房主能选空位 AI 的档位；托管档位不接受客户端传入，只由服务端设置决定
+    aiDifficulty: difficulties.includes(String(input.aiDifficulty)) ? input.aiDifficulty as OnlineRoomSettings['aiDifficulty'] : 'standard',
+    trusteeDifficulty: trusteeDifficulty ?? 'beginner',
   }
 }
 
@@ -196,6 +257,7 @@ async function adminDeleteUser(env: Env, userId: string): Promise<Response> {
   if (!user) return json({ error: '用户不存在' }, 404)
   // round_player_results 和 user_stats 都有 ON DELETE CASCADE，删用户会一并清掉。
   await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
+  await recordAudit(env, 'delete-user', userId, `删除用户 ${user.nickname}`)
   return json({ ok: true, nickname: user.nickname })
 }
 
@@ -206,6 +268,7 @@ async function adminResetUser(env: Env, userId: string): Promise<Response> {
     env.DB.prepare('DELETE FROM round_player_results WHERE user_id = ?').bind(userId),
     env.DB.prepare('UPDATE user_stats SET total_games = 0, wins = 0, seven_pairs = 0, gang_count = 0, ma_count = 0 WHERE user_id = ?').bind(userId),
   ])
+  await recordAudit(env, 'reset-user', userId, `清空 ${user.nickname} 的战绩`)
   return json({ ok: true, nickname: user.nickname })
 }
 
@@ -215,7 +278,71 @@ async function adminResetLeaderboard(env: Env): Promise<Response> {
     env.DB.prepare('DELETE FROM round_player_results'),
     env.DB.prepare('UPDATE user_stats SET total_games = 0, wins = 0, seven_pairs = 0, gang_count = 0, ma_count = 0'),
   ])
+  await recordAudit(env, 'reset-leaderboard', null, '清空全部排行榜数据')
   return json({ ok: true })
+}
+
+// 房间目录表里已经存了每个房间的阶段、玩家和座位数，玩家接口只是做了截断和排序；
+// 管理端要的是全量，外加创建时间。
+async function adminRooms(env: Env): Promise<Response> {
+  const result = await env.DB.prepare(`
+    SELECT code, phase, host_nickname, players_json, occupied_seats, mode, initial_points, claim_window_ms, updated_at
+    FROM room_directory
+    ORDER BY updated_at DESC
+  `).all<{
+    code: string
+    phase: 'lobby' | 'playing'
+    host_nickname: string
+    players_json: string
+    occupied_seats: number
+    mode: string
+    initial_points: number
+    claim_window_ms: number
+    updated_at: number
+  }>()
+  return json({
+    rooms: result.results.map((row) => {
+      let players: unknown[] = []
+      try {
+        const parsed = JSON.parse(row.players_json)
+        if (Array.isArray(parsed)) players = parsed
+      } catch { players = [] }
+      return {
+        code: row.code,
+        phase: row.phase,
+        hostNickname: row.host_nickname,
+        players,
+        occupiedSeats: row.occupied_seats,
+        mode: row.mode,
+        initialPoints: row.initial_points,
+        claimWindowMs: row.claim_window_ms,
+        updatedAt: row.updated_at,
+      }
+    }),
+  })
+}
+
+async function adminDestroyRoom(env: Env, code: string): Promise<Response> {
+  const stub = env.ROOMS.get(env.ROOMS.idFromName(code))
+  const response = await stub.fetch('https://room.internal/admin/destroy', { method: 'POST' })
+  if (!response.ok) {
+    // 房间对象可能已经没了，目录表里的残留记录还是要清掉
+    await env.DB.prepare('DELETE FROM room_directory WHERE code = ?').bind(code).run()
+    return json({ ok: true, code, note: '房间已不存在，已清理目录记录' })
+  }
+  await recordAudit(env, 'destroy-room', code, '强制解散房间')
+  return json({ ok: true, code })
+}
+
+async function adminAudit(env: Env): Promise<Response> {
+  const result = await env.DB.prepare(
+    'SELECT action, target, detail, created_at FROM admin_audit ORDER BY created_at DESC LIMIT 100',
+  ).all<{ action: string; target: string | null; detail: string; created_at: number }>()
+  return json({
+    entries: result.results.map((row) => ({
+      action: row.action, target: row.target, detail: row.detail, createdAt: row.created_at,
+    })),
+  })
 }
 
 async function adminRoute(request: Request, env: Env, url: URL): Promise<Response> {
@@ -239,7 +366,19 @@ async function adminRoute(request: Request, env: Env, url: URL): Promise<Respons
   }
   if (request.method === 'POST' && url.pathname === '/api/admin/session') return json({ ok: true })
   if (request.method === 'GET' && url.pathname === '/api/admin/users') return adminUsers(env)
+  if (request.method === 'GET' && url.pathname === '/api/admin/rooms') return adminRooms(env)
+  if (request.method === 'GET' && url.pathname === '/api/admin/audit') return adminAudit(env)
+  if (request.method === 'GET' && url.pathname === '/api/admin/settings') return json(await readServerSettings(env))
+  if (request.method === 'PUT' && url.pathname === '/api/admin/settings') {
+    const incoming = sanitizeServerSettings(await request.json<Partial<ServerSettings>>())
+    await writeServerSettings(env, incoming)
+    await recordAudit(env, 'update-settings', null,
+      `托管档位=${incoming.trusteeDifficulty} 维护=${incoming.maintenance ? '开' : '关'}`)
+    return json(incoming)
+  }
   if (request.method === 'POST' && url.pathname === '/api/admin/leaderboard/reset') return adminResetLeaderboard(env)
+  const roomMatch = url.pathname.match(/^\/api\/admin\/rooms\/([A-Z0-9]{6})$/)
+  if (request.method === 'DELETE' && roomMatch) return adminDestroyRoom(env, roomMatch[1])
   const userMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})$/)
   if (request.method === 'DELETE' && userMatch) return adminDeleteUser(env, userMatch[1])
   const resetMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})\/reset$/)
@@ -340,6 +479,9 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
         initialPoints: row.initial_points,
         claimWindowMs: row.claim_window_ms,
         turnWindowMs: 30_000,
+        // 目录表只存房间的公开摘要，档位不在里面；列表用不到，给默认值即可
+        aiDifficulty: 'standard',
+        trusteeDifficulty: 'beginner',
       },
       updatedAt: row.updated_at,
     }
@@ -356,7 +498,10 @@ async function lobbySocket(request: Request, env: Env): Promise<Response> {
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const user = readSessionToken(request)
   const body = await request.json<{ settings?: Partial<OnlineRoomSettings> }>()
-  const settings = sanitizeSettings(body.settings ?? {})
+  const server = await readServerSettings(env)
+  // 维护期间只拦「开新房」：正在打的牌局和重连都不受影响，中途被掐断太难受了
+  if (server.maintenance) return json({ error: server.maintenanceMessage, maintenance: true }, 503)
+  const settings = sanitizeSettings(body.settings ?? {}, server.trusteeDifficulty)
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const code = roomCode()
     const stub = env.ROOMS.get(env.ROOMS.idFromName(code))
@@ -385,6 +530,10 @@ async function route(request: Request, env: Env): Promise<Response> {
   // 管理接口必须在所有玩家接口之前拦下，避免前缀写错时被后面的路由捡走。
   if (url.pathname.startsWith('/api/admin/')) return adminRoute(request, env, url)
   if (request.method === 'GET' && url.pathname === '/api/health') return json({ ok: true })
+  if (request.method === 'GET' && url.pathname === '/api/service') {
+    const server = await readServerSettings(env)
+    return json({ maintenance: server.maintenance, maintenanceMessage: server.maintenanceMessage })
+  }
   if (request.method === 'POST' && url.pathname === '/api/session') return login(request, env)
   if (request.method === 'GET' && url.pathname === '/api/leaderboard') return leaderboard(env)
   if (request.method === 'GET' && url.pathname === '/api/rooms') return listRooms(request, env)
@@ -432,6 +581,18 @@ export class MahjongRoom {
       await this.persist()
       this.state.waitUntil(this.syncRoomDirectory())
       return json({ code: body.code }, 201)
+    }
+    if (url.pathname === '/admin/destroy' && request.method === 'POST') {
+      if (!this.coordinator) return json({ error: '房间不存在' }, 404)
+      const code = this.coordinator.state.code
+      // 先告诉屋里的人是被管理员关的，再销毁；否则他们只会看到一次莫名其妙的断线
+      for (const socket of this.state.getWebSockets()) {
+        if (socket.readyState !== WebSocket.OPEN) continue
+        socket.send(JSON.stringify({ type: 'error', message: '房间已被管理员关闭' }))
+        socket.close(ROOM_CLOSED_BY_ADMIN_CODE, '房间已被管理员关闭')
+      }
+      await this.deleteRoom()
+      return json({ ok: true, code })
     }
     if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const userId = request.headers.get('x-user-id') ?? ''
@@ -701,6 +862,7 @@ export class MahjongRoom {
 }
 
 export class MahjongLobby {
+  // 除了推送房间列表变化，它还兼职存全局设置（托管档位、维护开关）
   constructor(private readonly state: DurableObjectState) {
     state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
   }
@@ -712,6 +874,15 @@ export class MahjongLobby {
       const [client, server] = Object.values(pair)
       this.state.acceptWebSocket(server)
       return new Response(null, { status: 101, webSocket: client })
+    }
+    if (url.pathname === '/settings') {
+      if (request.method === 'PUT') {
+        const incoming = await request.json<Record<string, unknown>>()
+        await this.state.storage.put('settings', incoming)
+        return json(incoming)
+      }
+      const stored = await this.state.storage.get<Record<string, unknown>>('settings')
+      return json(stored ?? {})
     }
     if (url.pathname === '/notify' && request.method === 'POST') {
       const message = JSON.stringify({ type: 'rooms-updated', at: Date.now() })

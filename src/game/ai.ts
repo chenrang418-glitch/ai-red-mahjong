@@ -1,8 +1,6 @@
-import { checkWin } from './win'
 import { countFaces, faceKey, sameFace, tileFromFace } from './tiles'
 import { handShanten, normalHandShanten, sevenPairsHandShanten } from './shanten'
-import { claimReactionDelay } from './timing'
-import type { AIObservation, AIProfile, ClaimAction, Meld, ThinkingSpeed, Tile } from './types'
+import type { AIObservation, AIProfile, ClaimAction, Difficulty, Meld, Tile } from './types'
 
 export type AITurnDecision =
   | { action: 'win' }
@@ -19,21 +17,42 @@ const ALL_FACES = [
   'zhong',
 ]
 
-export const AI_SPEED_DELAY_RANGES: Record<ThinkingSpeed, readonly [number, number]> = {
-  fast: [1000, 2000],
-  normal: [3000, 4000],
-  slow: [5000, 6000],
-  dreamy: [6000, 7000],
-}
+// —— 思考时间 ——
+// 没有「速度」这个档位了。想多久由这手牌好不好打决定：
+// 一眼就该扔的孤张秒出，听牌、能胡、能杠这些要算账的地方才慢下来。
+const THINK_BASE_MS: Record<Difficulty, number> = { beginner: 800, standard: 1200, expert: 1600 }
+export const THINK_MIN_MS = 600
+export const THINK_MAX_MS = 6000
 
-// 猿神档的前瞻要有上限：联机时这段计算跑在 Worker 里，不能因为一手复杂牌把房间拖住。
-const EXPERT_LOOKAHEAD_BUDGET_MS = 60
-
-type CoreStrategy = 'fast' | 'closed' | 'no-zhong'
-type StrategyWeights = Record<CoreStrategy, number>
-const CORE_STRATEGIES: CoreStrategy[] = ['fast', 'closed', 'no-zhong']
+// AI 自己挑路线，不再由玩家指定性格。三条路线对应三种打法。
+type Route = 'meld' | 'concealed' | 'ma'
 
 const VIRTUAL_MELD: Meld = { id: 'virtual-meld', type: 'peng', tiles: [] }
+
+// 一次决策里，同一手牌的向听数会被反复求：进张要对三十四种牌各试一遍，
+// 候选弃牌之间也大量重合。不缓存的话单步能跑到几百毫秒，联机端直接超预算。
+let shantenCache = new Map<string, number>()
+
+function handKey(hand: Tile[], melds: number, route: Route): string {
+  const counts = countFaces(hand)
+  const parts: string[] = []
+  for (const [face, count] of counts) parts.push(`${face}${count}`)
+  parts.sort()
+  return `${route}|${melds}|${parts.join(',')}`
+}
+
+function deterministicUnit(key: string): number {
+  let hash = 2166136261
+  for (const char of key) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) / 0xffffffff
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value))
+}
 
 function visibleCounts(observation: AIObservation): Map<string, number> {
   const tiles: Tile[] = [
@@ -46,126 +65,10 @@ function visibleCounts(observation: AIObservation): Map<string, number> {
   return countFaces(tiles)
 }
 
-function remainingOf(visible: Map<string, number>, face: string): number {
+// 菜鸡算不清还剩几张：它只当每种牌都还有满满四张，看不见牌河里已经躺了几张。
+function remainingOf(visible: Map<string, number>, face: string, difficulty: Difficulty): number {
+  if (difficulty === 'beginner') return 4
   return Math.max(0, 4 - (visible.get(face) ?? 0))
-}
-
-function handSignature(hand: Tile[], melds: number): string {
-  return `${melds}|${[...countFaces(hand).entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([face, count]) => `${face}:${count}`)
-    .join('|')}`
-}
-
-function deterministicUnit(key: string): number {
-  let hash = 2166136261
-  for (const char of key) {
-    hash ^= char.charCodeAt(0)
-    hash = Math.imul(hash, 16777619)
-  }
-  return (hash >>> 0) / 0xffffffff
-}
-
-function strategyWeights(observation: AIObservation, profile: AIProfile): StrategyWeights {
-  if (profile.personality === 'balanced') return { fast: 1 / 3, closed: 1 / 3, 'no-zhong': 1 / 3 }
-  if (profile.personality !== 'humanlike') {
-    return {
-      fast: profile.personality === 'fast' ? 1 : 0,
-      closed: profile.personality === 'closed' ? 1 : 0,
-      'no-zhong': profile.personality === 'no-zhong' ? 1 : 0,
-    }
-  }
-
-  // 真人波动型：按当前牌型挑一条最顺的路线走，偶尔挑错。
-  const ranked = CORE_STRATEGIES
-    .map((strategy) => ({ strategy, score: routeScore(observation, strategy) }))
-    .sort((left, right) => right.score - left.score)
-  const mistakeRate = { beginner: 0.16, standard: 0.07, expert: 0.02 }[profile.difficulty]
-  const decisionKey = `${observation.playerId}-${observation.round}-${handSignature(observation.hand, observation.melds.length)}`
-  const selectedIndex = deterministicUnit(`${decisionKey}-mistake`) < mistakeRate
-    ? 1 + Math.floor(deterministicUnit(`${decisionKey}-wrong`) * (ranked.length - 1))
-    : 0
-  const selected = ranked[selectedIndex].strategy
-  return {
-    fast: selected === 'fast' ? 1 : 0,
-    closed: selected === 'closed' ? 1 : 0,
-    'no-zhong': selected === 'no-zhong' ? 1 : 0,
-  }
-}
-
-// 三条路线各自离胡还有多远，数字越小越顺。
-function routeScore(observation: AIObservation, strategy: CoreStrategy): number {
-  const hand = observation.hand
-  const melds = observation.melds
-  const red = hand.filter((tile) => tile.suit === 'zhong').length
-  if (strategy === 'closed') return -sevenPairsHandShanten(hand) * 2 - (melds.length === 0 ? 1 : -4)
-  if (strategy === 'no-zhong') return -normalHandShanten(hand, melds) * 2 - red
-  return -normalHandShanten(hand, melds) * 2 + melds.length
-}
-
-// 策略决定用哪把尺子量进度：七对型盯着对子走，快攻型盯着普通胡走，平衡型取两者更快的一条。
-function strategyShanten(hand: Tile[], melds: Meld[], weights: StrategyWeights): number {
-  if (melds.length > 0) return normalHandShanten(hand, melds)
-  const normal = normalHandShanten(hand, melds)
-  const pairs = sevenPairsHandShanten(hand)
-  if (weights.closed >= 0.75) return Math.min(pairs, normal + 1)
-  if (weights.fast >= 0.75) return Math.min(normal, pairs + 1)
-  return Math.min(normal, pairs)
-}
-
-// 有效进张：还能摸到多少张牌可以让进度往前一步。同样向听下这个数越大越安全。
-function ukeire(
-  hand: Tile[],
-  melds: Meld[],
-  weights: StrategyWeights,
-  visible: Map<string, number>,
-  faces: string[],
-): number {
-  const base = strategyShanten(hand, melds, weights)
-  let total = 0
-  for (const face of faces) {
-    const remaining = remainingOf(visible, face)
-    if (remaining === 0) continue
-    if (strategyShanten([...hand, tileFromFace(face)], melds, weights) < base) total += remaining
-  }
-  return total
-}
-
-// 手上留着的牌本身也有价值差别：红中是万能牌，中张比幺九更容易长成搭子。
-function tileKeepValue(hand: Tile[], weights: StrategyWeights): number {
-  const counts = countFaces(hand)
-  const red = counts.get('zhong') ?? 0
-  let value = red * (weights['no-zhong'] >= 0.75 ? -6 : 12)
-  for (const [face, count] of counts) {
-    if (face === 'zhong') continue
-    const rank = Number(face.split('-')[1])
-    if (count >= 2) value += weights.closed >= 0.75 ? 6 : 3
-    value += rank >= 3 && rank <= 7 ? 1 : 0
-  }
-  return value
-}
-
-// 只在猿神档使用：别人已经亮出两副以上时，再喂给他能碰能杠的牌就是在帮他提速。
-// 本玩法不点炮，所以门槛设得高一点，避免为了躲一点风险就打出效率明显更差的牌。
-function claimRisk(face: string, observation: AIObservation, visible: Map<string, number>): number {
-  if (face === 'zhong') return 0
-  const unseen = remainingOf(visible, face)
-  if (unseen < 2) return 0
-  const suit = face.split('-')[0]
-  let risk = 0
-  for (const player of observation.players) {
-    if (player.id === observation.playerId || player.melds.length < 2) continue
-    risk += player.melds.filter((meld) => meld.tiles[0]?.suit === suit).length * 2
-  }
-  return risk * unseen
-}
-
-interface DiscardCandidate {
-  tile: Tile
-  hand: Tile[]
-  shanten: number
-  ukeire: number
-  score: number
 }
 
 function uniqueByFace(hand: Tile[]): Tile[] {
@@ -177,41 +80,6 @@ function uniqueByFace(hand: Tile[]): Tile[] {
 function removeOneFace(hand: Tile[], face: string): Tile[] {
   const index = hand.findIndex((tile) => faceKey(tile) === face)
   return index < 0 ? [...hand] : [...hand.slice(0, index), ...hand.slice(index + 1)]
-}
-
-// 摸一张之后还能走到多好：把有效进张按剩余张数加权平均，用于在同向听同进张时分高下。
-function lookaheadValue(
-  hand: Tile[],
-  melds: Meld[],
-  weights: StrategyWeights,
-  visible: Map<string, number>,
-  faces: string[],
-  deadline: number,
-): number {
-  let weighted = 0
-  let total = 0
-  for (const face of faces) {
-    if (Date.now() > deadline) break
-    const remaining = remainingOf(visible, face)
-    if (remaining === 0) continue
-    const drawn = [...hand, tileFromFace(face)]
-    let best = Infinity
-    let bestUkeire = 0
-    for (const candidate of uniqueByFace(drawn)) {
-      const next = removeOneFace(drawn, faceKey(candidate))
-      const value = strategyShanten(next, melds, weights)
-      if (value > best) continue
-      const nextUkeire = ukeire(next, melds, weights, visible, faces)
-      // 同样的向听要挑进张最多的那手，否则前瞻会被第一个碰到的打法带偏。
-      if (value < best) {
-        best = value
-        bestUkeire = nextUkeire
-      } else bestUkeire = Math.max(bestUkeire, nextUkeire)
-    }
-    weighted += (-best * 100 + bestUkeire) * remaining
-    total += remaining
-  }
-  return total > 0 ? weighted / total : 0
 }
 
 function relevantFaces(hand: Tile[]): string[] {
@@ -226,118 +94,304 @@ function relevantFaces(hand: Tile[]): string[] {
   return [...faces]
 }
 
+function countPairs(hand: Tile[]): number {
+  return [...countFaces(hand).entries()].filter(([face, count]) => face !== 'zhong' && count >= 2).length
+}
+
+function redCount(hand: Tile[]): number {
+  return hand.filter((tile) => tile.suit === 'zhong').length
+}
+
+// —— 路线选择 ——
+// 一旦副露就回不了门清，这条「已投入成本」天然给路线提供惯性，
+// 不用额外存状态，也不会出现这手做七对、下一手改门清的精神分裂。
+function chooseRoute(observation: AIObservation, difficulty: Difficulty): Route {
+  if (observation.melds.length > 0) return 'meld'
+  const hand = observation.hand
+  const pairs = countPairs(hand)
+  const red = redCount(hand)
+  const decisionKey = `${observation.playerId}-${observation.round}-${pairs}-${red}`
+
+  if (difficulty === 'beginner') {
+    // 菜鸡不会算向听，只会数对子，而且经常改主意
+    const slip = deterministicUnit(`${decisionKey}-route`)
+    if (slip < 0.35) return slip < 0.18 ? 'ma' : pairs >= 4 ? 'meld' : 'concealed'
+    return pairs >= 4 ? 'concealed' : 'meld'
+  }
+
+  const normal = normalHandShanten(hand, [])
+  const seven = sevenPairsHandShanten(hand)
+  const scores: Record<Route, number> = {
+    meld: -normal * 10,
+    concealed: -Math.min(normal, seven) * 10 + pairs * 1.2,
+    ma: -normal * 10 - red * 6,
+  }
+  if (difficulty === 'expert') {
+    // 无红中胡能多抓两张码，按码牌占比折算约两分；只有手上红中不多、
+    // 牌型又快成了的时候，这笔账才划算。
+    if (red <= 1 && normal <= 1) scores.ma += 7
+    // 门清留着做杠的可能，杠分即时结算且流局也保留，是不胡也能拿的分
+    if (pairs >= 3) scores.concealed += 2
+  }
+  const ranked = (Object.keys(scores) as Route[]).sort((left, right) => scores[right] - scores[left])
+  const mistakeRate = difficulty === 'standard' ? 0.1 : 0.02
+  return deterministicUnit(`${decisionKey}-pick`) < mistakeRate ? ranked[1] : ranked[0]
+}
+
+// 不同路线用不同的尺子量进度：门清盯七对，其余按普通胡算。
+function routeShanten(hand: Tile[], melds: Meld[], route: Route): number {
+  const key = handKey(hand, melds.length, route)
+  const cached = shantenCache.get(key)
+  if (cached !== undefined) return cached
+  const normal = normalHandShanten(hand, melds)
+  const value = melds.length > 0 || route !== 'concealed'
+    ? normal
+    : Math.min(sevenPairsHandShanten(hand), normal + 1)
+  shantenCache.set(key, value)
+  return value
+}
+
+// 有效进张：还能摸到多少张让进度往前一步。菜鸡只看手牌附近，也不扣已见牌。
+function ukeire(
+  hand: Tile[],
+  melds: Meld[],
+  route: Route,
+  visible: Map<string, number>,
+  faces: string[],
+  difficulty: Difficulty,
+): number {
+  const base = routeShanten(hand, melds, route)
+  let total = 0
+  for (const face of faces) {
+    const remaining = remainingOf(visible, face, difficulty)
+    if (remaining === 0) continue
+    if (routeShanten([...hand, tileFromFace(face)], melds, route) < base) total += remaining
+  }
+  return total
+}
+
+// 猿神独有：听牌之后要比「这张听能胡几张」，听八张和听两张不是一回事。
+function winningTiles(hand: Tile[], melds: Meld[], visible: Map<string, number>): number {
+  let total = 0
+  for (const face of ALL_FACES) {
+    const remaining = Math.max(0, 4 - (visible.get(face) ?? 0))
+    if (remaining === 0) continue
+    if (routeShanten([...hand, tileFromFace(face)], melds, 'meld') < 0) total += remaining
+  }
+  return total
+}
+
+// 猿神独有的一步前瞻：一向听时不只看「能进多少张」，还要看进张之后能听多宽。
+// 同样是一向听，进完能听八张和只能听两张，价值差很远——凡人看不到这一层。
+function tenpaiOutlook(
+  hand: Tile[],
+  melds: Meld[],
+  visible: Map<string, number>,
+  faces: string[],
+): number {
+  const draws = faces
+    .map((face) => ({ face, remaining: Math.max(0, 4 - (visible.get(face) ?? 0)) }))
+    .filter((entry) => entry.remaining > 0)
+    .sort((left, right) => right.remaining - left.remaining)
+    .slice(0, 5)
+  let weighted = 0
+  let total = 0
+  for (const { face, remaining } of draws) {
+    const drawn = [...hand, tileFromFace(face)]
+    if (routeShanten(drawn, melds, 'meld') > 0) continue
+    let best = 0
+    for (const tile of uniqueByFace(drawn).slice(0, 6)) {
+      const next = removeOneFace(drawn, faceKey(tile))
+      if (routeShanten(next, melds, 'meld') > 0) continue
+      best = Math.max(best, winningTiles(next, melds, visible))
+    }
+    weighted += best * remaining
+    total += remaining
+  }
+  return total > 0 ? weighted / total : 0
+}
+
+// 猿神独有：牌墙见底还差好几步时，抢胡的期望已经很低，守住杠分和流局更实在。
+function endgamePressure(observation: AIObservation, shanten: number): number {
+  const wall = observation.wallCount
+  if (wall > 24) return 0
+  const drawsLeft = Math.floor(wall / 4)
+  if (shanten <= drawsLeft) return 0
+  return Math.min(3, shanten - drawsLeft)
+}
+
+function keepValue(hand: Tile[], route: Route, difficulty: Difficulty): number {
+  const counts = countFaces(hand)
+  const red = counts.get('zhong') ?? 0
+  let value = red * (route === 'ma' ? -5 : 12)
+  for (const [face, count] of counts) {
+    if (face === 'zhong') continue
+    const rank = Number(face.split('-')[1])
+    if (count >= 2) value += route === 'concealed' ? 6 : 3
+    if (difficulty !== 'beginner' && rank >= 3 && rank <= 7) value += 1
+  }
+  return value
+}
+
+// 猿神独有：别人亮了两副以上还喂他能碰能杠的牌，等于帮他提速。
+function claimRisk(face: string, observation: AIObservation, visible: Map<string, number>): number {
+  if (face === 'zhong') return 0
+  const unseen = Math.max(0, 4 - (visible.get(face) ?? 0))
+  if (unseen < 2) return 0
+  const suit = face.split('-')[0]
+  let risk = 0
+  for (const player of observation.players) {
+    if (player.id === observation.playerId || player.melds.length < 2) continue
+    risk += player.melds.filter((meld) => meld.tiles[0]?.suit === suit).length * 2
+  }
+  return risk * unseen
+}
+
+interface Candidate {
+  tile: Tile
+  hand: Tile[]
+  shanten: number
+  ukeire: number
+  score: number
+}
+
 export function decideTurn(observation: AIObservation, profile: AIProfile): AITurnDecision {
+  shantenCache = new Map()
   if (observation.canWin) return { action: 'win' }
 
-  const weights = strategyWeights(observation, profile)
+  const difficulty = profile.difficulty
+  const route = chooseRoute(observation, difficulty)
   const visible = visibleCounts(observation)
-  const faces = profile.difficulty === 'beginner' ? relevantFaces(observation.hand) : ALL_FACES
+  const faces = difficulty === 'beginner' ? relevantFaces(observation.hand) : ALL_FACES
 
-  const gang = chooseGang(observation, weights, visible, faces)
+  const gang = chooseGang(observation, route, visible, faces, difficulty)
   if (gang) return gang
 
-  const candidates: DiscardCandidate[] = []
+  const candidates: Candidate[] = []
   for (const tile of uniqueByFace(observation.hand)) {
     const hand = removeOneFace(observation.hand, faceKey(tile))
-    const shanten = strategyShanten(hand, observation.melds, weights)
-    candidates.push({ tile, hand, shanten, ukeire: 0, score: 0 })
+    candidates.push({ tile, hand, shanten: routeShanten(hand, observation.melds, route), ukeire: 0, score: 0 })
   }
   if (candidates.length === 0) return { action: 'discard', tileId: observation.hand[0].id }
 
   const bestShanten = Math.min(...candidates.map((candidate) => candidate.shanten))
-  // 进张只对「进度最好的那几张」细算，避免每张牌都做一遍全量计算。
   const contenders = candidates.filter((candidate) => candidate.shanten <= bestShanten + 1)
   for (const candidate of contenders) {
-    candidate.ukeire = ukeire(candidate.hand, observation.melds, weights, visible, faces)
+    candidate.ukeire = ukeire(candidate.hand, observation.melds, route, visible, faces, difficulty)
   }
 
   for (const candidate of candidates) {
-    let score = -candidate.shanten * 1000 + candidate.ukeire * 12 + tileKeepValue(candidate.hand, weights)
-    if (profile.difficulty === 'expert') score -= Math.min(8, claimRisk(faceKey(candidate.tile), observation, visible) * 0.4)
-    if (profile.difficulty === 'beginner' || profile.personality === 'humanlike') {
-      const noise = profile.difficulty === 'beginner' ? 90 : 26
-      score += (deterministicUnit(`${candidate.tile.id}-${observation.round}-${observation.hand.length}`) - 0.5) * noise
+    let score = -candidate.shanten * 1000 + candidate.ukeire * 12 + keepValue(candidate.hand, route, difficulty)
+    if (difficulty === 'expert') {
+      score -= Math.min(8, claimRisk(faceKey(candidate.tile), observation, visible) * 0.4)
+      // 牌墙见底还差得远，就别再拆搭子硬冲
+      score -= endgamePressure(observation, candidate.shanten) * 6
+    }
+    if (difficulty === 'beginner') {
+      score += (deterministicUnit(`${candidate.tile.id}-${observation.round}-${observation.hand.length}`) - 0.5) * 90
     }
     candidate.score = score
   }
 
-  // 猿神档只在「向听和进张都打平」的候选之间才动用摸牌前瞻决胜。
-  // 让前瞻去盖过进张这种主信号，实测反而打得更差。
-  if (profile.difficulty === 'expert') {
-    const leader = Math.max(...candidates.map((candidate) => candidate.score))
-    const tied = candidates.filter((candidate) => leader - candidate.score < 6).slice(0, 3)
-    if (tied.length > 1) {
-      const deadline = Date.now() + EXPERT_LOOKAHEAD_BUDGET_MS
-      const values = tied.map((candidate) => lookaheadValue(candidate.hand, observation.melds, weights, visible, relevantFaces(candidate.hand), deadline))
-      const baseline = Math.max(...values)
-      tied.forEach((candidate, index) => { candidate.score += (values[index] - baseline) * 0.05 })
+  // 一向听时往前多看一步：挑「进完能听得最宽」的走法
+  if (difficulty === 'expert' && bestShanten === 1) {
+    const near = candidates
+      .filter((candidate) => candidate.shanten === 1)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 3)
+    for (const candidate of near) {
+      candidate.score += tenpaiOutlook(candidate.hand, observation.melds, visible, relevantFaces(candidate.hand)) * 3
+    }
+  }
+
+  // 猿神独有：听牌之后比的是「这张听能胡几张」，听八张和听两张不是一回事。
+  // 只对已经听牌、且分数还在前几名的候选精算，避免每张牌都跑一遍全量。
+  if (difficulty === 'expert' && bestShanten <= 0) {
+    const tenpai = candidates
+      .filter((candidate) => candidate.shanten <= 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 4)
+    for (const candidate of tenpai) {
+      candidate.score += winningTiles(candidate.hand, observation.melds, visible) * 14
+      // 规则给的口子：无红中胡抓六张码、有红中只抓四张。已经听牌了还捏着红中，
+      // 等于主动少抓两张——只要打掉它还听得住，这两张码就是白拿的。
+      if (faceKey(candidate.tile) === 'zhong') candidate.score += 20
     }
   }
 
   const ranked = [...candidates].sort((left, right) => right.score - left.score)
-  // 菜鸡档要真的像新手：有时候明知道哪张更该打，还是会顺手打错一张。
-  if (profile.difficulty === 'beginner' && ranked.length > 1) {
-    const slip = deterministicUnit(`${observation.playerId}-${observation.round}-${observation.hand.length}-slip`)
-    if (slip < 0.34) return { action: 'discard', tileId: ranked[1].tile.id }
+  // 菜鸡就是会打错牌：明知道哪张更该走，还是顺手打了另一张。
+  if (difficulty === 'beginner' && ranked.length > 1) {
+    if (deterministicUnit(`${observation.playerId}-${observation.round}-${observation.hand.length}-slip`) < 0.45) {
+      return { action: 'discard', tileId: ranked[1].tile.id }
+    }
   }
   return { action: 'discard', tileId: ranked[0].tile.id }
 }
 
-// 杠不是白拿分：暗杠会拆掉两个对子，补杠会拆掉将牌。
-// 只有杠完进度不倒退时才杠，否则宁可不要这三分。
+// 杠不是白拿分：暗杠拆两个对子、补杠拆将牌。只有杠完进度不倒退才动手。
 function chooseGang(
   observation: AIObservation,
-  weights: StrategyWeights,
+  route: Route,
   visible: Map<string, number>,
   faces: string[],
+  difficulty: Difficulty,
 ): AITurnDecision | null {
   if (observation.buGangFaces.length === 0 && observation.anGangFaces.length === 0) return null
-  const baseline = bestProgress(observation.hand, observation.melds, weights, visible, faces)
 
+  // 菜鸡不算账，有杠就杠
+  if (difficulty === 'beginner') {
+    if (observation.buGangFaces.length > 0) return { action: 'bu-gang', face: observation.buGangFaces[0] }
+    return { action: 'an-gang', face: observation.anGangFaces[0] }
+  }
+
+  const baseline = bestProgress(observation.hand, observation.melds, route, visible, faces, difficulty)
   const options: Array<{ decision: AITurnDecision; progress: number }> = []
   for (const face of observation.buGangFaces) {
     const hand = removeOneFace(observation.hand, face)
     options.push({
       decision: { action: 'bu-gang', face },
-      progress: progressOf(hand, observation.melds, weights, visible, faces),
+      progress: progressOf(hand, observation.melds, route, visible, faces, difficulty),
     })
   }
   for (const face of observation.anGangFaces) {
-    if (weights.closed >= 0.75 && observation.melds.length === 0) continue
+    if (route === 'concealed' && observation.melds.length === 0) continue
     const hand = observation.hand.filter((tile) => faceKey(tile) !== face)
     options.push({
       decision: { action: 'an-gang', face },
-      progress: progressOf(hand, [...observation.melds, VIRTUAL_MELD], weights, visible, faces),
+      progress: progressOf(hand, [...observation.melds, VIRTUAL_MELD], route, visible, faces, difficulty),
     })
   }
   if (options.length === 0) return null
 
   const best = options.reduce((current, option) => option.progress > current.progress ? option : current)
-  return best.progress >= baseline ? best.decision : null
+  // 猿神把杠分算进账：三家各一分是确定收益，值得为它容忍一点点进度损失
+  const tolerance = difficulty === 'expert' ? 4 : 0
+  return best.progress + tolerance >= baseline ? best.decision : null
 }
 
 function progressOf(
   hand: Tile[],
   melds: Meld[],
-  weights: StrategyWeights,
+  route: Route,
   visible: Map<string, number>,
   faces: string[],
+  difficulty: Difficulty,
 ): number {
-  return -strategyShanten(hand, melds, weights) * 100 + ukeire(hand, melds, weights, visible, faces) * 0.5
+  return -routeShanten(hand, melds, route) * 100 + ukeire(hand, melds, route, visible, faces, difficulty) * 0.5
 }
 
-// 当前这手牌打掉最没用的一张之后能达到的最好进度，作为「不动手」的参照。
 function bestProgress(
   hand: Tile[],
   melds: Meld[],
-  weights: StrategyWeights,
+  route: Route,
   visible: Map<string, number>,
   faces: string[],
+  difficulty: Difficulty,
 ): number {
   let best = -Infinity
   for (const tile of uniqueByFace(hand)) {
-    const next = removeOneFace(hand, faceKey(tile))
-    best = Math.max(best, progressOf(next, melds, weights, visible, faces))
+    best = Math.max(best, progressOf(removeOneFace(hand, faceKey(tile)), melds, route, visible, faces, difficulty))
   }
   return best
 }
@@ -348,43 +402,86 @@ export function decideClaim(
   salt: number,
   claimWindowMs = 4000,
 ): AIClaimDecision {
-  const delayMs = claimReactionDelay(profile.speed, salt, claimWindowMs)
+  shantenCache = new Map()
+  const difficulty = profile.difficulty
   const discarded = observation.lastDiscard?.tile
-  if (!discarded || observation.legalClaims.length === 0) return { action: 'pass', delayMs }
+  if (!discarded || observation.legalClaims.length === 0) {
+    return { action: 'pass', delayMs: claimDelay(difficulty, 1, salt, claimWindowMs) }
+  }
 
-  const weights = strategyWeights(observation, profile)
-  // 门清做七对的时候，碰和明杠都会让七对彻底没戏。
-  if (weights.closed >= 0.75 && observation.melds.length === 0) return { action: 'pass', delayMs }
+  const route = chooseRoute(observation, difficulty)
+  const face = faceKey(discarded)
+
+  // 菜鸡不算进度，凑够三张就想碰
+  if (difficulty === 'beginner') {
+    const action: ClaimAction = observation.legalClaims.includes('ming-gang') ? 'ming-gang' : 'peng'
+    const hesitate = deterministicUnit(`${salt}-${face}-beginner`) < 0.25
+    return { action: hesitate ? 'pass' : action, delayMs: claimDelay(difficulty, 0.2, salt, claimWindowMs) }
+  }
+
+  // 门清路线上，碰和明杠都会让七对彻底没戏
+  if (route === 'concealed' && observation.melds.length === 0) {
+    return { action: 'pass', delayMs: claimDelay(difficulty, 0.9, salt, claimWindowMs) }
+  }
 
   const visible = visibleCounts(observation)
-  const faces = profile.difficulty === 'beginner' ? relevantFaces(observation.hand) : ALL_FACES
-  const face = faceKey(discarded)
-  const current = progressOf(observation.hand, observation.melds, weights, visible, faces)
-
+  const faces = ALL_FACES
+  const current = progressOf(observation.hand, observation.melds, route, visible, faces, difficulty)
   let best: { action: ClaimAction | 'pass'; progress: number } = { action: 'pass', progress: current }
 
   if (observation.legalClaims.includes('peng')) {
     const hand = removeOneFace(removeOneFace(observation.hand, face), face)
-    const melds = [...observation.melds, VIRTUAL_MELD]
-    const progress = bestProgress(hand, melds, weights, visible, faces)
+    const progress = bestProgress(hand, [...observation.melds, VIRTUAL_MELD], route, visible, faces, difficulty)
     if (progress > best.progress) best = { action: 'peng', progress }
   }
   if (observation.legalClaims.includes('ming-gang')) {
     const hand = observation.hand.filter((tile) => faceKey(tile) !== face)
-    const melds = [...observation.melds, VIRTUAL_MELD]
-    // 明杠之后从牌尾补一张再打，进度口径和碰一致。
-    const progress = progressOf(hand, melds, weights, visible, faces) + 20
+    const progress = progressOf(hand, [...observation.melds, VIRTUAL_MELD], route, visible, faces, difficulty) + 20
     if (progress > best.progress) best = { action: 'ming-gang', progress }
   }
 
-  if (best.action === 'pass') return { action: 'pass', delayMs }
-  // 快攻型愿意为了速度多付一点代价，其余性格要求副露确实能换来进度。
-  const threshold = weights.fast >= 0.75 ? -12 : 0
-  if (best.progress - current <= threshold) return { action: 'pass', delayMs }
-  if (profile.difficulty === 'beginner' && deterministicUnit(`${salt}-${face}-beginner`) < 0.25) {
-    return { action: 'pass', delayMs }
+  const gain = best.progress - current
+  const threshold = route === 'meld' ? -12 : 0
+  const decided = best.action !== 'pass' && gain > threshold
+  // 明显划算就秒喊，差不多的时候才犹豫一下——这个「清晰度」直接决定反应快慢
+  const clarity = clamp(Math.abs(gain) / 60, 0, 1)
+  return { action: decided ? best.action : 'pass', delayMs: claimDelay(difficulty, clarity, salt, claimWindowMs) }
+}
+
+// 抢牌反应：越拿不定主意越慢，但一定赶在窗口关闭前喊出来。
+function claimDelay(difficulty: Difficulty, clarity: number, salt: number, claimWindowMs: number): number {
+  const base = { beginner: 0.5, standard: 0.38, expert: 0.3 }[difficulty]
+  const hesitation = (1 - clarity) * 0.25
+  const jitter = Math.abs(Math.sin(salt * 12.9898)) * 0.12
+  const ratio = clamp(base + hesitation + jitter, 0.18, 0.86)
+  return Math.min(Math.round(claimWindowMs * ratio), Math.max(0, claimWindowMs - 300))
+}
+
+// 出牌前要想多久：一眼就该扔的孤张秒出，听牌和能杠的地方才慢下来。
+export function estimateThinkMs(observation: AIObservation, profile: AIProfile, salt: number): number {
+  let think = THINK_BASE_MS[profile.difficulty]
+  const shanten = handShanten(observation.hand, observation.melds)
+
+  if (shanten <= 0) think += 1500
+  else if (shanten === 1) think += 600
+  if (observation.canWin) think += 800
+  if (observation.anGangFaces.length > 0 || observation.buGangFaces.length > 0) think += 800
+
+  // 手上孤张越多越好打：随手扔一张就行，不用纠结
+  const counts = countFaces(observation.hand)
+  let isolated = 0
+  for (const [face, count] of counts) {
+    if (face === 'zhong' || count >= 2) continue
+    const [suit, rankText] = face.split('-')
+    const rank = Number(rankText)
+    const hasNeighbour = [-2, -1, 1, 2].some((offset) => (counts.get(`${suit}-${rank + offset}`) ?? 0) > 0)
+    if (!hasNeighbour) isolated += 1
   }
-  return { action: best.action, delayMs }
+  if (isolated >= 3) think -= 500
+  else if (isolated === 0) think += 400
+
+  think += deterministicUnit(`${salt}-${observation.round}-${observation.hand.length}`) * 600
+  return Math.round(clamp(think, THINK_MIN_MS, THINK_MAX_MS))
 }
 
 export function removeClaimTiles(hand: Tile[], claimed: Tile, count: number): Tile[] {
@@ -394,12 +491,4 @@ export function removeClaimTiles(hand: Tile[], claimed: Tile, count: number): Ti
     if (index >= 0) result.splice(index, 1)
   }
   return result
-}
-
-export function handIsWinning(hand: Tile[], melds: Meld[]): boolean {
-  return checkWin(hand, melds).won
-}
-
-export function handProgress(hand: Tile[], melds: Meld[]): number {
-  return handShanten(hand, melds)
 }

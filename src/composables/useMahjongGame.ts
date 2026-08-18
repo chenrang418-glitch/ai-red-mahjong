@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { gameAudio } from './useGameAudio'
-import { AI_SPEED_DELAY_RANGES, decideClaim, decideTurn } from '@/game/ai'
+import { decideClaim, decideTurn, estimateThinkMs } from '@/game/ai'
 import { GameEngine } from '@/game/engine'
 import { claimMaskDelay } from '@/game/timing'
 import {
@@ -22,10 +22,7 @@ function wait(duration: number) {
   return new Promise((resolve) => window.setTimeout(resolve, duration))
 }
 
-function turnDelay(profile: AIProfile): number {
-  const [minimum, maximum] = AI_SPEED_DELAY_RANGES[profile.speed]
-  return Math.round(minimum + Math.random() * (maximum - minimum))
-}
+
 
 function actionPacingDelay() {
   return 180 + Math.round(Math.random() * 140)
@@ -264,7 +261,8 @@ export function useMahjongGame() {
     busy.value = true
     notice.value = `${player.name}正在思考…`
     const profile = structuredClone(player.ai!)
-    await wait(turnDelay(profile))
+    // 想多久取决于这手牌好不好打：孤张一眼就扔，听牌和能杠的地方才慢下来
+    await wait(estimateThinkMs(engine.value.createObservation(player.id), profile, current.events.length))
     if (!engine.value || token !== runToken || engine.value.state.phase !== 'playing') return
     try {
       const observation = engine.value.createObservation(player.id)

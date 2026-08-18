@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import AudioControl from './AudioControl.vue'
-import type { AIProfile, Difficulty, MatchConfig, MatchMode, Personality, ThinkingSpeed } from '@/game/types'
+import type { AIProfile, Difficulty, MatchConfig, MatchMode } from '@/game/types'
 
 defineProps<{ savedGameAvailable: boolean }>()
 const emit = defineEmits<{ start: [config: MatchConfig]; resume: []; history: []; rules: []; back: [] }>()
 
-const personalityLabels: Record<Personality, string> = {
-  fast: '快攻型',
-  balanced: '平衡型',
-  closed: '七对型',
-  'no-zhong': '无红中策略型',
-  humanlike: '真人波动型',
-}
 const difficultyLabels: Record<Difficulty, string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
-const speedLabels: Record<ThinkingSpeed, string> = { fast: '闪电', normal: '猴急', slow: '微醺', dreamy: '入梦' }
+const difficultyHints: Record<Difficulty, string> = {
+  beginner: '算不清剩几张，常打错牌',
+  standard: '会算向听和进张',
+  expert: '挑听得最宽的打法',
+}
 
 interface SetupForm {
   mode: MatchMode
@@ -30,9 +27,9 @@ const form = reactive<SetupForm>({
   names: ['你', '阿锐', '小稳', '老周'],
   points: [30, 30, 30, 30],
   profiles: [
-    { personality: 'fast', difficulty: 'beginner', speed: 'fast' },
-    { personality: 'balanced', difficulty: 'standard', speed: 'normal' },
-    { personality: 'closed', difficulty: 'expert', speed: 'normal' },
+    { difficulty: 'beginner' },
+    { difficulty: 'standard' },
+    { difficulty: 'expert' },
   ],
 })
 
@@ -55,7 +52,7 @@ function submit() {
       <h1>AI 红中麻将</h1>
       <p class="subtitle">你与三个不看暗牌的离线AI，在浏览器里完整打一场。</p>
       <div class="rule-chips">
-        <span>112张</span><span>只能自摸</span><span>支持七对</span><span>六码抓码</span><span>先喊先得</span>
+        <span>112张</span><span>只能自摸</span><span>支持七对</span><span>六码抓码</span><span>红中万能</span>
       </div>
     </section>
 
@@ -82,38 +79,28 @@ function submit() {
       </div>
 
       <section class="ai-guide" aria-label="AI设置说明">
-        <div class="guide-title"><span>AI GUIDE</span><strong>选择说明</strong></div>
-        <article><b>性格</b><p>快攻重副露，七对专注对子，无红中策略降低红中依赖；平衡型对三者等权，真人波动型会择优但偶尔判断失误。</p></article>
-        <article><b>智能</b><p>菜鸡重视眼前牌型，凡人计算有效进张，猿神增加后续摸牌前瞻；所有档位都不会读取其他玩家暗牌。</p></article>
-        <article><b>速度</b><p>闪电、猴急、微醺、入梦四档，只控制思考和抢牌等待，不改变智能水平；对局中可随时切换。</p></article>
+        <div class="guide-title"><span>AI GUIDE</span><strong>三个档位</strong></div>
+        <article><b>菜鸡</b><p>算不清牌河里已经走了几张，常常顺手打错牌，有杠就杠，碰牌也不看划不划算。</p></article>
+        <article><b>凡人</b><p>会算离听牌还差几步、还能摸到多少张有用的牌，副露前会先掂量值不值。</p></article>
+        <article><b>猿神</b><p>在凡人之上还会挑「听得最宽」的那张打，牌墙见底时收手保杠分，也会避开明显在喂给对家的牌。</p></article>
       </section>
+      <p class="ai-note">打什么牌型由 AI 看着手牌自己定，不用你指定风格；想多久也由这手牌好不好打决定——孤张秒出，听牌和能杠的地方会明显慢下来。所有档位都只看自己的手牌和公开信息，不会偷看别人的暗牌。</p>
 
       <div class="players-grid">
         <article v-for="playerId in 4" :key="playerId" class="player-config">
           <header>
             <span class="avatar" :class="{ human: playerId === 1 }">{{ playerId === 1 ? '你' : `AI${playerId - 1}` }}</span>
-            <div><strong>{{ playerId === 1 ? '真人玩家' : '离线AI玩家' }}</strong><small>{{ playerId === 1 ? '固定在牌桌下方' : '性格与难度独立设置' }}</small></div>
+            <div><strong>{{ playerId === 1 ? '真人玩家' : '离线AI玩家' }}</strong><small>{{ playerId === 1 ? '固定在牌桌下方' : '只需选一个档位' }}</small></div>
           </header>
           <label>名称<input v-model="form.names[playerId - 1]" maxlength="8"></label>
           <label v-if="form.mode === 'finite'">初始积分<input v-model.number="form.points[playerId - 1]" type="number" min="1" max="9999"></label>
           <template v-if="playerId > 1">
-            <label>性格
-              <select v-model="form.profiles[playerId - 2].personality">
-                <option v-for="(label, value) in personalityLabels" :key="value" :value="value">{{ label }}</option>
+            <label>智能档位
+              <select v-model="form.profiles[playerId - 2].difficulty">
+                <option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option>
               </select>
             </label>
-            <div class="inline-fields">
-              <label>智能
-                <select v-model="form.profiles[playerId - 2].difficulty">
-                  <option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option>
-                </select>
-              </label>
-              <label>速度
-                <select v-model="form.profiles[playerId - 2].speed">
-                  <option v-for="(label, value) in speedLabels" :key="value" :value="value">{{ label }}</option>
-                </select>
-              </label>
-            </div>
+            <p class="profile-hint">{{ difficultyHints[form.profiles[playerId - 2].difficulty] }}</p>
           </template>
         </article>
       </div>
@@ -160,6 +147,8 @@ h2 { margin: 2px 0 0; font-size: 24px; }
 .ai-guide article { padding: 9px 11px; border-left: 1px solid #29453d; }
 .ai-guide b { color: #e5c76e; font-size: 12px; }
 .ai-guide p { margin: 4px 0 0; color: #82978f; font-size: 10px; line-height: 1.65; }
+.ai-note { margin: -10px 0 18px; color: #7f948d; font-size: 11px; line-height: 1.75; }
+.profile-hint { margin: 7px 0 0; color: #7f948d; font-size: 10px; line-height: 1.6; }
 .players-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
 .player-config { padding: 15px; border: 1px solid #29453d; border-radius: 14px; background: #0d211c; }
 .player-config header { display: flex; gap: 9px; align-items: center; margin-bottom: 12px; }

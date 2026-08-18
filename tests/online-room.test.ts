@@ -298,7 +298,7 @@ describe('联机房间协调器', () => {
     // 把当前行动的座位换成 AI，并制造一个会让决策抛错的状态（手牌为空的观察）
     const before = game.events.length
     room.state.seats[game.currentPlayer].kind = 'ai'
-    room.state.seats[game.currentPlayer].ai = { personality: 'balanced', difficulty: 'standard', speed: 'fast' }
+    room.state.seats[game.currentPlayer].ai = { difficulty: 'standard' }
     room.runDueJobs(1_000_000)
     expect(room.state.game!.events.length).toBeGreaterThan(before)
   })

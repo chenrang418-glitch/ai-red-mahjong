@@ -10,9 +10,9 @@ function config(points = 20, mode: MatchConfig['mode'] = 'finite'): MatchConfig 
     seed: 20260814,
     players: [
       { name: '玩家', isHuman: true, initialPoints: points, ai: null },
-      { name: '快攻AI', isHuman: false, initialPoints: points, ai: { personality: 'fast', difficulty: 'beginner', speed: 'fast' } },
-      { name: '平衡AI', isHuman: false, initialPoints: points, ai: { personality: 'balanced', difficulty: 'standard', speed: 'normal' } },
-      { name: '七对AI', isHuman: false, initialPoints: points, ai: { personality: 'closed', difficulty: 'expert', speed: 'slow' } },
+      { name: '快攻AI', isHuman: false, initialPoints: points, ai: { difficulty: 'beginner' } },
+      { name: '平衡AI', isHuman: false, initialPoints: points, ai: { difficulty: 'standard' } },
+      { name: '七对AI', isHuman: false, initialPoints: points, ai: { difficulty: 'expert' } },
     ],
   }
 }

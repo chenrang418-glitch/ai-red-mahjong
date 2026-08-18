@@ -1,4 +1,4 @@
-import type { ClaimAction, GameState, MatchMode } from '@/game/types'
+import type { ClaimAction, Difficulty, GameState, MatchMode } from '@/game/types'
 
 export type RoomPhase = 'lobby' | 'playing'
 
@@ -24,6 +24,11 @@ export interface OnlineRoomSettings {
   initialPoints: number
   claimWindowMs: number
   turnWindowMs: number
+  // 空位补的 AI 用什么档位，房主开房时选，默认凡人
+  aiDifficulty: Difficulty
+  // 掉线托管用什么档位。玩家改不了，只有管理模式能调，默认菜鸡：
+  // 托管是帮你顶着别把牌打崩，不该替你打出比你还好的牌。
+  trusteeDifficulty: Difficulty
 }
 
 export interface OnlineRoomDirectoryPlayer {
@@ -139,6 +144,8 @@ export type LobbyServerMessage =
 // 房间明确拒绝加入（满员、牌局已开始、房间不存在）时用的 WebSocket 关闭码。
 // 客户端据此停止重连并把原因显示出来。放在共享类型里，Worker 入口不能导出普通常量。
 export const ROOM_REJECT_CLOSE_CODE = 4001
+// 被管理员强制解散，前端据此提示，而不是当成掉线去重连
+export const ROOM_CLOSED_BY_ADMIN_CODE = 4002
 
 export const QUICK_CHAT_MESSAGES = ['快点快点', '这也碰？', '你太菜了', '你会不会玩？', '666', '乐乐'] as const
 export const QUICK_CHAT_EMOJIS = ['😂', '👍', '😅', '😎', '😡', '😭', '🀄', '🎉'] as const
@@ -148,4 +155,12 @@ export const DEFAULT_ONLINE_SETTINGS: OnlineRoomSettings = {
   initialPoints: 30,
   claimWindowMs: 4000,
   turnWindowMs: 30000,
+  aiDifficulty: 'standard',
+  trusteeDifficulty: 'beginner',
+}
+
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  beginner: '菜鸡',
+  standard: '凡人',
+  expert: '猿神',
 }

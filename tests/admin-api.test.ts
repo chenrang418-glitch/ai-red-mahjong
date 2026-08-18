@@ -28,6 +28,7 @@ beforeAll(async () => {
     readFileSync(resolve(root, 'server/migrations/0001_online.sql'), 'utf8'),
     readFileSync(resolve(root, 'server/migrations/0002_room_directory.sql'), 'utf8'),
     readFileSync(resolve(root, 'server/migrations/0003_room_phase.sql'), 'utf8'),
+    readFileSync(resolve(root, 'server/migrations/0004_admin_audit.sql'), 'utf8'),
   ]
   mf = new Miniflare(convertV4MiniflareOptions({
     workers: [{

@@ -13,9 +13,9 @@ function config(seed: number): MatchConfig {
     claimWindowMs: 4000,
     players: [
       { name: '玩家', isHuman: true, initialPoints: 30, ai: null },
-      { name: 'AI1', isHuman: false, initialPoints: 30, ai: { personality: 'fast', difficulty: 'beginner', speed: 'fast' } },
-      { name: 'AI2', isHuman: false, initialPoints: 30, ai: { personality: 'balanced', difficulty: 'standard', speed: 'normal' } },
-      { name: 'AI3', isHuman: false, initialPoints: 30, ai: { personality: 'closed', difficulty: 'expert', speed: 'slow' } },
+      { name: 'AI1', isHuman: false, initialPoints: 30, ai: { difficulty: 'beginner' } },
+      { name: 'AI2', isHuman: false, initialPoints: 30, ai: { difficulty: 'standard' } },
+      { name: 'AI3', isHuman: false, initialPoints: 30, ai: { difficulty: 'expert' } },
     ],
   }
 }

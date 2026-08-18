@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref } from 'vue'
-import { ROOM_REJECT_CLOSE_CODE } from '@/online/types'
+import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE } from '@/online/types'
 import type {
   ChatMessage,
   LeaderboardEntry,
@@ -40,6 +40,7 @@ export function useOnlineGame() {
   const error = ref('')
   const pendingAction = ref<OnlinePendingAction | null>(null)
   const chatBubbles = ref<Record<number, { id: string; text: string }>>({})
+  const maintenance = ref<{ active: boolean; message: string }>({ active: false, message: '' })
   let socket: WebSocket | null = null
   let directorySocket: WebSocket | null = null
   let roomCode = ''
@@ -121,7 +122,7 @@ export function useOnlineGame() {
         body: JSON.stringify({ nickname }),
       })
       session.value = result
-      await Promise.all([refreshLeaderboard(), refreshRooms()])
+      await Promise.all([refreshLeaderboard(), refreshRooms(), refreshService()])
       connectDirectorySocket()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -136,6 +137,16 @@ export function useOnlineGame() {
       leaderboard.value = result.entries
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  // 大厅要知道服务器是不是在维护，好把「创建房间」按钮灰掉并说明原因
+  async function refreshService() {
+    try {
+      const result = await request<{ maintenance: boolean; maintenanceMessage: string }>('/api/service')
+      maintenance.value = { active: result.maintenance, message: result.maintenanceMessage }
+    } catch {
+      maintenance.value = { active: false, message: '' }
     }
   }
 
@@ -212,6 +223,14 @@ export function useOnlineGame() {
       connecting.value = false
       stopHeartbeat()
       clearPendingAction()
+      // 被管理员解散：和「加不进去」一样不该重连，但原因要说清楚
+      if (event.code === ROOM_CLOSED_BY_ADMIN_CODE) {
+        manualClose = true
+        roomCode = ''
+        room.value = null
+        setError(event.reason || '房间已被管理员关闭')
+        return
+      }
       // 房间满员、牌局已开始、房间不存在这类拒绝，重连多少次都没用，直接退回大厅并说明原因。
       if (event.code === ROOM_REJECT_CLOSE_CODE) {
         manualClose = true
@@ -504,6 +523,8 @@ export function useOnlineGame() {
     error,
     pendingAction,
     chatBubbles,
+    maintenance,
+    refreshService,
     login,
     logout,
     refreshLeaderboard,

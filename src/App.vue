@@ -122,10 +122,6 @@ const eventTypeLabel: Record<string, string> = {
   'bu-gang': '补杠', 'claim-pass': '过', win: '胡牌', 'draw-game': '流局',
   'match-over': '整场结束', 'ai-change': 'AI调整',
 }
-const personalityLabel = {
-  fast: '快攻型', balanced: '平衡型', closed: '七对型',
-  'no-zhong': '无红中策略型', humanlike: '真人波动型',
-} as const
 const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿神' } as const
 </script>
 
@@ -179,7 +175,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
           <ol class="ranking">
             <li v-for="(player, index) in sortedRanking" :key="player.id">
               <span class="rank">{{ index + 1 }}</span>
-              <div><strong>{{ player.name }}</strong><small>{{ player.isHuman || !player.ai ? '真人' : `${personalityLabel[player.ai.personality]}/${difficultyLabel[player.ai.difficulty]}` }}</small></div>
+              <div><strong>{{ player.name }}</strong><small>{{ player.isHuman || !player.ai ? '真人' : `AI · ${difficultyLabel[player.ai.difficulty]}` }}</small></div>
               <b>{{ player.points === null ? `${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : player.points }}</b>
             </li>
           </ol>
@@ -287,7 +283,9 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
         <article><b>抢牌</b><p>每次出牌都先开一个响应窗口。同一张牌最多只有一家能碰或杠（四张同牌凑不出两家各两张），所以不存在抢先冲突。无人可抢或都选择过之后，会短暂停留再由下家摸牌。</p></article>
         <article><b>补杠</b><p>刚碰完手上还留着第四张时，可以直接补杠，不必等下一次摸牌；暗杠仍然要摸牌后才能开。</p></article>
         <article><b>庄家</b><p>四家投骰最高者首庄；后续赢家坐庄，流局留庄；庄家不加倍。</p></article>
-        <article><b>AI设置</b><p>性格决定策略偏好，智能决定计算深度，速度只控制行动等待；三项均可在对局中切换。</p></article>
+        <article><b>AI档位</b><p>只有菜鸡、凡人、猿神三档，对局中可随时切换。做什么牌型由 AI 看着手牌自己定，不用你指定风格。</p></article>
+        <article><b>AI差别</b><p>菜鸡算不清牌河里走了几张、常打错牌、有杠就杠；凡人会算离听牌还差几步和有效进张；猿神还会往前多看一步，挑「进完能听得最宽」的打法，牌墙见底时收手保杠分。</p></article>
+        <article><b>思考时间</b><p>没有速度档位。孤张一眼就扔，听牌、能胡、能杠这些要算账的地方才明显慢下来。</p></article>
       </div>
     </section>
   </div>

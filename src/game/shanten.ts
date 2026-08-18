@@ -57,21 +57,25 @@ function evaluate(state: SearchState, fixedMelds: number): number {
   return value
 }
 
+// 乐观上界：把剩下的牌全当成能凑成面子，也达不到已知最好成绩时，这条分支不用再走。
+function optimisticBound(state: SearchState, index: number, fixedMelds: number): number {
+  let left = state.red
+  for (let slot = index; slot < FACE_SLOTS; slot += 1) left += state.counts[slot]
+  const melds = Math.min(4, state.melds + fixedMelds + Math.floor(left / 3))
+  const partials = Math.min(Math.max(0, 5 - melds), state.partials + 1)
+  return 8 - 2 * melds - partials
+}
+
 function search(state: SearchState, index: number, fixedMelds: number): void {
   if (state.melds + fixedMelds + state.partials >= 5 || index >= FACE_SLOTS) {
     state.best = Math.min(state.best, evaluate(state, fixedMelds))
     return
   }
+  if (optimisticBound(state, index, fixedMelds) >= state.best) return
   if (state.counts[index] === 0) {
     search(state, index + 1, fixedMelds)
     return
   }
-
-  // 不用这张牌（当孤张丢掉），保证搜索能覆盖「拆开重组」的可能。
-  const skipped = state.counts[index]
-  state.counts[index] = 0
-  search(state, index + 1, fixedMelds)
-  state.counts[index] = skipped
 
   const rank = index % RANKS
   const canSequence = rank <= RANKS - 3
@@ -138,6 +142,13 @@ function search(state: SearchState, index: number, fixedMelds: number): void {
     state.counts[target] += 1
     state.counts[index] += 1
   }
+
+  // 最后才考虑「这张不要了」。放在最后是因为前面的分支更可能给出好成绩，
+  // 有了好成绩，上面的剪枝才能真正砍掉大片无用搜索。
+  const skipped = state.counts[index]
+  state.counts[index] = 0
+  search(state, index + 1, fixedMelds)
+  state.counts[index] = skipped
 }
 
 function normalShanten(counts: number[], red: number, fixedMelds: number): number {

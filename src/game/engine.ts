@@ -26,7 +26,8 @@ import type {
   WinResult,
 } from './types'
 
-const DEFAULT_AI: AIProfile = { personality: 'balanced', difficulty: 'standard', speed: 'normal' }
+const DEFAULT_AI: AIProfile = { difficulty: 'standard' }
+const DIFFICULTY_TEXT: Record<AIProfile['difficulty'], string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
 
 function emptyStats() {
   return { wins: 0, sevenPairsWins: 0, gangCount: 0, maCount: 0, netPoints: 0 }
@@ -161,7 +162,7 @@ export class GameEngine {
     const player = this.player(playerId)
     if (player.isHuman) throw new Error('真人玩家不能设置AI性格')
     player.ai = clone(profile)
-    this.addEvent('ai-change', `${player.name}切换为${profile.personality}/${profile.difficulty}/${profile.speed}`, playerId)
+    this.addEvent('ai-change', `${player.name}切换为${DIFFICULTY_TEXT[profile.difficulty]}`, playerId)
   }
 
   player(playerId: number): PlayerState {

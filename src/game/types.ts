@@ -15,14 +15,12 @@ export interface Meld {
   fromPlayer?: number
 }
 
-export type Personality = 'fast' | 'balanced' | 'closed' | 'no-zhong' | 'humanlike'
 export type Difficulty = 'beginner' | 'standard' | 'expert'
-export type ThinkingSpeed = 'fast' | 'normal' | 'slow' | 'dreamy'
 
+// AI 只有智能档位这一个维度。原来的性格和速度都并进来了：
+// 打什么牌型由 AI 看着手牌自己定，想多久由这手牌好不好打决定。
 export interface AIProfile {
-  personality: Personality
   difficulty: Difficulty
-  speed: ThinkingSpeed
 }
 
 export interface PlayerStats {

@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import type { AIProfile, Difficulty, Personality, PlayerState, ThinkingSpeed } from '@/game/types'
+import type { AIProfile, Difficulty, PlayerState } from '@/game/types'
 
 defineProps<{ open: boolean; players: PlayerState[] }>()
 const emit = defineEmits<{ close: []; change: [playerId: number, profile: AIProfile] }>()
 
-const personalityLabels: Record<Personality, string> = { fast: '快攻型', balanced: '平衡型', closed: '七对型', 'no-zhong': '无红中策略型', humanlike: '真人波动型' }
 const difficultyLabels: Record<Difficulty, string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
-const speedLabels: Record<ThinkingSpeed, string> = { fast: '闪电', normal: '猴急', slow: '微醺', dreamy: '入梦' }
+const difficultyHints: Record<Difficulty, string> = {
+  beginner: '算不清剩几张，常打错牌，有杠就杠',
+  standard: '会算向听和进张，打法稳当',
+  expert: '会挑听得最宽的那张，牌墙见底会收手',
+}
 
-function change(player: PlayerState, field: keyof AIProfile, value: string) {
+function change(player: PlayerState, value: string) {
   if (!player.ai) return
-  emit('change', player.id, { ...player.ai, [field]: value })
+  emit('change', player.id, { difficulty: value as Difficulty })
 }
 </script>
 
@@ -19,26 +22,15 @@ function change(player: PlayerState, field: keyof AIProfile, value: string) {
     <aside class="drawer">
       <header><div><small>LIVE CONFIG</small><h2>AI随时切换</h2></div><button @click="emit('close')">×</button></header>
       <p class="hint">修改从该AI的下一次新决策开始生效，不会偷看其他玩家手牌。</p>
-      <div class="quick-guide"><b>性格</b>决定策略偏好　·　<b>智能</b>决定计算深度　·　<b>速度</b>只决定等待节奏</div>
+      <div class="quick-guide">只有一个档位要选。<b>做什么牌型</b>由 AI 看着手牌自己定，<b>想多久</b>由这手牌好不好打决定。</div>
       <article v-for="player in players.filter(p => !p.isHuman)" :key="player.id">
         <div class="ai-title"><span>AI{{ player.id }}</span><strong>{{ player.name }}</strong></div>
-        <label>性格
-          <select :value="player.ai?.personality" @change="change(player, 'personality', ($event.target as HTMLSelectElement).value)">
-            <option v-for="(label, value) in personalityLabels" :key="value" :value="value">{{ label }}</option>
+        <label>智能档位
+          <select :value="player.ai?.difficulty" @change="change(player, ($event.target as HTMLSelectElement).value)">
+            <option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option>
           </select>
         </label>
-        <div class="two">
-          <label>智能程度
-            <select :value="player.ai?.difficulty" @change="change(player, 'difficulty', ($event.target as HTMLSelectElement).value)">
-              <option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option>
-            </select>
-          </label>
-          <label>思考速度
-            <select :value="player.ai?.speed" @change="change(player, 'speed', ($event.target as HTMLSelectElement).value)">
-              <option v-for="(label, value) in speedLabels" :key="value" :value="value">{{ label }}</option>
-            </select>
-          </label>
-        </div>
+        <p class="difficulty-hint" v-if="player.ai">{{ difficultyHints[player.ai.difficulty] }}</p>
       </article>
     </aside>
   </div>
@@ -58,6 +50,7 @@ article { margin: 12px 0; padding: 15px; border: 1px solid #29433b; border-radiu
 .ai-title { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
 .ai-title span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: #24483d; color: #e5c96f; font-size: 11px; font-weight: 800; }
 label { display: grid; gap: 5px; color: #81968f; font-size: 10px; margin-top: 8px; }
+.difficulty-hint { margin: 8px 0 0; color: #7f948d; font-size: 11px; line-height: 1.6; }
 select { width: 100%; padding: 10px; color: #f3ecd8; background: #18322b; border: 1px solid #37574e; border-radius: 8px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 </style>

@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import OnlineRoom from './OnlineRoom.vue'
 import { useOnlineGame } from '@/composables/useOnlineGame'
-import { DEFAULT_ONLINE_SETTINGS } from '@/online/types'
+import { DEFAULT_ONLINE_SETTINGS, DIFFICULTY_LABELS } from '@/online/types'
 import type { OnlineRoomSettings } from '@/online/types'
 
 const emit = defineEmits<{ back: [] }>()
@@ -52,6 +52,12 @@ function back() {
       <button v-if="online.session.value" type="button" @click="online.logout">退出昵称</button>
     </header>
 
+    <section v-if="online.maintenance.value.active" class="maintenance-notice">
+      <strong>服务器维护中</strong>
+      <p>{{ online.maintenance.value.message }}</p>
+      <small>已经开始的牌局不受影响，也仍然可以加入现有房间。</small>
+    </section>
+
     <section v-if="!online.apiConfigured" class="server-notice">
       <strong>联机服务器尚未配置</strong>
       <p>本地开发请同时运行联机服务器；生产环境默认使用当前网页域名，也可以通过 <code>VITE_ONLINE_API_BASE</code> 覆盖。</p>
@@ -80,9 +86,10 @@ function back() {
           <div class="create-fields">
             <label v-if="settings.mode === 'finite'">统一初始积分<input v-model.number="settings.initialPoints" type="number" min="1" max="9999"></label>
             <label>抢牌窗口<select v-model.number="settings.claimWindowMs"><option :value="2000">2秒</option><option :value="3000">3秒</option><option :value="4000">4秒（推荐）</option><option :value="5000">5秒</option><option :value="6000">6秒</option><option :value="7000">7秒</option></select></label>
+            <label>空位 AI 档位<select v-model="settings.aiDifficulty"><option v-for="(label, value) in DIFFICULTY_LABELS" :key="value" :value="value">{{ label }}{{ value === 'standard' ? '（推荐）' : '' }}</option></select></label>
           </div>
-          <p>普通操作限时固定30秒；空位开局时自动补充 AI。</p>
-          <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value" @click="createRoom">{{ online.busy.value ? '创建中…' : online.connecting.value ? '正在进入…' : '创建新房间' }}</button>
+          <p>普通操作限时固定30秒；人没坐满时空位由这个档位的 AI 补上。</p>
+          <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : online.busy.value ? '创建中…' : online.connecting.value ? '正在进入…' : '创建新房间' }}</button>
         </article>
 
         <article class="hub-card room-action-card join-card">
@@ -212,6 +219,10 @@ function back() {
 .leaderboard-card li b { color: #efcf72; }
 .leaderboard-card li em { color: #8fa29b; font-style: normal; }
 .empty-ranking { padding: 35px 0; text-align: center; }
+.maintenance-notice { width: min(1180px, 100%); margin: 18px auto 0; padding: 15px 18px; border: 1px solid #a8863f; border-radius: 14px; background: rgba(72, 55, 21, .55); }
+.maintenance-notice strong { color: #f2d47c; font-size: 15px; }
+.maintenance-notice p { margin: 6px 0 4px; color: #ecdcae; font-size: 13px; line-height: 1.6; }
+.maintenance-notice small { color: #b9a97c; font-size: 12px; }
 .online-error { position: fixed; z-index: 90; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #ad5148; border-radius: 12px; background: rgba(94, 45, 40, .97); color: #ffd8d3; cursor: pointer; font-size: 13px; text-align: center; box-shadow: 0 14px 36px rgba(0,0,0,.45); }
 @media (max-width: 800px) {
   .hub-grid, .hub-grid.logged { grid-template-columns: 1fr; }

@@ -1,4 +1,4 @@
-import { decideClaim, decideTurn, AI_SPEED_DELAY_RANGES } from '../src/game/ai'
+import { decideClaim, decideTurn, estimateThinkMs } from '../src/game/ai'
 import { GameEngine } from '../src/game/engine'
 import { claimMaskDelay } from '../src/game/timing'
 import { placeholderTiles } from '../src/game/tiles'
@@ -80,8 +80,10 @@ export interface RoundLeaderboardResult {
   maCount: number
 }
 
-const TRUSTEE_AI: AIProfile = { personality: 'humanlike', difficulty: 'standard', speed: 'normal' }
-const TABLE_AI: AIProfile = { personality: 'balanced', difficulty: 'standard', speed: 'normal' }
+// 托管默认用最弱档：帮你顶着别把牌打崩就行，真要赢还得自己回来。
+// 具体档位可以在管理模式里调，房间创建时会把当时的设置固化进房间。
+const DEFAULT_TRUSTEE_DIFFICULTY: AIProfile['difficulty'] = 'beginner'
+const TABLE_AI: AIProfile = { difficulty: 'standard' }
 const DISCONNECT_GRACE_MS = 30_000
 const LOBBY_DISCONNECT_GRACE_MS = 60_000
 export const ROOM_RECONNECT_GRACE_MS = 5 * 60_000
@@ -112,11 +114,6 @@ function humanSeat(seatId: number, user: RoomUser, ready = false): StoredSeat {
     leftRoom: false,
     ai: null,
   }
-}
-
-function deterministicDelay(range: readonly [number, number], salt: number): number {
-  const ratio = Math.abs(Math.sin(salt * 12.9898))
-  return Math.round(range[0] + (range[1] - range[0]) * ratio)
 }
 
 function stageKey(game: GameState): string {
@@ -468,7 +465,7 @@ export class RoomCoordinator {
       if (seat.kind !== 'empty') continue
       seat.kind = 'ai'
       seat.name = `AI ${seat.seatId}`
-      seat.ai = structuredClone(TABLE_AI)
+      seat.ai = { difficulty: this.state.settings.aiDifficulty ?? TABLE_AI.difficulty }
       seat.ready = true
     }
     const engine = new GameEngine({
@@ -510,8 +507,13 @@ export class RoomCoordinator {
     this.touch(now)
   }
 
+  // 托管档位在建房时就固化进房间设置，管理模式改了也不影响已经在打的房间。
+  private trusteeProfile(): AIProfile {
+    return { difficulty: this.state.settings.trusteeDifficulty ?? DEFAULT_TRUSTEE_DIFFICULTY }
+  }
+
   private performAITurn(engine: GameEngine, seat: StoredSeat): void {
-    const profile = seat.kind === 'ai' ? seat.ai ?? TABLE_AI : TRUSTEE_AI
+    const profile = seat.kind === 'ai' ? seat.ai ?? TABLE_AI : this.trusteeProfile()
     try {
       const observation = engine.createObservation(seat.seatId)
       const decision = decideTurn(observation, profile)
@@ -544,8 +546,11 @@ export class RoomCoordinator {
       const existing = this.state.jobs.some((job) => job.stageKey === currentKey && (job.kind === 'ai-turn' || job.kind === 'turn-timeout'))
       if (!existing) {
         const auto = seat.kind === 'ai' || seat.trustee
-        const profile = seat.kind === 'ai' ? seat.ai ?? TABLE_AI : TRUSTEE_AI
-        const delay = auto ? deterministicDelay(AI_SPEED_DELAY_RANGES[profile.speed], salt + seat.seatId * 17) : this.state.settings.turnWindowMs
+        const profile = seat.kind === 'ai' ? seat.ai ?? TABLE_AI : this.trusteeProfile()
+        // AI 想多久按这手牌好不好打来定，不再有固定的速度档位
+        const delay = auto
+          ? estimateThinkMs(this.engine().createObservation(seat.seatId), profile, salt + seat.seatId * 17)
+          : this.state.settings.turnWindowMs
         // 以阶段开始时间为基准，取消托管、重连都不会让自己的倒计时回到满格。
         const dueAt = this.state.stageStartedAt + delay
         this.state.jobs.push({
@@ -580,7 +585,7 @@ export class RoomCoordinator {
       if (optionSeat.kind === 'human' && !optionSeat.trustee) continue
       if (this.state.claimResponses[String(option.playerId)]) continue
       if (this.state.jobs.some((job) => job.stageKey === currentKey && job.kind === 'ai-claim' && job.seatId === option.playerId)) continue
-      const profile = optionSeat.kind === 'ai' ? optionSeat.ai ?? TABLE_AI : TRUSTEE_AI
+      const profile = optionSeat.kind === 'ai' ? optionSeat.ai ?? TABLE_AI : this.trusteeProfile()
       const plan = decideClaim(claimEngine.createObservation(option.playerId, option.actions), profile, salt + option.playerId * 31, game.config.claimWindowMs)
       this.state.jobs.push({
         id: `ai-claim-${currentKey}-${option.playerId}`,
