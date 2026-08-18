@@ -44,7 +44,8 @@ function submit() {
 </template>
 
 <style scoped>
-.chat-panel { min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(150px, 1fr) auto auto; gap: 9px; }
+/* 消息区最小高度压到 90px：抽屉总共就那么高，给多了下面两行快捷语就被挤没 */
+.chat-panel { min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(90px, 1fr) auto auto; gap: 9px; }
 .chat-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-right: 3px; }
 .chat-empty { color: #687e77; font-size: 10px; text-align: center; }
 article { max-width: 92%; align-self: flex-start; padding: 8px; border-radius: 4px 10px 10px; background: #102820; }
@@ -52,7 +53,8 @@ article.mine { align-self: flex-end; border-radius: 10px 4px 10px 10px; backgrou
 article header { display: flex; justify-content: space-between; gap: 10px; color: #d8bd6b; font-size: 8px; }
 article time { color: #667b74; font-weight: 400; }
 article p { margin: 4px 0 0; overflow-wrap: anywhere; color: #c5d0cb; font-size: 11px; line-height: 1.45; }
-.quick-chat { max-height: 112px; display: flex; flex-wrap: wrap; gap: 5px; overflow-y: auto; padding-top: 8px; border-top: 1px solid #29433a; }
+/* 表情那行本来就该一眼看到，不能藏在滚动条里 */
+.quick-chat { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 8px; border-top: 1px solid #29433a; }
 .quick-chat button { padding: 6px 7px; border: 1px solid #355248; border-radius: 7px; background: #142f27; color: #c9d1cd; cursor: pointer; font-size: 9px; }
 .quick-chat button.emoji { min-width: 31px; font-size: 14px; }
 .chat-compose { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }

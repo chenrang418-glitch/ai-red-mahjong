@@ -78,6 +78,8 @@ export interface OnlineLegalActions {
   canWin: boolean
   canNextRound: boolean
   canQuitRoom: boolean
+  // 自己点过没有：点过就把结算弹窗收起来，回牌桌等其他人
+  nextRoundReady: boolean
   // 结算界面还差谁点「开始下一局」，直接把名字显示出来
   nextRoundWaiting: string[]
   canReturnToLobby: boolean

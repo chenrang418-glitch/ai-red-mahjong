@@ -346,20 +346,25 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .game-page.immersive .action-dock .discard-button { min-width: 150px; }
 .game-page.immersive .chat-fab { display: grid; }
 /* 全屏把侧栏整个收了，但聊天抽屉是挂在同一个侧栏上的——
-   不额外放出来的话，点聊天只会看到一层黑遮罩，底下什么都没有。 */
-.game-page.immersive .event-panel.mobile-open {
-  display: grid;
-  position: fixed;
-  z-index: 40;
-  top: auto;
-  right: max(8px, env(safe-area-inset-right));
-  bottom: max(8px, env(safe-area-inset-bottom));
-  left: auto;
-  width: min(380px, calc(100vw - 16px));
-  max-height: min(74dvh, 520px);
-  padding: 12px;
-  border: 1px solid #35524a;
-  border-radius: 16px;
-  background: rgba(10, 30, 25, .98);
-  box-shadow: 0 20px 60px rgba(0,0,0,.55);
+   不额外放出来的话，点聊天只会看到一层遮罩，底下什么都没有。
+   竖屏沿用它原本的底部抽屉（上半屏牌桌还看得见），右侧浮窗只给横屏用：
+   竖屏才三百多像素宽，浮窗一铺就等于整屏变黑。 */
+.game-page.immersive .event-panel.mobile-open { display: grid; }
+@media (orientation: landscape) {
+  .game-page.immersive .event-panel.mobile-open {
+    position: fixed;
+    z-index: 40;
+    top: auto;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: auto;
+    width: min(360px, calc(100vw - 16px));
+    max-height: min(80dvh, 460px);
+    padding: 12px;
+    border: 1px solid #35524a;
+    border-radius: 16px;
+    background: rgba(10, 30, 25, .97);
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
 }
+

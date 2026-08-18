@@ -202,8 +202,26 @@ onBeforeUnmount(() => {
   if (leaveToastTimer !== null) window.clearTimeout(leaveToastTimer)
 })
 
+// 点过「开始下一局」就把结算弹窗收起来，先回牌桌等其他人，
+// 不用盯着一个自己已经点过的弹窗干等。
+const nextRoundDismissed = ref(false)
+
+watch(() => props.room.game?.phase, (phase) => {
+  if (phase !== 'settlement') nextRoundDismissed.value = false
+})
+
+// 服务端说自己已经点过了（比如换了设备重连回来），弹窗也不该再挡着
+watch(() => props.room.legal.nextRoundReady, (ready) => {
+  if (ready) nextRoundDismissed.value = true
+})
+
+function confirmNextRound() {
+  nextRoundDismissed.value = true
+  emit('command', { type: 'next-round' })
+}
+
 function quitRoom() {
-  if (!window.confirm('退出后你的座位会换成 AI 继续打完这一场，本场成绩不再计入你名下。确定退出吗？')) return
+  if (!window.confirm('退出后座位立刻换成 AI，你不能再回到这一场，本局战绩也不会计入你名下。确定退出吗？')) return
   emit('leave')
 }
 
@@ -372,7 +390,7 @@ function sendChat(text: string, quick: boolean) {
       </aside>
     </main>
 
-    <div v-if="room.game.phase === 'settlement' || room.game.phase === 'match-over'" class="result-backdrop">
+    <div v-if="(room.game.phase === 'settlement' && !nextRoundDismissed) || room.game.phase === 'match-over'" class="result-backdrop">
       <section class="result-card">
         <small>{{ room.game.phase === 'match-over' ? 'MATCH OVER' : 'ROUND RESULT' }}</small>
         <h2>{{ room.game.result?.detail }}</h2>
@@ -388,13 +406,16 @@ function sendChat(text: string, quick: boolean) {
         <div class="result-actions">
           <template v-if="room.game.phase === 'settlement'">
             <button v-if="room.legal.canQuitRoom" class="quit-button" type="button" @click="quitRoom">退出房间</button>
-            <button v-if="room.legal.canNextRound" class="primary" type="button" @click="emit('command', { type: 'next-round' })">开始下一局</button>
-            <span v-else-if="room.legal.nextRoundWaiting.length" class="waiting-others">已准备，还在等 {{ room.legal.nextRoundWaiting.join('、') }}</span>
-            <span v-else class="waiting-others">正在开始下一局…</span>
+            <button class="primary" type="button" @click="confirmNextRound">开始下一局</button>
           </template>
           <button v-if="room.game.phase === 'match-over' && room.legal.canReturnToLobby" class="primary" type="button" @click="emit('command', { type: 'return-to-lobby' })">返回房间</button>
         </div>
       </section>
+    </div>
+
+    <div v-if="room.game && room.game.phase === 'settlement' && nextRoundDismissed" class="next-round-waiting">
+      <span v-if="room.legal.nextRoundWaiting.length">已准备，还在等 {{ room.legal.nextRoundWaiting.join('、') }}</span>
+      <span v-else>正在开始下一局…</span>
     </div>
 
     <transition name="leave-toast">
@@ -447,7 +468,10 @@ function sendChat(text: string, quick: boolean) {
 .side-tabs { display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px; margin-bottom: 9px; }
 .side-tabs button { padding: 7px 3px; border: 1px solid #2e493f; border-radius: 7px; background: #10261f; color: #81968f; cursor: pointer; font-size: 9px; }
 .side-tabs button.active { border-color: #927b3e; color: #edcd71; }
+/* 抽屉一打开就得能关掉。原来这个叉号只在竖屏媒体查询里放出来，
+   横屏全屏时既点不到叉、外面又没有遮罩可点，只能转屏幕才能退出。 */
 .side-tabs .drawer-close { display: none; }
+.online-right-panel.mobile-open .side-tabs .drawer-close { display: block; min-width: 34px; }
 .chat-fab {
   display: none;
   place-items: center;
@@ -467,7 +491,9 @@ function sendChat(text: string, quick: boolean) {
   box-shadow: 0 8px 25px rgba(0,0,0,.35);
   cursor: pointer;
 }
-.drawer-mask { display: none; }
+/* 遮罩跟着抽屉走，横竖屏都有，点一下就能关。颜色比原来淡一档，
+   全屏下不至于把整张牌桌盖成一片黑。 */
+.drawer-mask { position: fixed; z-index: 31; inset: 0; display: block; background: rgba(0,0,0,.34); }
 .mobile-only { display: none; }
 .room-code { font-size: 17px; letter-spacing: .12em; color: #f0d68a; font-variant-numeric: tabular-nums; }
 .result-actions span { color: #83978f; font-size: 11px; }
@@ -476,6 +502,7 @@ function sendChat(text: string, quick: boolean) {
 .result-actions .quit-button { margin-right: auto; }
 .quit-button { min-height: 42px; padding: 10px 17px; border: 1px solid #8d5049; border-radius: 10px; background: rgba(58, 26, 23, .6); color: #e5a79f; cursor: pointer; font-size: 13px; font-weight: 700; }
 .quit-button:hover { border-color: #c2726a; color: #f2bdb5; }
+.next-round-waiting { position: fixed; z-index: 33; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: min(420px, calc(100vw - 24px)); padding: 8px 15px; border: 1px solid #6d5c31; border-radius: 99px; background: rgba(26, 34, 22, .95); color: #ddc68c; font-size: 12px; text-align: center; }
 .leave-toast { position: fixed; z-index: 60; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); max-width: min(420px, calc(100vw - 24px)); padding: 11px 18px; border: 1px solid #a8863f; border-radius: 12px; background: rgba(38, 30, 12, .96); color: #f2d9a0; font-size: 13px; font-weight: 700; text-align: center; box-shadow: 0 14px 40px rgba(0,0,0,.45); }
 .leave-toast-enter-active, .leave-toast-leave-active { transition: opacity .25s ease, transform .25s ease; }
 .leave-toast-enter-from, .leave-toast-leave-to { opacity: 0; transform: translate(-50%, -10px); }
@@ -505,7 +532,7 @@ function sendChat(text: string, quick: boolean) {
   .room-code { font-size: 16px; }
   .online-right-panel { display: none; }
   .online-right-panel.mobile-open { position: fixed; z-index: 45; left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); height: min(70dvh, 590px); display: grid; border-color: #715f32; box-shadow: 0 -20px 55px rgba(0,0,0,.5); }
-  .online-right-panel.mobile-open .side-tabs .drawer-close { display: block; }
-  .drawer-mask { position: fixed; z-index: 44; inset: 0; display: block; background: rgba(0,0,0,.58); }
+
+
 }
 </style>

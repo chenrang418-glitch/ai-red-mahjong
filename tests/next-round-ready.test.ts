@@ -33,8 +33,9 @@ describe('下一局全员准备', () => {
 
     room.handle('u1', { type: 'next-round' }, 2000)
     expect(room.state.game!.phase).toBe('settlement')
-    // 点过的人按钮收起来，并且能看到还差谁
-    expect(room.view('u1').legal.canNextRound).toBe(false)
+    // 按钮始终在（客户端点过之后自己收起弹窗），服务端这边记着还差谁
+    expect(room.view('u1').legal.canNextRound).toBe(true)
+    expect(room.view('u1').legal.nextRoundReady).toBe(true)
     expect(room.view('u1').legal.nextRoundWaiting).toEqual(['玩家二', '玩家三'])
 
     room.handle('u2', { type: 'next-round' }, 2100)
@@ -46,13 +47,25 @@ describe('下一局全员准备', () => {
     expect(room.state.seats.every((seat) => !seat.nextRoundReady)).toBe(true)
   })
 
-  it('托管和掉线的人不用等，剩下的人点完就开', () => {
+  it('掉线的人不用等，托管的还算——他照样看得见按钮', () => {
     const room = roomAtSettlement()
     room.handle('u2', { type: 'trustee', enabled: true }, 1900)
     room.disconnect('u3', 1950)
 
-    expect(room.view('u1').legal.nextRoundWaiting).toEqual(['房主'])
+    // 掉线的玩家三不再算数，托管的玩家二还算
+    expect(room.view('u1').legal.nextRoundWaiting).toEqual(['房主', '玩家二'])
     room.handle('u1', { type: 'next-round' }, 2000)
+    expect(room.state.game!.phase).toBe('settlement')
+    room.handle('u2', { type: 'next-round' }, 2050)
+    expect(room.state.game!.phase).not.toBe('settlement')
+  })
+
+  it('全员托管时靠超时兜底往下走，不会永远卡在结算界面', () => {
+    const room = roomAtSettlement()
+    for (const user of ['u1', 'u2', 'u3']) room.handle(user, { type: 'trustee', enabled: true }, 1900)
+    // 谁都不会去点，光靠点击触发就死锁了
+    expect(room.state.game!.phase).toBe('settlement')
+    room.runDueJobs(1900 + 30_000)
     expect(room.state.game!.phase).not.toBe('settlement')
   })
 
@@ -65,6 +78,49 @@ describe('下一局全员准备', () => {
     // 剩下的人一直不点，结果掉线了：不该把整桌永远卡在结算界面
     room.disconnect('u3', 2100)
     expect(room.state.game!.phase).not.toBe('settlement')
+    // 掉线没回来的人换成了 AI，下一局照常进行
+    expect(room.state.seats[2].kind).toBe('ai')
+  })
+})
+
+describe('掉线与退出', () => {
+  it('掉线三分钟没回来就换成 AI，本局战绩一并撤销', () => {
+    const room = roomAtSettlement()
+    room.state.game!.phase = 'playing'
+    room.disconnect('u2', 2000)
+
+    // 三十秒先转托管，座位还留着
+    room.runDueJobs(2000 + 30_000)
+    expect(room.state.seats[1]).toMatchObject({ kind: 'human', trustee: true })
+
+    // 三分钟到了才换 AI
+    room.runDueJobs(2000 + 3 * 60_000)
+    expect(room.state.seats[1].kind).toBe('ai')
+    expect(room.takeStatCleanups()).toEqual([
+      expect.objectContaining({ userId: 'u2', round: room.state.game!.round }),
+    ])
+  })
+
+  it('三分钟内重连回来，座位和身份都还在', () => {
+    const room = roomAtSettlement()
+    room.state.game!.phase = 'playing'
+    room.disconnect('u2', 2000)
+    room.connect({ userId: 'u2', nickname: '玩家二' }, 2000 + 60_000)
+
+    room.runDueJobs(2000 + 3 * 60_000 + 1)
+    expect(room.state.seats[1]).toMatchObject({ kind: 'human', userId: 'u2', connected: true })
+  })
+
+  it('人全走光后房间请求删除，不留一桌 AI 自己打', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '房主' }, settings, 1000)
+    room.connect({ userId: 'u2', nickname: '玩家二' }, 1100)
+    room.handle('u2', { type: 'ready', ready: true }, 1200)
+    room.handle('u1', { type: 'start-game' }, 1300)
+
+    room.leave('u1', 2000)
+    expect(room.shouldDeleteRoom()).toBe(false)
+    room.leave('u2', 2100)
+    expect(room.shouldDeleteRoom()).toBe(true)
   })
 })
 
@@ -89,6 +145,11 @@ describe('结算界面退出房间', () => {
       type: 'ai-change',
       detail: '玩家二 离开房间，座位由 AI 接手',
     })
+
+    // 本局战绩要撤掉，不留在排行榜上
+    expect(room.takeStatCleanups()).toEqual([
+      expect.objectContaining({ userId: 'u2', round: room.state.game!.round }),
+    ])
   })
 
   it('走掉的人不再算在等待名单里，剩下的人点完就能开下一局', () => {

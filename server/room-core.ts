@@ -33,6 +33,14 @@ interface StoredSeat {
   nextRoundReady?: boolean
 }
 
+// 中途换成 AI 的人，本局那条战绩要从排行榜里撤掉。
+// 房间这边只记下要撤谁，真正的删除交给 Worker（DO 里不直接写 D1 业务表）。
+export interface StatCleanup {
+  matchId: string
+  round: number
+  userId: string
+}
+
 type ScheduledJobKind =
   | 'ai-turn'
   | 'turn-timeout'
@@ -40,6 +48,8 @@ type ScheduledJobKind =
   | 'claim-deadline'
   | 'resolve-no-claim'
   | 'disconnect-trustee'
+  | 'disconnect-replace-ai'
+  | 'next-round-timeout'
   | 'lobby-disconnect-remove'
   | 'all-offline-expire'
 
@@ -71,6 +81,7 @@ export interface StoredRoomState {
   recordedRounds: string[]
   deleteRequested: boolean
   chatSeq: number
+  statCleanups?: StatCleanup[]
 }
 
 export interface RoundLeaderboardResult {
@@ -88,6 +99,10 @@ export interface RoundLeaderboardResult {
 const DEFAULT_TRUSTEE_DIFFICULTY: AIProfile['difficulty'] = 'beginner'
 const TABLE_AI: AIProfile = { difficulty: 'standard' }
 const DISCONNECT_GRACE_MS = 30_000
+// 掉线后座位还留着的时间。过了这个点就换成 AI，本局战绩也一并作废。
+const DISCONNECT_REPLACE_MS = 3 * 60_000
+// 结算界面等所有人点「开始下一局」的上限。有人挂机也不能把整桌锁死。
+const NEXT_ROUND_TIMEOUT_MS = 30_000
 const LOBBY_DISCONNECT_GRACE_MS = 60_000
 export const ROOM_RECONNECT_GRACE_MS = 5 * 60_000
 
@@ -145,6 +160,7 @@ export class RoomCoordinator {
     for (const seat of this.state.seats) seat.leftRoom ??= false
     this.state.deleteRequested ??= false
     this.state.chatSeq ??= this.state.chat.length
+    this.state.statCleanups ??= []
   }
 
   static create(code: string, host: RoomUser, settings: OnlineRoomSettings, now = Date.now()): RoomCoordinator {
@@ -165,6 +181,7 @@ export class RoomCoordinator {
       claimResponses: {},
       recentActionIds: [],
       recordedRounds: [],
+      statCleanups: [],
       deleteRequested: false,
       chatSeq: 0,
     })
@@ -189,7 +206,7 @@ export class RoomCoordinator {
     this.state.deleteRequested = false
     this.ensureActiveHost()
     this.state.jobs = this.state.jobs.filter((job) => !(
-      ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
+      ['disconnect-trustee', 'disconnect-replace-ai', 'lobby-disconnect-remove'].includes(job.kind)
       && job.seatId === seat!.seatId
     ) && job.kind !== 'all-offline-expire')
     this.touch(now)
@@ -203,7 +220,7 @@ export class RoomCoordinator {
     this.startNextRoundIfReady(now)
     seat.leftRoom = false
     this.state.jobs = this.state.jobs.filter((job) => !(
-      ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
+      ['disconnect-trustee', 'disconnect-replace-ai', 'lobby-disconnect-remove'].includes(job.kind)
       && job.seatId === seat.seatId
     ))
     const lobby = !this.state.game
@@ -214,6 +231,16 @@ export class RoomCoordinator {
       stageKey: 'presence',
       seatId: seat.seatId,
     })
+    // 牌局中先转托管顶着，三分钟还没回来就换成 AI
+    if (!lobby) {
+      this.state.jobs.push({
+        id: `disconnect-ai-${seat.seatId}-${now}`,
+        kind: 'disconnect-replace-ai',
+        dueAt: now + DISCONNECT_REPLACE_MS,
+        stageKey: 'presence',
+        seatId: seat.seatId,
+      })
+    }
     this.scheduleAllOfflineExpiry(now)
     this.touch(now)
   }
@@ -223,20 +250,10 @@ export class RoomCoordinator {
       this.removeLobbyUser(userId, now)
       return
     }
+    // 主动退出就是彻底走人：座位当场换成 AI，本局战绩也不留。
+    // 和掉线区分开——掉线还有三分钟重连窗口。
     const seat = this.humanSeatByUser(userId)
-    // 结算界面上有人直接退出，剩下的人不该继续等他
-    if (this.state.game.phase === 'settlement') {
-      this.replaceWithAI(seat, now)
-      this.touch(now)
-      return
-    }
-    seat.connected = false
-    seat.leftRoom = true
-    seat.trustee = true
-    this.state.jobs = this.state.jobs.filter((job) => job.seatId !== seat.seatId)
-    this.ensureActiveHost()
-    this.rescheduleSeat(seat.seatId, now)
-    this.scheduleAllOfflineExpiry(now)
+    this.replaceWithAI(seat, now)
     this.touch(now)
   }
 
@@ -359,6 +376,18 @@ export class RoomCoordinator {
       this.rescheduleSeat(seat.seatId, now)
       return true
     }
+    if (job.kind === 'disconnect-replace-ai') {
+      const seat = this.state.seats[job.seatId ?? -1]
+      if (!this.state.game || seat?.kind !== 'human' || seat.connected) return false
+      this.replaceWithAI(seat, now, false)
+      // 少了一个要点下一局的人，可能正好凑齐
+      this.startNextRoundIfReady(now)
+      return true
+    }
+    if (job.kind === 'next-round-timeout') {
+      // 有人一直不点也不能把整桌锁死，到点强制开
+      return this.startNextRoundIfReady(now, true)
+    }
     if (job.kind === 'all-offline-expire') {
       const humans = this.allHumanSeats()
       if (humans.length === 0 || humans.some((seat) => seat.connected)) return false
@@ -462,22 +491,36 @@ export class RoomCoordinator {
       }))
   }
 
+  takeStatCleanups(): StatCleanup[] {
+    const pending = this.state.statCleanups ?? []
+    this.state.statCleanups = []
+    return pending
+  }
+
   markRoundRecorded(matchId: string, round: number): void {
     const key = `${matchId}:${round}`
     if (!this.state.recordedRounds.includes(key)) this.state.recordedRounds.push(key)
     if (this.state.recordedRounds.length > 200) this.state.recordedRounds.splice(0, this.state.recordedRounds.length - 200)
   }
 
+  // 结算界面上还没点「开始下一局」的人。托管的也算——他照样看得见按钮，
+  // 只是可能人不在，所以另有 NEXT_ROUND_TIMEOUT_MS 兜底。掉线的不算，
+  // 他们会走三分钟那条路换成 AI。
   private awaitingNextRound(): StoredSeat[] {
     return this.state.seats.filter((seat) => (
-      seat.kind === 'human' && seat.connected && !seat.leftRoom && !seat.trustee && !seat.nextRoundReady
+      seat.kind === 'human' && seat.connected && !seat.leftRoom && !seat.nextRoundReady
     ))
   }
 
-  private startNextRoundIfReady(now: number): boolean {
+  private startNextRoundIfReady(now: number, force = false): boolean {
     const game = this.state.game
     if (!game || game.phase !== 'settlement') return false
-    if (this.awaitingNextRound().length) return false
+    if (!force && this.awaitingNextRound().length) return false
+    // 上一局结束时还没回来的人，直接换成 AI：座位空着会让下一局开不起来，
+    // 三分钟的重连窗口也没必要跨局继续等。
+    for (const seat of this.state.seats) {
+      if (seat.kind === 'human' && !seat.connected && !seat.leftRoom) this.replaceWithAI(seat, now, false, false)
+    }
     const engine = this.engine()
     engine.continueAfterSettlement()
     this.state.game = engine.snapshot()
@@ -488,9 +531,18 @@ export class RoomCoordinator {
 
   // 结算界面点「退出房间」：座位不留托管，直接换成一个 AI 顶上，
   // 房间少个人也能继续打下去。档位跟房主开局时选的那个走。
-  private replaceWithAI(seat: StoredSeat, now: number): void {
+  // cascade=false 用在「开下一局之前顺手清掉掉线的人」那一步：
+  // 那时候本来就在开局流程里，再回头触发一次开局检查会把牌局往前推两次。
+  private replaceWithAI(seat: StoredSeat, now: number, announce = true, cascade = true): void {
     const name = seat.name
+    const userId = seat.userId
     const wasHost = seat.userId === this.state.hostUserId
+    // 人走了，这一局就不该再记在他名下——已经写进排行榜的那条也要撤掉
+    const game = this.state.game
+    if (userId && game) {
+      this.state.statCleanups ??= []
+      this.state.statCleanups.push({ matchId: game.matchId, round: game.round, userId })
+    }
     this.state.seats[seat.seatId] = {
       ...emptySeat(seat.seatId),
       kind: 'ai',
@@ -498,7 +550,6 @@ export class RoomCoordinator {
       ready: true,
       ai: { difficulty: this.state.settings.aiDifficulty ?? TABLE_AI.difficulty },
     }
-    const game = this.state.game
     if (game) {
       const player = game.players[seat.seatId]
       if (player) {
@@ -511,11 +562,21 @@ export class RoomCoordinator {
         round: game.round,
         type: 'ai-change',
         at: now,
-        detail: `${name} 离开房间，座位由 AI 接手`,
+        detail: announce ? `${name} 离开房间，座位由 AI 接手` : `${name} 掉线未回，座位由 AI 接手`,
       })
     }
     this.state.jobs = this.state.jobs.filter((job) => job.seatId !== seat.seatId)
     if (wasHost) this.ensureActiveHost()
+    // 人走光了就别留着一桌 AI 自己打下去。原来靠 leftRoom 标记判断，
+    // 现在座位直接变成 AI，真人座位为空就是「没人了」。
+    if (!this.state.seats.some((candidate) => candidate.kind === 'human' && candidate.userId)) {
+      this.state.deleteRequested = true
+      return
+    }
+    if (!cascade) {
+      this.rescheduleSeat(seat.seatId, now)
+      return
+    }
     // 少了一个要点下一局的人，可能正好凑齐了
     if (!this.startNextRoundIfReady(now)) this.rescheduleSeat(seat.seatId, now)
     this.scheduleAllOfflineExpiry(now)
@@ -605,6 +666,18 @@ export class RoomCoordinator {
       this.bumpVersion()
     }
     const salt = stageSalt(currentKey)
+    if (game.phase === 'settlement') {
+      // 全员托管时谁都不会去点「开始下一局」，没有这个兜底就永远停在结算界面
+      const pending = this.state.jobs.some((job) => job.kind === 'next-round-timeout')
+      if (!pending) {
+        this.state.jobs.push({
+          id: `next-round-${game.matchId}-${game.round}`,
+          kind: 'next-round-timeout',
+          dueAt: now + NEXT_ROUND_TIMEOUT_MS,
+          stageKey: currentKey,
+        })
+      }
+    }
     if (game.phase === 'playing') {
       const seat = this.state.seats[game.currentPlayer]
       const existing = this.state.jobs.some((job) => job.stageKey === currentKey && (job.kind === 'ai-turn' || job.kind === 'turn-timeout'))
@@ -727,6 +800,7 @@ export class RoomCoordinator {
       canWin: false,
       canNextRound: false,
       canQuitRoom: false,
+      nextRoundReady: false,
       nextRoundWaiting: [],
       canReturnToLobby: false,
       anGangFaces: [],
@@ -735,9 +809,11 @@ export class RoomCoordinator {
     }
     const game = this.state.game
     if (!game) return empty
-    // 下一局改成人齐才开：每个还在打的真人都得自己点一下
-    empty.canNextRound = game.phase === 'settlement' && !seat.nextRoundReady && !seat.trustee
+    // 结算界面所有人都能点，托管的也能。点过的人客户端自己收起弹窗回牌桌，
+    // 服务端这边等人齐（或等超时）再开下一局。
+    empty.canNextRound = game.phase === 'settlement'
     empty.canQuitRoom = game.phase === 'settlement'
+    empty.nextRoundReady = !!seat.nextRoundReady
     empty.nextRoundWaiting = game.phase === 'settlement'
       ? this.awaitingNextRound().map((waiting) => waiting.name)
       : []

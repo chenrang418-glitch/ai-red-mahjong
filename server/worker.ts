@@ -723,6 +723,7 @@ export class MahjongRoom {
       if (parsed.type === 'leave-room') {
         socket.serializeAttachment({ ...user, leaving: true })
         this.coordinator.leave(user.userId)
+        await this.syncLeaderboard()
         if (await this.deleteRequestedRoom() || await this.deleteEmptyLobby()) {
           socket.close(1000, 'left room')
           return
@@ -802,6 +803,15 @@ export class MahjongRoom {
 
   private async syncLeaderboard(): Promise<void> {
     if (!this.coordinator) return
+    // 中途换成 AI 的人，本局那条战绩要撤掉。放在写入之前跑：
+    // 万一他是在本局刚记完之后走的，这里正好把已经落库的那条删掉。
+    const cleanups = this.coordinator.takeStatCleanups()
+    if (cleanups.length) {
+      await this.env.DB.batch(cleanups.map((cleanup) => this.env.DB.prepare(
+        'DELETE FROM round_player_results WHERE match_id = ? AND round_number = ? AND user_id = ?',
+      ).bind(cleanup.matchId, cleanup.round, cleanup.userId)))
+      await this.persist()
+    }
     const results = this.coordinator.unrecordedLeaderboardResults()
     if (!results.length) return
     await this.env.DB.batch(results.map((result) => this.env.DB.prepare(`
