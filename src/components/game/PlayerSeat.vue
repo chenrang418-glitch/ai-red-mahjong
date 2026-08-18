@@ -29,11 +29,6 @@ const meldLabel: Record<string, string> = {
   'bu-gang': '补杠',
 }
 
-const personalityLabel = {
-  fast: '快攻型', balanced: '平衡型', closed: '七对型',
-  'no-zhong': '无红中策略型', humanlike: '真人波动型',
-} as const
-const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿神' } as const
 </script>
 
 <template>
@@ -44,9 +39,10 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <SeatCountdown v-if="countdown" v-bind="countdown" />
       <span class="points">{{ player.points === null ? `净 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}分` }}</span>
     </header>
-    <div class="seat-meta" v-if="player.ai || status">
-      <span v-if="status" class="seat-status">{{ status }}</span>
-      <span v-if="player.ai">{{ personalityLabel[player.ai.personality] }} · {{ difficultyLabel[player.ai.difficulty] }}</span>
+    <!-- 牌桌上只标状态（托管中／离线），AI 的性格和档位一律不摆在牌桌上，
+         需要查的话在左侧信息栏里看。 -->
+    <div class="seat-meta" v-if="status">
+      <span class="seat-status">{{ status }}</span>
     </div>
 
     <!-- 别人的暗牌不画牌背：十三张牌背没有任何信息，只占地方。结算亮牌时才摊开。 -->

@@ -81,7 +81,7 @@ function back() {
             <label v-if="settings.mode === 'finite'">统一初始积分<input v-model.number="settings.initialPoints" type="number" min="1" max="9999"></label>
             <label>抢牌窗口<select v-model.number="settings.claimWindowMs"><option :value="2000">2秒</option><option :value="3000">3秒</option><option :value="4000">4秒（推荐）</option><option :value="5000">5秒</option><option :value="6000">6秒</option><option :value="7000">7秒</option></select></label>
           </div>
-          <p>普通操作限时固定30秒；空位开局时自动补充凡人AI。</p>
+          <p>普通操作限时固定30秒；空位开局时自动补充 AI。</p>
           <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value" @click="createRoom">{{ online.busy.value ? '创建中…' : online.connecting.value ? '正在进入…' : '创建新房间' }}</button>
         </article>
 

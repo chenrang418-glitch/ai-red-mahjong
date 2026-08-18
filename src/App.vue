@@ -11,6 +11,7 @@ import ReplayCenter from '@/components/game/ReplayCenter.vue'
 import TopbarMenu from '@/components/game/TopbarMenu.vue'
 import OnlineHub from '@/components/online/OnlineHub.vue'
 import { gameAudio } from '@/composables/useGameAudio'
+import { useImmersiveTable } from '@/composables/useImmersiveTable'
 import { useMahjongGame } from '@/composables/useMahjongGame'
 import { downloadJson } from '@/game/persistence'
 import { countFaces, faceKey, tileFromFace, tileLabel } from '@/game/tiles'
@@ -18,6 +19,7 @@ import type { Tile } from '@/game/types'
 import { checkWin } from '@/game/win'
 
 const game = useMahjongGame()
+const { immersive, toggleImmersive } = useImmersiveTable()
 const appMode = ref<'home' | 'local' | 'online'>('home')
 // 管理面板不在界面上留任何入口，只能在地址栏加 #admin 打开。
 // 真正拦人的是服务器上的管理密钥，这个 hash 只是不想让它出现在正常游玩的路径里。
@@ -146,7 +148,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
   />
 
   <!-- iOS 只允许在用户手势里恢复音频，所以牌桌上任何一次触摸都顺带解锁一次 -->
-  <div v-else class="game-page" @pointerdown.capture="gameAudio.unlock">
+  <div v-else class="game-page" :class="{ immersive }" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
       <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
@@ -207,7 +209,10 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
           :human-id="humanId"
           :selected-tile-id="selectedTileId"
           :reveal-all="game.state.value.phase === 'settlement' || game.state.value.phase === 'match-over'"
+          fullscreen-toggle
+          :immersive="immersive"
           @select-tile="selectTile"
+          @toggle-immersive="toggleImmersive"
         />
         <div class="action-dock">
           <template v-if="game.state.value.phase === 'claiming' && game.humanClaimOption.value">

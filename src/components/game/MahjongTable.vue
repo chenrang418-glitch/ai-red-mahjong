@@ -15,6 +15,9 @@ const props = withDefaults(defineProps<{
   timerNow?: number
   seatStatus?: Record<number, string>
   bubbles?: Record<number, string>
+  // 只有对局页需要全屏按钮，牌谱回放里不显示
+  fullscreenToggle?: boolean
+  immersive?: boolean
 }>(), {
   selectedTileId: '',
   readonly: false,
@@ -23,9 +26,11 @@ const props = withDefaults(defineProps<{
   timerNow: 0,
   seatStatus: () => ({}),
   bubbles: () => ({}),
+  fullscreenToggle: false,
+  immersive: false,
 })
 
-const emit = defineEmits<{ selectTile: [tile: Tile] }>()
+const emit = defineEmits<{ selectTile: [tile: Tile]; toggleImmersive: [] }>()
 
 const human = computed(() => props.state.players[props.humanId])
 const right = computed(() => props.state.players[(props.humanId + 1) % 4])
@@ -96,6 +101,24 @@ function countdownFor(seatId: number) {
       :status="seatStatus[right.id] ?? ''"
       :bubble="bubbles[right.id] ?? ''"
     />
+
+    <!-- 横屏中间行只有六七十像素高，中央区放不下「信息卡＋三层牌河」，
+         所以横屏把这条信息提到牌桌顶部横着放，中央只留四家牌河。 -->
+    <div class="table-strip">
+      <span>第 <b>{{ state.round }}</b> 局</span>
+      <span>牌墙 <b>{{ state.wall.length }}</b></span>
+      <span>码区 <b>{{ state.maReserve.length }}</b></span>
+      <em v-if="state.events.length">{{ state.events.at(-1)?.detail }}</em>
+    </div>
+
+    <button
+      v-if="fullscreenToggle"
+      class="fullscreen-toggle"
+      type="button"
+      :aria-pressed="immersive"
+      :title="immersive ? '退出全屏' : '全屏牌桌'"
+      @click="emit('toggleImmersive')"
+    >{{ immersive ? '⤢' : '⛶' }}</button>
 
     <!-- 牌桌中央：四家的弃牌按方位堆在中间，和真牌桌一样 -->
     <div class="table-center">
@@ -181,11 +204,12 @@ function countdownFor(seatId: number) {
   container-type: inline-size;
   display: grid;
   grid-template-columns: clamp(96px, 15cqw, 190px) minmax(0, 1fr) clamp(96px, 15cqw, 190px);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "top top top"
-    "left center right"
-    "human human human";
+    "top   top    top"
+    "strip strip  strip"
+    "left  center right"
+    "human human  human";
   align-items: start;
   gap: clamp(6px, 1cqw, 14px);
   padding: clamp(8px, 1.2cqw, 20px);
@@ -199,8 +223,13 @@ function countdownFor(seatId: number) {
 /* 轮到自己时整张桌子透一层光，比再加一行字更快被看到 */
 .table-shell.my-turn { border-color: rgba(243, 202, 105, .6); animation: table-breathe 2.4s ease-in-out infinite; }
 .felt-pattern { position: absolute; inset: 0; opacity: .05; background-image: repeating-linear-gradient(45deg, transparent 0 16px, #fff 17px 18px); pointer-events: none; }
-.top-seat, .left-seat, .right-seat, .table-center, .human-seat { z-index: 1; min-width: 0; }
-.top-seat { grid-area: top; justify-self: center; width: min(72cqw, 760px); }
+.top-seat, .left-seat, .right-seat, .table-center, .human-seat, .table-strip { z-index: 1; min-width: 0; }
+/* 全屏按钮只在横屏出现：那里顶行右侧本来就是空的，也只有横屏值得把侧栏藏起来换空间 */
+.fullscreen-toggle { display: none; }
+/* 竖屏和桌面用中央那张信息卡，这条横条只在横屏出场 */
+.table-strip { grid-area: strip; display: none; }
+/* 对家和左右两家一样是方块，居中摆在顶上——横贯一整行既浪费宽度也不对称 */
+.top-seat { grid-area: top; justify-self: center; width: auto; min-width: clamp(96px, 15cqw, 190px); max-width: min(46cqw, 460px); }
 .left-seat { grid-area: left; align-self: start; }
 .right-seat { grid-area: right; align-self: start; }
 
@@ -208,7 +237,8 @@ function countdownFor(seatId: number) {
   grid-area: center;
   align-self: center;
   justify-self: center;
-  /* 极端牌数下宁可让中央这块自己滚，也不挤压手牌区 */
+  /* 极端牌数下宁可让中央这块自己滚，也不挤压手牌区；宽度同样不许越界到座位上 */
+  max-width: 100%;
   max-height: 100%;
   min-height: 0;
   overflow-y: auto;
@@ -326,22 +356,117 @@ function countdownFor(seatId: number) {
     --human-tile-height: clamp(42px, 6.8cqw, 67px);
     --meld-tile-width: clamp(16px, 2.4cqw, 24px);
     --meld-tile-height: clamp(22px, 3.36cqw, 34px);
-    --river-tile-width: clamp(12px, 1.7cqw, 18px);
-    --river-tile-height: clamp(16px, 2.35cqw, 25px);
+    --river-tile-width: clamp(14px, 1.95cqw, 21px);
+    --river-tile-height: clamp(19px, 2.7cqw, 29px);
     --river-columns: 16;
-    --river-side-columns: 6;
+    --river-side-columns: 10;
     grid-template-columns: clamp(88px, 12.5cqw, 150px) minmax(0, 1fr) clamp(88px, 12.5cqw, 150px);
     gap: 5px;
     padding: 5px;
     border-radius: 15px;
   }
-  .top-seat { width: min(78cqw, 640px); }
-  .table-center { gap: 3px; padding: 5px; border-radius: 12px; }
-  .center-info { min-width: clamp(96px, 13cqw, 150px); padding: 6px 7px; border-radius: 11px; }
-  .round-data { gap: 2px; font-size: 7px; }
-  .round-data span { padding: 3px 1px; }
-  .round-data b { font-size: 11px; }
-  .last-action { min-height: 24px; margin-top: 5px; padding: 5px 3px 1px; font-size: 11px; }
+  /* 对家不再横贯整行，缩成和左右两家一样的窄卡片，空出来的那半行给对局信息，
+     两者并排一行——比上下各占一行省出三十来像素，全部让给中央牌河。 */
+  .table-shell {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top   strip  fs"
+      "left  center right"
+      "human human  human";
+  }
+  .top-seat { justify-self: stretch; align-self: start; min-width: 0; max-width: none; }
+  /* 横屏中间行只有六七十像素：信息卡挪到上面那条横条，中央只留四家牌河，
+     否则内容要 140px 却只有 60px，六成会被裁掉（就是之前牌面散落的原因）。 */
+  /* 对局信息做成和座位卡同宽的方块，落在右上角：
+     左上是对家、右上是它，两块上下各自对齐左右两家，左右对称。 */
+  /* 对局信息：牌桌顶部居中的一块，正压在中央牌河区上方。
+     高度必须压住——它每高一点，中间行的牌河就少一点。 */
+  .fullscreen-toggle {
+    grid-area: fs;
+    display: grid;
+    place-items: center;
+    justify-self: end;
+    align-self: start;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid rgba(245,210,113,.3);
+    border-radius: 9px;
+    background: rgba(6, 36, 30, .92);
+    color: #ecd591;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .fullscreen-toggle:hover { border-color: #d3b45e; color: #f3d77f; }
+  .table-strip {
+    justify-self: center;
+    align-self: start;
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 2px 4px;
+    padding: 4px 8px;
+    border: 1px solid rgba(245,210,113,.22);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(6, 36, 30, .92), rgba(3, 24, 20, .92));
+    color: #8ba9a1;
+    font-size: 8px;
+    text-align: center;
+  }
+  .table-strip span { display: flex; align-items: baseline; justify-content: center; gap: 3px; white-space: nowrap; }
+  .table-strip b { color: #ecd591; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .table-strip em {
+    grid-column: 1 / -1;
+    margin-top: 1px;
+    padding-top: 3px;
+    border-top: 1px solid rgba(255,255,255,.1);
+    max-width: 40cqw;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #ffe08a;
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 800;
+  }
+  .table-center {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "river-top    river-top"
+      "river-left   river-right"
+      "river-bottom river-bottom";
+    gap: 3px;
+    padding: 4px 5px;
+    border-radius: 12px;
+  }
+  .river-left { justify-content: end; }
+  .river-right { justify-content: start; }
+  .center-info { display: none; }
+  /* 左右两家的信息竖着排，别让不可压缩的倒计时和积分把窄卡片撑破 */
+  .left-seat :deep(header), .right-seat :deep(header) { flex-wrap: wrap; gap: 2px 5px; }
+  .left-seat :deep(.points), .right-seat :deep(.points) { margin-left: 0; }
+  .left-seat :deep(.seat-countdown), .right-seat :deep(.seat-countdown) { width: 32px; height: 32px; flex-basis: 32px; }
+  .left-seat :deep(.seat-countdown b), .right-seat :deep(.seat-countdown b) { font-size: 13px; }
+  /* 副露一多，窄座位就会顶出中间行去压住手牌区；卡片自己封顶，超出的部分在卡片内滚 */
+  .left-seat, .right-seat {
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+  .left-seat::-webkit-scrollbar, .right-seat::-webkit-scrollbar { display: none; }
+  .top-seat, .left-seat, .right-seat { padding: 5px 6px; gap: 2px; }
+  .top-seat :deep(.mahjong-tile.compact), .left-seat :deep(.mahjong-tile.compact), .right-seat :deep(.mahjong-tile.compact) { width: 14px; height: 19px; }
+  .top-seat :deep(.hand-count), .left-seat :deep(.hand-count), .right-seat :deep(.hand-count) { padding: 1px 6px; font-size: 8px; }
+  .top-seat :deep(.hand-count b), .left-seat :deep(.hand-count b), .right-seat :deep(.hand-count b) { font-size: 11px; }
+  .top-seat :deep(.meld-row), .left-seat :deep(.meld-row), .right-seat :deep(.meld-row) { gap: 3px; }
+  .top-seat :deep(header), .left-seat :deep(header), .right-seat :deep(header) { flex-wrap: wrap; gap: 2px 5px; }
+  .top-seat :deep(.points) { margin-left: 0; }
+  .top-seat { max-height: 100%; overflow-y: auto; scrollbar-width: none; }
+  .top-seat::-webkit-scrollbar { display: none; }
+  .left-seat :deep(.meld-group), .right-seat :deep(.meld-group) { padding-top: 7px; }
+  .left-seat :deep(.meld-group small), .right-seat :deep(.meld-group small) { font-size: 6px; }
   .human-seat { padding: 5px 7px; border-radius: 12px; }
   .human-seat header { margin-bottom: 2px; }
   .human-seat header strong { font-size: 12px; }
@@ -362,12 +487,16 @@ function countdownFor(seatId: number) {
     --river-columns: 10;
     --river-side-columns: 5;
     grid-template-columns: clamp(72px, 21cqw, 104px) minmax(0, 1fr) clamp(72px, 21cqw, 104px);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    /* 四行要和 grid-template-areas 的四行对齐：漏掉一行时，被隐藏的信息条那行
+       会把 1fr 全部吃掉，牌河和左右两家就被挤到贴着手牌的位置。 */
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     gap: 5px;
     padding: 7px 6px;
     border-radius: 18px;
   }
-  .top-seat { width: 100%; }
+  .top-seat { min-width: clamp(96px, 30cqw, 150px); max-width: 70cqw; }
+  /* 左右两家跟着中央牌河一起垂直居中，别一个贴顶一个悬空 */
+  .left-seat, .right-seat { align-self: center; }
   .left-seat :deep(header), .right-seat :deep(header) { flex-wrap: wrap; gap: 2px 5px; }
   .left-seat :deep(.points), .right-seat :deep(.points) { margin-left: 0; }
   .left-seat :deep(.meld-row), .right-seat :deep(.meld-row) { flex-wrap: wrap; gap: 3px; }

@@ -6,6 +6,7 @@ import MahjongTile from '@/components/game/MahjongTile.vue'
 import TopbarMenu from '@/components/game/TopbarMenu.vue'
 import ChatPanel from './ChatPanel.vue'
 import { gameAudio } from '@/composables/useGameAudio'
+import { useImmersiveTable } from '@/composables/useImmersiveTable'
 import { tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
 import type { OnlinePendingAction, OnlineRoomView, RoomActionDraft, RoomCommand } from '@/online/types'
@@ -17,6 +18,7 @@ const props = defineProps<{
   chatBubbles: Record<number, { id: string; text: string }>
 }>()
 const emit = defineEmits<{ command: [command: RoomCommand]; leave: [] }>()
+const { immersive, toggleImmersive } = useImmersiveTable()
 const selectedTileId = ref('')
 const sideTab = ref<'events' | 'chat'>('events')
 const mobileChatOpen = ref(false)
@@ -178,7 +180,7 @@ function sendChat(text: string, quick: boolean) {
 
     <section class="lobby-card">
       <div class="lobby-heading">
-        <div><small>ONLINE ROOM</small><h1>等待开局</h1><p>把房间号分享给其他玩家；开局时空位会自动补充凡人 AI。</p></div>
+        <div><small>ONLINE ROOM</small><h1>等待开局</h1><p>把房间号分享给其他玩家；开局时空位会自动补充 AI。</p></div>
         <div class="lobby-rules"><span>{{ room.settings.mode === 'finite' ? `有限积分 · ${room.settings.initialPoints}分` : '无限模式' }}</span><span>抢牌 {{ room.settings.claimWindowMs / 1000 }} 秒</span><span>操作 30 秒</span></div>
       </div>
 
@@ -202,7 +204,7 @@ function sendChat(text: string, quick: boolean) {
     </section>
   </main>
 
-  <div v-else-if="room.game" class="game-page online-game-page" @pointerdown.capture="gameAudio.unlock">
+  <div v-else-if="room.game" class="game-page online-game-page" :class="{ immersive }" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
       <!-- 房间号是联机时最需要念给别人听的信息，手机上原本要横屏才看得到，现在提到顶栏 -->
       <div class="brand">
@@ -250,7 +252,10 @@ function sendChat(text: string, quick: boolean) {
           :timer-now="serverClock"
           :seat-status="seatStatus"
           :bubbles="seatBubbles"
+          fullscreen-toggle
+          :immersive="immersive"
           @select-tile="selectTile"
+          @toggle-immersive="toggleImmersive"
         />
         <div class="action-dock">
           <template v-if="pendingAction?.type === 'discard'">
@@ -260,7 +265,7 @@ function sendChat(text: string, quick: boolean) {
             <span class="waiting-dot"></span><span>{{ pendingAction.enabled ? '正在开启AI托管…' : '正在取消AI托管…' }}</span>
           </template>
           <template v-else-if="selfSeat.trustee">
-            <span class="waiting-dot"></span><span>AI 正在以真人波动型 · 凡人 · 猴急托管</span><button type="button" @click="emit('command', { type: 'trustee', enabled: false })">取消托管</button>
+            <span class="waiting-dot"></span><span>AI 正在托管你的座位</span><button type="button" @click="emit('command', { type: 'trustee', enabled: false })">取消托管</button>
           </template>
           <template v-else-if="room.legal.claimActions.length">
             <div class="claim-clock" role="timer" :aria-label="`抢牌响应剩余 ${claimSeconds} 秒`"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>

@@ -269,3 +269,37 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .claim-clock b { font-size: 24px; }
   .claim-clock i { width: 78px; }
 }
+
+/* —— 全屏牌桌 ——
+   横屏点右上角那个按钮进入：顶栏和两侧面板收起，牌桌铺满整屏，
+   操作条也从「给侧栏让路」改成横贯全宽。再点一次或按 Esc 退出。 */
+.game-page.immersive .topbar { display: none; }
+.game-page.immersive .score-panel,
+.game-page.immersive .event-panel { display: none; }
+.game-page.immersive .game-layout {
+  --table-height: calc(100dvh - 66px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "table";
+  gap: 0;
+  width: 100%;
+  max-width: none;
+  padding: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) calc(58px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+}
+.game-page.immersive .table-column { padding-bottom: 0; }
+.game-page.immersive .action-dock {
+  position: fixed;
+  z-index: 30;
+  left: max(6px, env(safe-area-inset-left));
+  right: max(6px, env(safe-area-inset-right));
+  bottom: max(4px, env(safe-area-inset-bottom));
+  min-height: 50px;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 13px;
+  background: rgba(12, 34, 28, .97);
+  backdrop-filter: blur(12px);
+}
+.game-page.immersive .action-dock button { min-height: 40px; padding: 8px 13px; font-size: 13px; }
+.game-page.immersive .action-dock .discard-button { min-width: 150px; }
+.game-page.immersive .chat-fab { bottom: calc(62px + env(safe-area-inset-bottom)); }
