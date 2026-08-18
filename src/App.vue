@@ -20,12 +20,27 @@ import { checkWin } from '@/game/win'
 
 const game = useMahjongGame()
 const { immersive, toggleImmersive } = useImmersiveTable()
-const appMode = ref<'home' | 'local' | 'online'>('home')
+// 分享链接：#join=ABC123 直接进联机大厅并自动进这个房间。
+// 用 hash 而不是查询参数，Pages 那边不用额外配路由回退。
+function readJoinCode(): string {
+  const match = location.hash.match(/^#join=([A-Za-z0-9]{6})$/)
+  return match ? match[1].toUpperCase() : ''
+}
+const pendingJoinCode = ref(readJoinCode())
+const appMode = ref<'home' | 'local' | 'online'>(pendingJoinCode.value ? 'online' : 'home')
 // 管理面板不在界面上留任何入口，只能在地址栏加 #admin 打开。
 // 真正拦人的是服务器上的管理密钥，这个 hash 只是不想让它出现在正常游玩的路径里。
 const adminMode = ref(location.hash === '#admin')
 const syncAdminMode = () => { adminMode.value = location.hash === '#admin' }
+// 别人把链接发过来时页面可能已经开着，所以 hash 变化也要认
+function syncJoinCode() {
+  const code = readJoinCode()
+  if (!code) return
+  pendingJoinCode.value = code
+  appMode.value = 'online'
+}
 window.addEventListener('hashchange', syncAdminMode)
+window.addEventListener('hashchange', syncJoinCode)
 const selectedTileId = ref('')
 const settingsOpen = ref(false)
 const replayOpen = ref(false)
@@ -54,6 +69,7 @@ onBeforeUnmount(() => {
   if (clockTimer !== null) window.clearInterval(clockTimer)
   document.removeEventListener('visibilitychange', syncTicking)
   window.removeEventListener('hashchange', syncAdminMode)
+  window.removeEventListener('hashchange', syncJoinCode)
   if (diceTimer !== null) window.clearTimeout(diceTimer)
 })
 
@@ -130,7 +146,12 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
   <ModeHome v-else-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" />
 
-  <OnlineHub v-else-if="appMode === 'online'" @back="appMode = 'home'" />
+  <OnlineHub
+    v-else-if="appMode === 'online'"
+    :join-code="pendingJoinCode"
+    @back="appMode = 'home'"
+    @join-consumed="pendingJoinCode = ''"
+  />
 
   <template v-else>
   <GameSetup

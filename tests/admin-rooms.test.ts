@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -27,7 +26,6 @@ async function loginAs(nickname: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  execSync('npx vite build --config server/vite.config.ts --configLoader runner', { cwd: root, stdio: 'pipe' })
   const script = readFileSync(resolve(root, 'server/dist/worker.js'), 'utf8')
   const migrations = [
     '0001_online.sql', '0002_room_directory.sql', '0003_room_phase.sql', '0004_admin_audit.sql',

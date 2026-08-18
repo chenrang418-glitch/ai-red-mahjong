@@ -2,7 +2,7 @@
 
 import { RoomCoordinator } from './room-core'
 import type { RoomUser, StoredRoomState } from './room-core'
-import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE } from '../src/online/types'
+import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE } from '../src/online/types'
 import type {
   OnlineRoomDirectoryEntry,
   OnlineRoomDirectoryPlayer,
@@ -23,7 +23,17 @@ interface SocketAttachment extends RoomUser {
   leaving?: boolean
 }
 
-interface SessionPayload extends RoomUser {}
+// 同一昵称拿到的是同一个 userId，所以光有 userId 分不出「谁是当前这次登录」。
+// sessionId 就是干这个的：每次输昵称换一个，全局只认最新的那个。
+interface SessionPayload extends RoomUser {
+  sessionId: string
+}
+
+interface SessionRecord {
+  sessionId: string
+  nickname: string
+  at: number
+}
 
 // 全局设置：托管 AI 档位、维护模式开关和提示文案。
 // 放在 LOBBY 这个单例 Durable Object 里——建房时要读它，D1 每次都走网络太慢。
@@ -71,6 +81,61 @@ async function writeServerSettings(env: Env, settings: ServerSettings): Promise<
   })
 }
 
+function lobbyStub(env: Env) {
+  return env.LOBBY.get(env.LOBBY.idFromName('global-directory'))
+}
+
+// 记下这次登录，并顺手关掉这个人还挂在大厅里的旧连接。
+async function claimSession(env: Env, user: RoomUser, sessionId: string): Promise<void> {
+  await lobbyStub(env).fetch('https://lobby.internal/session/claim', {
+    method: 'POST',
+    body: JSON.stringify({ userId: user.userId, nickname: user.nickname, sessionId }),
+  })
+}
+
+// 校验一次会话是不是最新的。读不到注册表时一律放行：
+// 注册表挂了不该把所有人挡在门外，顶号本来也只是防误操作，不是安全边界。
+async function sessionIsCurrent(env: Env, session: SessionPayload): Promise<boolean> {
+  if (!session.sessionId) return true
+  try {
+    const response = await lobbyStub(env).fetch('https://lobby.internal/session/verify', {
+      method: 'POST',
+      body: JSON.stringify({ userId: session.userId, sessionId: session.sessionId }),
+    })
+    if (!response.ok) return true
+    return (await response.json<{ ok: boolean }>()).ok
+  } catch {
+    return true
+  }
+}
+
+// 把这个人挂在各个房间里的旧连接踢掉。房间目录只存昵称，不过顶号本来就是按昵称算的。
+// 私人局房间数是个位数，全表扫一遍的成本可以忽略。
+async function evictRoomSessions(env: Env, user: RoomUser): Promise<void> {
+  try {
+    const rows = await env.DB.prepare('SELECT code, players_json FROM room_directory').all<{ code: string; players_json: string }>()
+    for (const row of rows.results ?? []) {
+      let players: Array<{ nickname?: unknown }> = []
+      try {
+        players = JSON.parse(row.players_json) as Array<{ nickname?: unknown }>
+      } catch {
+        continue
+      }
+      if (!players.some((player) => typeof player.nickname === 'string' && player.nickname === user.nickname)) continue
+      const stub = env.ROOMS.get(env.ROOMS.idFromName(row.code))
+      await stub.fetch('https://room.internal/session/evict', {
+        method: 'POST',
+        body: JSON.stringify({ userId: user.userId }),
+      })
+    }
+  } catch (cause) {
+    // 踢不掉旧连接不该让新登录失败：新连接照样能进，旧的最多多活一会儿
+    console.error('顶号时清理旧连接失败', cause)
+  }
+}
+
+const SESSION_SUPERSEDED_MESSAGE = '这个昵称已经在别的设备上登录了'
+
 async function recordAudit(env: Env, action: string, target: string | null, detail: string): Promise<void> {
   try {
     await env.DB.prepare('INSERT INTO admin_audit (action, target, detail, created_at) VALUES (?, ?, ?, ?)')
@@ -84,13 +149,13 @@ async function recordAudit(env: Env, action: string, target: string | null, deta
 
 const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 
-function rejectSocket(reason: string): Response {
+function rejectSocket(reason: string, code = ROOM_REJECT_CLOSE_CODE): Response {
   const pair = new WebSocketPair()
   const [client, server] = Object.values(pair)
   server.accept()
   server.send(JSON.stringify({ type: 'error', message: reason }))
   // close reason 上限 123 字节，中文按 3 字节算最多 40 字。
-  server.close(ROOM_REJECT_CLOSE_CODE, reason.slice(0, 40))
+  server.close(code, reason.slice(0, 40))
   return new Response(null, { status: 101, webSocket: client })
 }
 
@@ -141,7 +206,11 @@ function readSessionToken(request: Request): SessionPayload {
   try {
     const payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(token))) as Partial<SessionPayload>
     if (typeof payload.userId !== 'string' || typeof payload.nickname !== 'string') throw new Error('invalid session')
-    return { userId: payload.userId, nickname: normalizeNickname(payload.nickname) }
+    return {
+      userId: payload.userId,
+      nickname: normalizeNickname(payload.nickname),
+      sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : '',
+    }
   } catch {
     throw new Error('登录状态无效，请重新输入昵称')
   }
@@ -184,7 +253,12 @@ async function login(request: Request, env: Env): Promise<Response> {
     env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(Date.now(), user.id),
     env.DB.prepare('INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)').bind(user.id),
   ])
-  const session: SessionPayload = { userId: user.id, nickname: user.nickname }
+  // 同名只留一个在线：先把旧连接踢下去，再把新会话号发出去
+  const sessionId = crypto.randomUUID()
+  const identity: RoomUser = { userId: user.id, nickname: user.nickname }
+  await claimSession(env, identity, sessionId)
+  await evictRoomSessions(env, identity)
+  const session: SessionPayload = { ...identity, sessionId }
   return json({ token: createSessionToken(session), ...session })
 }
 
@@ -490,13 +564,16 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
 }
 
 async function lobbySocket(request: Request, env: Env): Promise<Response> {
-  readSessionToken(request)
-  const stub = env.LOBBY.get(env.LOBBY.idFromName('global-directory'))
-  return stub.fetch('https://lobby.internal/socket', { headers: request.headers })
+  const user = readSessionToken(request)
+  if (!await sessionIsCurrent(env, user)) return rejectSocket(SESSION_SUPERSEDED_MESSAGE, SESSION_SUPERSEDED_CODE)
+  const headers = new Headers(request.headers)
+  headers.set('x-user-id', user.userId)
+  return lobbyStub(env).fetch('https://lobby.internal/socket', { headers })
 }
 
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const user = readSessionToken(request)
+  if (!await sessionIsCurrent(env, user)) return json({ error: SESSION_SUPERSEDED_MESSAGE }, 409)
   const body = await request.json<{ settings?: Partial<OnlineRoomSettings> }>()
   const server = await readServerSettings(env)
   // 维护期间只拦「开新房」：正在打的牌局和重连都不受影响，中途被掐断太难受了
@@ -507,7 +584,7 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
     const stub = env.ROOMS.get(env.ROOMS.idFromName(code))
     const response = await stub.fetch('https://room.internal/create', {
       method: 'POST',
-      body: JSON.stringify({ code, user, settings }),
+      body: JSON.stringify({ code, user: { userId: user.userId, nickname: user.nickname }, settings }),
     })
     if (response.status === 201) return json({ code }, 201)
     if (response.status !== 409) return response
@@ -517,6 +594,8 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
 
 async function roomSocket(request: Request, env: Env, code: string): Promise<Response> {
   const user = readSessionToken(request)
+  // 被顶下线的旧连接会一直重连，这里必须挡住，否则它一进来又把座位抢回去
+  if (!await sessionIsCurrent(env, user)) return rejectSocket(SESSION_SUPERSEDED_MESSAGE, SESSION_SUPERSEDED_CODE)
   const headers = new Headers(request.headers)
   headers.set('x-user-id', user.userId)
   headers.set('x-user-nickname', encodeURIComponent(user.nickname))
@@ -593,6 +672,16 @@ export class MahjongRoom {
       }
       await this.deleteRoom()
       return json({ ok: true, code })
+    }
+    if (url.pathname === '/session/evict' && request.method === 'POST') {
+      const { userId } = await request.json<{ userId: string }>()
+      // 关掉连接就够了：牌局中会走托管，没开局的会腾出座位，都是既有逻辑
+      for (const socket of this.state.getWebSockets(`user:${userId}`)) {
+        if (socket.readyState !== WebSocket.OPEN) continue
+        socket.send(JSON.stringify({ type: 'error', message: '这个昵称已经在别的设备上登录了' }))
+        socket.close(SESSION_SUPERSEDED_CODE, '昵称已在别处登录')
+      }
+      return json({ ok: true })
     }
     if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const userId = request.headers.get('x-user-id') ?? ''
@@ -870,10 +959,33 @@ export class MahjongLobby {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const userId = request.headers.get('x-user-id') ?? ''
       const pair = new WebSocketPair()
       const [client, server] = Object.values(pair)
-      this.state.acceptWebSocket(server)
+      // 打上 tag，顶号时才能只关掉这个人的大厅连接
+      this.state.acceptWebSocket(server, userId ? [`user:${userId}`] : [])
       return new Response(null, { status: 101, webSocket: client })
+    }
+    if (url.pathname === '/session/claim' && request.method === 'POST') {
+      const body = await request.json<{ userId: string; nickname: string; sessionId: string }>()
+      await this.state.storage.put(`session:${body.userId}`, {
+        sessionId: body.sessionId,
+        nickname: body.nickname,
+        at: Date.now(),
+      } satisfies SessionRecord)
+      // 同一个人挂在大厅的旧连接直接请出去，不然它还会继续收房间列表推送
+      for (const socket of this.state.getWebSockets(`user:${body.userId}`)) {
+        if (socket.readyState !== WebSocket.OPEN) continue
+        socket.send(JSON.stringify({ type: 'session-superseded' }))
+        socket.close(SESSION_SUPERSEDED_CODE, '昵称已在别处登录')
+      }
+      return json({ ok: true })
+    }
+    if (url.pathname === '/session/verify' && request.method === 'POST') {
+      const body = await request.json<{ userId: string; sessionId: string }>()
+      const record = await this.state.storage.get<SessionRecord>(`session:${body.userId}`)
+      // 没记录说明这人还没在新版本上登录过，放行，免得上线那一刻把在场的人全踢了
+      return json({ ok: !record || record.sessionId === body.sessionId })
     }
     if (url.pathname === '/settings') {
       if (request.method === 'PUT') {

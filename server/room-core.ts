@@ -28,6 +28,9 @@ interface StoredSeat {
   trustee: boolean
   leftRoom: boolean
   ai: AIProfile | null
+  // 结算界面点过「开始下一局」。等所有还在打的真人都点了才真开下一局，
+  // 免得房主手快，别人还没看清这局怎么输的就翻篇了。
+  nextRoundReady?: boolean
 }
 
 type ScheduledJobKind =
@@ -99,6 +102,7 @@ function emptySeat(seatId: number): StoredSeat {
     trustee: false,
     leftRoom: false,
     ai: null,
+    nextRoundReady: false,
   }
 }
 
@@ -113,6 +117,7 @@ function humanSeat(seatId: number, user: RoomUser, ready = false): StoredSeat {
     trustee: false,
     leftRoom: false,
     ai: null,
+    nextRoundReady: false,
   }
 }
 
@@ -194,6 +199,8 @@ export class RoomCoordinator {
   disconnect(userId: string, now = Date.now()): void {
     const seat = this.humanSeatByUser(userId)
     seat.connected = false
+    // 掉线的人不算数，不然结算界面会一直等一个回不来的人
+    this.startNextRoundIfReady(now)
     seat.leftRoom = false
     this.state.jobs = this.state.jobs.filter((job) => !(
       ['disconnect-trustee', 'lobby-disconnect-remove'].includes(job.kind)
@@ -217,6 +224,12 @@ export class RoomCoordinator {
       return
     }
     const seat = this.humanSeatByUser(userId)
+    // 结算界面上有人直接退出，剩下的人不该继续等他
+    if (this.state.game.phase === 'settlement') {
+      this.replaceWithAI(seat, now)
+      this.touch(now)
+      return
+    }
     seat.connected = false
     seat.leftRoom = true
     seat.trustee = true
@@ -283,11 +296,9 @@ export class RoomCoordinator {
       return null
     }
     if (command.type === 'next-round') {
-      this.assertHost(userId)
-      const engine = this.engine()
-      engine.continueAfterSettlement()
-      this.state.game = engine.snapshot()
-      this.reschedule(now)
+      if (!this.state.game || this.state.game.phase !== 'settlement') throw new Error('本局还没结束')
+      seat.nextRoundReady = true
+      this.startNextRoundIfReady(now)
       this.touch(now)
       return null
     }
@@ -455,6 +466,59 @@ export class RoomCoordinator {
     const key = `${matchId}:${round}`
     if (!this.state.recordedRounds.includes(key)) this.state.recordedRounds.push(key)
     if (this.state.recordedRounds.length > 200) this.state.recordedRounds.splice(0, this.state.recordedRounds.length - 200)
+  }
+
+  private awaitingNextRound(): StoredSeat[] {
+    return this.state.seats.filter((seat) => (
+      seat.kind === 'human' && seat.connected && !seat.leftRoom && !seat.trustee && !seat.nextRoundReady
+    ))
+  }
+
+  private startNextRoundIfReady(now: number): boolean {
+    const game = this.state.game
+    if (!game || game.phase !== 'settlement') return false
+    if (this.awaitingNextRound().length) return false
+    const engine = this.engine()
+    engine.continueAfterSettlement()
+    this.state.game = engine.snapshot()
+    for (const seat of this.state.seats) seat.nextRoundReady = false
+    this.reschedule(now)
+    return true
+  }
+
+  // 结算界面点「退出房间」：座位不留托管，直接换成一个 AI 顶上，
+  // 房间少个人也能继续打下去。档位跟房主开局时选的那个走。
+  private replaceWithAI(seat: StoredSeat, now: number): void {
+    const name = seat.name
+    const wasHost = seat.userId === this.state.hostUserId
+    this.state.seats[seat.seatId] = {
+      ...emptySeat(seat.seatId),
+      kind: 'ai',
+      name: `AI ${seat.seatId}`,
+      ready: true,
+      ai: { difficulty: this.state.settings.aiDifficulty ?? TABLE_AI.difficulty },
+    }
+    const game = this.state.game
+    if (game) {
+      const player = game.players[seat.seatId]
+      if (player) {
+        player.isHuman = false
+        player.name = `AI ${seat.seatId}`
+        player.ai = { difficulty: this.state.settings.aiDifficulty ?? TABLE_AI.difficulty }
+      }
+      game.events.push({
+        id: `leave-${seat.seatId}-${now}`,
+        round: game.round,
+        type: 'ai-change',
+        at: now,
+        detail: `${name} 离开房间，座位由 AI 接手`,
+      })
+    }
+    this.state.jobs = this.state.jobs.filter((job) => job.seatId !== seat.seatId)
+    if (wasHost) this.ensureActiveHost()
+    // 少了一个要点下一局的人，可能正好凑齐了
+    if (!this.startNextRoundIfReady(now)) this.rescheduleSeat(seat.seatId, now)
+    this.scheduleAllOfflineExpiry(now)
   }
 
   private startGame(now: number): void {
@@ -662,6 +726,8 @@ export class RoomCoordinator {
       canDiscard: false,
       canWin: false,
       canNextRound: false,
+      canQuitRoom: false,
+      nextRoundWaiting: [],
       canReturnToLobby: false,
       anGangFaces: [],
       buGangFaces: [],
@@ -669,7 +735,12 @@ export class RoomCoordinator {
     }
     const game = this.state.game
     if (!game) return empty
-    empty.canNextRound = game.phase === 'settlement' && seat.userId === this.state.hostUserId
+    // 下一局改成人齐才开：每个还在打的真人都得自己点一下
+    empty.canNextRound = game.phase === 'settlement' && !seat.nextRoundReady && !seat.trustee
+    empty.canQuitRoom = game.phase === 'settlement'
+    empty.nextRoundWaiting = game.phase === 'settlement'
+      ? this.awaitingNextRound().map((waiting) => waiting.name)
+      : []
     empty.canReturnToLobby = game.phase === 'match-over' && seat.userId === this.state.hostUserId
     if (seat.trustee) return empty
     if (game.phase === 'claiming') {

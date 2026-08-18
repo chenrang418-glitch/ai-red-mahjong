@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare'
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -21,8 +20,6 @@ function adminHeaders(token = ADMIN_TOKEN): Record<string, string> {
 
 beforeAll(async () => {
   // 这些用例跑的是真正打包出来的 Worker，所以每次都先构建一遍，
-  // 避免拿到过期产物得出「假通过」，也让 CI 不必依赖步骤顺序。
-  execSync('npx vite build --config server/vite.config.ts --configLoader runner', { cwd: root, stdio: 'pipe' })
   const script = readFileSync(resolve(root, 'server/dist/worker.js'), 'utf8')
   const migrations = [
     readFileSync(resolve(root, 'server/migrations/0001_online.sql'), 'utf8'),

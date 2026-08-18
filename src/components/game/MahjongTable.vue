@@ -147,6 +147,9 @@ function countdownFor(seatId: number) {
     </div>
 
     <section class="human-seat" :class="{ active: isHumanTurn }">
+      <!-- 贴在手牌框上沿外侧的位置，联机模式往里放聊天按钮。
+           挂在这儿而不是固定在屏幕上，手牌框因为碰杠变高时按钮会自己跟着走。 -->
+      <slot name="hand-corner" />
       <header>
         <span class="dealer" v-if="state.dealer === human.id">庄</span>
         <strong>{{ human.name }}</strong>
@@ -223,7 +226,43 @@ function countdownFor(seatId: number) {
 /* 轮到自己时整张桌子透一层光，比再加一行字更快被看到 */
 .table-shell.my-turn { border-color: rgba(243, 202, 105, .6); animation: table-breathe 2.4s ease-in-out infinite; }
 .felt-pattern { position: absolute; inset: 0; opacity: .05; background-image: repeating-linear-gradient(45deg, transparent 0 16px, #fff 17px 18px); pointer-events: none; }
-.top-seat, .left-seat, .right-seat, .table-center, .human-seat, .table-strip { z-index: 1; min-width: 0; }
+.table-center, .table-strip { z-index: 1; min-width: 0; }
+/* 座位要压在牌河上面：气泡是从座位里冒出来的，座位低于牌河的话气泡就被牌河盖住了 */
+.top-seat, .left-seat, .right-seat, .human-seat { z-index: 3; min-width: 0; }
+/* 正在说话的那家再抬一层，气泡才能盖过旁边的座位卡 */
+.top-seat:has(.seat-bubble), .left-seat:has(.seat-bubble), .right-seat:has(.seat-bubble) { z-index: 9; }
+
+/* 气泡默认朝正上方冒，但对家已经贴着牌桌上沿，左右两家的上方又正好是对家那张卡，
+   一律朝上的话：对家的气泡会被牌桌的 overflow 裁掉，左右两家的会糊在对家卡片上。
+   所以三家都改成朝牌桌中央展开——中央那片是空的，谁都不挡谁。 */
+.top-seat :deep(.seat-bubble) {
+  top: calc(100% - 2px);
+  bottom: auto;
+  left: 50%;
+  right: auto;
+  width: max-content;
+  max-width: min(260px, 52cqw);
+  transform: translateX(-50%);
+  border-radius: 3px 12px 12px 12px;
+}
+.left-seat :deep(.seat-bubble) {
+  left: calc(100% - 6px);
+  right: auto;
+  top: 2px;
+  bottom: auto;
+  width: max-content;
+  max-width: min(230px, 40cqw);
+  border-radius: 12px 12px 12px 3px;
+}
+.right-seat :deep(.seat-bubble) {
+  right: calc(100% - 6px);
+  left: auto;
+  top: 2px;
+  bottom: auto;
+  width: max-content;
+  max-width: min(230px, 40cqw);
+  border-radius: 12px 12px 3px 12px;
+}
 /* 全屏按钮只在横屏出现：那里顶行右侧本来就是空的，也只有横屏值得把侧栏藏起来换空间 */
 .fullscreen-toggle { display: none; }
 /* 竖屏和桌面用中央那张信息卡，这条横条只在横屏出场 */
@@ -375,6 +414,33 @@ function countdownFor(seatId: number) {
       "human human  human";
   }
   .top-seat { justify-self: stretch; align-self: start; min-width: 0; max-width: none; }
+  /* 横屏第一行很矮，对家和左家上下只差十几像素：对家气泡再朝下就直接糊在左家头上，
+     居中展开还会顶出牌桌左边被裁掉。两家都改成朝右伸进中央空地，再拉开垂直距离。 */
+  .top-seat :deep(.seat-bubble) {
+    left: calc(100% + 4px);
+    right: auto;
+    top: 0;
+    bottom: auto;
+    transform: none;
+    max-width: min(240px, 30cqw);
+    border-radius: 12px 12px 12px 3px;
+  }
+  .left-seat :deep(.seat-bubble) {
+    left: calc(100% + 4px);
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    max-width: min(240px, 30cqw);
+  }
+  .right-seat :deep(.seat-bubble) {
+    right: calc(100% + 4px);
+    left: auto;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    max-width: min(240px, 30cqw);
+  }
   /* 横屏中间行只有六七十像素：信息卡挪到上面那条横条，中央只留四家牌河，
      否则内容要 140px 却只有 60px，六成会被裁掉（就是之前牌面散落的原因）。 */
   /* 对局信息做成和座位卡同宽的方块，落在右上角：
@@ -531,6 +597,29 @@ function countdownFor(seatId: number) {
   /* 极窄屏塞不下十四张时允许横向滑动，而不是把牌桌撑破 */
   .human-hand { justify-content: center; padding-top: 10px; gap: 0; overflow-x: auto; scrollbar-width: none; }
   .human-hand::-webkit-scrollbar { display: none; }
+  /* 竖屏中央窄，左右两家的气泡朝里展开会正面撞上，所以错开一行、各让一半宽度 */
+  .left-seat :deep(.seat-bubble) { max-width: min(150px, 34cqw); top: 0; }
+  .right-seat :deep(.seat-bubble) { max-width: min(150px, 34cqw); top: 38px; }
+  /* 竖屏用绝对定位挂在右上角，不占 grid 格子——横屏那套 fs 区域保持原样。
+     没有它的话，横屏进全屏再转竖屏就找不到退出的地方了。 */
+  .fullscreen-toggle {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    z-index: 6;
+    top: 7px;
+    right: 7px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgba(245,210,113,.32);
+    border-radius: 8px;
+    background: rgba(6, 36, 30, .9);
+    color: #ecd591;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
   .human-hand :deep(.mahjong-tile) { padding: 2px; border-radius: 5px; }
   .drawn-tile-slot { margin-left: 4px; padding-left: 3px; }
   .self-bubble { left: 8px; max-width: 78%; font-size: 12px; }

@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    globalSetup: ['./tests/build-worker.globalSetup.ts'],
   },
   resolve: {
     alias: {

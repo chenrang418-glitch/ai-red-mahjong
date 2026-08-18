@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref } from 'vue'
-import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE } from '@/online/types'
+import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE } from '@/online/types'
 import type {
   ChatMessage,
   LeaderboardEntry,
@@ -224,6 +224,14 @@ export function useOnlineGame() {
       stopHeartbeat()
       clearPendingAction()
       // 被管理员解散：和「加不进去」一样不该重连，但原因要说清楚
+      // 昵称在别处登录：这台设备的会话已经作废，重连也进不来，直接退回输昵称
+      if (event.code === SESSION_SUPERSEDED_CODE) {
+        manualClose = true
+        roomCode = ''
+        room.value = null
+        handleSuperseded(event.reason)
+        return
+      }
       if (event.code === ROOM_CLOSED_BY_ADMIN_CODE) {
         manualClose = true
         roomCode = ''
@@ -316,6 +324,14 @@ export function useOnlineGame() {
     else window.setTimeout(() => {
       if (socket === leavingSocket) disposeSocket()
     }, 1500)
+  }
+
+  // 被同名的新登录顶下线。会话已经作废，留在界面上只会不停地失败，
+  // 所以直接退回输昵称那一步，并把原因说清楚，不然看起来就像莫名其妙掉线。
+  function handleSuperseded(reason?: string) {
+    const message = reason || '这个昵称已经在别的设备上登录了'
+    logout()
+    setError(`${message}，如果不是你本人操作，换一个昵称再登录`)
   }
 
   function logout() {
@@ -449,11 +465,15 @@ export function useOnlineGame() {
         // Ignore malformed lobby notifications; the room connection remains authoritative.
       }
     })
-    currentSocket.addEventListener('close', () => {
+    currentSocket.addEventListener('close', (event) => {
       if (directorySocket !== currentSocket) return
       directorySocket = null
       if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
       directoryHeartbeatTimer = null
+      if (event.code === SESSION_SUPERSEDED_CODE) {
+        handleSuperseded(event.reason)
+        return
+      }
       if (session.value) directoryReconnectTimer = window.setTimeout(connectDirectorySocket, 1500)
     })
   }

@@ -165,6 +165,67 @@ function leave() {
   if (window.confirm('离开后你的座位会立即由 AI 接管，牌局继续。用同一个昵称输入房间号还能回来。确定离开吗？')) emit('leave')
 }
 
+const shareState = ref<'idle' | 'copied' | 'manual'>('idle')
+const shareLink = computed(() => `${location.origin}${location.pathname}#join=${props.room.code}`)
+let shareResetTimer: number | null = null
+
+function flashShareState(next: 'copied' | 'manual') {
+  shareState.value = next
+  if (shareResetTimer !== null) window.clearTimeout(shareResetTimer)
+  // 手动复制那条要留久一点，用户得有时间把链接选中
+  shareResetTimer = window.setTimeout(() => { shareState.value = 'idle' }, next === 'manual' ? 15000 : 2200)
+}
+
+async function shareRoom() {
+  const link = shareLink.value
+  const text = `来打红中麻将，房间号 ${props.room.code}`
+  // 微信、QQ 这些内置浏览器里剪贴板经常是禁的，系统分享反而能用
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'AI 红中麻将', text, url: link })
+      return
+    } catch (cause) {
+      // 用户自己取消的不算失败，不用再弹别的
+      if (cause instanceof Error && cause.name === 'AbortError') return
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link)
+    flashShareState('copied')
+  } catch {
+    flashShareState('manual')
+  }
+}
+
+onBeforeUnmount(() => {
+  if (shareResetTimer !== null) window.clearTimeout(shareResetTimer)
+  if (leaveToastTimer !== null) window.clearTimeout(leaveToastTimer)
+})
+
+function quitRoom() {
+  if (!window.confirm('退出后你的座位会换成 AI 继续打完这一场，本场成绩不再计入你名下。确定退出吗？')) return
+  emit('leave')
+}
+
+// 有人在结算界面退出时，牌桌上方冒一条提示——
+// 不然别人只会看到某个座位突然变成了 AI，不知道发生了什么。
+const leaveToast = ref('')
+let leaveToastTimer: number | null = null
+let lastSeenEventId = ''
+
+watch(() => props.room.game?.events, (events) => {
+  if (!events?.length) return
+  const latest = events[events.length - 1]
+  if (latest.id === lastSeenEventId) return
+  const first = lastSeenEventId === ''
+  lastSeenEventId = latest.id
+  // 首次进房不回放历史事件，否则一进来就弹一堆旧提示
+  if (first || latest.type !== 'ai-change' || !latest.detail.includes('离开房间')) return
+  leaveToast.value = latest.detail
+  if (leaveToastTimer !== null) window.clearTimeout(leaveToastTimer)
+  leaveToastTimer = window.setTimeout(() => { leaveToast.value = '' }, 4200)
+}, { deep: false, immediate: true })
+
 function sendChat(text: string, quick: boolean) {
   emit('command', { type: 'chat', text, quick })
 }
@@ -180,7 +241,17 @@ function sendChat(text: string, quick: boolean) {
 
     <section class="lobby-card">
       <div class="lobby-heading">
-        <div><small>ONLINE ROOM</small><h1>等待开局</h1><p>把房间号分享给其他玩家；开局时空位会自动补充 AI。</p></div>
+        <div>
+          <small>ONLINE ROOM</small>
+          <h1>等待开局</h1>
+          <p>把房间号或链接发给其他玩家；开局时空位会自动补充 AI。</p>
+          <div class="share-row">
+            <button class="share-button" type="button" @click="shareRoom">分享房间链接</button>
+            <span v-if="shareState === 'copied'" class="share-hint ok">链接已复制，发给朋友即可</span>
+            <span v-else-if="shareState === 'manual'" class="share-hint">这个浏览器不给复制，长按下面的链接自己复制</span>
+          </div>
+          <input v-if="shareState === 'manual'" class="share-link" :value="shareLink" readonly @focus="($event.target as HTMLInputElement).select()">
+        </div>
         <div class="lobby-rules"><span>{{ room.settings.mode === 'finite' ? `有限积分 · ${room.settings.initialPoints}分` : '无限模式' }}</span><span>抢牌 {{ room.settings.claimWindowMs / 1000 }} 秒</span><span>操作 30 秒</span></div>
       </div>
 
@@ -256,7 +327,11 @@ function sendChat(text: string, quick: boolean) {
           :immersive="immersive"
           @select-tile="selectTile"
           @toggle-immersive="toggleImmersive"
-        />
+        >
+          <template #hand-corner>
+            <button class="chat-fab" type="button" @click="mobileChatOpen = true; sideTab = 'chat'">聊</button>
+          </template>
+        </MahjongTable>
         <div class="action-dock">
           <template v-if="pendingAction?.type === 'discard'">
             <span class="waiting-dot"></span><span>出牌已显示，正在等待服务器确认…</span>
@@ -311,14 +386,21 @@ function sendChat(text: string, quick: boolean) {
         </div>
         <ol class="final-scores"><li v-for="player in sortedScores" :key="player.id"><span>{{ player.name }}</span><b>{{ player.points === null ? `净分 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}积分` }}</b><small>胡{{ player.stats.wins }} · 杠{{ player.stats.gangCount }} · 码{{ player.stats.maCount }}</small></li></ol>
         <div class="result-actions">
-          <button v-if="room.game.phase === 'settlement' && room.legal.canNextRound" class="primary" type="button" @click="emit('command', { type: 'next-round' })">开始下一局</button>
-          <span v-else-if="room.game.phase === 'settlement'">等待房主开始下一局</span>
+          <template v-if="room.game.phase === 'settlement'">
+            <button v-if="room.legal.canQuitRoom" class="quit-button" type="button" @click="quitRoom">退出房间</button>
+            <button v-if="room.legal.canNextRound" class="primary" type="button" @click="emit('command', { type: 'next-round' })">开始下一局</button>
+            <span v-else-if="room.legal.nextRoundWaiting.length" class="waiting-others">已准备，还在等 {{ room.legal.nextRoundWaiting.join('、') }}</span>
+            <span v-else class="waiting-others">正在开始下一局…</span>
+          </template>
           <button v-if="room.game.phase === 'match-over' && room.legal.canReturnToLobby" class="primary" type="button" @click="emit('command', { type: 'return-to-lobby' })">返回房间</button>
         </div>
       </section>
     </div>
 
-    <button class="chat-fab" type="button" @click="mobileChatOpen = true; sideTab = 'chat'">聊</button>
+    <transition name="leave-toast">
+      <div v-if="leaveToast" class="leave-toast">{{ leaveToast }}</div>
+    </transition>
+
     <div v-if="mobileChatOpen" class="drawer-mask" @click="mobileChatOpen = false"></div>
   </div>
 </template>
@@ -335,6 +417,12 @@ function sendChat(text: string, quick: boolean) {
 .lobby-header-actions > span.online, .online-seats i.online { color: #73c693; }
 .lobby-card { width: min(1100px, 100%); margin: 28px auto 0; padding: 26px; border: 1px solid #385248; border-radius: 23px; background: rgba(14,34,29,.94); box-shadow: 0 24px 80px rgba(0,0,0,.3); }
 .lobby-heading { display: flex; justify-content: space-between; gap: 20px; }
+.share-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 11px; }
+.share-button { min-height: 40px; padding: 9px 15px; border: 1px solid #b9974a; border-radius: 10px; background: rgba(60, 48, 18, .5); color: #f0d68a; cursor: pointer; font-size: 13px; font-weight: 700; }
+.share-button:hover { border-color: #e0c069; }
+.share-hint { color: #93a8a0; font-size: 12px; }
+.share-hint.ok { color: #7fc79a; }
+.share-link { width: min(360px, 100%); margin-top: 8px; padding: 9px 11px; border: 1px solid #35524a; border-radius: 9px; background: #0c1f1a; color: #d9e2dc; font-size: 12px; }
 .lobby-heading small { color: #72877f; letter-spacing: .2em; }
 .lobby-heading h1 { margin: 3px 0; font-size: 30px; }
 .lobby-heading p { color: #82978f; font-size: 12px; }
@@ -360,10 +448,37 @@ function sendChat(text: string, quick: boolean) {
 .side-tabs button { padding: 7px 3px; border: 1px solid #2e493f; border-radius: 7px; background: #10261f; color: #81968f; cursor: pointer; font-size: 9px; }
 .side-tabs button.active { border-color: #927b3e; color: #edcd71; }
 .side-tabs .drawer-close { display: none; }
-.chat-fab, .drawer-mask { display: none; }
+.chat-fab {
+  display: none;
+  place-items: center;
+  position: absolute;
+  z-index: 12;
+  right: 2px;
+  bottom: calc(100% + 8px);
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid #d1af54;
+  border-radius: 50%;
+  background: rgba(23, 55, 46, .95);
+  color: #f1cf71;
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 8px 25px rgba(0,0,0,.35);
+  cursor: pointer;
+}
+.drawer-mask { display: none; }
 .mobile-only { display: none; }
 .room-code { font-size: 17px; letter-spacing: .12em; color: #f0d68a; font-variant-numeric: tabular-nums; }
 .result-actions span { color: #83978f; font-size: 11px; }
+.result-actions .waiting-others { color: #d9c489; font-size: 12px; }
+/* 退出留在左边，开始下一局推到右下角：两个按钮离得远一点，不容易点错 */
+.result-actions .quit-button { margin-right: auto; }
+.quit-button { min-height: 42px; padding: 10px 17px; border: 1px solid #8d5049; border-radius: 10px; background: rgba(58, 26, 23, .6); color: #e5a79f; cursor: pointer; font-size: 13px; font-weight: 700; }
+.quit-button:hover { border-color: #c2726a; color: #f2bdb5; }
+.leave-toast { position: fixed; z-index: 60; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); max-width: min(420px, calc(100vw - 24px)); padding: 11px 18px; border: 1px solid #a8863f; border-radius: 12px; background: rgba(38, 30, 12, .96); color: #f2d9a0; font-size: 13px; font-weight: 700; text-align: center; box-shadow: 0 14px 40px rgba(0,0,0,.45); }
+.leave-toast-enter-active, .leave-toast-leave-active { transition: opacity .25s ease, transform .25s ease; }
+.leave-toast-enter-from, .leave-toast-leave-to { opacity: 0; transform: translate(-50%, -10px); }
 @media (max-width: 800px) {
   .online-seats { grid-template-columns: 1fr 1fr; }
   .lobby-heading { flex-direction: column; }
@@ -380,7 +495,9 @@ function sendChat(text: string, quick: boolean) {
   .lobby-card footer p { flex-basis: 100%; }
   .lobby-card footer button { width: 100%; }
   /* 聊天只保留右下角这一个入口，顶栏不再重复放一个按钮 */
-  .chat-fab { display: block; position: fixed; z-index: 32; right: max(12px, env(safe-area-inset-right)); bottom: calc(82px + env(safe-area-inset-bottom)); width: 48px; height: 48px; border: 1px solid #d1af54; border-radius: 50%; background: #17372e; color: #f1cf71; font-weight: 900; box-shadow: 0 8px 25px rgba(0,0,0,.35); }
+  /* 原来固定在屏幕上，手牌一多就压住最右边的牌。现在挂在手牌框里、贴着上沿外侧，
+     碰杠让手牌框变高时按钮跟着一起走，永远不会压到牌。 */
+  .chat-fab { display: grid; }
   .mobile-only { display: block; }
   .desktop-only { display: none; }
   /* 状态在座位圆环和底部按钮上都有，顶栏这条重复的横幅在竖屏收起来 */

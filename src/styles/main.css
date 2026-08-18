@@ -123,6 +123,48 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .final-scores li { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 10px; border-radius: 9px; background: #142e27; }
 .final-scores b { color: #efd070; }
 .final-scores small { grid-column: 1 / 3; color: #71867f; }
+
+/* —— 横屏结算：屏幕只有三四百像素高，原来那套竖着堆的卡片要划到底才够到按钮。
+   改成左右两栏：左边胡了什么，右边谁得了多少分，按钮固定在右下角，一屏就能点。 —— */
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .result-backdrop { padding: 8px; }
+  .result-card {
+    width: min(780px, 96vw);
+    max-height: 94dvh;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "tag   tag"
+      "title title"
+      "win   scores"
+      "ma    scores"
+      "ma    actions";
+    gap: 5px 12px;
+    padding: 10px 13px;
+    border-radius: 14px;
+  }
+  .result-card > small { grid-area: tag; font-size: 9px; letter-spacing: .16em; }
+  .result-card h2 { grid-area: title; margin: 2px 0 4px; font-size: 16px; line-height: 1.3; }
+  .win-result { grid-area: win; align-self: start; margin: 0; padding: 7px 9px; gap: 9px; border-radius: 10px; }
+  .win-result span { font-size: 9px; }
+  .win-result b { font-size: 13px; }
+  .ma-result { grid-area: ma; align-self: start; padding: 7px 9px; gap: 4px; border-radius: 10px; flex-wrap: wrap; }
+  .ma-result > div { margin-right: 6px; }
+  .ma-result span { font-size: 9px; }
+  .ma-result b { font-size: 13px; }
+  /* 结算里的牌统一收小，四张抓码加自摸牌横排才放得下。
+     选择器要比 MahjongTile 自己的 scoped 样式更具体，否则压不过去。 */
+  .game-page .result-card .mahjong-tile { width: 34px; height: 46px; padding: 3px; border-radius: 6px; }
+  .final-scores { grid-area: scores; margin: 0; gap: 4px; min-height: 0; overflow-y: auto; }
+  .final-scores li { padding: 5px 8px; border-radius: 7px; font-size: 12px; }
+  .final-scores small { font-size: 10px; }
+  .result-actions { grid-area: actions; align-self: end; }
+  .result-actions button { padding: 8px 13px; font-size: 13px; }
+  .result-actions .waiting-others { font-size: 11px; }
+}
+
 .result-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .result-actions button { padding: 10px 15px; border: 1px solid #36534a; border-radius: 9px; background: #19352d; color: #eadfc5; cursor: pointer; }
 .result-actions button.primary { color: #21261e; background: #dfc16a; border-color: #dfc16a; }
@@ -302,4 +344,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 }
 .game-page.immersive .action-dock button { min-height: 40px; padding: 8px 13px; font-size: 13px; }
 .game-page.immersive .action-dock .discard-button { min-width: 150px; }
-.game-page.immersive .chat-fab { bottom: calc(62px + env(safe-area-inset-bottom)); }
+.game-page.immersive .chat-fab { display: grid; }
+/* 全屏把侧栏整个收了，但聊天抽屉是挂在同一个侧栏上的——
+   不额外放出来的话，点聊天只会看到一层黑遮罩，底下什么都没有。 */
+.game-page.immersive .event-panel.mobile-open {
+  display: grid;
+  position: fixed;
+  z-index: 40;
+  top: auto;
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  left: auto;
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(74dvh, 520px);
+  padding: 12px;
+  border: 1px solid #35524a;
+  border-radius: 16px;
+  background: rgba(10, 30, 25, .98);
+  box-shadow: 0 20px 60px rgba(0,0,0,.55);
+}

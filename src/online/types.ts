@@ -77,6 +77,9 @@ export interface OnlineLegalActions {
   canDiscard: boolean
   canWin: boolean
   canNextRound: boolean
+  canQuitRoom: boolean
+  // 结算界面还差谁点「开始下一局」，直接把名字显示出来
+  nextRoundWaiting: string[]
   canReturnToLobby: boolean
   anGangFaces: string[]
   buGangFaces: string[]
@@ -146,6 +149,8 @@ export type LobbyServerMessage =
 export const ROOM_REJECT_CLOSE_CODE = 4001
 // 被管理员强制解散，前端据此提示，而不是当成掉线去重连
 export const ROOM_CLOSED_BY_ADMIN_CODE = 4002
+// 同一昵称在别处登录，旧连接被顶下线。和掉线区分开，否则旧设备会一直重连又一直被踢
+export const SESSION_SUPERSEDED_CODE = 4003
 
 export const QUICK_CHAT_MESSAGES = ['快点快点', '这也碰？', '你太菜了', '你会不会玩？', '666', '乐乐'] as const
 export const QUICK_CHAT_EMOJIS = ['😂', '👍', '😅', '😎', '😡', '😭', '🀄', '🎉'] as const

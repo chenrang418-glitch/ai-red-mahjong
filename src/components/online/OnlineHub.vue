@@ -1,22 +1,54 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import OnlineRoom from './OnlineRoom.vue'
 import { useOnlineGame } from '@/composables/useOnlineGame'
 import { DEFAULT_ONLINE_SETTINGS, DIFFICULTY_LABELS } from '@/online/types'
 import type { OnlineRoomSettings } from '@/online/types'
 
-const emit = defineEmits<{ back: [] }>()
+const props = defineProps<{ joinCode?: string }>()
+const emit = defineEmits<{ back: []; joinConsumed: [] }>()
 const online = useOnlineGame()
 const nickname = ref('')
 const joinCode = ref('')
 const settings = reactive<OnlineRoomSettings>({ ...DEFAULT_ONLINE_SETTINGS })
+// 从分享链接进来时先记着要去哪个房间，输完昵称立刻自动进
+const invitedCode = ref((props.joinCode ?? '').toUpperCase())
+
+watch(() => props.joinCode, (code) => {
+  if (code) invitedCode.value = code.toUpperCase()
+})
 
 onMounted(() => {
   if (online.apiConfigured) void online.refreshLeaderboard()
+  if (invitedCode.value && online.session.value) void enterInvitedRoom()
 })
 
+// 进房之后把 hash 清掉：留着的话一刷新又会重新触发一次自动加入，
+// 地址栏也不该一直挂着别人的房间号。
+function clearInviteHash() {
+  if (location.hash.startsWith('#join=')) {
+    history.replaceState(null, '', `${location.pathname}${location.search}`)
+  }
+  emit('joinConsumed')
+}
+
+function enterInvitedRoom() {
+  const code = invitedCode.value
+  if (!code) return
+  invitedCode.value = ''
+  clearInviteHash()
+  online.joinRoom(code)
+}
+
 function submitNickname() {
-  void online.login(nickname.value)
+  void online.login(nickname.value).then(() => {
+    if (online.session.value && invitedCode.value) enterInvitedRoom()
+  })
+}
+
+function dismissInvite() {
+  invitedCode.value = ''
+  clearInviteHash()
 }
 
 function createRoom() {
@@ -64,14 +96,16 @@ function back() {
     </section>
 
     <section class="hub-grid" :class="{ logged: online.session.value }">
-      <article v-if="!online.session.value" class="login-card hub-card">
-        <small>NICKNAME LOGIN</small>
-        <h1>输入昵称</h1>
-        <p>第一次使用会自动注册；之后输入相同昵称即可继续累计排行榜数据。页面刷新后需要重新输入。</p>
+      <article v-if="!online.session.value" class="login-card hub-card" :class="{ invited: invitedCode }">
+        <small>{{ invitedCode ? 'JOIN BY LINK' : 'NICKNAME LOGIN' }}</small>
+        <h1>{{ invitedCode ? '加入房间' : '输入昵称' }}</h1>
+        <p v-if="invitedCode" class="invited-code">{{ invitedCode }}</p>
+        <p>{{ invitedCode ? '输入昵称就直接进这个房间。同一个昵称同时只能在一个地方登录。' : '第一次使用会自动注册；之后输入相同昵称即可继续累计排行榜数据。页面刷新后需要重新输入。' }}</p>
         <form @submit.prevent="submitNickname">
           <label>昵称<input v-model="nickname" maxlength="12" autocomplete="off" placeholder="例如：齐天大圣A123"></label>
-          <button type="submit" :disabled="online.busy.value || !online.apiConfigured">{{ online.busy.value ? '连接中…' : '进入联机大厅' }}</button>
+          <button type="submit" :disabled="online.busy.value || !online.apiConfigured">{{ online.busy.value ? '连接中…' : invitedCode ? '进入房间' : '进入联机大厅' }}</button>
         </form>
+        <button v-if="invitedCode" class="invite-skip" type="button" @click="dismissInvite">不进这个房间，只去大厅</button>
         <div class="privacy-note">不使用密码、手机号或验证码；浏览器不会保存登录密钥。</div>
       </article>
 
@@ -219,6 +253,9 @@ function back() {
 .leaderboard-card li b { color: #efcf72; }
 .leaderboard-card li em { color: #8fa29b; font-style: normal; }
 .empty-ranking { padding: 35px 0; text-align: center; }
+.login-card.invited { border-color: rgba(226, 192, 105, .55); }
+.invited-code { margin: 4px 0 2px; color: #f0d68a; font-size: 30px; font-weight: 800; letter-spacing: .18em; }
+.invite-skip { margin-top: 10px; padding: 8px 12px; border: 1px solid #35524a; border-radius: 9px; background: transparent; color: #93a8a0; cursor: pointer; font-size: 12px; }
 .maintenance-notice { width: min(1180px, 100%); margin: 18px auto 0; padding: 15px 18px; border: 1px solid #a8863f; border-radius: 14px; background: rgba(72, 55, 21, .55); }
 .maintenance-notice strong { color: #f2d47c; font-size: 15px; }
 .maintenance-notice p { margin: 6px 0 4px; color: #ecdcae; font-size: 13px; line-height: 1.6; }
