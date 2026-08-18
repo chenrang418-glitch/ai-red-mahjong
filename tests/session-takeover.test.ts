@@ -114,6 +114,24 @@ describe('同名登录顶号', () => {
     expect(await roomSocketCloseCode(code, host.token)).toBe(SESSION_SUPERSEDED_CODE)
   })
 
+  it('自己坐在里面的房间标成可以回去，别人的房间不受影响', async () => {
+    const owner = await loginAs('回房甲')
+    const created = await createRoomWith(owner.token)
+    const { code } = await created.json() as { code: string }
+
+    const listForOwner = await (await api('/api/rooms', { headers: { authorization: `Bearer ${owner.token}` } })).json() as {
+      rooms: Array<{ code: string; rejoinable: boolean }>
+    }
+    expect(listForOwner.rooms.find((entry) => entry.code === code)?.rejoinable).toBe(true)
+
+    // 别人看同一个房间，就是普通的可加入，不是「返回牌局」
+    const other = await loginAs('回房乙')
+    const listForOther = await (await api('/api/rooms', { headers: { authorization: `Bearer ${other.token}` } })).json() as {
+      rooms: Array<{ code: string; rejoinable: boolean }>
+    }
+    expect(listForOther.rooms.find((entry) => entry.code === code)?.rejoinable).toBe(false)
+  })
+
   it('上线前签发的旧票仍然可用，不会把在场的人一刀切断', async () => {
     const user = await loginAs('顶号戊')
     // 旧版 token 里没有 sessionId，只有 userId 和昵称

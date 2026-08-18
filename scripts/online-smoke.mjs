@@ -150,7 +150,24 @@ try {
     headers: { authorization: `Bearer ${session.token}` },
   })
   const activeRoom = roomsAfterStart.rooms.find((room) => room.code === created.code)
-  assert(activeRoom?.phase === 'playing' && activeRoom?.joinable === false, '进行中房间没有按不可加入状态显示')
+  // 自己本来就坐在里面：刷新页面后要能从列表直接回去，所以对本人是可加入的
+  assert(activeRoom?.phase === 'playing', '进行中房间状态不对')
+  assert(activeRoom?.rejoinable === true && activeRoom?.joinable === true, '房主自己回不到进行中的牌局')
+
+  // 但外人仍然不能中途插进一局已经开始的牌
+  const outsider = await jsonRequest(`${baseUrl}/api/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ nickname: '冒烟路人' }),
+  })
+  const roomsForOutsider = await jsonRequest(`${baseUrl}/api/rooms`, {
+    headers: { authorization: `Bearer ${outsider.token}` },
+  })
+  const seenByOutsider = roomsForOutsider.rooms.find((room) => room.code === created.code)
+  assert(
+    seenByOutsider?.joinable === false && seenByOutsider?.rejoinable === false,
+    '进行中的房间不该对外人开放',
+  )
 
   const chatPromise = waitForMessage(socket, (message) => message.type === 'chat' && message.message.text === '乐乐')
   socket.send(JSON.stringify({ type: 'chat', text: '乐乐', quick: true }))

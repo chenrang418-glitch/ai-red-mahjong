@@ -500,7 +500,7 @@ async function leaderboard(env: Env): Promise<Response> {
 }
 
 async function listRooms(request: Request, env: Env): Promise<Response> {
-  readSessionToken(request)
+  const user = readSessionToken(request)
   const result = await env.DB.prepare(`
     SELECT
       code,
@@ -540,10 +540,14 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
     } catch {
       players = []
     }
+    const mine = players.some((player) => player.kind === 'human' && player.nickname === user.nickname)
     return {
       code: row.code,
       phase: row.phase,
-      joinable: row.phase === 'lobby' && row.occupied_seats < 4,
+      // 自己本来就坐在里面的房间要能回去：刷新一下页面就被挡在门外，
+      // 座位只能挂着托管，太亏了。服务端本来就允许原座位重连。
+      rejoinable: mine,
+      joinable: mine || (row.phase === 'lobby' && row.occupied_seats < 4),
       hostNickname: row.host_nickname,
       players,
       occupiedSeats: row.occupied_seats,

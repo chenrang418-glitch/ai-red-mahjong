@@ -28,9 +28,33 @@ export function resolveApiBase(): string {
   return window.location.origin
 }
 
+// 刷新页面原本会把会话丢掉，重新登录后又因为牌局已开始而回不去原房间，
+// 座位就一直挂着托管。这里把会话和当前房间号都记下来，刷新后自动接回去。
+const SESSION_STORAGE_KEY = 'ai-red-mahjong.online-session'
+const ROOM_STORAGE_KEY = 'ai-red-mahjong.online-room'
+
+function readStored<T>(key: string): T | null {
+  try {
+    const raw = window.localStorage.getItem(key)
+    return raw ? JSON.parse(raw) as T : null
+  } catch {
+    // 隐私模式或存储被禁用时读不到，退回「没有记录」就行
+    return null
+  }
+}
+
+function writeStored(key: string, value: unknown): void {
+  try {
+    if (value === null) window.localStorage.removeItem(key)
+    else window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // 存不下不影响本次游玩，只是刷新后要重新输昵称
+  }
+}
+
 export function useOnlineGame() {
   const apiBase = resolveApiBase()
-  const session = ref<OnlineSession | null>(null)
+  const session = ref<OnlineSession | null>(readStored<OnlineSession>(SESSION_STORAGE_KEY))
   const room = ref<OnlineRoomView | null>(null)
   const rooms = ref<OnlineRoomDirectoryEntry[]>([])
   const leaderboard = ref<LeaderboardEntry[]>([])
@@ -122,6 +146,7 @@ export function useOnlineGame() {
         body: JSON.stringify({ nickname }),
       })
       session.value = result
+      writeStored(SESSION_STORAGE_KEY, result)
       await Promise.all([refreshLeaderboard(), refreshRooms(), refreshService()])
       connectDirectorySocket()
     } catch (cause) {
@@ -129,6 +154,17 @@ export function useOnlineGame() {
     } finally {
       busy.value = false
     }
+  }
+
+  // 页面重新加载时用存下来的会话接着来：会话失效（比如被别处顶掉）时
+  // 服务器会用 4003 把我们踢回登录页，不用在这里提前判断。
+  async function restoreSession(): Promise<boolean> {
+    if (!session.value || !apiBase) return false
+    await Promise.all([refreshLeaderboard(), refreshRooms(), refreshService()])
+    connectDirectorySocket()
+    const storedRoom = readStored<string>(ROOM_STORAGE_KEY)
+    if (storedRoom && !room.value) connectRoom(storedRoom)
+    return true
   }
 
   async function refreshLeaderboard() {
@@ -190,6 +226,7 @@ export function useOnlineGame() {
     assertConfigured()
     cleanupSocket(false)
     roomCode = code
+    writeStored(ROOM_STORAGE_KEY, code)
     manualClose = false
     connecting.value = true
     const url = new URL(`${apiBase}/api/rooms/${code}/socket`)
@@ -228,6 +265,7 @@ export function useOnlineGame() {
       if (event.code === SESSION_SUPERSEDED_CODE) {
         manualClose = true
         roomCode = ''
+        writeStored(ROOM_STORAGE_KEY, null)
         room.value = null
         handleSuperseded(event.reason)
         return
@@ -235,6 +273,7 @@ export function useOnlineGame() {
       if (event.code === ROOM_CLOSED_BY_ADMIN_CODE) {
         manualClose = true
         roomCode = ''
+        writeStored(ROOM_STORAGE_KEY, null)
         room.value = null
         setError(event.reason || '房间已被管理员关闭')
         return
@@ -243,6 +282,7 @@ export function useOnlineGame() {
       if (event.code === ROOM_REJECT_CLOSE_CODE) {
         manualClose = true
         roomCode = ''
+        writeStored(ROOM_STORAGE_KEY, null)
         room.value = null
         setError(event.reason || '无法加入这个房间')
         return
@@ -312,6 +352,7 @@ export function useOnlineGame() {
     // 重新拉回牌桌，而且因为不再重连，会一直卡在「连接中断，正在重连…」。
     socketGeneration += 1
     roomCode = ''
+    writeStored(ROOM_STORAGE_KEY, null)
     room.value = null
     chatBubbles.value = {}
     clearPendingAction()
@@ -337,6 +378,8 @@ export function useOnlineGame() {
   function logout() {
     leaveRoom()
     session.value = null
+    writeStored(SESSION_STORAGE_KEY, null)
+    writeStored(ROOM_STORAGE_KEY, null)
     rooms.value = []
     leaderboard.value = []
     closeDirectorySocket()
@@ -545,6 +588,7 @@ export function useOnlineGame() {
     chatBubbles,
     maintenance,
     refreshService,
+    restoreSession,
     login,
     logout,
     refreshLeaderboard,

@@ -19,8 +19,13 @@ watch(() => props.joinCode, (code) => {
 })
 
 onMounted(() => {
-  if (online.apiConfigured) void online.refreshLeaderboard()
-  if (invitedCode.value && online.session.value) void enterInvitedRoom()
+  if (!online.apiConfigured) return
+  // 刷新页面后用存下来的会话直接接回去，包括回到刚才那个房间
+  void online.restoreSession().then((restored) => {
+    if (!restored) void online.refreshLeaderboard()
+    // 分享链接优先：既然是点链接进来的，就去链接指定的房间
+    if (invitedCode.value && online.session.value) enterInvitedRoom()
+  })
 })
 
 // 进房之后把 hash 清掉：留着的话一刷新又会重新触发一次自动加入，
@@ -106,7 +111,7 @@ function back() {
           <button type="submit" :disabled="online.busy.value || !online.apiConfigured">{{ online.busy.value ? '连接中…' : invitedCode ? '进入房间' : '进入联机大厅' }}</button>
         </form>
         <button v-if="invitedCode" class="invite-skip" type="button" @click="dismissInvite">不进这个房间，只去大厅</button>
-        <div class="privacy-note">不使用密码、手机号或验证码；浏览器不会保存登录密钥。</div>
+        <div class="privacy-note">不使用密码、手机号或验证码。昵称会记在这台设备上，刷新页面能直接接着玩。</div>
       </article>
 
       <template v-else>
@@ -159,8 +164,8 @@ function back() {
               <span>抢牌 {{ entry.settings.claimWindowMs / 1000 }}秒</span>
               <b>{{ entry.occupiedSeats }}/4 人</b>
             </div>
-            <button class="primary" type="button" :disabled="!entry.joinable || online.connecting.value" @click="online.joinRoom(entry.code)">
-              {{ entry.phase === 'playing' ? '进行中' : entry.availableSeats === 0 ? '房间已满' : online.connecting.value ? '正在加入…' : '加入房间' }}
+            <button class="primary" :class="{ rejoin: entry.rejoinable }" type="button" :disabled="!entry.joinable || online.connecting.value" @click="online.joinRoom(entry.code)">
+              {{ online.connecting.value ? '正在加入…' : entry.rejoinable ? '返回牌局' : entry.phase === 'playing' ? '进行中' : entry.availableSeats === 0 ? '房间已满' : '加入房间' }}
             </button>
           </section>
         </div>
@@ -256,6 +261,7 @@ function back() {
 .login-card.invited { border-color: rgba(226, 192, 105, .55); }
 .invited-code { margin: 4px 0 2px; color: #f0d68a; font-size: 30px; font-weight: 800; letter-spacing: .18em; }
 .invite-skip { margin-top: 10px; padding: 8px 12px; border: 1px solid #35524a; border-radius: 9px; background: transparent; color: #93a8a0; cursor: pointer; font-size: 12px; }
+.room-directory-card .primary.rejoin { background: #7fc79a; color: #10251c; }
 .maintenance-notice { width: min(1180px, 100%); margin: 18px auto 0; padding: 15px 18px; border: 1px solid #a8863f; border-radius: 14px; background: rgba(72, 55, 21, .55); }
 .maintenance-notice strong { color: #f2d47c; font-size: 15px; }
 .maintenance-notice p { margin: 6px 0 4px; color: #ecdcae; font-size: 13px; line-height: 1.6; }

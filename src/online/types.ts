@@ -43,6 +43,8 @@ export interface OnlineRoomDirectoryEntry {
   code: string
   phase: RoomPhase
   joinable: boolean
+  // 自己原本就在这个房间里（刷新掉线后回去用）
+  rejoinable: boolean
   hostNickname: string
   players: OnlineRoomDirectoryPlayer[]
   occupiedSeats: number
