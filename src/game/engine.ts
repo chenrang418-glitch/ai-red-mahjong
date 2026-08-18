@@ -160,7 +160,7 @@ export class GameEngine {
 
   updateAI(playerId: number, profile: AIProfile) {
     const player = this.player(playerId)
-    if (player.isHuman) throw new Error('真人玩家不能设置AI性格')
+    if (player.isHuman) throw new Error('真人玩家不能设置AI档位')
     player.ai = clone(profile)
     this.addEvent('ai-change', `${player.name}切换为${DIFFICULTY_TEXT[profile.difficulty]}`, playerId)
   }
