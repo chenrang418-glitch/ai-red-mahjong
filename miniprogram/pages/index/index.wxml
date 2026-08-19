@@ -1,0 +1,43 @@
+<view class="home" style="padding-top: {{navHeight}}px">
+  <view class="hero">
+    <text class="hero-kicker">四人红中麻将 · 手机上直接开局</text>
+    <text class="hero-title">AI 红中麻将</text>
+    <text class="hero-sub">选择一种方式开局，单机与联机数据相互独立。</text>
+    <view class="hero-seal">中</view>
+  </view>
+
+  <view class="cards">
+    <view class="mode-card local-card" bindtap="startSingle">
+      <text class="card-tag">LOCAL MATCH</text>
+      <view class="card-icon">单</view>
+      <text class="card-title">单机游戏</text>
+      <text class="card-desc">你与三个离线 AI 对局，随时退出、随时接着打。</text>
+      <view class="card-marks">
+        <text class="mark">无需联网</text>
+        <text class="mark">支持接着上次打</text>
+        <text class="mark">AI 档位自由调整</text>
+      </view>
+      <view class="card-btn">进入单机游戏</view>
+    </view>
+
+    <view class="mode-card online-card" bindtap="startOnline">
+      <text class="card-tag">ONLINE MODE</text>
+      <view class="card-icon">联</view>
+      <text class="card-title">联机模式</text>
+      <text class="card-desc">使用房间号与其他玩家实时对局，支持断线重连、AI 托管和聊天。</text>
+      <view class="card-marks">
+        <text class="mark">最多四名真人</text>
+        <text class="mark">空位自动补 AI</text>
+        <text class="mark">昵称直接登录</text>
+      </view>
+      <view class="card-btn online">进入联机游戏</view>
+    </view>
+  </view>
+
+  <view class="home-foot">
+    <text>112 张</text>
+    <text>只能自摸</text>
+    <text>支持七对</text>
+    <text>六码抓码</text>
+  </view>
+</view>

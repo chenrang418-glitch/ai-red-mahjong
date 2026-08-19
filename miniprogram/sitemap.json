@@ -1,0 +1,4 @@
+{
+  "desc": "私人对局，不需要被搜索收录",
+  "rules": [{ "action": "disallow", "page": "*" }]
+}

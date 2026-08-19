@@ -1,0 +1,25 @@
+<view class="page" style="padding-top: {{navTop}}px">
+  <view class="page-head" style="padding-right: {{menuGap}}px">
+    <view class="back" bindtap="goBack">‹</view>
+    <text class="page-title">牌谱</text>
+    <view class="head-btn" bindtap="importFromClipboard">导入</view>
+  </view>
+
+  <scroll-view class="page-body" scroll-y>
+    <view wx:if="{{!replays.length}}" class="empty">
+      <text class="empty-title">还没有牌谱</text>
+      <text class="empty-text">打完整场后会自动存下来，最多保留最近十场。</text>
+    </view>
+
+    <view class="replay-item" wx:for="{{replays}}" wx:key="id">
+      <view class="replay-main" bindtap="openReplay" data-id="{{item.id}}">
+        <text class="replay-title">{{item.title}}</text>
+        <text class="replay-meta">{{item.dateText}} · {{item.frameCount}} 步</text>
+      </view>
+      <view class="replay-actions">
+        <view class="mini-btn" catchtap="exportOne" data-id="{{item.id}}">导出</view>
+        <view class="mini-btn danger" catchtap="removeOne" data-id="{{item.id}}" data-title="{{item.title}}">删除</view>
+      </view>
+    </view>
+  </scroll-view>
+</view>

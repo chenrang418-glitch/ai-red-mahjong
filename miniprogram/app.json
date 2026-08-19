@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/setup/setup",
+    "pages/table/table",
+    "pages/rules/rules",
+    "pages/replay/replay",
+    "pages/replay-view/replay-view"
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "backgroundColor": "#0b1a15",
+    "backgroundTextStyle": "dark"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

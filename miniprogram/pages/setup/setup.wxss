@@ -1,0 +1,156 @@
+.setup {
+  height: 100vh;
+  padding: 0 40rpx 32rpx;
+  display: flex; flex-direction: column;
+  background: #0b1a15; box-sizing: border-box;
+}
+.setup-body { flex: 1; min-height: 0; padding-top: 24rpx; }
+.setup-body .field + .field { margin-top: 36rpx; }
+.setup-head { flex: none; display: flex; align-items: center; gap: 16rpx; }
+.back {
+  width: 64rpx; height: 64rpx;
+  display: flex; align-items: center; justify-content: center;
+  border: 2rpx solid #2f4b41; border-radius: 18rpx;
+  color: #cbd6d0; font-size: 40rpx; line-height: 1;
+}
+/* 标题和按钮都得禁止换行，空间不够时优先压标题，别把「牌谱」竖成一列 */
+.setup-title { flex: none; white-space: nowrap; font-size: 34rpx; font-weight: 800; color: #f3d67c; }
+
+.field { display: flex; flex-direction: column; gap: 12rpx; }
+.field-label { font-size: 28rpx; font-weight: 700; color: #e4dcc4; }
+.field-hint { font-size: 22rpx; color: #7c9189; }
+.options { margin-top: 8rpx; display: flex; flex-direction: column; gap: 16rpx; }
+.options.row { flex-direction: row; }
+.options.row .option { flex: 1; }
+.option {
+  padding: 26rpx 28rpx;
+  display: flex; flex-direction: column; gap: 8rpx;
+  border: 2rpx solid #2f4b41; border-radius: 20rpx;
+  background: #102821;
+}
+.option.active { border-color: #d3b45e; background: #1b3a31; }
+.option-name { font-size: 30rpx; font-weight: 700; color: #eee4c8; }
+.option.active .option-name { color: #f3d67c; }
+.option-desc { font-size: 22rpx; color: #7f948d; line-height: 1.5; }
+
+.stepper { margin-top: 8rpx; display: flex; align-items: center; gap: 28rpx; }
+.step-btn {
+  width: 80rpx; height: 80rpx;
+  display: flex; align-items: center; justify-content: center;
+  border: 2rpx solid #35524a; border-radius: 20rpx;
+  background: #142f27; color: #e4dcc4; font-size: 40rpx;
+}
+/* 数字本身就是输入框，点一下能直接改，不用一路点加减 */
+.step-value {
+  min-width: 180rpx; height: 80rpx;
+  padding: 0 20rpx;
+  text-align: center;
+  border: 2rpx solid #35524a; border-radius: 16rpx;
+  background: #102821;
+  font-size: 36rpx; font-weight: 800; color: #f3d67c;
+}
+
+.setup-foot { margin-top: auto; }
+.primary-btn {
+  height: 96rpx;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 24rpx; background: #e0c069;
+  color: #20261e; font-size: 32rpx; font-weight: 800;
+}
+
+/* 四个座位一行一个：名字随便改，AI 各调各的档位 */
+.players { margin-top: 12rpx; display: flex; flex-direction: column; gap: 14rpx; }
+.player-row {
+  display: flex; align-items: center; gap: 14rpx;
+  padding: 16rpx 18rpx;
+  border: 2rpx solid #2f4b41; border-radius: 18rpx;
+  background: #102821;
+}
+.player-tag {
+  flex: none;
+  width: 56rpx; height: 56rpx; line-height: 56rpx; text-align: center;
+  border-radius: 14rpx; background: #1c3a31;
+  color: #9db4ac; font-size: 22rpx; font-weight: 700;
+}
+.player-tag.human { background: #7a2f28; color: #ffd9cf; }
+.player-name {
+  flex: 1; min-width: 0;
+  height: 56rpx;
+  padding: 0 16rpx;
+  border: 2rpx solid #2b453d; border-radius: 12rpx;
+  background: #0d211c; color: #f2ecda; font-size: 26rpx;
+}
+.player-level { flex: none; width: 150rpx; }
+.picker-box {
+  height: 56rpx; line-height: 56rpx; text-align: center;
+  border: 2rpx solid #4a6357; border-radius: 12rpx;
+  background: #16332a; color: #f3d67c; font-size: 25rpx; font-weight: 700;
+}
+.player-level.placeholder {
+  height: 56rpx; line-height: 56rpx; text-align: center;
+  color: #5d726b; font-size: 22rpx;
+}
+
+.options.wrap { flex-wrap: wrap; }
+.option.compact { flex: none; min-width: 118rpx; padding: 16rpx 8rpx; align-items: center; }
+.option.compact .option-name { font-size: 26rpx; }
+
+.setup-foot { flex: none; padding-top: 20rpx; }
+
+.field-inline { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
+.inline-picker { flex: none; width: 220rpx; }
+
+/* 顶部右侧的两个入口，避开胶囊 */
+.head-actions { flex: none; margin-left: auto; display: flex; gap: 8rpx; }
+.head-btn {
+  flex: none;
+  padding: 8rpx 16rpx;
+  border: 2rpx solid #35524a; border-radius: 99rpx;
+  color: #d9c489; font-size: 21rpx;
+  white-space: nowrap;
+}
+
+@media (orientation: landscape) {
+  .head-actions { gap: 6px; }
+  .head-btn { padding: 3px 10px; font-size: 11px; border-width: 1px; }
+}
+
+/* 上次没打完的牌局 */
+.resume-card {
+  flex: none;
+  margin-bottom: 18rpx;
+  padding: 20rpx 24rpx;
+  border: 2rpx solid #6b5c31; border-radius: 22rpx;
+  background: rgba(38, 34, 18, .8);
+}
+.resume-head { display: flex; align-items: baseline; gap: 14rpx; }
+.resume-tag { color: #d6b765; font-size: 20rpx; font-weight: 800; letter-spacing: .16em; }
+.resume-round { color: #f6f0df; font-size: 28rpx; font-weight: 800; }
+.resume-players { margin-top: 10rpx; display: flex; flex-wrap: wrap; gap: 8rpx; }
+.resume-player {
+  padding: 5rpx 12rpx;
+  border: 2rpx solid #4a4227; border-radius: 99rpx;
+  color: #b6ab86; font-size: 19rpx;
+}
+.resume-player.me { border-color: #97854a; color: #f0d68a; }
+/* 两个按钮等宽对称，误触的代价不一样但视觉分量一样 */
+.resume-actions { margin-top: 16rpx; display: flex; gap: 16rpx; }
+.resume-btn {
+  flex: 1;
+  height: 72rpx;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 16rpx;
+  font-size: 26rpx; font-weight: 800;
+}
+.resume-btn.drop { background: #8d3a32; color: #ffe4df; }
+.resume-btn.go { background: #e5c66d; color: #20261d; }
+
+@media (orientation: landscape) {
+  .resume-card { margin-bottom: 8px; padding: 8px 12px; border-radius: 10px; border-width: 1px; }
+  .resume-tag { font-size: 9px; }
+  .resume-round { font-size: 13px; }
+  .resume-players { margin-top: 4px; gap: 4px; }
+  .resume-player { padding: 2px 6px; font-size: 9px; border-width: 1px; }
+  .resume-actions { margin-top: 8px; gap: 8px; }
+  .resume-btn { height: 30px; border-radius: 8px; font-size: 12px; }
+}

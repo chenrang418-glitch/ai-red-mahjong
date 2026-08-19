@@ -1,0 +1,113 @@
+<view class="table-page">
+  <view class="topbar" style="--nav-top: {{navTop}}px; --nav-height: {{navHeight}}px; --menu-gap: {{menuGap}}px">
+    <view class="quit" bindtap="goBack">‹</view>
+    <view class="round-info">
+      <text class="round-item">第 <text class="strong">{{round}}</text> 局</text>
+      <text class="round-item">牌墙 <text class="strong">{{wallCount}}</text></text>
+    </view>
+    <view class="topbar-actions">
+      <view class="panel-entry {{revealAll ? 'on' : ''}}" bindtap="toggleReveal">{{revealAll ? '明牌中' : '明牌'}}</view>
+    </view>
+  </view>
+
+  <view class="board" wx:if="{{ready}}">
+    <view class="seat seat-top">
+      <view class="seat-head">
+        <text wx:if="{{opponents[1].isDealer}}" class="dealer">庄</text>
+        <text class="seat-name">{{opponents[1].name}}</text>
+        <text class="seat-points">{{opponents[1].points}}</text>
+      </view>
+      <!-- 明牌模式下把暗牌翻开，这是回放才有的上帝视角 -->
+      <view wx:if="{{revealAll}}" class="seat-hand">
+        <tile wx:for="{{opponents[1].hand}}" wx:key="id" tile="{{item}}" size="tiny" />
+      </view>
+      <view wx:else class="seat-meta"><text class="hand-count">{{opponents[1].handCount}} 张</text></view>
+      <view class="seat-melds" wx:if="{{opponents[1].melds.length}}">
+        <view class="meld" wx:for="{{opponents[1].melds}}" wx:for-item="meld" wx:key="index">
+          <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+        </view>
+      </view>
+    </view>
+
+    <view class="middle">
+      <view class="seat seat-side">
+        <view class="seat-head">
+          <text wx:if="{{opponents[2].isDealer}}" class="dealer">庄</text>
+          <text class="seat-name">{{opponents[2].name}}</text>
+        </view>
+        <text class="seat-points">{{opponents[2].points}}</text>
+        <view wx:if="{{revealAll}}" class="seat-hand">
+          <tile wx:for="{{opponents[2].hand}}" wx:key="id" tile="{{item}}" size="tiny" />
+        </view>
+        <text wx:else class="hand-count">{{opponents[2].handCount}} 张</text>
+        <view class="seat-melds" wx:if="{{opponents[2].melds.length}}">
+          <view class="meld" wx:for="{{opponents[2].melds}}" wx:for-item="meld" wx:key="index">
+            <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+          </view>
+        </view>
+      </view>
+
+      <view class="river">
+        <view class="river-row" wx:for="{{rivers}}" wx:for-item="pile" wx:key="seat">
+          <text class="river-who">{{pile.who}}</text>
+          <view class="river-tiles">
+            <tile wx:for="{{pile.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+          </view>
+        </view>
+      </view>
+
+      <view class="seat seat-side">
+        <view class="seat-head">
+          <text wx:if="{{opponents[0].isDealer}}" class="dealer">庄</text>
+          <text class="seat-name">{{opponents[0].name}}</text>
+        </view>
+        <text class="seat-points">{{opponents[0].points}}</text>
+        <view wx:if="{{revealAll}}" class="seat-hand">
+          <tile wx:for="{{opponents[0].hand}}" wx:key="id" tile="{{item}}" size="tiny" />
+        </view>
+        <text wx:else class="hand-count">{{opponents[0].handCount}} 张</text>
+        <view class="seat-melds" wx:if="{{opponents[0].melds.length}}">
+          <view class="meld" wx:for="{{opponents[0].melds}}" wx:for-item="meld" wx:key="index">
+            <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{lastAction}}" class="last-action">{{lastAction}}</view>
+  </view>
+
+  <view class="my-area" wx:if="{{ready}}">
+    <view class="my-head">
+      <text class="my-name">{{myName}}</text>
+      <text class="my-points">{{myPoints}}</text>
+    </view>
+    <view class="my-melds" wx:if="{{myMelds.length}}">
+      <view class="meld" wx:for="{{myMelds}}" wx:for-item="meld" wx:key="index">
+        <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="small" />
+      </view>
+    </view>
+    <view class="my-hand">
+      <tile class="hand-tile" wx:for="{{myHand}}" wx:key="id" tile="{{item}}" size="hand" />
+    </view>
+
+    <!-- 播放条 -->
+    <view class="player-bar">
+      <view class="player-btn" bindtap="stepBack">‹</view>
+      <view class="player-btn primary" bindtap="togglePlay">{{playing ? '暂停' : '播放'}}</view>
+      <view class="player-btn" bindtap="stepForward">›</view>
+      <view class="player-speed" bindtap="cycleSpeed">{{speedLabel}}</view>
+    </view>
+    <slider
+      class="player-slider"
+      value="{{frameIndex}}"
+      min="0"
+      max="{{maxIndex}}"
+      bindchanging="seekFrame"
+      bindchange="seekFrame"
+      activeColor="#d9b95f"
+      block-size="18"
+    />
+    <text class="player-progress">{{frameIndex + 1}} / {{maxIndex + 1}}</text>
+  </view>
+</view>

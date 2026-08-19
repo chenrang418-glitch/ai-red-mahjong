@@ -1,0 +1,15 @@
+<view class="page" style="padding-top: {{navTop}}px">
+  <view class="page-head" style="padding-right: {{menuGap}}px">
+    <view class="back" bindtap="goBack">‹</view>
+    <text class="page-title">玩法规则</text>
+  </view>
+  <scroll-view class="page-body" scroll-y>
+    <view class="rule-group" wx:for="{{rules}}" wx:for-item="section" wx:key="group">
+      <text class="rule-group-title">{{section.group}}</text>
+      <view class="rule-item" wx:for="{{section.items}}" wx:key="title">
+        <text class="rule-title">{{item.title}}</text>
+        <text class="rule-text">{{item.text}}</text>
+      </view>
+    </view>
+  </scroll-view>
+</view>

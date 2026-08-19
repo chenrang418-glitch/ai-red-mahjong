@@ -1,0 +1,48 @@
+.page {
+  height: 100vh;
+  display: flex; flex-direction: column;
+  background: #0b1a15;
+  box-sizing: border-box;
+}
+.page-head {
+  flex: none;
+  padding: 12rpx 24rpx 16rpx;
+  display: flex; align-items: center; gap: 18rpx;
+}
+.back {
+  width: 56rpx; height: 56rpx;
+  display: flex; align-items: center; justify-content: center;
+  border: 2rpx solid #2f4b41; border-radius: 16rpx;
+  color: #cbd6d0; font-size: 36rpx; line-height: 1;
+}
+.page-title { color: #f3d67c; font-size: 34rpx; font-weight: 800; }
+.page-body { flex: 1; min-height: 0; padding: 8rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); }
+
+.rule-group { margin-bottom: 30rpx; }
+.rule-group-title {
+  display: block;
+  margin-bottom: 14rpx;
+  padding-left: 12rpx;
+  border-left: 5rpx solid #d3b45e;
+  color: #f3d67c; font-size: 27rpx; font-weight: 800;
+}
+.rule-item {
+  padding: 18rpx 20rpx;
+  margin-bottom: 10rpx;
+  border-radius: 16rpx;
+  background: #102821;
+}
+.rule-title { display: block; margin-bottom: 6rpx; color: #f0e6cb; font-size: 27rpx; font-weight: 700; }
+.rule-text { color: #93a69f; font-size: 23rpx; line-height: 1.65; }
+
+@media (orientation: landscape) {
+  .page-head { padding: 6px 14px 8px; gap: 10px; }
+  .back { width: 28px; height: 28px; border-radius: 8px; font-size: 18px; border-width: 1px; }
+  .page-title { font-size: 16px; }
+  .page-body { padding: 4px 18px calc(14px + env(safe-area-inset-bottom)); }
+  .rule-group { margin-bottom: 14px; }
+  .rule-group-title { margin-bottom: 7px; padding-left: 6px; border-left-width: 3px; font-size: 13px; }
+  .rule-item { padding: 8px 10px; margin-bottom: 5px; border-radius: 8px; }
+  .rule-title { font-size: 13px; }
+  .rule-text { font-size: 11px; line-height: 1.55; }
+}

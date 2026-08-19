@@ -22,7 +22,8 @@
     "preview": "vite preview",
     "test": "vitest --configLoader runner",
     "test:run": "vitest run --configLoader runner",
-    "test:online:smoke": "vite build --config server/vite.config.ts --configLoader runner && node scripts/online-smoke.mjs"
+    "test:online:smoke": "vite build --config server/vite.config.ts --configLoader runner && node scripts/online-smoke.mjs",
+    "sync:miniprogram": "node scripts/sync-miniprogram-core.mjs"
   },
   "dependencies": {
     "vue": "^3.5.0"

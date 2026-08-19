@@ -1,0 +1,320 @@
+<view class="table-page">
+  <view class="topbar" style="--nav-top: {{navTop}}px; --nav-height: {{navHeight}}px; --menu-gap: {{menuGap}}px">
+    <view class="quit" bindtap="quitMatch">‹</view>
+    <view class="round-info">
+      <text class="round-item">第 <text class="strong">{{round}}</text> 局</text>
+      <text class="round-item">牌墙 <text class="strong">{{wallCount}}</text></text>
+      <text class="round-item">码区 <text class="strong">{{maCount}}</text></text>
+    </view>
+    <view class="topbar-actions">
+      <view class="panel-entry" bindtap="openPanel">积分</view>
+      <view class="panel-entry" bindtap="openMore">更多</view>
+    </view>
+  </view>
+
+  <view class="board {{isMyTurn ? 'my-turn' : ''}}" wx:if="{{ready}}">
+    <!-- 对家在最上面，左右两家分列牌河两侧，和真牌桌一个方位 -->
+    <view class="seat seat-top {{opponents[1].isCurrent ? 'active' : ''}}">
+      <view class="seat-head">
+        <text wx:if="{{opponents[1].isDealer}}" class="dealer">庄</text>
+        <text class="seat-name">{{opponents[1].name}}</text>
+        <text class="seat-points">{{opponents[1].points}}</text>
+      </view>
+      <view class="seat-meta">
+        <text class="hand-count">{{opponents[1].handCount}} 张</text>
+      </view>
+      <view class="seat-melds" wx:if="{{opponents[1].melds.length}}">
+        <view class="meld" wx:for="{{opponents[1].melds}}" wx:for-item="meld" wx:key="index">
+          <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+        </view>
+      </view>
+    </view>
+
+    <view class="middle">
+      <view class="seat seat-side {{opponents[2].isCurrent ? 'active' : ''}}">
+        <view class="seat-head">
+          <text wx:if="{{opponents[2].isDealer}}" class="dealer">庄</text>
+          <text class="seat-name">{{opponents[2].name}}</text>
+        </view>
+        <text class="seat-points">{{opponents[2].points}}</text>
+        <text class="hand-count">{{opponents[2].handCount}} 张</text>
+        <view class="seat-melds" wx:if="{{opponents[2].melds.length}}">
+          <view class="meld" wx:for="{{opponents[2].melds}}" wx:for-item="meld" wx:key="index">
+            <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+          </view>
+        </view>
+      </view>
+
+      <!-- 四家的弃牌堆在中间，每行标出是谁打的：看谁打过什么才知道哪张安全 -->
+      <view class="river">
+        <view class="river-row" wx:for="{{rivers}}" wx:for-item="pile" wx:key="seat">
+          <text class="river-who">{{pile.who}}</text>
+          <view class="river-tiles">
+            <tile wx:for="{{pile.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+          </view>
+        </view>
+      </view>
+
+      <view class="seat seat-side {{opponents[0].isCurrent ? 'active' : ''}}">
+        <view class="seat-head">
+          <text wx:if="{{opponents[0].isDealer}}" class="dealer">庄</text>
+          <text class="seat-name">{{opponents[0].name}}</text>
+        </view>
+        <text class="seat-points">{{opponents[0].points}}</text>
+        <text class="hand-count">{{opponents[0].handCount}} 张</text>
+        <view class="seat-melds" wx:if="{{opponents[0].melds.length}}">
+          <view class="meld" wx:for="{{opponents[0].melds}}" wx:for-item="meld" wx:key="index">
+            <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="tiny" />
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{lastAction}}" class="last-action">{{lastAction}}</view>
+    <view class="notice">{{notice}}</view>
+  </view>
+
+  <view class="my-area safe-bottom" wx:if="{{ready}}">
+    <view class="my-head">
+      <text class="my-name">{{myName}}</text>
+      <text class="my-points">{{myPoints}}</text>
+    </view>
+
+    <view class="my-melds" wx:if="{{myMelds.length}}">
+      <view class="meld" wx:for="{{myMelds}}" wx:for-item="meld" wx:key="index">
+        <tile wx:for="{{meld.tiles}}" wx:for-item="t" wx:key="id" tile="{{t}}" size="small" />
+      </view>
+    </view>
+
+    <view class="my-hand">
+      <tile
+        class="hand-tile"
+        wx:for="{{myHand}}"
+        wx:key="id"
+        tile="{{item}}"
+        size="hand"
+        selected="{{selectedTileId === item.id}}"
+        bind:select="selectTile"
+      />
+      <view wx:if="{{drawnTile}}" class="drawn-slot">
+        <text class="drawn-tag">刚摸</text>
+        <tile
+          class="hand-tile"
+          tile="{{drawnTile}}"
+          size="hand"
+          fresh
+          selected="{{selectedTileId === drawnTile.id}}"
+          bind:select="selectTile"
+        />
+      </view>
+    </view>
+
+    <view class="actions">
+      <block wx:if="{{claimActions.length}}">
+        <view
+          wx:for="{{claimActions}}"
+          wx:key="action"
+          class="action-btn gold"
+          data-action="{{item.action}}"
+          bindtap="claimTile"
+        >{{item.label}}</view>
+        <view class="action-btn" bindtap="passClaim">过</view>
+        <view wx:if="{{claimSeconds}}" class="claim-ring {{claimSeconds <= 2 ? 'urgent' : ''}}" style="--ring: {{claimProgress}}%">
+          <view class="claim-ring-core">{{claimSeconds}}</view>
+        </view>
+      </block>
+
+      <block wx:elif="{{isMyTurn}}">
+        <view wx:if="{{canWin}}" class="action-btn gold" bindtap="declareWin">胡</view>
+        <view
+          wx:for="{{anGangFaces}}"
+          wx:key="*this"
+          class="action-btn"
+          data-type="an-gang"
+          data-face="{{item}}"
+          bindtap="declareGang"
+        >暗杠</view>
+        <view
+          wx:for="{{buGangFaces}}"
+          wx:key="*this"
+          class="action-btn"
+          data-type="bu-gang"
+          data-face="{{item}}"
+          bindtap="declareGang"
+        >补杠</view>
+        <view
+          class="action-btn primary {{selectedTileId ? '' : 'disabled'}}"
+          bindtap="discardSelected"
+        >{{selectedTileId ? '打出 ' + selectedLabel : '选一张牌'}}</view>
+      </block>
+
+      <view wx:else class="action-hint">{{notice}}</view>
+    </view>
+  </view>
+
+  <!-- 开局投骰：亮一下谁坐庄，两秒多自动收起 -->
+  <view wx:if="{{diceOpen}}" class="dice-toast" bindtap="closeDice">
+    <text class="dice-tag">开局投骰</text>
+    <view class="dice-list">
+      <view class="dice-row {{item.isDealer ? 'is-dealer' : ''}}" wx:for="{{diceRolls}}" wx:key="playerId">
+        <text class="dice-name">{{item.name}}</text>
+        <view class="dice-pips">
+          <text class="pip">{{item.first}}</text>
+          <text class="pip">{{item.second}}</text>
+        </view>
+        <text class="dice-total">{{item.total}}</text>
+      </view>
+    </view>
+    <text class="dice-dealer">{{dealerName}} 首庄</text>
+  </view>
+
+  <!-- 更多：竖屏顶栏放不下这么多按钮，收进来 -->
+  <view wx:if="{{moreOpen}}" class="sheet-mask" bindtap="closeMore"></view>
+  <view wx:if="{{moreOpen}}" class="sheet">
+    <view class="sheet-head">
+      <text class="sheet-title">更多</text>
+      <view class="sheet-close" bindtap="closeMore">×</view>
+    </view>
+    <view class="sheet-body">
+      <view class="sheet-row" bindtap="openAudio">
+        <text class="sheet-row-name">声音</text>
+        <text class="sheet-row-value">{{audio.effectsEnabled ? '音效开' : '音效关'}} ›</text>
+      </view>
+      <view class="sheet-row" bindtap="openAIPanel">
+        <text class="sheet-row-name">AI 档位</text>
+        <text class="sheet-row-value">对局中可改 ›</text>
+      </view>
+      <view class="sheet-row" bindtap="openRules">
+        <text class="sheet-row-name">玩法规则</text>
+        <text class="sheet-row-value">›</text>
+      </view>
+      <view class="sheet-row danger" bindtap="quitMatch">
+        <text class="sheet-row-name">退出牌局</text>
+        <text class="sheet-row-value">›</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 声音：就地开个小窗，不用跳页面打断牌局 -->
+  <view wx:if="{{audioOpen}}" class="sheet-mask" bindtap="closeAudio"></view>
+  <view wx:if="{{audioOpen}}" class="sheet">
+    <view class="sheet-head">
+      <text class="sheet-title">声音</text>
+      <view class="sheet-close" bindtap="closeAudio">×</view>
+    </view>
+    <view class="sheet-body">
+      <view class="sheet-row">
+        <text class="sheet-row-name">音效</text>
+        <switch checked="{{audio.effectsEnabled}}" data-key="effectsEnabled" bindchange="toggleAudio" color="#d9b95f" />
+      </view>
+      <view class="sheet-slider">
+        <text class="sheet-slider-label">音效音量 {{audio.effectsVolume}}</text>
+        <slider value="{{audio.effectsVolume}}" min="0" max="100" data-key="effectsVolume" bindchange="changeVolume" activeColor="#d9b95f" block-size="18" />
+      </view>
+      <view class="sheet-row">
+        <text class="sheet-row-name">背景音乐</text>
+        <switch checked="{{audio.musicEnabled}}" data-key="musicEnabled" bindchange="toggleAudio" color="#d9b95f" />
+      </view>
+      <view class="sheet-slider">
+        <text class="sheet-slider-label">音乐音量 {{audio.musicVolume}}</text>
+        <slider value="{{audio.musicVolume}}" min="0" max="100" data-key="musicVolume" bindchange="changeVolume" activeColor="#d9b95f" block-size="18" />
+      </view>
+      <view class="sheet-row">
+        <text class="sheet-row-name">震动反馈</text>
+        <switch checked="{{audio.vibrateEnabled}}" data-key="vibrateEnabled" bindchange="toggleAudio" color="#d9b95f" />
+      </view>
+    </view>
+  </view>
+
+  <!-- 局内 AI 档位 -->
+  <view wx:if="{{aiPanelOpen}}" class="sheet-mask" bindtap="closeAIPanel"></view>
+  <view wx:if="{{aiPanelOpen}}" class="sheet">
+    <view class="sheet-head">
+      <text class="sheet-title">AI 档位</text>
+      <view class="sheet-close" bindtap="closeAIPanel">×</view>
+    </view>
+    <view class="sheet-body">
+      <view class="sheet-row" wx:for="{{aiSeats}}" wx:key="id">
+        <text class="sheet-row-name">{{item.name}}</text>
+        <picker
+          range="{{difficultyLabels}}"
+          value="{{item.levelIndex}}"
+          data-index="{{index}}"
+          data-seat="{{item.id}}"
+          bindchange="changeSeatLevel"
+        >
+          <view class="sheet-picker">{{difficultyLabels[item.levelIndex]}} ›</view>
+        </picker>
+      </view>
+    </view>
+  </view>
+
+  <!-- 积分、流水、牌局记录：竖屏放不下三块常驻面板，收进抽屉 -->
+  <view wx:if="{{panelOpen}}" class="panel-mask" bindtap="closePanel"></view>
+  <view class="panel {{panelOpen ? 'open' : ''}}">
+    <view class="panel-tabs">
+      <view class="panel-tab {{panelTab === 'score' ? 'active' : ''}}" data-tab="score" bindtap="switchPanelTab">积分排名</view>
+      <view class="panel-tab {{panelTab === 'flow' ? 'active' : ''}}" data-tab="flow" bindtap="switchPanelTab">本局流水</view>
+      <view class="panel-tab {{panelTab === 'log' ? 'active' : ''}}" data-tab="log" bindtap="switchPanelTab">牌局记录</view>
+      <view class="panel-close" bindtap="closePanel">×</view>
+    </view>
+
+    <scroll-view class="panel-body" scroll-y>
+      <block wx:if="{{panelTab === 'score'}}">
+        <view class="rank-row" wx:for="{{ranking}}" wx:key="id">
+          <text class="rank-no">{{index + 1}}</text>
+          <view class="rank-main">
+            <text class="rank-name {{item.isHuman ? 'me' : ''}}">{{item.name}}</text>
+            <text class="rank-stat">胡{{item.wins}} · 杠{{item.gangCount}} · 码{{item.maCount}}</text>
+          </view>
+          <text class="rank-score">{{item.text}}</text>
+        </view>
+      </block>
+
+      <block wx:elif="{{panelTab === 'flow'}}">
+        <view class="flow-row" wx:for="{{transfers}}" wx:key="id">
+          <text class="flow-reason">{{item.reason}}</text>
+          <text class="flow-path">{{item.from}} → {{item.to}}</text>
+          <text class="flow-paid">{{item.paid}}分<text wx:if="{{item.short}}" class="flow-short">（欠{{item.short}}）</text></text>
+        </view>
+        <view wx:if="{{!transfers.length}}" class="panel-empty">本局还没有积分变化</view>
+      </block>
+
+      <block wx:else>
+        <view class="log-row" wx:for="{{events}}" wx:key="id">
+          <text class="log-round">第{{item.round}}局</text>
+          <text class="log-detail">{{item.detail}}</text>
+        </view>
+      </block>
+    </scroll-view>
+  </view>
+
+  <!-- 结算 -->
+  <view class="result-mask" wx:if="{{result}}">
+    <view class="result-card">
+      <text class="result-tag">{{phase === 'match-over' ? '整场结束' : '本局结束'}}</text>
+      <text class="result-title">{{result.detail}}</text>
+
+      <view wx:if="{{result.winningTile}}" class="result-tiles win-tiles">
+        <text class="result-label">自摸牌</text>
+        <tile tile="{{result.winningTile}}" size="small" />
+      </view>
+      <view wx:if="{{result.maTiles.length}}" class="result-tiles ma-tiles">
+        <text class="result-label">抓码 {{result.maCount}}码</text>
+        <tile wx:for="{{result.maTiles}}" wx:key="id" tile="{{item}}" size="small" />
+      </view>
+
+      <scroll-view class="result-scores" scroll-y>
+        <view class="result-score-row" wx:for="{{resultScores}}" wx:key="id">
+          <text class="result-score-name {{item.isHuman ? 'me' : ''}}">{{item.name}}</text>
+          <text class="result-score-stat">胡{{item.wins}} · 杠{{item.gangCount}} · 码{{item.maCount}}</text>
+          <text class="result-score-value">{{item.text}}</text>
+        </view>
+      </scroll-view>
+      <view class="result-actions">
+        <view class="action-btn" bindtap="quitMatch">{{phase === 'match-over' ? '返回首页' : '退出'}}</view>
+        <view wx:if="{{phase === 'settlement'}}" class="action-btn primary" bindtap="nextRound">开始下一局</view>
+      </view>
+    </view>
+  </view>
+</view>
