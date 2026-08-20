@@ -50,7 +50,7 @@ function submit() {
       <div class="seal">中</div>
       <p class="eyebrow">本地离线 · 红中麻将</p>
       <h1>AI 红中麻将</h1>
-      <p class="subtitle">你与三个不看暗牌的离线AI，在浏览器里完整打一场。</p>
+      <p class="subtitle desktop-only">你与三个不看暗牌的离线AI，在浏览器里完整打一场。</p>
       <div class="rule-chips">
         <span>112张</span><span>只能自摸</span><span>支持七对</span><span>六码抓码</span><span>红中万能</span>
       </div>
@@ -78,13 +78,13 @@ function submit() {
         </label>
       </div>
 
-      <section class="ai-guide" aria-label="AI设置说明">
+      <section class="ai-guide desktop-only" aria-label="AI设置说明">
         <div class="guide-title"><span>AI GUIDE</span><strong>三个档位</strong></div>
         <article><b>菜鸡</b><p>算不清牌河里已经走了几张，常常顺手打错牌，有杠就杠，碰牌也不看划不划算。</p></article>
         <article><b>凡人</b><p>会算离听牌还差几步、还能摸到多少张有用的牌，副露前会先掂量值不值。</p></article>
         <article><b>猿神</b><p>在凡人之上还会挑「听得最宽」的那张打，牌墙见底时收手保杠分，也会避开明显在喂给对家的牌。</p></article>
       </section>
-      <p class="ai-note">打什么牌型由 AI 看着手牌自己定，不用你指定风格；想多久也由这手牌好不好打决定——孤张秒出，听牌和能杠的地方会明显慢下来。所有档位都只看自己的手牌和公开信息，不会偷看别人的暗牌。</p>
+      <p class="ai-note desktop-only">打什么牌型由 AI 看着手牌自己定，不用你指定风格；想多久也由这手牌好不好打决定——孤张秒出，听牌和能杠的地方会明显慢下来。所有档位都只看自己的手牌和公开信息，不会偷看别人的暗牌。</p>
 
       <div class="players-grid">
         <article v-for="playerId in 4" :key="playerId" class="player-config">
@@ -100,7 +100,7 @@ function submit() {
                 <option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option>
               </select>
             </label>
-            <p class="profile-hint">{{ difficultyHints[form.profiles[playerId - 2].difficulty] }}</p>
+            <p class="profile-hint desktop-only">{{ difficultyHints[form.profiles[playerId - 2].difficulty] }}</p>
           </template>
         </article>
       </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import FullscreenHelp from '@/components/FullscreenHelp.vue'
+
 defineEmits<{ local: []; online: [] }>()
 </script>
 
@@ -6,6 +8,7 @@ defineEmits<{ local: []; online: [] }>()
   <main class="mode-home">
     <section class="mode-hero">
       <div class="mode-seal">中</div>
+      <FullscreenHelp />
       <p>四人红中麻将 · 浏览器直接游玩</p>
       <h1>AI 红中麻将</h1>
       <span>选择一种方式开局，单机与联机数据相互独立。</span>
@@ -37,7 +40,7 @@ defineEmits<{ local: []; online: [] }>()
 
 <style scoped>
 .mode-home { min-height: 100vh; min-height: 100dvh; display: grid; align-content: center; gap: 30px; padding: 48px clamp(18px, 6vw, 80px); color: #f6f0df; background: radial-gradient(circle at 10% 0, #28493e 0, transparent 32%), radial-gradient(circle at 90% 100%, #3a2520 0, transparent 29%), #091410; }
-.mode-hero { position: relative; width: min(1040px, 100%); margin: auto; }
+.mode-hero { position: relative; width: min(1040px, 100%); margin: auto; padding-right: 60px; }
 .mode-hero p { margin: 0 0 8px; color: #d6b765; font-size: 12px; font-weight: 800; letter-spacing: .24em; }
 .mode-hero h1 { margin: 0; font-size: clamp(42px, 7vw, 76px); line-height: 1; letter-spacing: -.06em; }
 .mode-hero > span { display: block; margin-top: 13px; color: #91a69f; }
@@ -58,12 +61,31 @@ defineEmits<{ local: []; online: [] }>()
 footer { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; color: #6f847d; font-size: 10px; }
 footer span + span::before { content: '·'; margin-right: 10px; }
 @media (max-width: 700px) {
-  .mode-home { align-content: start; gap: 23px; padding-top: max(34px, env(safe-area-inset-top)); padding-bottom: max(32px, env(safe-area-inset-bottom)); }
-  .mode-seal { display: none; }
-  .mode-hero h1 { font-size: 44px; }
-  .mode-cards { grid-template-columns: 1fr; }
-  .mode-card { min-height: 0; padding: 22px; }
-  .mode-icon { margin-top: 18px; }
-  .mode-card p { min-height: 0; }
+  /* 一屏放下：标题一块、两张卡等分剩下的高度、底部一行摘要，不出现滚动 */
+  .mode-home {
+    height: 100dvh;
+    align-content: stretch;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 14px;
+    padding: max(18px, env(safe-area-inset-top)) 18px calc(14px + env(safe-area-inset-bottom));
+  }
+  .mode-hero { display: grid; gap: 4px; }
+  .mode-hero p { margin: 0; font-size: 10px; }
+  .mode-hero h1 { font-size: 38px; }
+  .mode-hero > span { margin-top: 2px; font-size: 12px; }
+  /* 印章留着：小程序上也有，是整页唯一的装饰 */
+  .mode-hero { padding-right: 0; }
+  /* 右上角让给「全屏」入口，印章挪到它下面 */
+  .mode-seal { display: grid; right: 2px; top: 34px; width: 46px; height: 46px; border-radius: 13px; font-size: 25px; }
+  .mode-cards { grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: 12px; min-height: 0; }
+  .mode-card { min-height: 0; padding: 16px 18px; display: flex; flex-direction: column; border-radius: 20px; }
+  .mode-card small { font-size: 9px; }
+  .mode-icon { width: 42px; height: 42px; margin-top: 10px; border-radius: 12px; font-size: 17px; }
+  .mode-card h2 { margin: 10px 0 5px; font-size: 22px; }
+  .mode-card p { min-height: 0; font-size: 12px; line-height: 1.55; }
+  .mode-card ul { margin: auto 0 12px; padding-top: 10px; gap: 5px; }
+  .mode-card li { padding: 4px 8px; font-size: 9px; }
+  .mode-card button { padding: 12px; font-size: 15px; border-radius: 11px; }
+  footer { font-size: 9px; gap: 8px; }
 }
 </style>

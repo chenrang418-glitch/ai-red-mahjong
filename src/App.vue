@@ -4,6 +4,8 @@ import AdminPanel from '@/components/AdminPanel.vue'
 import ModeHome from '@/components/ModeHome.vue'
 import AISettingsDrawer from '@/components/game/AISettingsDrawer.vue'
 import AudioControl from '@/components/game/AudioControl.vue'
+import DiceToast from '@/components/game/DiceToast.vue'
+import { RULE_SECTIONS } from '@/game/rules'
 import GameSetup from '@/components/game/GameSetup.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
@@ -47,6 +49,8 @@ const replayOpen = ref(false)
 const rulesOpen = ref(false)
 // 手机端积分和牌局记录收进抽屉，牌桌才占得满一屏
 const infoOpen = ref(false)
+// 声音弹层的开关放在页面上：挂在菜单里的话，菜单一收起组件就卸载了
+const audioOpen = ref(false)
 // 手机上（横竖屏都算）这两块面板不常驻，点「战况」才出来，牌桌才占得满。
 // 条件和 main.css 里那两条手机端媒体查询保持一致。
 const compactLayout = ref(false)
@@ -62,10 +66,8 @@ onMounted(() => {
 })
 onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact))
 const showSidePanels = computed(() => !compactLayout.value || infoOpen.value)
-const diceOpen = ref(false)
 const clock = ref(Date.now())
 let clockTimer: number | null = null
-let diceTimer: number | null = null
 
 // 只有抢牌倒计时在跑时才需要刷新时钟，否则常驻的 100ms 定时器会让整桌牌一直重绘。
 function syncTicking() {
@@ -87,7 +89,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', syncTicking)
   window.removeEventListener('hashchange', syncAdminMode)
   window.removeEventListener('hashchange', syncJoinCode)
-  if (diceTimer !== null) window.clearTimeout(diceTimer)
 })
 
 const human = computed(() => game.humanPlayer.value)
@@ -121,13 +122,6 @@ const sortedRanking = computed(() => {
 })
 
 watch(() => game.state.value?.currentPlayer, () => { selectedTileId.value = '' })
-watch(() => game.state.value?.matchId, (current, previous) => {
-  if (!current || current === previous) return
-  diceOpen.value = true
-  if (diceTimer !== null) window.clearTimeout(diceTimer)
-  diceTimer = window.setTimeout(() => { diceOpen.value = false }, 2600)
-})
-
 function selectTile(tile: Tile) {
   selectedTileId.value = selectedTileId.value === tile.id ? '' : tile.id
 }
@@ -197,7 +191,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
         <button class="danger desktop-only" @click="newMatch">新牌局</button>
         <!-- 竖屏顶栏只留「AI设置」，其余七个按钮收进菜单 -->
         <TopbarMenu class="mobile-only">
-          <AudioControl />
+          <button @click="audioOpen = true">声音</button>
           <button @click="rulesOpen = true">玩法规则</button>
           <button @click="replayOpen = true">牌谱回放</button>
           <button @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出牌局</button>
@@ -280,9 +274,8 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
     <div v-if="infoOpen" class="info-mask" @click="infoOpen = false"></div>
     <div v-if="game.error.value" class="error-toast" @click="game.error.value = ''">{{ game.error.value }} ×</div>
-    <div v-if="diceOpen" class="dice-toast">
-      <small>开局投骰</small><div><span v-for="roll in game.state.value.diceRolls" :key="roll.playerId"><b>{{ game.state.value.players[roll.playerId].name }}</b>{{ roll.dice[0] }} + {{ roll.dice[1] }} = {{ roll.total }}</span></div><strong>{{ game.state.value.players[game.state.value.dealer].name }} 首庄</strong>
-    </div>
+    <AudioControl v-model:open="audioOpen" hide-trigger />
+    <DiceToast :state="game.state.value" />
 
     <div v-if="game.state.value.phase === 'settlement' || game.state.value.phase === 'match-over'" class="result-backdrop">
       <section class="result-card">
@@ -315,17 +308,14 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
   <div v-if="rulesOpen" class="rules-backdrop" @click.self="rulesOpen = false">
     <section class="rules-card">
       <header><h2>红中麻将规则</h2><button @click="rulesOpen = false">×</button></header>
-      <div class="rules-grid">
-        <article><b>胡牌</b><p>只能自摸；红中为万能牌；支持普通胡与未副露七对；红中不能碰杠。</p></article>
-        <article><b>抓码</b><p>固定预留六码。有红中胡抓4张，无红中胡抓6张；1、5、9和红中算码。</p></article>
-        <article><b>积分</b><p>自摸向三家各收1分，每码再向三家各收1分；余额不足时最多付到0。</p></article>
-        <article><b>杠</b><p>暗杠、补杠三家各付1分；明杠由出牌者付1分。杠分立即结算并保留。</p></article>
-        <article><b>抢牌</b><p>每次出牌都先开一个响应窗口。同一张牌最多只有一家能碰或杠（四张同牌凑不出两家各两张），所以不存在抢先冲突。无人可抢或都选择过之后，会短暂停留再由下家摸牌。</p></article>
-        <article><b>补杠</b><p>刚碰完手上还留着第四张时，可以直接补杠，不必等下一次摸牌；暗杠仍然要摸牌后才能开。</p></article>
-        <article><b>庄家</b><p>四家投骰最高者首庄；后续赢家坐庄，流局留庄；庄家不加倍。</p></article>
-        <article><b>AI档位</b><p>只有菜鸡、凡人、猿神三档，对局中可随时切换。做什么牌型由 AI 看着手牌自己定，不用你指定风格。</p></article>
-        <article><b>AI差别</b><p>菜鸡算不清牌河里走了几张、常打错牌、有杠就杠；凡人会算离听牌还差几步和有效进张；猿神还会往前多看一步，挑「进完能听得最宽」的打法，牌墙见底时收手保杠分。</p></article>
-        <article><b>思考时间</b><p>没有速度档位。孤张一眼就扔，听牌、能胡、能杠这些要算账的地方才明显慢下来。</p></article>
+      <div class="rules-body">
+        <section v-for="section in RULE_SECTIONS" :key="section.group" class="rule-group">
+          <h3>{{ section.group }}</h3>
+          <article v-for="item in section.items" :key="item.title">
+            <b>{{ item.title }}</b>
+            <p>{{ item.text }}</p>
+          </article>
+        </section>
       </div>
     </section>
   </div>

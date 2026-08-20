@@ -1,8 +1,39 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { gameAudio, gameAudioSettings, vibrationSupported } from '@/composables/useGameAudio'
 
-const open = ref(false)
+// 手机上这个组件挂在「⋯」菜单里，点一下菜单就收起、组件跟着卸载，
+// 弹层还没画出来就没了。所以支持受控：由页面持有开关状态，
+// 触发按钮和弹层可以分开放。
+const props = withDefaults(defineProps<{ open?: boolean; hideTrigger?: boolean }>(), {
+  open: undefined,
+  hideTrigger: false,
+})
+const emit = defineEmits<{ 'update:open': [boolean] }>()
+
+const innerOpen = ref(false)
+const open = computed({
+  get: () => props.open ?? innerOpen.value,
+  set: (value: boolean) => {
+    if (props.open === undefined) innerOpen.value = value
+    else emit('update:open', value)
+  },
+})
+
+// 手机上这个组件常常嵌在「⋯」菜单里，弹层跟着按钮定位就会被菜单的宽度和层级坑住
+// （310px 的面板塞进 176px 的菜单，右对齐直接跑到屏幕外）。
+// 所以手机端把弹层 Teleport 到 body，改成从底部升起的整条，和小程序一致。
+const compact = ref(false)
+let query: MediaQueryList | null = null
+function syncCompact(event: MediaQueryList | MediaQueryListEvent) {
+  compact.value = event.matches
+}
+onMounted(() => {
+  query = window.matchMedia('(pointer: coarse), (max-width: 820px) and (orientation: portrait), (max-height: 620px) and (orientation: landscape)')
+  syncCompact(query)
+  query.addEventListener('change', syncCompact)
+})
+onBeforeUnmount(() => query?.removeEventListener('change', syncCompact))
 
 function numberValue(event: Event) {
   return Number((event.target as HTMLInputElement).value)
@@ -16,50 +47,47 @@ function toggleOpen() {
 
 <template>
   <div class="audio-control">
-    <button class="audio-trigger" type="button" :aria-expanded="open" @click="toggleOpen">
-      声音
-    </button>
-    <div v-if="open" class="audio-popover">
-      <header><strong>声音设置</strong><button type="button" @click="open = false">×</button></header>
-      <section class="setting-block">
-        <div class="setting-heading">
-          <span><b>对局音乐</b><em>{{ Math.round(gameAudioSettings.musicVolume * 100) }}%</em></span>
-          <label class="ios-switch">
-            <input aria-label="对局音乐" :checked="gameAudioSettings.musicEnabled" type="checkbox" @change="gameAudio.setSetting('musicEnabled', ($event.target as HTMLInputElement).checked)">
+    <button v-if="!hideTrigger" class="audio-trigger" type="button" :aria-expanded="open" @click="toggleOpen">声音</button>
+
+    <Teleport to="body" :disabled="!compact">
+      <div v-if="open && compact" class="audio-mask" @click="open = false"></div>
+      <div v-if="open" class="audio-popover" :class="{ sheet: compact }">
+        <header><strong>声音</strong><button type="button" @click="open = false">×</button></header>
+
+        <section class="setting-block">
+          <div class="setting-heading">
+            <span><b>动作音效</b><em>{{ Math.round(gameAudioSettings.effectsVolume * 100) }}%</em></span>
+            <label class="ios-switch">
+              <input aria-label="动作音效" :checked="gameAudioSettings.effectsEnabled" type="checkbox" @change="gameAudio.setSetting('effectsEnabled', ($event.target as HTMLInputElement).checked)">
+              <i></i>
+            </label>
+          </div>
+          <input aria-label="动作音效音量" class="volume-slider" :disabled="!gameAudioSettings.effectsEnabled" :value="gameAudioSettings.effectsVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('effectsVolume', numberValue($event))">
+        </section>
+
+        <section class="setting-block">
+          <div class="setting-heading">
+            <span><b>对局音乐</b><em>{{ Math.round(gameAudioSettings.musicVolume * 100) }}%</em></span>
+            <label class="ios-switch">
+              <input aria-label="对局音乐" :checked="gameAudioSettings.musicEnabled" type="checkbox" @change="gameAudio.setSetting('musicEnabled', ($event.target as HTMLInputElement).checked)">
+              <i></i>
+            </label>
+          </div>
+          <input aria-label="对局音乐音量" class="volume-slider" :disabled="!gameAudioSettings.musicEnabled" :value="gameAudioSettings.musicVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('musicVolume', numberValue($event))">
+        </section>
+
+        <label class="setting-toggle">
+          <span class="setting-copy">
+            <b>震动反馈</b>
+            <small v-if="!vibrationSupported" class="unsupported">当前浏览器不支持（iPhone 上系统未开放）</small>
+          </span>
+          <span class="ios-switch">
+            <input aria-label="震动反馈" :checked="gameAudioSettings.vibrateEnabled" :disabled="!vibrationSupported" type="checkbox" @change="gameAudio.setSetting('vibrateEnabled', ($event.target as HTMLInputElement).checked)">
             <i></i>
-          </label>
-        </div>
-        <input aria-label="对局音乐音量" class="volume-slider" :disabled="!gameAudioSettings.musicEnabled" :value="gameAudioSettings.musicVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('musicVolume', numberValue($event))">
-      </section>
-      <section class="setting-block">
-        <div class="setting-heading">
-          <span><b>动作音效</b><em>{{ Math.round(gameAudioSettings.effectsVolume * 100) }}%</em></span>
-          <label class="ios-switch">
-            <input aria-label="动作音效" :checked="gameAudioSettings.effectsEnabled" type="checkbox" @change="gameAudio.setSetting('effectsEnabled', ($event.target as HTMLInputElement).checked)">
-            <i></i>
-          </label>
-        </div>
-        <input aria-label="动作音效音量" class="volume-slider" :disabled="!gameAudioSettings.effectsEnabled" :value="gameAudioSettings.effectsVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('effectsVolume', numberValue($event))">
-      </section>
-      <label class="setting-toggle">
-        <span class="setting-copy">
-          <b>震动反馈</b>
-          <small v-if="vibrationSupported">出牌、碰杠胡时震一下</small>
-          <small v-else class="unsupported">当前浏览器不支持（iPhone 上系统未开放）</small>
-        </span>
-        <span class="ios-switch">
-          <input
-            aria-label="震动反馈"
-            :checked="gameAudioSettings.vibrateEnabled"
-            :disabled="!vibrationSupported"
-            type="checkbox"
-            @change="gameAudio.setSetting('vibrateEnabled', ($event.target as HTMLInputElement).checked)"
-          >
-          <i></i>
-        </span>
-      </label>
-      <p>音乐和音效均在本地生成，不访问网络。</p>
-    </div>
+          </span>
+        </label>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -67,6 +95,26 @@ function toggleOpen() {
 .audio-control { position: relative; flex: 0 0 auto; min-width: max-content; }
 .audio-trigger { min-width: 54px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 8px 10px; border: 1px solid #315248; border-radius: 8px; background: #10251f; color: #e6d8b2; cursor: pointer; font-weight: 700; white-space: nowrap; }
 .audio-popover { position: absolute; z-index: 90; top: calc(100% + 9px); right: 0; width: 310px; padding: 16px; border: 1px solid #496258; border-radius: 16px; background: #10251f; box-shadow: 0 18px 45px rgba(0,0,0,.48); color: #e9e1ca; }
+
+/* 手机端：从底部升起的整条，不再跟着按钮定位 */
+.audio-popover.sheet {
+  position: fixed;
+  z-index: 96;
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  padding: 18px 20px calc(24px + env(safe-area-inset-bottom));
+  border-radius: 20px 20px 0 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  animation: audio-up .24s ease;
+}
+.audio-mask { position: fixed; z-index: 95; inset: 0; background: rgba(0,0,0,.5); }
+@keyframes audio-up { from { transform: translateY(100%); } }
+
 header, .setting-toggle, .setting-heading, .setting-heading > span { display: flex; align-items: center; }
 header { justify-content: space-between; margin-bottom: 10px; }
 header strong { font-size: 15px; }
@@ -76,10 +124,7 @@ header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d
 .setting-copy { display: grid; gap: 2px; }
 .setting-copy b, .setting-heading b { color: #c4d0cc; font-size: 12px; }
 .setting-copy small { color: #70867f; font-size: 9px; }
-/* 不支持的时候把原因写出来，别让人以为是坏了 */
 .setting-copy small.unsupported { color: #9d8055; }
-.ios-switch input:disabled + i { opacity: .35; }
-.ios-switch:has(input:disabled) { cursor: default; }
 .setting-heading { justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .setting-heading > span { flex: 1; justify-content: space-between; }
 .setting-heading em { margin-left: auto; color: #d9bd6d; font-size: 11px; font-style: normal; }
@@ -90,7 +135,19 @@ header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d
 .ios-switch input:checked + i { background: #d5b652; }
 .ios-switch input:checked + i::after { transform: translateX(18px); background: #fff9e7; }
 .ios-switch input:focus-visible + i { outline: 2px solid #f2d477; outline-offset: 2px; }
+.ios-switch input:disabled + i { opacity: .35; }
 .volume-slider { width: 100%; height: 18px; margin: 0; accent-color: #d8b95f; cursor: pointer; }
 .volume-slider:disabled { opacity: .32; cursor: default; }
-p { margin: 8px 0 0; color: #738a82; font-size: 9px; line-height: 1.5; }
+
+/* 手机端把字号放大一档，手指点得准 */
+@media (pointer: coarse), (max-width: 820px) {
+  .audio-popover.sheet header strong { font-size: 17px; }
+  .audio-popover.sheet .setting-copy b, .audio-popover.sheet .setting-heading b { font-size: 15px; }
+  .audio-popover.sheet .setting-heading em { font-size: 13px; }
+  .audio-popover.sheet .setting-toggle, .audio-popover.sheet .setting-block { padding: 15px 0; }
+  .audio-popover.sheet .ios-switch { width: 50px; height: 29px; flex-basis: 50px; }
+  .audio-popover.sheet .ios-switch i::after { width: 25px; height: 25px; }
+  .audio-popover.sheet .ios-switch input:checked + i::after { transform: translateX(21px); }
+  .audio-popover.sheet .volume-slider { height: 26px; }
+}
 </style>

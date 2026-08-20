@@ -316,7 +316,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .ranking li { padding: 10px 8px; }
   .ranking strong { font-size: 12px; }
   .ranking b { font-size: 15px; }
-  .rules-grid { grid-template-columns: 1fr; }
+  .rule-group h3 { font-size: 13px; }
+  .rules-body article { padding: 10px 12px; }
   .action-dock { min-height: 68px; flex-wrap: wrap; gap: 8px; font-size: 13px; }
   .action-dock button { min-height: 48px; font-size: 14px; }
   .action-dock .discard-button { flex: 1 1 100%; min-width: 0; order: 5; }
@@ -407,3 +408,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   }
 }
 
+
+/* —— 规则：按「怎么算胡 / 怎么算分 / 怎么操作」分组，每条一张小卡。
+   原来是十条平铺，找一条规则得从头扫到尾。 —— */
+.rules-body { display: grid; gap: 18px; }
+.rule-group { display: grid; gap: 7px; }
+.rule-group h3 {
+  margin: 0 0 2px;
+  padding-left: 9px;
+  border-left: 3px solid #d3b45e;
+  color: #f3d67c; font-size: 14px; font-weight: 800;
+}
+.rules-body article {
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: #12291f;
+}
+.rules-body b { display: block; margin-bottom: 4px; color: #eee4c8; font-size: 13px; }
+.rules-body p { margin: 0; color: #98aaa4; font-size: 12px; line-height: 1.65; }

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AudioControl from '@/components/game/AudioControl.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
 import TopbarMenu from '@/components/game/TopbarMenu.vue'
 import ChatPanel from './ChatPanel.vue'
+import DiceToast from '@/components/game/DiceToast.vue'
 import { gameAudio } from '@/composables/useGameAudio'
 import { useImmersiveTable } from '@/composables/useImmersiveTable'
 import { tileFromFace, tileLabel } from '@/game/tiles'
@@ -20,8 +21,29 @@ const props = defineProps<{
 const emit = defineEmits<{ command: [command: RoomCommand]; leave: [] }>()
 const { immersive, toggleImmersive } = useImmersiveTable()
 const selectedTileId = ref('')
-const sideTab = ref<'events' | 'chat'>('events')
+// 手机端多一个「本场积分」页签：积分面板在手机上不常驻
+const sideTab = ref<'score' | 'events' | 'chat'>('events')
+const audioOpen = ref(false)
 const mobileChatOpen = ref(false)
+// 手机上积分/记录/聊天都收进同一个抽屉，牌桌才占得满一屏。
+// 聊天仍然保留右下角那个圆钮，点它直接开到聊天页。
+const compactLayout = ref(false)
+let compactQuery: MediaQueryList | null = null
+function syncCompact(event: MediaQueryList | MediaQueryListEvent) {
+  compactLayout.value = event.matches
+  if (!event.matches) mobileChatOpen.value = false
+}
+onMounted(() => {
+  compactQuery = window.matchMedia('(pointer: coarse), (max-width: 820px) and (orientation: portrait), (max-height: 620px) and (orientation: landscape)')
+  syncCompact(compactQuery)
+  compactQuery.addEventListener('change', syncCompact)
+})
+onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact))
+const showSidePanels = computed(() => !compactLayout.value || mobileChatOpen.value)
+function openInfo(tab: 'score' | 'events' | 'chat') {
+  sideTab.value = tab
+  mobileChatOpen.value = true
+}
 const clock = ref(Date.now())
 let audioMatchId = ''
 
@@ -303,17 +325,18 @@ function sendChat(text: string, quick: boolean) {
       <div class="status-pill" :class="room.game.phase">{{ connected ? room.notice : '连接中断，正在重连…' }}</div>
       <nav>
         <button type="button" :class="{ trustee: displayedTrustee, pending: pendingAction?.type === 'trustee' }" :disabled="!!pendingAction" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ pendingAction?.type === 'trustee' ? pendingAction.enabled ? '开启托管中…' : '取消托管中…' : selfSeat.trustee ? '取消托管' : 'AI托管' }}</button>
+        <button class="mobile-only" type="button" @click="openInfo('score')">战况</button>
         <AudioControl class="desktop-only" />
         <button class="danger desktop-only" type="button" @click="leave">退出房间</button>
         <TopbarMenu class="mobile-only">
-          <AudioControl />
+          <button type="button" @click="audioOpen = true">声音</button>
           <button class="danger" type="button" @click="leave">退出房间</button>
         </TopbarMenu>
       </nav>
     </header>
 
     <main class="game-layout">
-      <aside class="side-panel score-panel">
+      <aside v-if="showSidePanels" class="side-panel score-panel">
         <section>
           <div class="section-title">本场积分</div>
           <ol class="ranking">
@@ -347,7 +370,7 @@ function sendChat(text: string, quick: boolean) {
           @toggle-immersive="toggleImmersive"
         >
           <template #hand-corner>
-            <button class="chat-fab" type="button" @click="mobileChatOpen = true; sideTab = 'chat'">聊</button>
+            <button class="chat-fab" type="button" @click="openInfo('chat')">聊</button>
           </template>
         </MahjongTable>
         <div class="action-dock">
@@ -377,13 +400,22 @@ function sendChat(text: string, quick: boolean) {
         </div>
       </section>
 
-      <aside class="side-panel event-panel online-right-panel" :class="{ 'mobile-open': mobileChatOpen }">
+      <aside v-if="showSidePanels" class="side-panel event-panel online-right-panel" :class="{ 'mobile-open': mobileChatOpen }">
         <header class="side-tabs">
+          <button v-if="compactLayout" type="button" :class="{ active: sideTab === 'score' }" @click="sideTab = 'score'">本场积分</button>
           <button type="button" :class="{ active: sideTab === 'events' }" @click="sideTab = 'events'">牌局记录</button>
           <button type="button" :class="{ active: sideTab === 'chat' }" @click="sideTab = 'chat'">聊天</button>
           <button class="drawer-close" type="button" @click="mobileChatOpen = false">×</button>
         </header>
-        <div v-if="sideTab === 'events'" class="event-list">
+        <ol v-if="sideTab === 'score'" class="ranking drawer-ranking">
+          <li v-for="(player, index) in sortedScores" :key="player.id">
+            <span class="rank">{{ index + 1 }}</span>
+            <strong>{{ player.name }}</strong>
+            <small>{{ room.seats[player.id].trustee ? 'AI托管中' : room.seats[player.id].kind === 'ai' ? '房间AI' : room.seats[player.id].connected ? '真人在线' : '真人离线' }}</small>
+            <b>{{ player.points === null ? `${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : player.points }}</b>
+          </li>
+        </ol>
+        <div v-else-if="sideTab === 'events'" class="event-list">
           <article v-for="event in [...room.game.events].reverse().slice(0, 24)" :key="event.id"><span>{{ eventTypeLabel[event.type] ?? event.type }}</span><p>{{ event.detail }}</p><small>第{{ event.round }}局</small></article>
         </div>
         <ChatPanel v-else :messages="room.chat" :self-user-id="room.selfUserId" @send="sendChat" />
@@ -422,6 +454,8 @@ function sendChat(text: string, quick: boolean) {
       <div v-if="leaveToast" class="leave-toast">{{ leaveToast }}</div>
     </transition>
 
+    <AudioControl v-model:open="audioOpen" hide-trigger />
+    <DiceToast :state="room.game" />
     <div v-if="mobileChatOpen" class="drawer-mask" @click="mobileChatOpen = false"></div>
   </div>
 </template>
@@ -524,7 +558,8 @@ function sendChat(text: string, quick: boolean) {
   /* 聊天只保留右下角这一个入口，顶栏不再重复放一个按钮 */
   /* 原来固定在屏幕上，手牌一多就压住最右边的牌。现在挂在手牌框里、贴着上沿外侧，
      碰杠让手牌框变高时按钮跟着一起走，永远不会压到牌。 */
-  .chat-fab { display: grid; }
+  /* 圆钮缩小一圈：牌桌是主体，它只是个入口 */
+  .chat-fab { display: grid; width: 42px; height: 42px; font-size: 14px; }
   .mobile-only { display: block; }
   .desktop-only { display: none; }
   /* 状态在座位圆环和底部按钮上都有，顶栏这条重复的横幅在竖屏收起来 */
