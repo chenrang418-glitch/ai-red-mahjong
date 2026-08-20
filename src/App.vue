@@ -51,6 +51,11 @@ const rulesOpen = ref(false)
 const infoOpen = ref(false)
 // 声音弹层的开关放在页面上：挂在菜单里的话，菜单一收起组件就卸载了
 const audioOpen = ref(false)
+
+// 手机端顶栏那个返回箭头：牌局一直在自动存档，回首页不影响进度
+function backToHome() {
+  appMode.value = 'home'
+}
 // 手机上（横竖屏都算）这两块面板不常驻，点「战况」才出来，牌桌才占得满。
 // 条件和 main.css 里那两条手机端媒体查询保持一致。
 const compactLayout = ref(false)
@@ -178,7 +183,14 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
   <!-- iOS 只允许在用户手势里恢复音频，所以牌桌上任何一次触摸都顺带解锁一次 -->
   <div v-else class="game-page" :class="{ immersive, 'info-open': infoOpen }" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
-      <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
+      <div class="brand desktop-only"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
+      <!-- 手机端顶栏就是信息栏：局数挪上来，中央位置全让给弃牌区 -->
+      <div class="round-bar mobile-only">
+        <button class="round-back" type="button" aria-label="返回" @click="backToHome">‹</button>
+        <span>第 <b>{{ game.state.value.round }}</b> 局</span>
+        <span>牌墙 <b>{{ game.state.value.wall.length }}</b></span>
+        <span>码区 <b>{{ game.state.value.maReserve.length }}</b></span>
+      </div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
         <button class="desktop-only" @click="rulesOpen = true">规则</button>

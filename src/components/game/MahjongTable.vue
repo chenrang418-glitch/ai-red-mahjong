@@ -122,10 +122,10 @@ function countdownFor(seatId: number) {
 
     <!-- 牌桌中央：四家的弃牌按方位堆在中间，和真牌桌一样 -->
     <div class="table-center">
-      <div class="river river-top" :class="{ active: state.currentPlayer === top.id }" :aria-label="`${top.name}的牌河`">
+      <div class="river river-top" data-seat="对家" :class="{ active: state.currentPlayer === top.id }" :aria-label="`${top.name}的牌河`">
         <MahjongTile v-for="tile in top.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
       </div>
-      <div class="river river-left" :class="{ active: state.currentPlayer === left.id }" :aria-label="`${left.name}的牌河`">
+      <div class="river river-left" data-seat="上家" :class="{ active: state.currentPlayer === left.id }" :aria-label="`${left.name}的牌河`">
         <MahjongTile v-for="tile in left.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
       </div>
 
@@ -138,10 +138,10 @@ function countdownFor(seatId: number) {
         <div class="last-action" v-if="state.events.length">{{ state.events.at(-1)?.detail }}</div>
       </div>
 
-      <div class="river river-right" :class="{ active: state.currentPlayer === right.id }" :aria-label="`${right.name}的牌河`">
+      <div class="river river-right" data-seat="下家" :class="{ active: state.currentPlayer === right.id }" :aria-label="`${right.name}的牌河`">
         <MahjongTile v-for="tile in right.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
       </div>
-      <div class="river river-bottom" :class="{ active: isHumanTurn }" aria-label="你的牌河">
+      <div class="river river-bottom" data-seat="你" :class="{ active: isHumanTurn }" aria-label="你的牌河">
         <MahjongTile v-for="tile in human.discards" :key="tile.id" :tile="tile" :class="{ 'just-discarded': tile.id === lastDiscardId }" disabled compact />
       </div>
     </div>
@@ -390,6 +390,38 @@ function countdownFor(seatId: number) {
 
 /* 横屏／矮窗口：高度紧张，牌河压到两行，中央信息收窄 */
 @media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  /* 横屏中央同样是四行弃牌列表，只是行压矮一点——小程序横屏也是这个摆法 */
+  .table-center {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 6px;
+    border: 1px solid rgba(122, 152, 140, .28);
+    border-radius: 10px;
+    background: rgba(6, 24, 19, .38);
+  }
+  .table-center .center-info { display: none; }
+  .table-center .river {
+    order: 5;
+    flex: none;
+    min-height: 22px;
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 0 0 0 30px;
+    position: relative;
+  }
+  .table-center .river::before {
+    content: attr(data-seat);
+    position: absolute;
+    left: 0; top: 3px;
+    color: #74897f; font-size: 8px;
+  }
+  .table-center .river-bottom { order: 1; }
+  .table-center .river-right { order: 2; }
+  .table-center .river-top { order: 3; }
+  .table-center .river-left { order: 4; }
   .table-shell {
     --human-tile-width: clamp(30px, 4.85cqw, 48px);
     --human-tile-height: clamp(42px, 6.8cqw, 67px);
@@ -413,6 +445,7 @@ function countdownFor(seatId: number) {
       "left  center right"
       "human human  human";
   }
+
   .top-seat { justify-self: stretch; align-self: start; min-width: 0; max-width: none; }
   /* 横屏第一行很矮，对家和左家上下只差十几像素：对家气泡再朝下就直接糊在左家头上，
      居中展开还会顶出牌桌左边被裁掉。两家都改成朝右伸进中央空地，再拉开垂直距离。 */
@@ -543,6 +576,45 @@ function countdownFor(seatId: number) {
 
 /* 竖屏：左右两家收成窄条，中央牌河列数减少，下半屏全部留给手牌 */
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
+  /* 中央按小程序改成四行列表：一行一家，左边固定标出是谁打的。
+     原来那套四方位环绕的摆法在手机上每家只剩一条窄缝，看不出谁打了什么。 */
+  .table-center {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 7px;
+    border: 1px solid rgba(122, 152, 140, .3);
+    border-radius: 12px;
+    background: rgba(6, 24, 19, .4);
+  }
+  /* 局数那块搬到页面顶栏了，中央只留弃牌 */
+  .table-center .center-info { display: none; }
+  .table-center .river {
+    order: 5;
+    flex: none;
+    min-height: 26px;
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 0 0 0 34px;
+    position: relative;
+  }
+  .table-center .river::before {
+    content: attr(data-seat);
+    position: absolute;
+    left: 0;
+    top: 4px;
+    color: #74897f;
+    font-size: 9px;
+    letter-spacing: .02em;
+  }
+  /* 顺序按小程序：你、下家、对家、上家。
+     选择器要和上面那条 .table-center .river 同样具体，否则压不过它的 order: 5 */
+  .table-center .river-bottom { order: 1; }
+  .table-center .river-right { order: 2; }
+  .table-center .river-top { order: 3; }
+  .table-center .river-left { order: 4; }
   .table-shell {
     --human-tile-width: clamp(23px, 6.5cqw, 38px);
     --human-tile-height: clamp(32px, 9.1cqw, 53px);

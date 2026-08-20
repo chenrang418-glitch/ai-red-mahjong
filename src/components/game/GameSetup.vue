@@ -46,7 +46,7 @@ function submit() {
 
 <template>
   <main class="setup-page">
-    <section class="hero">
+    <section class="hero desktop-only">
       <div class="seal">中</div>
       <p class="eyebrow">本地离线 · 红中麻将</p>
       <h1>AI 红中麻将</h1>
@@ -58,12 +58,16 @@ function submit() {
 
     <section class="setup-card">
       <div class="card-heading">
-        <div><small>NEW MATCH</small><h2>开局设置</h2></div>
+        <div class="heading-title">
+          <button class="heading-back mobile-only" type="button" aria-label="返回首页" @click="emit('back')">‹</button>
+          <small class="desktop-only">NEW MATCH</small>
+          <h2>开局设置</h2>
+        </div>
         <div class="heading-actions">
-          <button class="ghost-button" type="button" @click="emit('back')">返回首页</button>
+          <button class="ghost-button desktop-only" type="button" @click="emit('back')">返回首页</button>
           <AudioControl />
-          <button class="ghost-button" type="button" @click="emit('rules')">玩法规则</button>
-          <button class="ghost-button" type="button" @click="emit('history')">牌谱回放</button>
+          <button class="ghost-button" type="button" @click="emit('history')">牌谱</button>
+          <button class="ghost-button" type="button" @click="emit('rules')">规则</button>
         </div>
       </div>
 
@@ -179,5 +183,58 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   button { min-height: 48px; padding: 13px 18px; font-size: 14px; }
   .player-config label, .claim-setting { gap: 6px; font-size: 12px; margin-top: 12px; }
   .inline-fields { gap: 9px; }
+}
+
+/* —— 手机端照小程序：一屏放下，只留操作项 —— */
+@media (pointer: coarse), (max-width: 700px) {
+  .setup-page { padding: max(10px, env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom)); gap: 0; }
+  .setup-card { padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .card-heading { margin-bottom: 14px; align-items: center; gap: 10px; }
+  .heading-title { display: flex; align-items: center; gap: 10px; }
+  .heading-title h2 { margin: 0; font-size: 21px; white-space: nowrap; }
+  .heading-back {
+    width: 32px; height: 32px; flex: none;
+    display: grid; place-items: center; padding: 0;
+    border: 1px solid #2f4b41; border-radius: 10px;
+    background: #10251f; color: #cbd6d0; font-size: 20px; line-height: 1;
+  }
+  .heading-actions { gap: 6px; flex: none; }
+  .heading-actions .ghost-button { padding: 6px 12px; font-size: 11px; white-space: nowrap; border-radius: 99px; }
+  /* 计分方式两块并排，和小程序一样 */
+  .mode-switch { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mode-switch label { padding: 14px 15px; gap: 3px; }
+  .mode-switch strong { font-size: 16px; }
+  .mode-switch span { font-size: 11px; }
+  .mode-switch input { display: none; }
+
+  /* 这几块说明加了 .desktop-only 也没用：组件内的 scoped 规则特异性比全局类高，
+     得在组件自己的媒体查询里关掉。 */
+  .hero, .ai-guide, .ai-note, .profile-hint, .subtitle { display: none !important; }
+  .player-config header small { display: none; }
+
+  /* 座位压成一行一个：头像 + 名称 + 档位，和小程序对齐 */
+  .players-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 12px; }
+  .player-config {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-radius: 13px;
+  }
+  .player-config header { grid-column: 1; margin: 0; }
+  .player-config header strong { display: none; }
+  .player-config .avatar { width: 34px; height: 34px; font-size: 11px; }
+  /* 名称占中间，档位靠右，初始积分在这屏用不着（下面统一设） */
+  .player-config label { margin: 0; }
+  .player-config label:nth-of-type(1) { grid-column: 2; }
+  .player-config label:nth-of-type(2) { display: none; }
+  .player-config label:last-of-type { grid-column: 3; }
+  .player-config input, .player-config select {
+    min-height: 38px; padding: 7px 10px; font-size: 14px;
+  }
+  .player-config select { min-width: 88px; }
+
+  .setup-footer { margin-top: 16px; }
 }
 </style>
