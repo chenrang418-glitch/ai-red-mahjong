@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AdminPanel from '@/components/AdminPanel.vue'
 import ModeHome from '@/components/ModeHome.vue'
 import AISettingsDrawer from '@/components/game/AISettingsDrawer.vue'
@@ -45,6 +45,23 @@ const selectedTileId = ref('')
 const settingsOpen = ref(false)
 const replayOpen = ref(false)
 const rulesOpen = ref(false)
+// 手机端积分和牌局记录收进抽屉，牌桌才占得满一屏
+const infoOpen = ref(false)
+// 手机上（横竖屏都算）这两块面板不常驻，点「战况」才出来，牌桌才占得满。
+// 条件和 main.css 里那两条手机端媒体查询保持一致。
+const compactLayout = ref(false)
+let compactQuery: MediaQueryList | null = null
+function syncCompact(event: MediaQueryList | MediaQueryListEvent) {
+  compactLayout.value = event.matches
+  if (!event.matches) infoOpen.value = false
+}
+onMounted(() => {
+  compactQuery = window.matchMedia('(pointer: coarse), (max-width: 820px) and (orientation: portrait), (max-height: 620px) and (orientation: landscape)')
+  syncCompact(compactQuery)
+  compactQuery.addEventListener('change', syncCompact)
+})
+onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact))
+const showSidePanels = computed(() => !compactLayout.value || infoOpen.value)
 const diceOpen = ref(false)
 const clock = ref(Date.now())
 let clockTimer: number | null = null
@@ -165,13 +182,14 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
   />
 
   <!-- iOS 只允许在用户手势里恢复音频，所以牌桌上任何一次触摸都顺带解锁一次 -->
-  <div v-else class="game-page" :class="{ immersive }" @pointerdown.capture="gameAudio.unlock">
+  <div v-else class="game-page" :class="{ immersive, 'info-open': infoOpen }" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
       <div class="brand"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
       <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
         <button class="desktop-only" @click="rulesOpen = true">规则</button>
         <button class="desktop-only" @click="replayOpen = true">牌谱</button>
+        <button class="mobile-only" @click="infoOpen = true">战况</button>
         <button @click="settingsOpen = true">AI设置</button>
         <AudioControl class="desktop-only" />
         <button class="desktop-only" @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
@@ -190,7 +208,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     </header>
 
     <main class="game-layout">
-      <aside class="side-panel score-panel">
+      <aside v-if="showSidePanels" class="side-panel score-panel">
         <section>
           <div class="section-title">积分排名</div>
           <ol class="ranking">
@@ -250,7 +268,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
         </div>
       </section>
 
-      <aside class="side-panel event-panel">
+      <aside v-if="showSidePanels" class="side-panel event-panel">
         <div class="section-title">牌局记录</div>
         <div class="event-list">
           <article v-for="event in [...game.state.value.events].reverse().slice(0, 24)" :key="event.id">
@@ -260,6 +278,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       </aside>
     </main>
 
+    <div v-if="infoOpen" class="info-mask" @click="infoOpen = false"></div>
     <div v-if="game.error.value" class="error-toast" @click="game.error.value = ''">{{ game.error.value }} ×</div>
     <div v-if="diceOpen" class="dice-toast">
       <small>开局投骰</small><div><span v-for="roll in game.state.value.diceRolls" :key="roll.playerId"><b>{{ game.state.value.players[roll.playerId].name }}</b>{{ roll.dice[0] }} + {{ roll.dice[1] }} = {{ roll.total }}</span></div><strong>{{ game.state.value.players[game.state.value.dealer].name }} 首庄</strong>

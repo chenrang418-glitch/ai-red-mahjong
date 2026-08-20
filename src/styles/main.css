@@ -231,9 +231,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar nav button { min-height: 36px; padding: 6px 7px; font-size: 10px; }
   .game-layout {
     --table-height: max(240px, calc(100dvh - 120px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
-    grid-template-columns: clamp(108px, 14vw, 150px) minmax(0, 1fr) clamp(122px, 16vw, 175px);
+    /* 横屏也让牌桌铺满：两侧常驻面板会吃掉三成宽度，
+       信息改成点「战况」从右边滑出来 */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: calc(var(--table-height) + 60px + max(0px, calc(env(safe-area-inset-bottom) - 6px)));
-    grid-template-areas: "score table events";
+    grid-template-areas: "table";
     gap: 6px;
     width: 100%;
     max-width: none;
@@ -279,17 +281,37 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar nav > .mobile-only, .mobile-only { display: block; }
   .topbar nav > .desktop-only, .desktop-only { display: none; }
   .game-layout {
-    /* 顶栏一行 + 底部固定操作条 + 内边距，牌桌拿剩下的高度，正好一屏不被操作条压住 */
-    --table-height: max(430px, calc(100dvh - 152px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+    /* 手机上一屏就是一桌：牌桌拿掉顶栏和操作条之后的全部高度，页面不出现滚动条。
+       积分和牌局记录不再排在牌桌下面，改成点「战况」滑出来的抽屉。 */
+    --table-height: calc(100dvh - 150px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: calc(var(--table-height) + 80px) auto auto;
-    grid-template-areas: "table" "score" "events";
-    gap: 8px;
-    padding: 8px max(7px, env(safe-area-inset-right)) calc(84px + env(safe-area-inset-bottom)) max(7px, env(safe-area-inset-left));
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "table";
+    gap: 0;
+    height: calc(100dvh - 57px);
+    padding: 6px max(7px, env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) max(7px, env(safe-area-inset-left));
   }
   .status-pill { display: none; }
-  /* 积分和记录压到牌桌下方一小块，需要时再滚动展开，不跟牌桌抢首屏 */
-  .score-panel, .event-panel { display: block; max-height: min(38dvh, 300px); }
+
+  /* 两块面板变成从底部滑上来的抽屉：上半积分、下半牌局记录，各自能滚。
+     关掉时留在屏幕外，不用 v-if 反复销毁重建。 */
+  .score-panel, .event-panel {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    z-index: 44;
+    left: max(7px, env(safe-area-inset-left));
+    right: max(7px, env(safe-area-inset-right));
+    border-radius: 16px;
+    /* 显隐交给 Vue 的 v-if：手机上不打开就不渲染，省一块 DOM，
+       也不用跟层叠规则较劲。这里只管定位和入场动画。 */
+    animation: drawer-in .24s ease;
+    box-shadow: 0 -14px 40px rgba(0,0,0,.45);
+  }
+  @keyframes drawer-in { from { opacity: 0; } }
+  .score-panel { bottom: calc(47dvh + env(safe-area-inset-bottom)); max-height: 40dvh; }
+  .event-panel { bottom: calc(10px + env(safe-area-inset-bottom)); max-height: 44dvh; }
+  .info-mask { position: fixed; inset: 0; z-index: 43; background: rgba(0,0,0,.5); }
   .side-panel { border-radius: 13px; }
   .ranking li { padding: 10px 8px; }
   .ranking strong { font-size: 12px; }
@@ -299,6 +321,23 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .action-dock button { min-height: 48px; font-size: 14px; }
   .action-dock .discard-button { flex: 1 1 100%; min-width: 0; order: 5; }
   .claim-clock { margin-right: 6px; }
+}
+
+/* 横屏手机的战况抽屉：贴右边上下排，底部弹层在 375 高的屏上放不下 */
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .score-panel, .event-panel {
+    position: fixed;
+    z-index: 44;
+    right: max(6px, env(safe-area-inset-right));
+    width: min(320px, 42vw);
+    border-radius: 14px;
+    animation: drawer-in .22s ease;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .score-panel { top: 54px; max-height: 40dvh; }
+  .event-panel { bottom: max(6px, env(safe-area-inset-bottom)); max-height: 42dvh; }
+  .info-mask { position: fixed; inset: 0; z-index: 43; background: rgba(0,0,0,.5); }
+  @keyframes drawer-in { from { opacity: 0; } }
 }
 
 @media (max-width: 430px) and (pointer: coarse) {
