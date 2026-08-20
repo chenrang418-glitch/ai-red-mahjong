@@ -1,14 +1,15 @@
 import { reactive } from 'vue'
 import type { GameEvent, GameState } from '@/game/types'
 
-type AudioSettingKey = 'musicEnabled' | 'effectsEnabled' | 'musicVolume' | 'effectsVolume' | 'muted'
+type AudioSettingKey = 'musicEnabled' | 'effectsEnabled' | 'musicVolume' | 'effectsVolume' | 'vibrateEnabled'
 
 interface GameAudioSettings {
   musicEnabled: boolean
   effectsEnabled: boolean
   musicVolume: number
   effectsVolume: number
-  muted: boolean
+  // 震动和声音都算「手感反馈」，放一起管，不用再开一套设置
+  vibrateEnabled: boolean
 }
 
 const STORAGE_KEY = 'red-mahjong-audio-v1'
@@ -19,7 +20,7 @@ const defaults: GameAudioSettings = {
   // 默认拉满，进来就听得到；嫌吵可以在声音面板里随时调低，调过一次就会记住。
   musicVolume: 1,
   effectsVolume: 1,
-  muted: false,
+  vibrateEnabled: true,
 }
 
 function loadSettings(): GameAudioSettings {
@@ -36,7 +37,7 @@ function loadSettings(): GameAudioSettings {
       effectsEnabled: typeof saved.effectsEnabled === 'boolean' ? saved.effectsEnabled : defaults.effectsEnabled,
       musicVolume: clampVolume(typeof saved.musicVolume === 'number' ? saved.musicVolume : defaults.musicVolume),
       effectsVolume: clampVolume(typeof saved.effectsVolume === 'number' ? saved.effectsVolume : defaults.effectsVolume),
-      muted: typeof saved.muted === 'boolean' ? saved.muted : defaults.muted,
+      vibrateEnabled: typeof saved.vibrateEnabled === 'boolean' ? saved.vibrateEnabled : defaults.vibrateEnabled,
     }
   } catch {
     return { ...defaults }
@@ -69,7 +70,7 @@ function syncGains() {
   masterGain.gain.cancelScheduledValues(now)
   musicGain.gain.cancelScheduledValues(now)
   effectsGain.gain.cancelScheduledValues(now)
-  masterGain.gain.setValueAtTime(gameAudioSettings.muted ? 0 : 1, now)
+  masterGain.gain.setValueAtTime(1, now)
   musicGain.gain.setValueAtTime(gameAudioSettings.musicEnabled ? clampVolume(gameAudioSettings.musicVolume) : 0, now)
   effectsGain.gain.setValueAtTime(gameAudioSettings.effectsEnabled ? clampVolume(gameAudioSettings.effectsVolume) : 0, now)
 }
@@ -151,7 +152,7 @@ function noise(start: number, duration: number, volume: number, lowPass = 1700) 
 type EffectName = 'dice' | 'draw' | 'discard' | 'peng' | 'gang' | 'win' | 'loss' | 'draw-game'
 
 function playEffect(effect: EffectName, delay = 0) {
-  if (!gameAudioSettings.effectsEnabled || gameAudioSettings.effectsVolume <= 0 || gameAudioSettings.muted || document.hidden) return
+  if (!gameAudioSettings.effectsEnabled || gameAudioSettings.effectsVolume <= 0 || document.hidden) return
   const audio = ensureContext()
   if (!audio) return
   // 上下文被挂起过的话，这里顺手救活并重设增益，下一声就能正常响。
@@ -189,7 +190,7 @@ function playEffect(effect: EffectName, delay = 0) {
 const musicNotes = [261.63, 293.66, 329.63, 392, 329.63, 440, 392, 293.66, 261.63, 329.63, 392, 293.66]
 
 function scheduleMusicNote() {
-  if (!context || gameAudioSettings.muted || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0 || document.hidden) return
+  if (!context || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0 || document.hidden) return
   const start = context.currentTime + 0.04
   const frequency = musicNotes[musicStep % musicNotes.length]
   tone(frequency, start, 0.95, 0.045, 'triangle', 'music')
@@ -199,7 +200,7 @@ function scheduleMusicNote() {
 }
 
 function startMusic() {
-  if (musicTimer !== null || gameAudioSettings.muted || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0) return
+  if (musicTimer !== null || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0) return
   const audio = ensureContext()
   if (!audio) return
   void audio.resume()
@@ -218,7 +219,7 @@ function setSetting<K extends AudioSettingKey>(key: K, value: GameAudioSettings[
     : value) as GameAudioSettings[K]
   saveSettings()
   syncGains()
-  if (gameAudioSettings.musicEnabled && gameAudioSettings.musicVolume > 0 && !gameAudioSettings.muted && activeMatchId) startMusic()
+  if (gameAudioSettings.musicEnabled && gameAudioSettings.musicVolume > 0 && activeMatchId) startMusic()
   else stopMusic()
 }
 
@@ -237,13 +238,24 @@ function processEvents(state: GameState, listenerPlayerId?: number) {
   fresh.forEach((event, index) => {
     processedEvents.add(event.id)
     const delay = index * 0.09
+    // 震动只在自己的动作上给：四家都震手机会一直抖
+    const mine = event.playerId === humanId
     if (event.type === 'dice') playEffect('dice', delay)
     else if (event.type === 'draw') playEffect('draw', delay)
-    else if (event.type === 'discard') playEffect('discard', delay)
-    else if (event.type === 'peng') playEffect('peng', delay)
-    else if (['ming-gang', 'an-gang', 'bu-gang'].includes(event.type)) playEffect('gang', delay)
-    else if (event.type === 'win') playEffect(event.playerId === humanId ? 'win' : 'loss', delay)
-    else if (event.type === 'draw-game') playEffect('draw-game', delay)
+    else if (event.type === 'discard') {
+      playEffect('discard', delay)
+      if (mine) vibrate(18)
+    } else if (event.type === 'peng') {
+      playEffect('peng', delay)
+      if (mine) vibrate([0, 28, 40, 28])
+    } else if (['ming-gang', 'an-gang', 'bu-gang'].includes(event.type)) {
+      playEffect('gang', delay)
+      if (mine) vibrate([0, 30, 50, 30, 50, 40])
+    } else if (event.type === 'win') {
+      playEffect(mine ? 'win' : 'loss', delay)
+      // 别人胡牌也震一下，提醒这局结束了
+      vibrate(mine ? [0, 45, 60, 45, 60, 90] : 22)
+    } else if (event.type === 'draw-game') playEffect('draw-game', delay)
     else if (event.type === 'match-over') {
       const ranking = [...state.players].sort((a, b) => (b.points ?? b.stats.netPoints) - (a.points ?? a.stats.netPoints))
       playEffect(ranking[0]?.id === humanId ? 'win' : 'loss', delay + 0.35)
@@ -274,9 +286,25 @@ if (typeof document !== 'undefined') {
   window.addEventListener('focus', handleReturn)
 }
 
+// 出牌轻震一下，碰杠胡这种大动作重震。
+// 注意：iOS Safari 不支持 navigator.vibrate（Apple 一直没实现，也没有替代 API），
+// 所以这个开关在 iPhone 上不会有反应，界面里已经标出来了。
+export const vibrationSupported = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
+
+function vibrate(pattern: number | number[]): void {
+  if (!gameAudioSettings.vibrateEnabled || !vibrationSupported || document.hidden) return
+  try {
+    navigator.vibrate(pattern)
+  } catch {
+    // 有的浏览器在没有用户交互前调用会抛错，忽略
+  }
+}
+
 export const gameAudio = {
   settings: gameAudioSettings,
   setSetting,
+  vibrate,
+  vibrationSupported,
   unlock,
   prepareMatch,
   processEvents,

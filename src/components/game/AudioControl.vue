@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { gameAudio, gameAudioSettings } from '@/composables/useGameAudio'
+import { gameAudio, gameAudioSettings, vibrationSupported } from '@/composables/useGameAudio'
 
 const open = ref(false)
 
@@ -17,17 +17,10 @@ function toggleOpen() {
 <template>
   <div class="audio-control">
     <button class="audio-trigger" type="button" :aria-expanded="open" @click="toggleOpen">
-      {{ gameAudioSettings.muted ? '静音' : '声音' }}
+      声音
     </button>
     <div v-if="open" class="audio-popover">
       <header><strong>声音设置</strong><button type="button" @click="open = false">×</button></header>
-      <label class="setting-toggle">
-        <span class="setting-copy"><b>总声音</b><small>控制全部音乐与动作音效</small></span>
-        <span class="ios-switch">
-          <input aria-label="总声音" :checked="!gameAudioSettings.muted" type="checkbox" @change="gameAudio.setSetting('muted', !($event.target as HTMLInputElement).checked)">
-          <i></i>
-        </span>
-      </label>
       <section class="setting-block">
         <div class="setting-heading">
           <span><b>对局音乐</b><em>{{ Math.round(gameAudioSettings.musicVolume * 100) }}%</em></span>
@@ -36,7 +29,7 @@ function toggleOpen() {
             <i></i>
           </label>
         </div>
-        <input aria-label="对局音乐音量" class="volume-slider" :disabled="gameAudioSettings.muted || !gameAudioSettings.musicEnabled" :value="gameAudioSettings.musicVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('musicVolume', numberValue($event))">
+        <input aria-label="对局音乐音量" class="volume-slider" :disabled="!gameAudioSettings.musicEnabled" :value="gameAudioSettings.musicVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('musicVolume', numberValue($event))">
       </section>
       <section class="setting-block">
         <div class="setting-heading">
@@ -46,8 +39,25 @@ function toggleOpen() {
             <i></i>
           </label>
         </div>
-        <input aria-label="动作音效音量" class="volume-slider" :disabled="gameAudioSettings.muted || !gameAudioSettings.effectsEnabled" :value="gameAudioSettings.effectsVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('effectsVolume', numberValue($event))">
+        <input aria-label="动作音效音量" class="volume-slider" :disabled="!gameAudioSettings.effectsEnabled" :value="gameAudioSettings.effectsVolume" type="range" min="0" max="1" step="0.01" @input="gameAudio.setSetting('effectsVolume', numberValue($event))">
       </section>
+      <label class="setting-toggle">
+        <span class="setting-copy">
+          <b>震动反馈</b>
+          <small v-if="vibrationSupported">出牌、碰杠胡时震一下</small>
+          <small v-else class="unsupported">当前浏览器不支持（iPhone 上系统未开放）</small>
+        </span>
+        <span class="ios-switch">
+          <input
+            aria-label="震动反馈"
+            :checked="gameAudioSettings.vibrateEnabled"
+            :disabled="!vibrationSupported"
+            type="checkbox"
+            @change="gameAudio.setSetting('vibrateEnabled', ($event.target as HTMLInputElement).checked)"
+          >
+          <i></i>
+        </span>
+      </label>
       <p>音乐和音效均在本地生成，不访问网络。</p>
     </div>
   </div>
@@ -66,6 +76,10 @@ header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d
 .setting-copy { display: grid; gap: 2px; }
 .setting-copy b, .setting-heading b { color: #c4d0cc; font-size: 12px; }
 .setting-copy small { color: #70867f; font-size: 9px; }
+/* 不支持的时候把原因写出来，别让人以为是坏了 */
+.setting-copy small.unsupported { color: #9d8055; }
+.ios-switch input:disabled + i { opacity: .35; }
+.ios-switch:has(input:disabled) { cursor: default; }
 .setting-heading { justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .setting-heading > span { flex: 1; justify-content: space-between; }
 .setting-heading em { margin-left: auto; color: #d9bd6d; font-size: 11px; font-style: normal; }
