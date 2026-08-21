@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import AudioControl from './AudioControl.vue'
 import type { AIProfile, Difficulty, MatchConfig, MatchMode } from '@/game/types'
 
@@ -32,6 +32,19 @@ const form = reactive<SetupForm>({
     { difficulty: 'expert' },
   ],
 })
+
+// 四家共用一个初始分：手机端只有这一个入口，桌面端仍可各设各的
+const sharedPoints = computed({
+  get: () => form.points[0],
+  set: (value: number) => {
+    const safe = Math.min(9999, Math.max(1, Math.round(Number(value) || 0)))
+    form.points = [safe, safe, safe, safe]
+  },
+})
+
+function stepPoints(delta: number) {
+  sharedPoints.value = (Number(form.points[0]) || 0) + delta
+}
 
 function submit() {
   const players = form.names.map((name, id) => ({
@@ -71,6 +84,7 @@ function submit() {
         </div>
       </div>
 
+      <div class="setup-scroll">
       <div class="mode-switch">
         <label :class="{ selected: form.mode === 'finite' }">
           <input v-model="form.mode" type="radio" value="finite">
@@ -90,6 +104,17 @@ function submit() {
       </section>
       <p class="ai-note desktop-only">打什么牌型由 AI 看着手牌自己定，不用你指定风格；想多久也由这手牌好不好打决定——孤张秒出，听牌和能杠的地方会明显慢下来。所有档位都只看自己的手牌和公开信息，不会偷看别人的暗牌。</p>
 
+      <!-- 手机端每个座位那格积分输入放不下，这里给一个统一的：四家用同一个初始分。
+           小程序也是这么设计的，实际上也没人会给四家配不同的底分。 -->
+      <div v-if="form.mode === 'finite'" class="points-row mobile-only">
+        <span class="points-label">初始积分</span>
+        <div class="points-stepper">
+          <button type="button" aria-label="减少" @click="stepPoints(-10)">−</button>
+          <input v-model.number="sharedPoints" type="number" min="1" max="9999" inputmode="numeric">
+          <button type="button" aria-label="增加" @click="stepPoints(10)">+</button>
+        </div>
+      </div>
+
       <div class="players-grid">
         <article v-for="playerId in 4" :key="playerId" class="player-config">
           <header>
@@ -108,6 +133,7 @@ function submit() {
           </template>
         </article>
       </div>
+      </div>
 
       <div class="setup-footer">
         <label class="claim-setting">抢牌窗口
@@ -124,7 +150,7 @@ function submit() {
 </template>
 
 <style scoped>
-.setup-page { min-height: 100vh; padding: 48px clamp(20px, 5vw, 72px) 70px; background: radial-gradient(circle at 12% 0, #244339 0, transparent 34%), #0b1714; color: #f6f0df; }
+.setup-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: clamp(16px, 3.5vh, 48px) clamp(20px, 5vw, 72px) clamp(16px, 3vh, 40px); background: radial-gradient(circle at 12% 0, #244339 0, transparent 34%), #0b1714; color: #f6f0df; }
 .hero { max-width: 1050px; margin: 0 auto 28px; position: relative; }
 .seal { position: absolute; right: 3%; top: -12px; width: 86px; height: 86px; display: grid; place-items: center; border: 2px solid #c94f43; color: #c94f43; border-radius: 20px; font: 800 48px/1 serif; transform: rotate(7deg); opacity: .82; }
 .eyebrow { color: #d6b765; letter-spacing: .28em; font-size: 12px; font-weight: 700; }
@@ -188,7 +214,14 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
 /* —— 手机端照小程序：一屏放下，只留操作项 —— */
 @media (pointer: coarse), (max-width: 700px) {
   .setup-page { padding: max(10px, env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom)); gap: 0; }
-  .setup-card { padding: 0; border: 0; background: transparent; box-shadow: none; }
+  /* 标题行和底部按钮钉住，中间的设置项区域自己滚——
+     这是明确允许滚动的「设置列表」，不是整页滚动 */
+  .setup-card { padding: 0; border: 0; background: transparent; box-shadow: none;
+    flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .card-heading { flex: none; }
+  .mode-switch, .points-row, .players-grid { flex: none; }
+  .setup-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 6px; }
+  .setup-footer { flex: none; margin-top: 10px; }
   .card-heading { margin-bottom: 14px; align-items: center; gap: 10px; }
   .heading-title { display: flex; align-items: center; gap: 10px; }
   .heading-title h2 { margin: 0; font-size: 21px; white-space: nowrap; }
@@ -236,5 +269,23 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   .player-config select { min-width: 88px; }
 
   .setup-footer { margin-top: 16px; }
+}
+
+/* 统一初始积分（手机端） */
+.points-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; }
+.points-label { color: #c4d0cc; font-size: 14px; font-weight: 700; }
+.points-stepper { display: flex; align-items: center; gap: 10px; }
+.points-stepper button {
+  width: 42px; height: 42px; flex: none;
+  display: grid; place-items: center; padding: 0;
+  border: 1px solid #35524a; border-radius: 12px;
+  background: #142f27; color: #e4dcc4; font-size: 22px; cursor: pointer;
+}
+.points-stepper input {
+  width: 92px; height: 42px;
+  padding: 0 10px;
+  border: 1px solid #35524a; border-radius: 12px;
+  background: #10251f; color: #f3d67c;
+  font-size: 19px; font-weight: 800; text-align: center;
 }
 </style>

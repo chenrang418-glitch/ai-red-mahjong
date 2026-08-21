@@ -17,8 +17,8 @@ Page({
     wx.navigateTo({ url: '/pages/setup/setup' })
   },
 
-  startOnline() {
-    wx.showToast({ title: '联机模式还在做', icon: 'none' })
+  openReplay() {
+    wx.navigateTo({ url: '/pages/replay/replay' })
   },
 })
 

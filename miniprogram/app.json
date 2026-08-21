@@ -10,7 +10,9 @@
   "window": {
     "navigationStyle": "custom",
     "backgroundColor": "#0b1a15",
-    "backgroundTextStyle": "dark"
+    "backgroundTextStyle": "dark",
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#0b1a15"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json",

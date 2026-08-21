@@ -16,6 +16,12 @@ Page({
   goBack() {
     wx.navigateBack()
   },
+
+  // 从任何页面转发都落到首页：存档在本地，直接跳内页对收到的人没意义
+  onShareAppMessage() {
+    return { title: 'AI 红中麻将 · 和三个 AI 打红中', path: '/pages/index/index' }
+  },
+
 })
 
 export {}

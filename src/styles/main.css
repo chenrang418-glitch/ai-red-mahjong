@@ -1,14 +1,27 @@
 :root { font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif; color: #f4eedc; background: #091410; font-synthesis: none; text-rendering: optimizeLegibility; }
 * { box-sizing: border-box; }
-html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
-html, body { overflow-x: clip; }
-body { min-height: 100vh; min-height: 100dvh; background: #091410; }
+/* 整页永远不滚动：根节点锁死在视口内，需要滚动的只能是页面内部
+   明确指定的区域（聊天、排行榜、牌谱列表这些）。
+   min-height 会被内容撑高，所以这里必须是 height。 */
+html, body, #app {
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  height: 100vh;
+  /* dvh 跟着地址栏收放变化，iOS 上比 vh 准 */
+  height: 100dvh;
+  background: #091410;
+}
+#app { display: flex; flex-direction: column; }
 button, input, select { font: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #e2bf62; outline-offset: 2px; }
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: #0a1b16; }
 ::-webkit-scrollbar-thumb { background: #355249; border-radius: 99px; }
-.game-page { min-height: 100vh; min-height: 100dvh; background: radial-gradient(circle at 50% -20%, #1d4136 0, transparent 38%), #091410; }
+.game-page { flex: 1; min-height: 0; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 50% -20%, #1d4136 0, transparent 38%), #091410; }
 .topbar { min-height: 66px; padding: 0 18px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid #263d36; background: rgba(7,20,16,.94); position: sticky; top: 0; z-index: 20; }
 .brand { display: flex; align-items: center; gap: 9px; min-width: 190px; }
 .brand > span { width: 38px; height: 38px; display: grid; place-items: center; border: 2px solid #b84740; border-radius: 10px; color: #d1594f; font: 800 23px/1 serif; transform: rotate(-4deg); }

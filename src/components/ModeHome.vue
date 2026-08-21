@@ -39,10 +39,10 @@ defineEmits<{ local: []; online: [] }>()
 </template>
 
 <style scoped>
-.mode-home { min-height: 100vh; min-height: 100dvh; display: grid; align-content: center; gap: 30px; padding: 48px clamp(18px, 6vw, 80px); color: #f6f0df; background: radial-gradient(circle at 10% 0, #28493e 0, transparent 32%), radial-gradient(circle at 90% 100%, #3a2520 0, transparent 29%), #091410; }
+.mode-home { height: 100dvh; overflow: hidden; display: grid; align-content: center; gap: clamp(14px, 2.5vh, 30px); padding: clamp(18px, 4vh, 48px) clamp(18px, 6vw, 80px); color: #f6f0df; background: radial-gradient(circle at 10% 0, #28493e 0, transparent 32%), radial-gradient(circle at 90% 100%, #3a2520 0, transparent 29%), #091410; }
 .mode-hero { position: relative; width: min(1040px, 100%); margin: auto; padding-right: 60px; }
 .mode-hero p { margin: 0 0 8px; color: #d6b765; font-size: 12px; font-weight: 800; letter-spacing: .24em; }
-.mode-hero h1 { margin: 0; font-size: clamp(42px, 7vw, 76px); line-height: 1; letter-spacing: -.06em; }
+.mode-hero h1 { margin: 0; font-size: clamp(42px, 7vw, 76px); line-height: 1.2; letter-spacing: -.06em; }
 .mode-hero > span { display: block; margin-top: 13px; color: #91a69f; }
 .mode-seal { position: absolute; right: 2%; top: 0; width: 88px; height: 88px; display: grid; place-items: center; border: 2px solid #bd4b43; border-radius: 22px; color: #d1584e; font: 800 50px/1 serif; transform: rotate(7deg); }
 .mode-cards { width: min(1040px, 100%); margin: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -71,21 +71,40 @@ footer span + span::before { content: '·'; margin-right: 10px; }
   }
   .mode-hero { display: grid; gap: 4px; }
   .mode-hero p { margin: 0; font-size: 10px; }
-  .mode-hero h1 { font-size: 38px; }
+  /* 标题跟着视口高度缩，矮屏不至于把两张卡挤没 */
+  .mode-hero h1 { font-size: clamp(28px, 4.6vh, 38px); line-height: 1.2; }
   .mode-hero > span { margin-top: 2px; font-size: 12px; }
   /* 印章留着：小程序上也有，是整页唯一的装饰 */
   .mode-hero { padding-right: 0; }
   /* 右上角让给「全屏」入口，印章挪到它下面 */
   .mode-seal { display: grid; right: 2px; top: 34px; width: 46px; height: 46px; border-radius: 13px; font-size: 25px; }
-  .mode-cards { grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: 12px; min-height: 0; }
-  .mode-card { min-height: 0; padding: 16px 18px; display: flex; flex-direction: column; border-radius: 20px; }
+  .mode-cards { grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: clamp(8px, 1.4vh, 12px); min-height: 0; }
+  /* 尺寸全部跟着视口高度走：矮屏自动收，不靠裁切 */
+  .mode-card {
+    min-height: 0;
+    padding: clamp(10px, 1.7vh, 16px) 16px;
+    display: flex; flex-direction: column;
+    border-radius: clamp(14px, 2vh, 20px);
+    overflow: hidden;
+  }
   .mode-card small { font-size: 9px; }
-  .mode-icon { width: 42px; height: 42px; margin-top: 10px; border-radius: 12px; font-size: 17px; }
-  .mode-card h2 { margin: 10px 0 5px; font-size: 22px; }
-  .mode-card p { min-height: 0; font-size: 12px; line-height: 1.55; }
-  .mode-card ul { margin: auto 0 12px; padding-top: 10px; gap: 5px; }
-  .mode-card li { padding: 4px 8px; font-size: 9px; }
-  .mode-card button { padding: 12px; font-size: 15px; border-radius: 11px; }
+  .mode-icon {
+    width: clamp(30px, 4.6vh, 42px); height: clamp(30px, 4.6vh, 42px);
+    margin-top: clamp(5px, 1vh, 10px);
+    border-radius: 11px;
+    font-size: clamp(13px, 2vh, 17px);
+  }
+  .mode-card h2 { margin: clamp(5px, 1vh, 10px) 0 3px; font-size: clamp(17px, 2.7vh, 22px); }
+  /* 描述最多两行，放不下就省略，不许把卡片撑高 */
+  .mode-card p {
+    min-height: 0; margin: 0;
+    font-size: clamp(10px, 1.5vh, 12px); line-height: 1.5;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  .mode-card ul { margin: auto 0 clamp(7px, 1.2vh, 12px); padding-top: clamp(6px, 1vh, 10px); gap: 4px; }
+  .mode-card li { padding: 3px 7px; font-size: 9px; }
+  .mode-card button { padding: clamp(9px, 1.5vh, 12px); font-size: clamp(13px, 2vh, 15px); border-radius: 10px; }
   footer { font-size: 9px; gap: 8px; }
 }
 </style>

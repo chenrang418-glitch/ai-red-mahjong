@@ -351,7 +351,7 @@ void restoreSession()
 </template>
 
 <style scoped>
-.admin-page { min-height: 100vh; min-height: 100dvh; padding: 24px clamp(14px, 4vw, 48px) 60px; color: #f2ecda; background: #091410; }
+.admin-page { height: 100dvh; overflow-y: auto; padding: 24px clamp(14px, 4vw, 48px) 60px; color: #f2ecda; background: #091410; }
 .admin-gate { width: min(420px, 100%); margin: 12vh auto 0; padding: 28px; border: 1px solid #3a544a; border-radius: 18px; background: #0e241e; text-align: center; }
 .admin-gate small { color: #8d7a4a; letter-spacing: .24em; font-size: 10px; }
 .admin-gate h1 { margin: 8px 0 6px; font-size: 24px; }

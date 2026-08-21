@@ -191,7 +191,7 @@ function back() {
 </template>
 
 <style scoped>
-.online-hub { min-height: 100vh; min-height: 100dvh; padding: 24px clamp(16px, 5vw, 64px) 50px; color: #f5efdd; background: radial-gradient(circle at 10% 0, #24483d 0, transparent 35%), #091410; }
+.online-hub { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: clamp(14px, 3vh, 24px) clamp(16px, 5vw, 64px) clamp(14px, 2.5vh, 28px); color: #f5efdd; background: radial-gradient(circle at 10% 0, #24483d 0, transparent 35%), #091410; }
 .hub-header { width: min(1180px, 100%); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .hub-header > button { padding: 9px 12px; border: 1px solid #345047; border-radius: 9px; background: #10251f; color: #d8dfda; cursor: pointer; }
 .hub-header > div { display: flex; align-items: center; gap: 10px; }

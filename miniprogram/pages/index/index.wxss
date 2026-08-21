@@ -85,10 +85,10 @@
   animation: rise .46s ease both;
 }
 .local-card { animation-delay: .06s; }
-.online-card {
+.replay-card {
   animation-delay: .13s;
-  border-color: #6b4c45;
-  background: linear-gradient(145deg, rgba(24,42,35,.96), rgba(38,27,24,.96));
+  border-color: #4a5c47;
+  background: linear-gradient(145deg, rgba(24,42,35,.96), rgba(26,38,26,.96));
 }
 /* 角落那团光，卡片一按下去会亮一点 */
 .mode-card::after {
@@ -113,7 +113,7 @@
   font-size: 40rpx; font-weight: 900;
   animation: float 3.6s ease-in-out infinite;
 }
-.online-card .card-icon { background: #6e332e; color: #ffe0dc; animation-delay: .5s; }
+.replay-card .card-icon { background: #2f4a33; color: #cfe6bf; animation-delay: .5s; }
 
 .card-title { margin: 18rpx 0 10rpx; font-size: 46rpx; font-weight: 800; color: #f6f0df; }
 .card-desc { color: #98aaa4; font-size: 24rpx; line-height: 1.65; }
@@ -134,7 +134,7 @@
   background: #e5c66d; color: #20261d;
   font-size: 30rpx; font-weight: 900;
 }
-.card-btn.online { background: #b84c43; color: #fff; }
+.card-btn.replay { background: #8fbf7a; color: #16240f; }
 
 .home-foot {
   flex: none;

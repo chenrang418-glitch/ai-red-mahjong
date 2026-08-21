@@ -1,6 +1,6 @@
 {
   "compileType": "miniprogram",
-  "libVersion": "3.5.5",
+  "libVersion": "3.17.1",
   "appid": "wx90ea0ad27adc3c4a",
   "projectname": "ai-red-mahjong",
   "setting": {
@@ -8,7 +8,7 @@
     "es6": true,
     "enhance": true,
     "postcss": true,
-    "minified": false,
+    "minified": true,
     "useCompilerPlugins": [
       "typescript"
     ],
@@ -18,7 +18,7 @@
       "outputPath": ""
     },
     "compileWorklet": false,
-    "uglifyFileName": false,
+    "uglifyFileName": true,
     "uploadWithSourceMap": true,
     "packNpmManually": false,
     "packNpmRelationList": [],
@@ -36,5 +36,6 @@
     "ignore": [],
     "include": []
   },
-  "editorSetting": {}
+  "editorSetting": {},
+  "isGameTourist": false
 }
