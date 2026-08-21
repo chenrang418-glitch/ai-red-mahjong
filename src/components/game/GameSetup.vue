@@ -351,8 +351,14 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
 @media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
   .setup-page { padding: 8px max(16px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   .card-heading { min-height: 34px; margin-bottom: 6px; }
+  .heading-title { display: flex; align-items: center; gap: 8px; }
   .heading-title h2 { font-size: 18px; }
-  .heading-back { width: 30px; height: 30px; min-height: 30px; }
+  .heading-back {
+    width: 30px; height: 30px; min-height: 30px; flex: none;
+    display: grid; place-items: center; padding: 0;
+    border: 1px solid #2f4b41; border-radius: 9px;
+    background: #10251f; color: #cbd6d0; font-size: 20px; line-height: 1;
+  }
   .heading-actions .ghost-button, .heading-actions :deep(.audio-trigger) { height: 30px; min-height: 30px; }
   .setup-scroll { min-height: 0; display: grid; grid-template-columns: .9fr 1.35fr .78fr; grid-template-rows: auto minmax(0, 1fr); gap: 5px 14px; }
   .mobile-field-title { margin: 0; font-size: 13px; }
