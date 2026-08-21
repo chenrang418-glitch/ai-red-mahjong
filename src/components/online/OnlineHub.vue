@@ -13,6 +13,7 @@ const joinCode = ref('')
 const settings = reactive<OnlineRoomSettings>({ ...DEFAULT_ONLINE_SETTINGS })
 // 从分享链接进来时先记着要去哪个房间，输完昵称立刻自动进
 const invitedCode = ref((props.joinCode ?? '').toUpperCase())
+const hubTab = ref<'create' | 'rooms' | 'rank'>('create')
 
 watch(() => props.joinCode, (code) => {
   if (code) invitedCode.value = code.toUpperCase()
@@ -100,6 +101,12 @@ function back() {
       <p>本地开发请同时运行联机服务器；生产环境默认使用当前网页域名，也可以通过 <code>VITE_ONLINE_API_BASE</code> 覆盖。</p>
     </section>
 
+    <nav v-if="online.session.value" class="mobile-hub-tabs">
+      <button :class="{ active: hubTab === 'create' }" @click="hubTab = 'create'">开房 / 加入</button>
+      <button :class="{ active: hubTab === 'rooms' }" @click="hubTab = 'rooms'">房间动态</button>
+      <button :class="{ active: hubTab === 'rank' }" @click="hubTab = 'rank'">排行榜</button>
+    </nav>
+
     <section class="hub-grid" :class="{ logged: online.session.value }">
       <article v-if="!online.session.value" class="login-card hub-card" :class="{ invited: invitedCode }">
         <small>{{ invitedCode ? 'JOIN BY LINK' : 'NICKNAME LOGIN' }}</small>
@@ -115,7 +122,7 @@ function back() {
       </article>
 
       <template v-else>
-        <article class="hub-card room-action-card">
+        <article class="hub-card room-action-card" :class="{ 'mobile-tab-hidden': hubTab !== 'create' }">
           <small>CREATE ROOM</small>
           <h2>创建房间</h2>
           <div class="online-mode-switch">
@@ -131,7 +138,7 @@ function back() {
           <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : online.busy.value ? '创建中…' : online.connecting.value ? '正在进入…' : '创建新房间' }}</button>
         </article>
 
-        <article class="hub-card room-action-card join-card">
+        <article class="hub-card room-action-card join-card" :class="{ 'mobile-tab-hidden': hubTab !== 'create' }">
           <small>JOIN ROOM</small>
           <h2>加入房间</h2>
           <p>可以从下方房间列表直接加入，也可以输入6位房间号。</p>
@@ -143,7 +150,7 @@ function back() {
         </article>
       </template>
 
-      <article v-if="online.session.value" class="hub-card room-directory-card">
+      <article v-if="online.session.value" class="hub-card room-directory-card" :class="{ 'mobile-tab-hidden': hubTab !== 'rooms' }">
         <header>
           <div><small>LIVE ROOMS</small><h2>房间动态</h2></div>
           <button type="button" @click="online.refreshRooms">刷新房间</button>
@@ -172,7 +179,7 @@ function back() {
         <p v-else class="empty-ranking">暂时没有等待中或进行中的房间，可以创建新房间。</p>
       </article>
 
-      <article class="hub-card leaderboard-card">
+      <article class="hub-card leaderboard-card" :class="{ 'mobile-tab-hidden': online.session.value && hubTab !== 'rank' }">
         <header><div><small>LEADERBOARD</small><h2>胜局排行榜</h2></div><button type="button" @click="online.refreshLeaderboard">刷新</button></header>
         <div class="leaderboard-head"><span>名次 / 昵称</span><span>胜局</span><span>总局</span><span>胜率</span><span>七对</span><span>杠</span><span>码</span></div>
         <ol v-if="online.leaderboard.value.length">
@@ -267,6 +274,7 @@ function back() {
 .maintenance-notice p { margin: 6px 0 4px; color: #ecdcae; font-size: 13px; line-height: 1.6; }
 .maintenance-notice small { color: #b9a97c; font-size: 12px; }
 .online-error { position: fixed; z-index: 90; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #ad5148; border-radius: 12px; background: rgba(94, 45, 40, .97); color: #ffd8d3; cursor: pointer; font-size: 13px; text-align: center; box-shadow: 0 14px 36px rgba(0,0,0,.45); }
+.mobile-hub-tabs { display: none; }
 @media (max-width: 800px) {
   .hub-grid, .hub-grid.logged { grid-template-columns: 1fr; }
   .room-directory-card, .leaderboard-card, .hub-grid.logged .leaderboard-card { grid-column: 1; grid-row: auto; }
@@ -285,5 +293,74 @@ function back() {
   .room-directory-row > button.primary { width: 100%; }
   .leaderboard-card { overflow-x: auto; }
   .leaderboard-head, .leaderboard-card ol { min-width: 570px; }
+}
+
+/* 联机大厅在手机上也不滚整页：登录一屏，登录后用三个标签切换内容。 */
+@media (pointer: coarse), (max-width: 700px), (max-height: 620px) {
+  .online-hub { padding: max(12px, env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom)); background: radial-gradient(circle at 10% 0, #24483d 0, transparent 35%), #0b1a15; }
+  .hub-header { flex: none; min-height: 42px; flex-wrap: nowrap; margin: 0; }
+  .hub-header > div { order: 0; flex: 1; flex-basis: auto; justify-content: center; }
+  .hub-header > div > span { width: 34px; height: 34px; border-radius: 10px; font-size: 19px; }
+  .hub-header > button { min-width: 70px; min-height: 36px; padding: 6px 9px; font-size: 11px; }
+  .hub-header strong { font-size: 14px; }
+  .maintenance-notice, .server-notice { flex: none; margin: 8px 0 0; padding: 9px 12px; }
+  .maintenance-notice p, .server-notice p { margin: 3px 0 0; font-size: 10px; line-height: 1.45; }
+  .maintenance-notice small { display: none; }
+  .mobile-hub-tabs { flex: none; height: 48px; margin-top: 9px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .mobile-hub-tabs button { border: 1px solid #355249; border-radius: 10px; background: transparent; color: #91a69f; font-size: 12px; }
+  .mobile-hub-tabs button.active { border-color: #d3b45e; background: #1b3a31; color: #f3d67c; font-weight: 800; }
+  .hub-grid, .hub-grid.logged { flex: 1; min-height: 0; width: 100%; margin: 9px 0 0; overflow: hidden; }
+  .hub-grid:not(.logged) { display: block; }
+  .hub-grid:not(.logged) .leaderboard-card { display: none; }
+  .hub-grid.logged { display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1.4fr) minmax(0, .85fr); gap: 9px; align-items: stretch; }
+  .hub-grid.logged .mobile-tab-hidden { display: none; }
+  .hub-card { min-height: 0; padding: 14px; border-radius: 15px; box-shadow: none; overflow: hidden; }
+  .login-card { height: 100%; display: flex; flex-direction: column; justify-content: center; }
+  .login-card h1 { font-size: 28px; }
+  .login-card > p { font-size: 12px; }
+  .login-card form { margin-top: 18px; }
+  .login-card input, .login-card form button { min-height: 50px; font-size: 15px; }
+  .privacy-note { margin-top: 12px; font-size: 10px; }
+  .room-action-card { display: flex; flex-direction: column; }
+  .room-action-card > small { font-size: 8px; }
+  .room-action-card h2 { margin: 2px 0 5px; font-size: 19px; }
+  .online-mode-switch { grid-template-columns: 1fr 1fr; gap: 7px; margin: 7px 0; }
+  .online-mode-switch label { padding: 8px 9px; }
+  .online-mode-switch input { display: none; }
+  .online-mode-switch strong, .online-mode-switch span { grid-column: 1; }
+  .online-mode-switch strong { font-size: 13px; }
+  .create-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .create-fields label { font-size: 9px; }
+  .hub-card input, .hub-card select { min-height: 38px; padding: 7px; font-size: 11px; }
+  .room-action-card > p { margin: 7px 0 0; font-size: 9px; line-height: 1.45; }
+  .room-action-card > button.primary { min-height: 44px; margin-top: auto; font-size: 14px; }
+  .join-card > p, .join-card .login-user { display: none; }
+  .join-card form { flex: 1; margin-top: 4px; display: grid; grid-template-columns: 1fr 112px; align-items: end; gap: 8px; }
+  .join-card form button { min-height: 42px; }
+  .join-card input { min-height: 42px; font-size: 16px; }
+  .room-directory-card, .hub-grid.logged .leaderboard-card { grid-column: 1; grid-row: 1 / 3; height: 100%; display: flex; flex-direction: column; }
+  .room-directory-list, .leaderboard-card ol { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .room-directory-row { grid-template-columns: 1fr auto; gap: 8px; padding: 11px; }
+  .room-directory-main { grid-column: 1 / 3; }
+  .room-directory-rules { grid-template-columns: repeat(3, auto); text-align: left; }
+  .leaderboard-card { overflow: hidden; }
+  .leaderboard-head, .leaderboard-card ol { min-width: 0; }
+  .leaderboard-head, .leaderboard-card li { grid-template-columns: minmax(90px, 1.6fr) repeat(6, minmax(28px, .55fr)); font-size: 9px; }
+}
+
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .online-hub { padding: max(7px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .hub-header { min-height: 34px; }
+  .hub-header > div > span { width: 30px; height: 30px; }
+  .mobile-hub-tabs { height: 38px; margin-top: 5px; }
+  .hub-grid, .hub-grid.logged { margin-top: 6px; }
+  .hub-grid.logged { grid-template-columns: 1.15fr .85fr; grid-template-rows: 1fr; }
+  .hub-grid.logged .room-action-card { grid-row: 1; }
+  .hub-grid.logged .join-card { grid-column: 2; }
+  .room-directory-card, .hub-grid.logged .leaderboard-card { grid-column: 1 / 3; grid-row: 1; }
+  .online-mode-switch { margin: 4px 0; }
+  .create-fields label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px; }
+  .room-action-card > p { display: none; }
+  .hub-card { padding: 10px 12px; }
 }
 </style>

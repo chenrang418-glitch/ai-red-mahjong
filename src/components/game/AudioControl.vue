@@ -56,7 +56,7 @@ function toggleOpen() {
 
         <section class="setting-block">
           <div class="setting-heading">
-            <span><b>动作音效</b><em>{{ Math.round(gameAudioSettings.effectsVolume * 100) }}%</em></span>
+            <span><b>音效</b><em>音效音量 {{ Math.round(gameAudioSettings.effectsVolume * 100) }}</em></span>
             <label class="ios-switch">
               <input aria-label="动作音效" :checked="gameAudioSettings.effectsEnabled" type="checkbox" @change="gameAudio.setSetting('effectsEnabled', ($event.target as HTMLInputElement).checked)">
               <i></i>
@@ -67,7 +67,7 @@ function toggleOpen() {
 
         <section class="setting-block">
           <div class="setting-heading">
-            <span><b>对局音乐</b><em>{{ Math.round(gameAudioSettings.musicVolume * 100) }}%</em></span>
+            <span><b>背景音乐</b><em>音乐音量 {{ Math.round(gameAudioSettings.musicVolume * 100) }}</em></span>
             <label class="ios-switch">
               <input aria-label="对局音乐" :checked="gameAudioSettings.musicEnabled" type="checkbox" @change="gameAudio.setSetting('musicEnabled', ($event.target as HTMLInputElement).checked)">
               <i></i>
@@ -141,13 +141,37 @@ header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d
 
 /* 手机端把字号放大一档，手指点得准 */
 @media (pointer: coarse), (max-width: 820px) {
-  .audio-popover.sheet header strong { font-size: 17px; }
-  .audio-popover.sheet .setting-copy b, .audio-popover.sheet .setting-heading b { font-size: 15px; }
-  .audio-popover.sheet .setting-heading em { font-size: 13px; }
-  .audio-popover.sheet .setting-toggle, .audio-popover.sheet .setting-block { padding: 15px 0; }
+  .audio-popover.sheet { padding: 0 18px calc(20px + env(safe-area-inset-bottom)); background: #0c211b; }
+  .audio-popover.sheet header { min-height: 62px; margin: 0 -18px 12px; padding: 0 18px; border-bottom: 1px solid #1d352d; }
+  .audio-popover.sheet header strong { color: #f3d67c; font-size: 21px; }
+  .audio-popover.sheet header button { border: 0; background: transparent; color: #8ba49c; font-size: 28px; }
+  .audio-popover.sheet .setting-copy b, .audio-popover.sheet .setting-heading b { font-size: 18px; }
+  .audio-popover.sheet .setting-heading { min-height: 62px; margin: 0 0 8px; padding: 0 16px; border: 1px solid #355249; border-radius: 15px; background: #102a22; }
+  .audio-popover.sheet .setting-heading > span { display: grid; justify-content: start; gap: 3px; }
+  .audio-popover.sheet .setting-heading em { margin: 0; color: #82978f; font-size: 12px; }
+  .audio-popover.sheet .setting-block { padding: 0 0 14px; border: 0; }
+  .audio-popover.sheet .setting-toggle { min-height: 62px; margin-top: 2px; padding: 0 16px; border: 1px solid #355249; border-radius: 15px; background: #102a22; }
   .audio-popover.sheet .ios-switch { width: 50px; height: 29px; flex-basis: 50px; }
   .audio-popover.sheet .ios-switch i::after { width: 25px; height: 25px; }
   .audio-popover.sheet .ios-switch input:checked + i::after { transform: translateX(21px); }
   .audio-popover.sheet .volume-slider { height: 26px; }
+}
+
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .audio-popover.sheet {
+    top: 50%; left: 50%; right: auto; bottom: auto;
+    width: min(500px, 74vw);
+    padding: 0 14px 14px;
+    border: 1px solid #355249;
+    border-radius: 16px;
+    transform: translate(-50%, -50%);
+    animation: none;
+  }
+  .audio-popover.sheet header { min-height: 44px; margin: 0 -14px 9px; padding: 0 14px; }
+  .audio-popover.sheet header strong { font-size: 18px; }
+  .audio-popover.sheet .setting-heading, .audio-popover.sheet .setting-toggle { min-height: 46px; border-radius: 10px; }
+  .audio-popover.sheet .setting-heading b, .audio-popover.sheet .setting-copy b { font-size: 14px; }
+  .audio-popover.sheet .setting-block { padding-bottom: 8px; }
+  .audio-popover.sheet .volume-slider { height: 18px; }
 }
 </style>

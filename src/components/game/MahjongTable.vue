@@ -697,6 +697,160 @@ function countdownFor(seatId: number) {
   .self-bubble { left: 8px; max-width: 78%; font-size: 12px; }
 }
 
+/* 2026 手机版：以小程序牌桌为唯一布局来源；以下规则保持在组件样式末尾。 */
+@media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
+  .felt-pattern, .table-strip, .center-info { display: none !important; }
+  .table-shell {
+    --human-tile-width: clamp(23px, 6.65cqw, 30px);
+    --human-tile-height: clamp(34px, 9.55cqw, 43px);
+    --meld-tile-width: clamp(15px, 4cqw, 20px);
+    --meld-tile-height: clamp(22px, 5.7cqw, 29px);
+    --river-tile-width: clamp(14px, 3.7cqw, 18px);
+    --river-tile-height: clamp(20px, 5.2cqw, 26px);
+    grid-template-columns: 88px minmax(0, 1fr) 88px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top top top"
+      "left center right"
+      "human human human";
+    align-items: center;
+    gap: 7px 9px;
+    padding: 4px 10px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .table-shell.my-turn { border: 0; box-shadow: none; animation: none; }
+  .top-seat, .left-seat, .right-seat {
+    overflow: visible;
+    border: 1px solid #274038;
+    border-radius: 12px;
+    background: rgba(7, 29, 24, .76);
+    box-shadow: none;
+  }
+  .top-seat { width: 174px; min-width: 174px; max-width: 174px; min-height: 76px; justify-self: center; align-self: start; }
+  .left-seat, .right-seat { width: 88px; min-height: 132px; align-self: center; justify-content: center; }
+  .top-seat :deep(header), .left-seat :deep(header), .right-seat :deep(header) { gap: 4px 6px; flex-wrap: wrap; }
+  .top-seat :deep(header strong), .left-seat :deep(header strong), .right-seat :deep(header strong) { font-size: 15px; }
+  .top-seat :deep(.points), .left-seat :deep(.points), .right-seat :deep(.points) { margin-left: 0; color: #cdb779; font-size: 13px; }
+  .top-seat :deep(.hand-count), .left-seat :deep(.hand-count), .right-seat :deep(.hand-count) {
+    min-width: 64px; justify-content: center; padding: 3px 10px; border-color: #35524a; font-size: 11px;
+  }
+  .top-seat :deep(.hand-count b), .left-seat :deep(.hand-count b), .right-seat :deep(.hand-count b) { font-size: 14px; }
+  .top-seat :deep(.dealer), .left-seat :deep(.dealer), .right-seat :deep(.dealer) { width: 22px; height: 22px; font-size: 11px; }
+  .table-center {
+    width: 100%;
+    height: min(35dvh, 326px);
+    min-height: 205px;
+    max-height: 100%;
+    align-self: center;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 9px;
+    overflow: hidden;
+    border: 1px solid rgba(52,82,72,.58);
+    border-radius: 12px;
+    background: rgba(6,24,19,.46);
+    box-shadow: none;
+  }
+  .table-center .river {
+    order: 5;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 0 0 0 34px;
+    position: relative;
+    overflow: hidden;
+  }
+  .table-center .river::before {
+    content: attr(data-seat);
+    position: absolute;
+    left: 0; top: 4px;
+    width: 30px;
+    color: #74897f;
+    font-size: 10px;
+  }
+  .table-center .river-bottom { order: 1; }
+  .table-center .river-right { order: 2; }
+  .table-center .river-top { order: 3; }
+  .table-center .river-left { order: 4; }
+  .river :deep(.mahjong-tile.compact) { flex: 0 0 auto; width: var(--river-tile-width); height: var(--river-tile-height); }
+  .human-seat {
+    margin: 0 -10px;
+    padding: 8px 12px 10px;
+    border: 0;
+    border-top: 1px solid #274038;
+    border-radius: 0;
+    background: rgba(5,23,18,.96);
+    box-shadow: none;
+  }
+  .human-seat.active { border-color: #4f5f3d; box-shadow: none; }
+  .human-seat header { min-height: 26px; margin: 0 0 4px; }
+  .human-seat header strong { font-size: 18px; }
+  .human-points { font-size: 16px; }
+  .human-seat .dealer { width: 23px; height: 23px; font-size: 11px; }
+  .hand-row { flex-direction: column; align-items: stretch; gap: 3px; }
+  .meld-row { justify-content: center; flex-wrap: nowrap; }
+  .human-hand {
+    justify-content: center;
+    min-height: calc(var(--human-tile-height) + 11px);
+    padding-top: 11px;
+    gap: 1px;
+    overflow: visible;
+  }
+  .human-hand :deep(.mahjong-tile) { flex: 0 0 auto; width: var(--human-tile-width); height: var(--human-tile-height); padding: 2px; border-radius: 5px; }
+  .drawn-tile-slot { margin-left: 5px; padding-left: 5px; }
+  .fullscreen-toggle { display: none; }
+}
+
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .table-shell {
+    --human-tile-width: clamp(27px, 4.25cqw, 39px);
+    --human-tile-height: clamp(39px, 6.1cqw, 56px);
+    --river-tile-width: clamp(13px, 2cqw, 18px);
+    --river-tile-height: clamp(18px, 2.8cqw, 25px);
+    grid-template-columns: 92px minmax(0, 1fr) 92px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top top top"
+      "left center right"
+      "human human human";
+    gap: 4px 7px;
+    padding: 2px 10px 0;
+  }
+  .top-seat { width: 150px; min-width: 150px; max-width: 150px; min-height: 54px; padding: 5px 8px; }
+  .left-seat, .right-seat { width: 92px; min-height: 116px; padding: 6px 8px; }
+  .top-seat :deep(header strong), .left-seat :deep(header strong), .right-seat :deep(header strong) { font-size: 13px; }
+  .top-seat :deep(.points), .left-seat :deep(.points), .right-seat :deep(.points) { font-size: 11px; }
+  .top-seat :deep(.hand-count), .left-seat :deep(.hand-count), .right-seat :deep(.hand-count) { min-width: 56px; padding: 1px 7px; font-size: 9px; }
+  .top-seat :deep(.hand-count b), .left-seat :deep(.hand-count b), .right-seat :deep(.hand-count b) { font-size: 12px; }
+  .table-center { height: 126px; min-height: 92px; padding: 5px 7px; gap: 2px; }
+  .table-center .river { padding-left: 30px; }
+  .table-center .river::before { top: 2px; width: 26px; font-size: 8px; }
+  .human-seat {
+    min-height: 66px;
+    margin: 0 -10px;
+    padding: 4px 174px calc(5px + env(safe-area-inset-bottom)) 10px;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .human-seat header { flex: 0 0 52px; min-height: 0; margin: 0 0 2px; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .human-seat header strong { font-size: 13px; }
+  .human-points { margin-left: 0; font-size: 12px; }
+  .hand-row { flex: 1 1 auto; min-width: 0; flex-direction: row; align-items: flex-end; gap: 6px; }
+  .meld-row { flex: 0 0 auto; max-width: 108px; }
+  .human-hand { flex-wrap: nowrap; justify-content: center; min-height: var(--human-tile-height); padding-top: 6px; gap: 1px; }
+  .drawn-tile-slot { margin-left: 4px; padding-left: 4px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .last-action { animation: none; }
   .table-shell.my-turn { animation: none; }

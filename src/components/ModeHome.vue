@@ -78,7 +78,7 @@ footer span + span::before { content: '·'; margin-right: 10px; }
   .mode-hero { padding-right: 0; }
   /* 右上角让给「全屏」入口，印章挪到它下面 */
   .mode-seal { display: grid; right: 2px; top: 34px; width: 46px; height: 46px; border-radius: 13px; font-size: 25px; }
-  .mode-cards { grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: clamp(8px, 1.4vh, 12px); min-height: 0; }
+  .mode-cards { height: 100%; margin: 0 auto; grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: clamp(8px, 1.4vh, 12px); min-height: 0; }
   /* 尺寸全部跟着视口高度走：矮屏自动收，不靠裁切 */
   .mode-card {
     min-height: 0;

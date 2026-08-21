@@ -4,7 +4,7 @@ import AudioControl from './AudioControl.vue'
 import type { AIProfile, Difficulty, MatchConfig, MatchMode } from '@/game/types'
 
 defineProps<{ savedGameAvailable: boolean }>()
-const emit = defineEmits<{ start: [config: MatchConfig]; resume: []; history: []; rules: []; back: [] }>()
+const emit = defineEmits<{ start: [config: MatchConfig]; resume: []; discard: []; history: []; rules: []; back: [] }>()
 
 const difficultyLabels: Record<Difficulty, string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
 const difficultyHints: Record<Difficulty, string> = {
@@ -24,12 +24,12 @@ interface SetupForm {
 const form = reactive<SetupForm>({
   mode: 'finite',
   claimWindowMs: 4000,
-  names: ['你', '阿锐', '小稳', '老周'],
+  names: ['你', 'AI 东', 'AI 南', 'AI 西'],
   points: [30, 30, 30, 30],
   profiles: [
-    { difficulty: 'beginner' },
     { difficulty: 'standard' },
-    { difficulty: 'expert' },
+    { difficulty: 'standard' },
+    { difficulty: 'standard' },
   ],
 })
 
@@ -78,21 +78,22 @@ function submit() {
         </div>
         <div class="heading-actions">
           <button class="ghost-button desktop-only" type="button" @click="emit('back')">返回首页</button>
-          <AudioControl />
           <button class="ghost-button" type="button" @click="emit('history')">牌谱</button>
+          <AudioControl />
           <button class="ghost-button" type="button" @click="emit('rules')">规则</button>
         </div>
       </div>
 
       <div class="setup-scroll">
+      <h3 class="mobile-field-title mobile-only">计分方式</h3>
       <div class="mode-switch">
         <label :class="{ selected: form.mode === 'finite' }">
           <input v-model="form.mode" type="radio" value="finite">
-          <strong>有限积分</strong><span>有人积分归零，整场结束</span>
+          <strong>有限积分</strong><span>分光就结束</span>
         </label>
         <label :class="{ selected: form.mode === 'unlimited' }">
           <input v-model="form.mode" type="radio" value="unlimited">
-          <strong>无限模式</strong><span>不破产，只记录本场净分</span>
+          <strong>无限模式</strong><span>只记净分</span>
         </label>
       </div>
 
@@ -104,21 +105,11 @@ function submit() {
       </section>
       <p class="ai-note desktop-only">打什么牌型由 AI 看着手牌自己定，不用你指定风格；想多久也由这手牌好不好打决定——孤张秒出，听牌和能杠的地方会明显慢下来。所有档位都只看自己的手牌和公开信息，不会偷看别人的暗牌。</p>
 
-      <!-- 手机端每个座位那格积分输入放不下，这里给一个统一的：四家用同一个初始分。
-           小程序也是这么设计的，实际上也没人会给四家配不同的底分。 -->
-      <div v-if="form.mode === 'finite'" class="points-row mobile-only">
-        <span class="points-label">初始积分</span>
-        <div class="points-stepper">
-          <button type="button" aria-label="减少" @click="stepPoints(-10)">−</button>
-          <input v-model.number="sharedPoints" type="number" min="1" max="9999" inputmode="numeric">
-          <button type="button" aria-label="增加" @click="stepPoints(10)">+</button>
-        </div>
-      </div>
-
+      <h3 class="mobile-field-title mobile-only">座位</h3>
       <div class="players-grid">
         <article v-for="playerId in 4" :key="playerId" class="player-config">
           <header>
-            <span class="avatar" :class="{ human: playerId === 1 }">{{ playerId === 1 ? '你' : `AI${playerId - 1}` }}</span>
+            <span class="avatar" :class="{ human: playerId === 1 }">{{ playerId === 1 ? '你' : 'AI' }}</span>
             <div><strong>{{ playerId === 1 ? '真人玩家' : '离线AI玩家' }}</strong><small>{{ playerId === 1 ? '固定在牌桌下方' : '只需选一个档位' }}</small></div>
           </header>
           <label>名称<input v-model="form.names[playerId - 1]" maxlength="8"></label>
@@ -133,6 +124,16 @@ function submit() {
           </template>
         </article>
       </div>
+
+      <!-- 手机端每个座位那格积分输入放不下，这里给一个统一的：四家用同一个初始分。 -->
+      <div v-if="form.mode === 'finite'" class="points-row mobile-only">
+        <span class="points-label">初始积分</span>
+        <div class="points-stepper">
+          <button type="button" aria-label="减少" @click="stepPoints(-10)">−</button>
+          <input v-model.number="sharedPoints" type="number" min="1" max="9999" inputmode="numeric">
+          <button type="button" aria-label="增加" @click="stepPoints(10)">+</button>
+        </div>
+      </div>
       </div>
 
       <div class="setup-footer">
@@ -142,8 +143,11 @@ function submit() {
           </select>
         </label>
         <p>四家各投两枚骰子，最高者首庄；平局自动重投。</p>
-        <button v-if="savedGameAvailable" class="secondary-button" type="button" @click="emit('resume')">继续上次牌局</button>
-        <button class="primary-button" type="button" @click="submit">投骰开局</button>
+        <section v-if="savedGameAvailable" class="saved-match-card">
+          <header><small>上次没打完</small><strong>牌局进度已保存</strong></header>
+          <div><button class="saved-drop" type="button" @click="emit('discard')">删除</button><button class="saved-go" type="button" @click="emit('resume')">继续</button></div>
+        </section>
+        <button class="primary-button" type="button" @click="submit">开始牌局</button>
       </div>
     </section>
   </main>
@@ -198,6 +202,14 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
 .primary-button { color: #1e251d; background: #e6c76d; box-shadow: 0 8px 24px rgba(230,199,109,.18); }
 .secondary-button, .ghost-button { color: #e6d8b2; background: #1a3931; border: 1px solid #315248; }
 .ghost-button { background: transparent; }
+.saved-match-card { flex: 1 1 100%; padding: 14px 16px; border: 1px solid #6b5c31; border-radius: 14px; background: rgba(38,34,18,.8); }
+.saved-match-card header { display: flex; align-items: baseline; gap: 10px; }
+.saved-match-card header small { color: #d6b765; font-weight: 800; letter-spacing: .14em; }
+.saved-match-card header strong { color: #f6f0df; }
+.saved-match-card > div { display: flex; gap: 10px; margin-top: 10px; }
+.saved-match-card button { flex: 1; }
+.saved-drop { background: #8d3a32; color: #ffe4df; }
+.saved-go { background: #e5c66d; color: #20261d; }
 @media (max-width: 900px) { .players-grid { grid-template-columns: 1fr 1fr; } .ai-guide { grid-template-columns: 1fr; } .guide-title { padding-bottom: 2px; } .ai-guide article { border-left: 0; border-top: 1px solid #29453d; } }
 @media (max-width: 620px) { .players-grid, .mode-switch { grid-template-columns: 1fr; } .setup-footer, .card-heading { flex-wrap: wrap; } .setup-footer p { flex-basis: 100%; } .heading-actions { width: 100%; } .heading-actions button { flex: 1; } .seal { display: none; } }
 
@@ -287,5 +299,85 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   border: 1px solid #35524a; border-radius: 12px;
   background: #10251f; color: #f3d67c;
   font-size: 19px; font-weight: 800; text-align: center;
+}
+
+/* 手机网页直接使用小程序的页面骨架：标题固定、中部一屏设置、底部存档与开局按钮。 */
+@media (pointer: coarse), (max-width: 700px), (max-height: 620px) {
+  .setup-page { padding: max(14px, env(safe-area-inset-top)) 20px calc(16px + env(safe-area-inset-bottom)); background: #0b1a15; }
+  .setup-card { width: 100%; max-width: none; margin: 0; padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .hero, .ai-guide, .ai-note, .profile-hint, .subtitle { display: none !important; }
+  .card-heading { min-height: 42px; margin: 0 0 12px; flex-wrap: nowrap; }
+  .heading-title { gap: 10px; }
+  .heading-title h2 { font-size: 20px; color: #f3d67c; }
+  .heading-back { width: 36px; height: 36px; min-height: 36px; border-radius: 10px; font-size: 25px; }
+  .heading-actions { width: auto; margin-left: auto; gap: 5px; flex-wrap: nowrap; }
+  .heading-actions .ghost-button,
+  .heading-actions :deep(.audio-trigger) { min-width: 0; height: 34px; min-height: 34px; padding: 0 10px; border-radius: 99px; font-size: 11px; }
+  .setup-scroll { flex: 1; min-height: 0; display: block; overflow: hidden; padding: 0; }
+  .mobile-field-title { margin: 0 0 8px; color: #e4dcc4; font-size: 16px; }
+  .mobile-field-title + .mode-switch { margin-bottom: 18px; }
+  .mode-switch { gap: 9px; margin: 0; }
+  .mode-switch input { display: none; }
+  .mode-switch label { min-height: 72px; padding: 13px 15px; border-radius: 12px; }
+  .mode-switch strong { font-size: 17px; }
+  .mode-switch span { font-size: 11px; }
+  .players-grid { grid-template-columns: 1fr; gap: 7px; margin: 0 0 17px; }
+  .player-config { min-height: 50px; padding: 6px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid #2f4b41; border-radius: 11px; background: #102821; }
+  .player-config header { grid-column: 1; margin: 0; }
+  .player-config header strong, .player-config header small { display: none; }
+  .player-config .avatar { width: 34px; height: 34px; border-radius: 9px; }
+  .player-config label { font-size: 0; }
+  .player-config label:nth-of-type(1) { grid-column: 2; margin: 0; }
+  .player-config label:nth-of-type(2) { display: none; }
+  .player-config label:last-of-type { grid-column: 3; margin: 0; }
+  .player-config input, .player-config select { height: 36px; min-height: 36px; padding: 0 10px; border-radius: 8px; font-size: 14px; }
+  .player-config select { width: 94px; min-width: 94px; color: #f3d67c; background: #16332a; }
+  .points-row { margin: 0; align-items: flex-start; flex-direction: column; gap: 8px; }
+  .points-stepper { width: 100%; gap: 14px; }
+  .points-stepper button { width: 48px; height: 48px; min-height: 48px; }
+  .points-stepper input { flex: 1; width: auto; height: 48px; min-height: 48px; }
+  .setup-footer { width: 100%; margin: 14px 0 0; padding: 0; border: 0; display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+  .claim-setting { min-width: 0; margin: 0; display: flex; grid-auto-flow: column; align-items: center; justify-content: space-between; color: #e4dcc4; font-size: 15px; font-weight: 700; }
+  .claim-setting select { width: 148px; height: 42px; min-height: 42px; color: #f3d67c; text-align: center; }
+  .setup-footer > p { display: none; }
+  .saved-match-card { flex: none; padding: 10px 12px; border-radius: 12px; }
+  .saved-match-card header small { font-size: 10px; }
+  .saved-match-card header strong { font-size: 14px; }
+  .saved-match-card > div { margin-top: 8px; gap: 8px; }
+  .saved-match-card button { min-height: 38px; padding: 8px; }
+  .primary-button { width: 100%; min-height: 54px; border-radius: 14px; font-size: 18px; }
+}
+
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .setup-page { padding: 8px max(16px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .card-heading { min-height: 34px; margin-bottom: 6px; }
+  .heading-title h2 { font-size: 18px; }
+  .heading-back { width: 30px; height: 30px; min-height: 30px; }
+  .heading-actions .ghost-button, .heading-actions :deep(.audio-trigger) { height: 30px; min-height: 30px; }
+  .setup-scroll { min-height: 0; display: grid; grid-template-columns: .9fr 1.35fr .78fr; grid-template-rows: auto minmax(0, 1fr); gap: 5px 14px; }
+  .mobile-field-title { margin: 0; font-size: 13px; }
+  .mobile-field-title:first-child { grid-column: 1; grid-row: 1; }
+  .mobile-field-title:first-child + .mode-switch { grid-column: 1; grid-row: 2; }
+  .mode-switch { grid-template-columns: 1fr; gap: 7px; margin: 0 !important; }
+  .mode-switch label { min-height: 0; padding: 10px 12px; }
+  .mode-switch strong { font-size: 14px; }
+  .mobile-field-title:nth-of-type(2) { grid-column: 2; grid-row: 1; }
+  .players-grid { grid-column: 2; grid-row: 2; gap: 5px; margin: 0; }
+  .player-config { min-height: 38px; padding: 3px 7px; }
+  .player-config .avatar { width: 28px; height: 28px; }
+  .player-config input, .player-config select { height: 30px; min-height: 30px; font-size: 12px; }
+  .player-config select { width: 78px; min-width: 78px; }
+  .points-row { grid-column: 3; grid-row: 1 / 3; justify-content: center; }
+  .points-label { font-size: 13px; }
+  .points-stepper { gap: 5px; }
+  .points-stepper button { width: 32px; height: 34px; min-height: 34px; }
+  .points-stepper input { height: 34px; min-height: 34px; font-size: 15px; }
+  .setup-footer { margin-top: 7px; display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 1fr) minmax(190px, .8fr); gap: 9px; align-items: end; }
+  .claim-setting { font-size: 12px; }
+  .claim-setting select { width: 116px; height: 36px; min-height: 36px; font-size: 12px; }
+  .saved-match-card { padding: 6px 9px; }
+  .saved-match-card > div { margin-top: 5px; }
+  .saved-match-card button { min-height: 30px; padding: 5px; }
+  .primary-button { min-height: 42px; font-size: 16px; }
 }
 </style>

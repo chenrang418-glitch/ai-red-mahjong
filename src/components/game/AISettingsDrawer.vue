@@ -20,7 +20,7 @@ function change(player: PlayerState, value: string) {
 <template>
   <div v-if="open" class="drawer-backdrop" @click.self="emit('close')">
     <aside class="drawer">
-      <header><div><small>LIVE CONFIG</small><h2>AI随时切换</h2></div><button @click="emit('close')">×</button></header>
+      <header><div><small>LIVE CONFIG</small><h2>AI 档位</h2></div><button @click="emit('close')">×</button></header>
       <p class="hint">修改从该AI的下一次新决策开始生效，不会偷看其他玩家手牌。</p>
       <div class="quick-guide">只有一个档位要选。<b>做什么牌型</b>由 AI 看着手牌自己定，<b>想多久</b>由这手牌好不好打决定。</div>
       <article v-for="player in players.filter(p => !p.isHuman)" :key="player.id">
@@ -53,4 +53,29 @@ label { display: grid; gap: 5px; color: #81968f; font-size: 10px; margin-top: 8p
 .difficulty-hint { margin: 8px 0 0; color: #7f948d; font-size: 11px; line-height: 1.6; }
 select { width: 100%; padding: 10px; color: #f3ecd8; background: #18322b; border: 1px solid #37574e; border-radius: 8px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+@media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
+  .drawer-backdrop { align-items: flex-end; justify-content: stretch; }
+  .drawer { width: 100%; height: auto; max-height: 72dvh; padding: 0 18px calc(20px + env(safe-area-inset-bottom)); overflow: hidden; border: 0; border-top: 1px solid #355249; border-radius: 22px 22px 0 0; background: #0c211b; box-shadow: 0 -18px 50px rgba(0,0,0,.45); }
+  header { min-height: 62px; margin: 0 -18px 12px; padding: 0 18px; border-bottom: 1px solid #1d352d; }
+  header small, .hint, .quick-guide, .difficulty-hint { display: none; }
+  h2 { margin: 0; color: #f3d67c; font-size: 21px; }
+  header button { width: 42px; height: 42px; border: 0; background: transparent; color: #8ba49c; font-size: 28px; }
+  article { min-height: 64px; margin: 9px 0; padding: 10px 14px; display: grid; grid-template-columns: minmax(0, 1fr) 128px; align-items: center; gap: 12px; border-color: #355249; border-radius: 14px; background: #102a22; }
+  .ai-title { margin: 0; }
+  .ai-title span { display: none; }
+  .ai-title strong { font-size: 17px; }
+  label { margin: 0; font-size: 0; }
+  select { min-height: 42px; color: #f3d67c; font-size: 15px; text-align: center; }
+}
+
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .drawer-backdrop { align-items: center; justify-content: center; }
+  .drawer { width: min(480px, 70vw); max-height: 90dvh; padding: 0 14px 14px; border: 1px solid #355249; border-radius: 16px; }
+  header { min-height: 46px; margin: 0 -14px 8px; padding: 0 14px; }
+  h2 { font-size: 18px; }
+  article { min-height: 48px; margin: 6px 0; grid-template-columns: 1fr 120px; }
+  .ai-title strong { font-size: 14px; }
+  select { min-height: 34px; font-size: 13px; }
+}
 </style>

@@ -228,12 +228,26 @@ export function useMahjongGame() {
     runToken += 1
     cancelClaimTimers()
     cancelScheduledSave()
-    if (state.value) queueActiveReplayDelete(state.value.matchId)
+    const abandonedMatchId = state.value?.matchId ?? loadActiveGame()?.matchId
+    if (abandonedMatchId) queueActiveReplayDelete(abandonedMatchId)
     engine.value = null
     state.value = null
     frames.value = []
     clearActiveGame()
     savedGameAvailable.value = false
+    gameAudio.stopMatch()
+  }
+
+  // 离开牌桌但保留存档：小程序返回设置页时就是这套语义。
+  // 先把当前状态和进行中牌谱强制落盘，再释放内存中的引擎，重新进入单机时显示“继续”。
+  function pauseMatch() {
+    if (!state.value) return
+    runToken += 1
+    cancelClaimTimers()
+    flushSave()
+    engine.value = null
+    state.value = null
+    frames.value = []
     gameAudio.stopMatch()
   }
 
@@ -446,6 +460,7 @@ export function useMahjongGame() {
     humanClaimOption,
     startMatch,
     resumeMatch,
+    pauseMatch,
     abandonMatch,
     humanDiscard,
     humanWin,

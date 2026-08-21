@@ -318,19 +318,26 @@ function sendChat(text: string, quick: boolean) {
   <div v-else-if="room.game" class="game-page online-game-page" :class="{ immersive }" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
       <!-- 房间号是联机时最需要念给别人听的信息，手机上原本要横屏才看得到，现在提到顶栏 -->
-      <div class="brand">
+      <div class="brand desktop-only">
         <span>中</span>
         <div><strong class="room-code">{{ room.code }}</strong><small>{{ connected ? '联机中' : '重连中…' }}</small></div>
       </div>
+      <div class="round-bar mobile-only">
+        <button class="round-back" type="button" aria-label="退出房间" @click="leave">‹</button>
+        <span>第 <b>{{ room.game.round }}</b> 局</span>
+        <span>牌墙 <b>{{ room.game.wall.length }}</b></span>
+        <span class="online-round-code">房间 <b>{{ room.code }}</b></span>
+      </div>
       <div class="status-pill" :class="room.game.phase">{{ connected ? room.notice : '连接中断，正在重连…' }}</div>
       <nav>
-        <button type="button" :class="{ trustee: displayedTrustee, pending: pendingAction?.type === 'trustee' }" :disabled="!!pendingAction" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ pendingAction?.type === 'trustee' ? pendingAction.enabled ? '开启托管中…' : '取消托管中…' : selfSeat.trustee ? '取消托管' : 'AI托管' }}</button>
-        <button class="mobile-only" type="button" @click="openInfo('score')">战况</button>
+        <button class="trustee-button" type="button" :class="{ trustee: displayedTrustee, pending: pendingAction?.type === 'trustee' }" :disabled="!!pendingAction" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ pendingAction?.type === 'trustee' ? '处理中…' : selfSeat.trustee ? '取消托管' : '托管' }}</button>
+        <button class="mobile-only" type="button" @click="openInfo('score')">积分</button>
         <AudioControl class="desktop-only" />
         <button class="danger desktop-only" type="button" @click="leave">退出房间</button>
         <TopbarMenu class="mobile-only">
-          <button type="button" @click="audioOpen = true">声音</button>
-          <button class="danger" type="button" @click="leave">退出房间</button>
+          <button type="button" @click="audioOpen = true"><b>声音</b><span>音效设置 ›</span></button>
+          <button type="button" @click="openInfo('chat')"><b>牌桌聊天</b><span>快捷短语 ›</span></button>
+          <button class="danger" type="button" @click="leave"><b>退出房间</b><span>›</span></button>
         </TopbarMenu>
       </nav>
     </header>
@@ -373,6 +380,7 @@ function sendChat(text: string, quick: boolean) {
             <button class="chat-fab" type="button" @click="openInfo('chat')">聊</button>
           </template>
         </MahjongTable>
+        <div class="mobile-table-notice mobile-only">{{ room.notice }}</div>
         <div class="action-dock">
           <template v-if="pendingAction?.type === 'discard'">
             <span class="waiting-dot"></span><span>出牌已显示，正在等待服务器确认…</span>
@@ -569,5 +577,65 @@ function sendChat(text: string, quick: boolean) {
   .online-right-panel.mobile-open { position: fixed; z-index: 45; left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); height: min(70dvh, 590px); display: grid; border-color: #715f32; box-shadow: 0 -20px 55px rgba(0,0,0,.5); }
 
 
+}
+
+/* 手机联机界面沿用单机小程序的尺寸与弹层方式，只保留房间号、托管和聊天这些联机特有信息。 */
+@media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
+  .online-lobby-page { padding: max(12px, env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom)); background: #0b1a15; }
+  .lobby-header { flex: none; min-height: 44px; margin: 0; flex-wrap: nowrap; }
+  .lobby-room-code { order: 0; flex: 1; flex-basis: auto; }
+  .lobby-header strong { font-size: 21px; }
+  .lobby-header > button { min-height: 36px; padding: 7px 10px; }
+  .lobby-header-actions { flex: none; }
+  .lobby-card { flex: 1; min-height: 0; width: 100%; margin: 10px 0 0; padding: 15px; display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; }
+  .lobby-heading { flex: none; flex-direction: row; }
+  .lobby-heading h1 { margin: 2px 0; font-size: 22px; }
+  .lobby-heading p { margin: 3px 0; font-size: 10px; }
+  .share-row { margin-top: 6px; }
+  .share-hint, .share-link { font-size: 9px; }
+  .online-seats { flex: 1; min-height: 0; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .online-seats article { min-height: 0; border-radius: 13px; }
+  .seat-avatar { width: 44px; height: 44px; border-radius: 13px; }
+  .lobby-card footer { flex: none; padding-top: 10px; flex-wrap: nowrap; }
+  .lobby-card footer p { flex: 1; flex-basis: auto; font-size: 10px; }
+  .lobby-card footer button { width: auto; min-width: 128px; min-height: 46px; }
+  .online-game-page .brand { display: none; }
+  .online-game-page .round-bar { display: flex; }
+  .online-round-code { overflow: hidden; text-overflow: ellipsis; }
+  .online-round-code b { font-size: 13px; letter-spacing: .05em; }
+  .online-game-page .trustee-button { min-width: 52px; padding-inline: 8px; }
+  .online-right-panel.mobile-open {
+    position: fixed;
+    z-index: 45;
+    left: 0; right: 0; bottom: 0;
+    height: min(72dvh, 620px);
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+    border: 0;
+    border-top: 1px solid #35524a;
+    border-radius: 22px 22px 0 0;
+    background: #0c211b;
+    box-shadow: 0 -18px 50px rgba(0,0,0,.45);
+  }
+  .online-right-panel .side-tabs { grid-template-columns: repeat(3, 1fr) auto; gap: 7px; margin-bottom: 10px; }
+  .online-right-panel .side-tabs button { min-height: 44px; border-radius: 10px; font-size: 12px; }
+  .online-right-panel .side-tabs .drawer-close { display: block; min-width: 34px; border: 0; font-size: 22px; }
+  .online-right-panel .drawer-ranking { overflow-y: auto; }
+  .online-right-panel .drawer-ranking li { min-height: 64px; grid-template-columns: 28px 1fr auto; }
+  .online-right-panel .drawer-ranking small { grid-column: 2; }
+  .chat-fab { width: 38px; height: 38px; }
+}
+
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
+  .online-lobby-page { padding: max(7px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  .lobby-header { min-height: 34px; }
+  .lobby-card { margin-top: 6px; padding: 10px 12px; }
+  .lobby-card { display: grid; grid-template-columns: 1fr 1.6fr; grid-template-rows: 1fr auto; gap: 8px 12px; }
+  .lobby-heading { grid-column: 1; grid-row: 1; flex-direction: column; }
+  .online-seats { grid-column: 2; grid-row: 1 / 3; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr; margin: 0; }
+  .lobby-card footer { grid-column: 1; grid-row: 2; }
+  .lobby-rules { justify-content: flex-start; }
+  .online-right-panel.mobile-open { top: 0; left: auto; right: 0; bottom: 0; width: min(58vw, 520px); height: 100dvh; border: 0; border-left: 1px solid #35524a; border-radius: 16px 0 0 16px; }
 }
 </style>

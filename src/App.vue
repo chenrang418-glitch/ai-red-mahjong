@@ -49,11 +49,13 @@ const replayOpen = ref(false)
 const rulesOpen = ref(false)
 // 手机端积分和牌局记录收进抽屉，牌桌才占得满一屏
 const infoOpen = ref(false)
+const infoTab = ref<'score' | 'flow' | 'log'>('score')
 // 声音弹层的开关放在页面上：挂在菜单里的话，菜单一收起组件就卸载了
 const audioOpen = ref(false)
 
 // 手机端顶栏那个返回箭头：牌局一直在自动存档，回首页不影响进度
 function backToHome() {
+  game.pauseMatch()
   appMode.value = 'home'
 }
 // 手机上（横竖屏都算）这两块面板不常驻，点「战况」才出来，牌桌才占得满。
@@ -70,7 +72,7 @@ onMounted(() => {
   compactQuery.addEventListener('change', syncCompact)
 })
 onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact))
-const showSidePanels = computed(() => !compactLayout.value || infoOpen.value)
+const showSidePanels = computed(() => !compactLayout.value)
 const clock = ref(Date.now())
 let clockTimer: number | null = null
 
@@ -175,6 +177,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     :saved-game-available="game.savedGameAvailable.value"
     @start="game.startMatch"
     @resume="game.resumeMatch"
+    @discard="game.abandonMatch"
     @history="replayOpen = true"
     @rules="rulesOpen = true"
     @back="appMode = 'home'"
@@ -195,20 +198,18 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <nav>
         <button class="desktop-only" @click="rulesOpen = true">规则</button>
         <button class="desktop-only" @click="replayOpen = true">牌谱</button>
-        <button class="mobile-only" @click="infoOpen = true">战况</button>
-        <button @click="settingsOpen = true">AI设置</button>
+        <button class="mobile-only" @click="infoOpen = true">积分</button>
+        <button class="desktop-only" @click="settingsOpen = true">AI设置</button>
         <AudioControl class="desktop-only" />
         <button class="desktop-only" @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
         <button class="desktop-only" @click="endMatch">结束</button>
         <button class="danger desktop-only" @click="newMatch">新牌局</button>
         <!-- 竖屏顶栏只留「AI设置」，其余七个按钮收进菜单 -->
         <TopbarMenu class="mobile-only">
-          <button @click="audioOpen = true">声音</button>
-          <button @click="rulesOpen = true">玩法规则</button>
-          <button @click="replayOpen = true">牌谱回放</button>
-          <button @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出牌局</button>
-          <button @click="endMatch">结束整场</button>
-          <button class="danger" @click="newMatch">新牌局</button>
+          <button @click="audioOpen = true"><b>声音</b><span>音效设置 ›</span></button>
+          <button @click="settingsOpen = true"><b>AI 档位</b><span>对局中可改 ›</span></button>
+          <button @click="rulesOpen = true"><b>玩法规则</b><span>›</span></button>
+          <button class="danger" @click="backToHome"><b>退出牌局</b><span>›</span></button>
         </TopbarMenu>
       </nav>
     </header>
@@ -255,6 +256,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
           @select-tile="selectTile"
           @toggle-immersive="toggleImmersive"
         />
+        <div class="mobile-table-notice mobile-only">{{ game.notice.value }}</div>
         <div class="action-dock">
           <template v-if="game.state.value.phase === 'claiming' && game.humanClaimOption.value">
             <div class="claim-clock"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
@@ -285,6 +287,36 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     </main>
 
     <div v-if="infoOpen" class="info-mask" @click="infoOpen = false"></div>
+    <aside v-if="infoOpen && compactLayout" class="mobile-info-panel" aria-label="牌局信息">
+      <header class="mobile-info-tabs">
+        <button :class="{ active: infoTab === 'score' }" @click="infoTab = 'score'">积分排名</button>
+        <button :class="{ active: infoTab === 'flow' }" @click="infoTab = 'flow'">本局流水</button>
+        <button :class="{ active: infoTab === 'log' }" @click="infoTab = 'log'">牌局记录</button>
+        <button class="mobile-info-close" aria-label="关闭" @click="infoOpen = false">×</button>
+      </header>
+      <div class="mobile-info-body">
+        <ol v-if="infoTab === 'score'" class="mobile-ranking">
+          <li v-for="(player, index) in sortedRanking" :key="player.id">
+            <span>{{ index + 1 }}</span>
+            <div><strong>{{ player.name }}</strong><small>胡{{ player.stats.wins }} · 杠{{ player.stats.gangCount }} · 码{{ player.stats.maCount }}</small></div>
+            <b>{{ player.points === null ? `${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}分` }}</b>
+          </li>
+        </ol>
+        <div v-else-if="infoTab === 'flow'" class="mobile-flow-list">
+          <article v-for="transfer in recentTransfers" :key="transfer.id">
+            <b>{{ transferReason[transfer.reason] }}</b>
+            <span>{{ game.state.value.players[transfer.fromPlayer].name }} → {{ game.state.value.players[transfer.toPlayer].name }}</span>
+            <em>-{{ transfer.paid }}</em>
+          </article>
+          <p v-if="!recentTransfers.length" class="empty">本局暂无积分变化</p>
+        </div>
+        <div v-else class="mobile-log-list">
+          <article v-for="event in [...game.state.value.events].reverse().slice(0, 30)" :key="event.id">
+            <small>第{{ event.round }}局</small><span>{{ event.detail }}</span>
+          </article>
+        </div>
+      </div>
+    </aside>
     <div v-if="game.error.value" class="error-toast" @click="game.error.value = ''">{{ game.error.value }} ×</div>
     <AudioControl v-model:open="audioOpen" hide-trigger />
     <DiceToast :state="game.state.value" />
@@ -319,7 +351,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
   <div v-if="rulesOpen" class="rules-backdrop" @click.self="rulesOpen = false">
     <section class="rules-card">
-      <header><h2>红中麻将规则</h2><button @click="rulesOpen = false">×</button></header>
+      <header><button class="rules-back" aria-label="返回" @click="rulesOpen = false">‹</button><h2>玩法规则</h2></header>
       <div class="rules-body">
         <section v-for="section in RULE_SECTIONS" :key="section.group" class="rule-group">
           <h3>{{ section.group }}</h3>
