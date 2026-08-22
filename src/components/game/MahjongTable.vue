@@ -47,6 +47,8 @@ const humanDrawTile = computed(() => {
 const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.id !== humanDrawTile.value?.id))
 // 最后一张弃牌单独高亮：牌河堆满之后，光靠位置很难看出刚打的是哪张。
 const lastDiscardId = computed(() => props.state.lastDiscard?.tile.id ?? '')
+// 这几类动作值得把提示条也强调一下，普通的摸打就不用了
+const STRONG_EVENTS = ['peng', 'ming-gang', 'an-gang', 'bu-gang', 'win', 'draw-game']
 const activeCountdown = computed(() => {
   const timer = props.turnTimer
   if (!timer) return null
@@ -135,7 +137,11 @@ function countdownFor(seatId: number) {
           <span>牌墙 <b>{{ state.wall.length }}</b></span>
           <span>码区 <b>{{ state.maReserve.length }}</b></span>
         </div>
-        <div class="last-action" v-if="state.events.length">{{ state.events.at(-1)?.detail }}</div>
+        <div
+          v-if="state.events.length"
+          class="last-action"
+          :class="{ strong: STRONG_EVENTS.includes(state.events.at(-1)?.type ?? '') }"
+        >{{ state.events.at(-1)?.detail }}</div>
       </div>
 
       <div class="river river-right" data-seat="下家" :class="{ active: state.currentPlayer === right.id }" :aria-label="`${right.name}的牌河`">
@@ -322,6 +328,22 @@ function countdownFor(seatId: number) {
   box-shadow: 0 0 0 2px #f3ca69, 0 4px 12px rgba(243, 202, 105, .35);
   transform: translateY(-2px);
 }
+/* 刚打出的牌从打牌人那一侧飞进牌河。
+   之前是凭空出现在牌河里，四家轮得快的时候根本看不清谁打了什么。
+   每个牌河朝向不同，起点方向也跟着变，视线自然跟着牌走。 */
+.river :deep(.just-discarded) { animation: river-fly .34s cubic-bezier(.22, .68, .3, 1); }
+.river-bottom :deep(.just-discarded) { --fly-x: 0; --fly-y: 46px; }
+.river-top :deep(.just-discarded) { --fly-x: 0; --fly-y: -46px; }
+.river-left :deep(.just-discarded) { --fly-x: -46px; --fly-y: 0; }
+.river-right :deep(.just-discarded) { --fly-x: 46px; --fly-y: 0; }
+@keyframes river-fly {
+  from {
+    transform: translate(var(--fly-x, 0), var(--fly-y, 0)) scale(1.22);
+    opacity: .35;
+  }
+  60% { opacity: 1; }
+  to { transform: translateY(-2px) scale(1); }
+}
 
 .center-info {
   grid-area: center-info;
@@ -338,6 +360,13 @@ function countdownFor(seatId: number) {
 .round-data span { padding: 4px 2px; border-radius: 6px; background: rgba(255,255,255,.04); white-space: nowrap; }
 .round-data b { display: block; color: #ecd591; font-size: clamp(12px, 1.3cqw, 15px); font-variant-numeric: tabular-nums; }
 .last-action { min-height: 30px; margin-top: 7px; padding: 7px 5px 1px; overflow: hidden; border-top: 1px solid rgba(255,255,255,.1); color: #ffe08a; font-size: clamp(11px, 1.25cqw, 14px); font-weight: 800; line-height: 1.3; text-wrap: balance; animation: action-flash .32s ease; }
+/* 碰、杠、胡这种大动作，提示条压一下再弹回来，配合音效和震动一起给反馈 */
+.last-action.strong { animation: action-strong .42s cubic-bezier(.2, .8, .3, 1.2); color: #ffd75e; }
+@keyframes action-strong {
+  0% { transform: scale(.86); opacity: .3; }
+  55% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); }
+}
 
 .human-seat {
   grid-area: human;
@@ -360,7 +389,25 @@ function countdownFor(seatId: number) {
 .meld-row :deep(.mahjong-tile.compact) { width: var(--meld-tile-width); height: var(--meld-tile-height); padding: 1px; border-radius: 4px; }
 .human-hand { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: flex-end; justify-content: center; gap: clamp(1px, .3cqw, 4px); min-height: var(--human-tile-height); padding-top: 9px; }
 .human-hand :deep(.mahjong-tile) { width: var(--human-tile-width); height: var(--human-tile-height); padding: clamp(1px, .28cqw, 3px); border-radius: clamp(4px, .62cqw, 7px); }
-.drawn-tile-slot { position: relative; display: flex; margin-left: clamp(4px, 1cqw, 13px); padding-left: clamp(4px, 1cqw, 13px); }
+/* 手牌是全局点得最多的东西，但十四张铺满屏宽之后单张只有二十几像素，
+   比 iOS 建议的 44 小一半。牌面尺寸不能再大了，改成用伪元素把可点范围
+   向四周撑开——手指按在两张牌中间的缝里也能选中，视觉上没有任何变化。 */
+.human-hand :deep(.mahjong-tile)::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--hand-hit-x, 3px));
+  right: calc(-1 * var(--hand-hit-x, 3px));
+  top: calc(-1 * var(--hand-hit-y, 6px));
+  bottom: calc(-1 * var(--hand-hit-y, 6px));
+}
+.human-hand :deep(.mahjong-tile:disabled)::after { content: none; }
+.drawn-tile-slot { position: relative; display: flex; margin-left: clamp(4px, 1cqw, 13px); padding-left: clamp(4px, 1cqw, 13px); animation: tile-drawn .3s cubic-bezier(.2, .7, .3, 1); }
+/* 摸上来的牌从右上方滑入并轻微下沉，和「刚摸」那个标签一起，
+   让人一眼认出这张是新的——十四张排一起，光靠位置很难分辨 */
+@keyframes tile-drawn {
+  from { transform: translate(14px, -18px) scale(1.14); opacity: .3; }
+  to { transform: none; opacity: 1; }
+}
 .drawn-tile-slot::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 2px; width: 1px; background: rgba(243,202,105,.45); }
 .drawn-tile-slot small { position: absolute; z-index: 1; top: -10px; left: 7px; padding: 1px 4px; border-radius: 99px; background: #c49d3e; color: #17211b; font-size: clamp(6px, .7cqw, 8px); font-weight: 800; white-space: nowrap; }
 .drawn-tile-slot :deep(.mahjong-tile) { box-shadow: 0 4px 0 #b9ad8c, 0 0 0 2px #efc85f, 0 8px 18px rgba(239,200,95,.2); }
@@ -668,6 +715,8 @@ function countdownFor(seatId: number) {
   .meld-row { justify-content: center; flex-wrap: wrap; }
   /* 极窄屏塞不下十四张时允许横向滑动，而不是把牌桌撑破 */
   .human-hand { justify-content: center; padding-top: 10px; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  /* 触屏没有 hover 可以试错，热区给得比桌面端更宽一些 */
+  .human-hand :deep(.mahjong-tile) { --hand-hit-x: 4px; --hand-hit-y: 9px; }
   .human-hand::-webkit-scrollbar { display: none; }
   /* 竖屏中央窄，左右两家的气泡朝里展开会正面撞上，所以错开一行、各让一半宽度 */
   .left-seat :deep(.seat-bubble) { max-width: min(150px, 34cqw); top: 0; }
@@ -855,6 +904,7 @@ function countdownFor(seatId: number) {
   .last-action { animation: none; }
   .table-shell.my-turn { animation: none; }
   .bubble-enter-active, .bubble-leave-active { transition: none; }
-  .river :deep(.just-discarded) { transform: none; }
+  .river :deep(.just-discarded) { transform: none; animation: none; }
+  .drawn-tile-slot, .last-action, .last-action.strong { animation: none; }
 }
 </style>

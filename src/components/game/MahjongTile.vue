@@ -59,6 +59,8 @@ function choose() {
 
 <style scoped>
 .mahjong-tile {
+  /* 手牌的扩展热区是个绝对定位的伪元素，得有这个做基准 */
+  position: relative;
   width: 46px;
   height: 64px;
   padding: 3px;

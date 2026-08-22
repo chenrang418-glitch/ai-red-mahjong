@@ -100,7 +100,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .claim-clock i { width: 96px; height: 5px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: #2b443c; }
 .claim-clock em { display: block; height: 100%; border-radius: inherit; background: #dfbd5e; transition: width .25s linear; }
 .turn-clock { margin-right: 4px; color: #d9c47e; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.waiting-dot { width: 8px; height: 8px; border-radius: 50%; background: #dabb61; box-shadow: 0 0 12px #dabb61; animation: pulse 1s infinite; }
+/* AI 思考时那颗点：原来只是整体明暗闪烁，看久了像卡住。
+   改成呼吸式缩放加辉光，能看出「它还在算」而不是「界面没反应」。 */
+.waiting-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #dabb61; box-shadow: 0 0 12px #dabb61; animation: thinking-pulse 1.2s ease-in-out infinite; }
+@keyframes thinking-pulse {
+  0%, 100% { transform: scale(.72); opacity: .45; box-shadow: 0 0 6px rgba(218,187,97,.5); }
+  50% { transform: scale(1.08); opacity: 1; box-shadow: 0 0 14px rgba(218,187,97,.85); }
+}
 .event-panel { grid-area: events; }
 .event-list { display: grid; gap: 7px; }
 .event-list article { padding: 8px; border-left: 2px solid #37544b; background: #0e241e; border-radius: 0 8px 8px 0; }

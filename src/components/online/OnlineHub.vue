@@ -112,7 +112,7 @@ function back() {
         <small>{{ invitedCode ? 'JOIN BY LINK' : 'NICKNAME LOGIN' }}</small>
         <h1>{{ invitedCode ? '加入房间' : '输入昵称' }}</h1>
         <p v-if="invitedCode" class="invited-code">{{ invitedCode }}</p>
-        <p>{{ invitedCode ? '输入昵称就直接进这个房间。同一个昵称同时只能在一个地方登录。' : '第一次使用会自动注册；之后输入相同昵称即可继续累计排行榜数据。页面刷新后需要重新输入。' }}</p>
+        <p>{{ invitedCode ? '输入昵称就直接进这个房间。同一个昵称同时只能在一个地方登录。' : '第一次使用会自动注册；之后输入相同昵称即可继续累计排行榜数据。' }}</p>
         <form @submit.prevent="submitNickname">
           <label>昵称<input v-model="nickname" maxlength="12" autocomplete="off" placeholder="例如：齐天大圣A123"></label>
           <button type="submit" :disabled="online.busy.value || !online.apiConfigured">{{ online.busy.value ? '连接中…' : invitedCode ? '进入房间' : '进入联机大厅' }}</button>

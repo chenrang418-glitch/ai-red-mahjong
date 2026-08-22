@@ -304,7 +304,7 @@ export function useMahjongGame() {
     claimEarliestResolveAt = discardedAt + claimMaskDelay()
     pendingClaimPlayers = new Set(current.claimOptions.map((option) => option.playerId))
     claimDeadline.value = current.claimOptions.length > 0 ? Date.now() + current.config.claimWindowMs : null
-    notice.value = '等待其他玩家响应…'
+    notice.value = '等其他三家决定要不要这张…'
     sync()
 
     if (current.claimOptions.length === 0) {
@@ -414,7 +414,7 @@ export function useMahjongGame() {
     if (!humanPlayer.value || !engine.value || engine.value.state.phase !== 'claiming') return
     humanPassed.value = true
     pendingClaimPlayers.delete(humanPlayer.value.id)
-    notice.value = '你已选择过，等待其他玩家'
+    notice.value = '你已经选过了，等其他三家'
     if (pendingClaimPlayers.size === 0) requestNoClaimResolution(runToken)
   }
 
