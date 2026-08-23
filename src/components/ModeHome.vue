@@ -19,7 +19,7 @@ defineEmits<{ local: []; online: [] }>()
         <small>LOCAL MATCH</small>
         <div class="mode-icon">单</div>
         <h2>单机游戏</h2>
-        <p>你与三个离线 AI 对局，保留现有存档、牌谱、声音和全部 AI 设置。</p>
+        <p>你与三个离线 AI 对局，随时退出、随时接着打。</p>
         <ul><li>无需联网</li><li>支持继续上次牌局</li><li>AI 档位自由调整</li></ul>
         <button type="button" @click="$emit('local')">进入单机游戏</button>
       </article>

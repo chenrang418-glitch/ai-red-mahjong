@@ -136,6 +136,16 @@ const displayedGame = computed(() => {
 const displayedTrustee = computed(() => props.pendingAction?.type === 'trustee' ? props.pendingAction.enabled : selfSeat.value.trustee)
 const selectedTile = computed(() => human.value?.hand.find((tile) => tile.id === selectedTileId.value) ?? null)
 const sortedScores = computed(() => props.room.game ? [...props.room.game.players].sort((left, right) => (right.points ?? right.stats.netPoints) - (left.points ?? left.stats.netPoints)) : [])
+const playerNotice = computed(() => {
+  const notice = props.room.notice.trim()
+  if (!notice || /正在思考|正在操作|等待其他玩家响应|AI 正在托管你的座位/.test(notice)) return ''
+  return notice
+})
+const showActionDock = computed(() => !!props.pendingAction
+  || displayedTrustee.value
+  || props.room.legal.claimActions.length > 0
+  || props.room.legal.canDiscard
+  || !!playerNotice.value)
 const claimSeconds = computed(() => props.room.deadlineAt
   ? String(Math.max(0, Math.ceil((props.room.deadlineAt - serverClock.value) / 1000)))
   : '')
@@ -169,13 +179,24 @@ const eventTypeLabel: Record<string, string> = {
 }
 
 function action(command: RoomActionDraft) {
+  gameAudio.vibrate(command.type === 'pass-claim' ? 10 : 9)
   emit('command', { ...command, actionId: crypto.randomUUID(), version: props.room.version } as RoomCommand)
+}
+
+function toggleTrustee(enabled: boolean) {
+  gameAudio.vibrate(10)
+  emit('command', { type: 'trustee', enabled })
 }
 
 function selectTile(tile: Tile) {
   if (!props.room.legal.canDiscard) return
+  gameAudio.vibrate(selectedTileId.value === tile.id ? 7 : 11)
   selectedTileId.value = selectedTileId.value === tile.id ? '' : tile.id
 }
+
+watch(() => props.room.legal.claimActions.join(','), (actions, previous) => {
+  if (actions && !previous) gameAudio.vibrate([18, 38, 24])
+})
 
 function discardSelected() {
   if (!selectedTile.value) return
@@ -328,7 +349,7 @@ function sendChat(text: string, quick: boolean) {
         <span>牌墙 <b>{{ room.game.wall.length }}</b></span>
         <span class="online-round-code">房间 <b>{{ room.code }}</b></span>
       </div>
-      <div class="status-pill" :class="room.game.phase">{{ connected ? room.notice : '连接中断，正在重连…' }}</div>
+      <div class="status-pill" :class="room.game.phase">{{ connected ? (playerNotice || '牌局进行中') : '连接中断，正在重连…' }}</div>
       <nav>
         <button class="trustee-button" type="button" :class="{ trustee: displayedTrustee, pending: pendingAction?.type === 'trustee' }" :disabled="!!pendingAction" @click="emit('command', { type: 'trustee', enabled: !selfSeat.trustee })">{{ pendingAction?.type === 'trustee' ? '处理中…' : selfSeat.trustee ? '取消托管' : '托管' }}</button>
         <button class="mobile-only" type="button" @click="openInfo('score')">积分</button>
@@ -380,16 +401,16 @@ function sendChat(text: string, quick: boolean) {
             <button class="chat-fab" type="button" @click="openInfo('chat')">聊</button>
           </template>
         </MahjongTable>
-        <div class="mobile-table-notice mobile-only">{{ room.notice }}</div>
-        <div class="action-dock">
+        <div v-if="playerNotice" class="mobile-table-notice mobile-only">{{ playerNotice }}</div>
+        <div v-if="showActionDock" class="action-dock">
           <template v-if="pendingAction?.type === 'discard'">
-            <span class="waiting-dot"></span><span>出牌已显示，正在等待服务器确认…</span>
+            <span class="action-status">出牌中…</span>
           </template>
           <template v-else-if="pendingAction?.type === 'trustee'">
-            <span class="waiting-dot"></span><span>{{ pendingAction.enabled ? '正在开启AI托管…' : '正在取消AI托管…' }}</span>
+            <span class="action-status">处理中…</span>
           </template>
-          <template v-else-if="selfSeat.trustee">
-            <span class="waiting-dot"></span><span>AI 正在托管你的座位</span><button type="button" @click="emit('command', { type: 'trustee', enabled: false })">取消托管</button>
+          <template v-else-if="displayedTrustee">
+            <span class="action-status">AI 托管中</span><button type="button" @click="toggleTrustee(false)">取消托管</button>
           </template>
           <template v-else-if="room.legal.claimActions.length">
             <div class="claim-clock" role="timer" :aria-label="`抢牌响应剩余 ${claimSeconds} 秒`"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
@@ -402,9 +423,9 @@ function sendChat(text: string, quick: boolean) {
             <button v-if="room.legal.canWin" class="red" type="button" @click="action({ type: 'win' })">自摸</button>
             <button v-for="face in room.legal.anGangFaces" :key="`an-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'an-gang', face })">暗杠 {{ tileLabel(tileFromFace(face)) }}</button>
             <button v-for="face in room.legal.buGangFaces" :key="`bu-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'bu-gang', face })">补杠 {{ tileLabel(tileFromFace(face)) }}</button>
-            <button class="discard-button" type="button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '出牌' }}</button>
+            <button class="discard-button" type="button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '选一张牌' }}</button>
           </template>
-          <template v-else><span class="waiting-dot"></span><span>{{ room.notice }}</span></template>
+          <span v-else-if="playerNotice" class="action-status">{{ playerNotice }}</span>
         </div>
       </section>
 

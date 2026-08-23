@@ -52,10 +52,35 @@ const infoOpen = ref(false)
 const infoTab = ref<'score' | 'flow' | 'log'>('score')
 // 声音弹层的开关放在页面上：挂在菜单里的话，菜单一收起组件就卸载了
 const audioOpen = ref(false)
+const exitSheetOpen = ref(false)
 
 // 手机端顶栏那个返回箭头：牌局一直在自动存档，回首页不影响进度
 function backToHome() {
   game.pauseMatch()
+  appMode.value = 'home'
+}
+
+function requestExit() {
+  exitSheetOpen.value = true
+  gameAudio.vibrate(10)
+}
+
+function keepMatchAndHome() {
+  exitSheetOpen.value = false
+  gameAudio.vibrate(14)
+  backToHome()
+}
+
+function finishMatchAndHome() {
+  exitSheetOpen.value = false
+  gameAudio.vibrate([24, 42, 48])
+  game.endMatch()
+  game.pauseMatch()
+  appMode.value = 'home'
+}
+
+function returnHomeAfterMatch() {
+  game.abandonMatch()
   appMode.value = 'home'
 }
 // 手机上（横竖屏都算）这两块面板不常驻，点「战况」才出来，牌桌才占得满。
@@ -119,6 +144,11 @@ const claimProgress = computed(() => {
   const remaining = Math.max(0, game.claimDeadline.value - clock.value)
   return Math.min(100, (remaining / game.state.value.config.claimWindowMs) * 100)
 })
+const playerNotice = computed(() => (game.busy.value || game.state.value?.phase === 'claiming') ? '' : game.notice.value)
+const showActionDock = computed(() => !!game.state.value && (
+  (game.state.value.phase === 'claiming' && !!game.humanClaimOption.value)
+  || (game.state.value.phase === 'playing' && game.isHumanTurn.value)
+))
 const recentTransfers = computed(() => {
   if (!game.state.value) return []
   return game.state.value.transfers.filter((transfer) => transfer.round === game.state.value!.round).slice(-8).reverse()
@@ -129,8 +159,17 @@ const sortedRanking = computed(() => {
 })
 
 watch(() => game.state.value?.currentPlayer, () => { selectedTileId.value = '' })
+watch(() => !!game.humanClaimOption.value, (available, previous) => {
+  if (available && !previous) gameAudio.vibrate([18, 38, 24])
+})
 function selectTile(tile: Tile) {
+  gameAudio.vibrate(selectedTileId.value === tile.id ? 7 : 11)
   selectedTileId.value = selectedTileId.value === tile.id ? '' : tile.id
+}
+
+function passClaim() {
+  gameAudio.vibrate(10)
+  game.humanPassClaim()
 }
 
 function discardSelected() {
@@ -189,12 +228,12 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <div class="brand desktop-only"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
       <!-- 手机端顶栏就是信息栏：局数挪上来，中央位置全让给弃牌区 -->
       <div class="round-bar mobile-only">
-        <button class="round-back" type="button" aria-label="返回" @click="backToHome">‹</button>
+        <button class="round-back" type="button" aria-label="返回" @click="requestExit">‹</button>
         <span>第 <b>{{ game.state.value.round }}</b> 局</span>
         <span>牌墙 <b>{{ game.state.value.wall.length }}</b></span>
         <span>码区 <b>{{ game.state.value.maReserve.length }}</b></span>
       </div>
-      <div class="status-pill" :class="game.state.value.phase">{{ game.notice.value || game.state.value.events.at(-1)?.detail }}</div>
+      <div class="status-pill" :class="game.state.value.phase">{{ playerNotice || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
         <button class="desktop-only" @click="rulesOpen = true">规则</button>
         <button class="desktop-only" @click="replayOpen = true">牌谱</button>
@@ -209,7 +248,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
           <button @click="audioOpen = true"><b>声音</b><span>音效设置 ›</span></button>
           <button @click="settingsOpen = true"><b>AI 档位</b><span>对局中可改 ›</span></button>
           <button @click="rulesOpen = true"><b>玩法规则</b><span>›</span></button>
-          <button class="danger" @click="backToHome"><b>退出牌局</b><span>›</span></button>
+          <button class="danger" @click="requestExit"><b>退出牌局</b><span>›</span></button>
         </TopbarMenu>
       </nav>
     </header>
@@ -256,22 +295,19 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
           @select-tile="selectTile"
           @toggle-immersive="toggleImmersive"
         />
-        <div class="mobile-table-notice mobile-only">{{ game.notice.value }}</div>
-        <div class="action-dock">
+        <div v-if="playerNotice" class="mobile-table-notice mobile-only">{{ playerNotice }}</div>
+        <div v-if="showActionDock" class="action-dock">
           <template v-if="game.state.value.phase === 'claiming' && game.humanClaimOption.value">
             <div class="claim-clock"><b>{{ claimSeconds }}</b><span>秒内响应</span><i><em :style="{ width: `${claimProgress}%` }"></em></i></div>
             <button v-if="game.humanClaimOption.value.actions.includes('peng')" class="gold" @click="game.humanClaim('peng')">碰</button>
             <button v-if="game.humanClaimOption.value.actions.includes('ming-gang')" class="red" @click="game.humanClaim('ming-gang')">杠</button>
-            <button @click="game.humanPassClaim">过</button>
+            <button @click="passClaim">过</button>
           </template>
           <template v-else-if="game.isHumanTurn.value && game.state.value.phase === 'playing'">
             <button v-if="canHumanWin" class="red" @click="game.humanWin">自摸</button>
             <button v-for="face in anGangFaces" :key="`an-${face}`" class="gold" @click="game.humanGang('an-gang', face)">暗杠 {{ tileLabel(tileFromFace(face)) }}</button>
             <button v-for="face in buGangFaces" :key="`bu-${face}`" class="gold" @click="game.humanGang('bu-gang', face)">补杠 {{ tileLabel(tileFromFace(face)) }}</button>
-            <button class="discard-button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '出牌' }}</button>
-          </template>
-          <template v-else>
-            <span class="waiting-dot"></span><span>{{ game.busy.value ? 'AI正在本地计算' : game.notice.value }}</span>
+            <button class="discard-button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '选一张牌' }}</button>
           </template>
         </div>
       </section>
@@ -321,6 +357,14 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     <AudioControl v-model:open="audioOpen" hide-trigger />
     <DiceToast :state="game.state.value" />
 
+    <div v-if="exitSheetOpen" class="exit-sheet-backdrop" @click.self="exitSheetOpen = false">
+      <section class="exit-sheet" role="dialog" aria-label="退出牌局">
+        <button type="button" @click="keepMatchAndHome"><b>保留对局</b><span>下次接着打</span></button>
+        <button class="finish" type="button" @click="finishMatchAndHome"><b>结束对局</b><span>存进牌谱</span></button>
+        <button class="cancel" type="button" @click="exitSheetOpen = false">取消</button>
+      </section>
+    </div>
+
     <div v-if="game.state.value.phase === 'settlement' || game.state.value.phase === 'match-over'" class="result-backdrop">
       <section class="result-card">
         <small>{{ game.state.value.phase === 'match-over' ? 'MATCH OVER' : 'ROUND RESULT' }}</small>
@@ -339,7 +383,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
         <div class="result-actions">
           <button @click="replayOpen = true">查看牌谱</button>
           <button v-if="game.state.value.phase === 'settlement'" class="primary" @click="game.nextRound">{{ game.state.value.result?.type === 'draw' ? '下一局（流局留庄）' : '下一局（赢家坐庄）' }}</button>
-          <button v-else class="primary" @click="game.abandonMatch">返回开局</button>
+          <button v-else class="primary" @click="returnHomeAfterMatch">返回首页</button>
         </div>
       </section>
     </div>

@@ -116,7 +116,7 @@ describe('抢牌响应流程', () => {
     game.humanDiscard(scenario.redTileId)
     expect(game.state.value?.phase).toBe('claiming')
     expect(game.state.value?.claimOptions).toHaveLength(0)
-    expect(game.notice.value).toBe('等其他三家决定要不要这张…')
+    expect(game.notice.value).toBe('')
 
     vi.advanceTimersByTime(1199)
     expect(game.state.value?.phase).toBe('claiming')

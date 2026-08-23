@@ -16,7 +16,6 @@ import {
   type ReplayRecord,
 } from '@/game/persistence'
 import type { AIProfile, ClaimAction, GameState, MatchConfig } from '@/game/types'
-import { tileLabel } from '@/game/tiles'
 
 function wait(duration: number) {
   return new Promise((resolve) => window.setTimeout(resolve, duration))
@@ -267,13 +266,13 @@ export function useMahjongGame() {
       busy.value = false
       const latestEvent = current.events.at(-1)
       notice.value = current.turnStage === 'after-draw' && latestEvent?.type === 'draw' && latestEvent.tile
-        ? `你刚摸到 ${tileLabel(latestEvent.tile)}：可自摸、杠或出牌`
+        ? '你摸到牌了，可以胡、杠或出牌'
         : '轮到你出牌'
       return
     }
 
     busy.value = true
-    notice.value = `${player.name}正在思考…`
+    notice.value = ''
     const profile = structuredClone(player.ai!)
     // 想多久取决于这手牌好不好打：孤张一眼就扔，听牌和能杠的地方才慢下来
     await wait(estimateThinkMs(engine.value.createObservation(player.id), profile, current.events.length))
@@ -304,7 +303,7 @@ export function useMahjongGame() {
     claimEarliestResolveAt = discardedAt + claimMaskDelay()
     pendingClaimPlayers = new Set(current.claimOptions.map((option) => option.playerId))
     claimDeadline.value = current.claimOptions.length > 0 ? Date.now() + current.config.claimWindowMs : null
-    notice.value = '等其他三家决定要不要这张…'
+    notice.value = ''
     sync()
 
     if (current.claimOptions.length === 0) {
@@ -414,7 +413,7 @@ export function useMahjongGame() {
     if (!humanPlayer.value || !engine.value || engine.value.state.phase !== 'claiming') return
     humanPassed.value = true
     pendingClaimPlayers.delete(humanPlayer.value.id)
-    notice.value = '你已经选过了，等其他三家'
+    notice.value = ''
     if (pendingClaimPlayers.size === 0) requestNoClaimResolution(runToken)
   }
 

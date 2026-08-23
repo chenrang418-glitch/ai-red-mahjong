@@ -23,6 +23,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 ::-webkit-scrollbar-thumb { background: #355249; border-radius: 99px; }
 .game-page { flex: 1; min-height: 0; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 50% -20%, #1d4136 0, transparent 38%), #091410; }
 .topbar { min-height: 66px; padding: 0 18px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid #263d36; background: rgba(7,20,16,.94); position: sticky; top: 0; z-index: 20; }
+.topbar:has(.topbar-menu .menu-mask) { z-index: 88; }
 .brand { display: flex; align-items: center; gap: 9px; min-width: 190px; }
 .brand > span { width: 38px; height: 38px; display: grid; place-items: center; border: 2px solid #b84740; border-radius: 10px; color: #d1594f; font: 800 23px/1 serif; transform: rotate(-4deg); }
 .brand div { display: grid; }
@@ -91,7 +92,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .action-dock button.gold { border-color: #b3944a; background: linear-gradient(180deg, #6b5729, #4d3f1f); color: #ffe49a; }
 .action-dock button.red { border-color: #b3564e; background: linear-gradient(180deg, #7c3733, #5c2926); color: #ffd8d4; font-size: 15px; box-shadow: 0 0 18px rgba(190, 86, 78, .25); }
 .action-dock .discard-button { min-width: 190px; background: linear-gradient(180deg, #2a5548, #1e4034); border-color: #457164; }
-.action-dock .discard-button:not(:disabled) { color: #fff3d6; }
+.action-dock .discard-button:not(:disabled) { color: #fff3d6; animation: action-ready 2s ease-in-out infinite; }
+.action-status { color: #d9c98f; font-size: 13px; font-weight: 700; text-align: center; }
+@keyframes action-ready {
+  50% { border-color: #f0cf71; box-shadow: 0 0 0 2px rgba(240,207,113,.12), 0 0 24px rgba(240,207,113,.24); }
+}
 /* 抢牌窗口只有几秒，且牌桌上不公开显示（避免暴露谁有碰杠机会），
    这条横条是玩家唯一的时间参考，所以字号和进度条都需要足够醒目 */
 .claim-clock { display: grid; text-align: center; margin-right: 8px; }
@@ -100,13 +105,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .claim-clock i { width: 96px; height: 5px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: #2b443c; }
 .claim-clock em { display: block; height: 100%; border-radius: inherit; background: #dfbd5e; transition: width .25s linear; }
 .turn-clock { margin-right: 4px; color: #d9c47e; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* AI 思考时那颗点：原来只是整体明暗闪烁，看久了像卡住。
-   改成呼吸式缩放加辉光，能看出「它还在算」而不是「界面没反应」。 */
-.waiting-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #dabb61; box-shadow: 0 0 12px #dabb61; animation: thinking-pulse 1.2s ease-in-out infinite; }
-@keyframes thinking-pulse {
-  0%, 100% { transform: scale(.72); opacity: .45; box-shadow: 0 0 6px rgba(218,187,97,.5); }
-  50% { transform: scale(1.08); opacity: 1; box-shadow: 0 0 14px rgba(218,187,97,.85); }
-}
 .event-panel { grid-area: events; }
 .event-list { display: grid; gap: 7px; }
 .event-list article { padding: 8px; border-left: 2px solid #37544b; background: #0e241e; border-radius: 0 8px 8px 0; }
@@ -115,8 +113,55 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .event-list article small { color: #5f756e; font-size: 8px; }
 /* 提示条放在顶部：手机上底部整条都是操作区，压在那里会被手指和按钮挡住 */
 .error-toast { position: fixed; z-index: 80; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #ad5148; border-radius: 12px; background: rgba(94, 45, 40, .97); color: #ffd8d3; cursor: pointer; font-size: 13px; text-align: center; box-shadow: 0 14px 36px rgba(0,0,0,.45); }
+.exit-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: rgba(0,0,0,.7);
+  animation: veil-in .18s ease-out;
+}
+.exit-sheet {
+  width: min(560px, 100%);
+  animation: sheet-up .24s cubic-bezier(.2,.82,.24,1);
+}
+.exit-sheet button {
+  width: 100%;
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #151515;
+  cursor: pointer;
+  font-size: 17px;
+}
+.exit-sheet button:first-child { border-radius: 18px 18px 0 0; }
+.exit-sheet button.finish { border-top: 1px solid #e7e7e7; border-radius: 0 0 18px 18px; }
+.exit-sheet button.cancel { margin-top: 8px; border-radius: 18px; font-weight: 700; }
+.exit-sheet button b::after { content: '，'; }
+.exit-sheet button:active { background: #ececec; }
+.exit-sheet button.finish b { color: #9f302d; }
+@media (orientation: landscape) and (max-height: 620px) {
+  .exit-sheet-backdrop { padding: 0; }
+  .exit-sheet { width: 100%; }
+  .exit-sheet button.finish,
+  .exit-sheet button.cancel { border-radius: 0; }
+}
 .result-backdrop, .rules-backdrop { position: fixed; inset: 0; z-index: 35; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.68); }
 .result-card, .rules-card { width: min(610px, 94vw); max-height: 90vh; overflow: auto; padding: 24px; border: 1px solid #806d38; border-radius: 21px; background: #0e241e; box-shadow: 0 25px 80px rgba(0,0,0,.5); }
+.result-backdrop, .rules-backdrop { animation: veil-in .18s ease-out; }
+.result-card, .rules-card { animation: modal-rise .24s cubic-bezier(.2,.82,.24,1); }
+@keyframes veil-in { from { opacity: 0; } }
+@keyframes sheet-up { from { opacity: 0; transform: translateY(40px); } }
+@keyframes modal-rise { from { opacity: 0; transform: translateY(12px) scale(.98); } }
 .result-card > small { color: #7d918a; letter-spacing: .2em; }
 .result-card h2 { margin: 5px 0 18px; color: #f3d67c; }
 .win-result { margin-bottom: 10px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 14px; border: 1px solid #806d38; border-radius: 13px; background: #16342b; }
@@ -184,9 +229,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .rules-grid p { margin: 4px 0 0; color: #91a59e; font-size: 11px; line-height: 1.7; }
 @keyframes pulse { 50% { opacity: .4; } }
 @keyframes enter { from { opacity: 0; transform: translate(-50%, -10px); } }
-/* 倒计时脉冲和等待点是持续循环的动画，对前庭敏感的用户需要可以关掉 */
 @media (prefers-reduced-motion: reduce) {
-  .waiting-dot { animation: none; }
+  .action-dock .discard-button:not(:disabled),
+  .exit-sheet-backdrop, .exit-sheet,
+  .result-backdrop, .rules-backdrop,
+  .result-card, .rules-card { animation: none; }
   .claim-clock em { transition: none; }
 }
 @media (max-width: 1380px) and (pointer: fine) {
@@ -526,7 +573,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .action-dock button { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 9px 12px; border-radius: 14px; font-size: 16px; }
   .action-dock .discard-button { flex: 1 1 100%; min-width: 0; min-height: 56px; order: 5; border: 0; background: #e0c069; color: #20261e; font-size: 18px; }
   .action-dock .discard-button:disabled { opacity: 1; background: #253029; color: #7b8a83; }
-  .action-dock > .waiting-dot + span:last-child { flex: 1; text-align: center; color: #8ba49c; }
+  .action-status { flex: 1; color: #8ba49c; }
   .mobile-table-notice { position: fixed; z-index: 18; left: 50%; bottom: calc(164px + env(safe-area-inset-bottom)); max-width: calc(100vw - 40px); transform: translateX(-50%); overflow: hidden; color: #ddc68c; font-size: 14px; text-align: center; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; }
   .claim-clock { margin: 0; }
 

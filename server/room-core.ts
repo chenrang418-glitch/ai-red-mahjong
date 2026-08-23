@@ -872,13 +872,12 @@ export class RoomCoordinator {
     if (seat.trustee) return 'AI 正在托管你的座位'
     if (game.phase === 'claiming') {
       const actions = game.claimOptions.find((option) => option.playerId === seat.seatId)?.actions ?? []
-      return actions.length ? '请选择碰、杠或过' : '等待其他玩家响应…'
+      return actions.length ? '请选择碰、杠或过' : ''
     }
     if (game.phase === 'settlement') return seat.userId === this.state.hostUserId ? '本局结束，请开始下一局' : '本局结束，等待房主开始下一局'
     if (game.phase === 'match-over') return '整场牌局结束'
     if (game.currentPlayer === seat.seatId) return game.turnStage === 'after-draw' ? '轮到你操作' : '轮到你出牌'
-    const currentSeat = this.state.seats[game.currentPlayer]
-    return `${currentSeat.name}${currentSeat.trustee || currentSeat.kind === 'ai' ? '正在思考…' : '正在操作…'}`
+    return ''
   }
 
   private addChat(seat: StoredSeat, rawText: string, quick: boolean, now: number): ChatMessage {

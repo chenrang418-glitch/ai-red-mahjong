@@ -7,11 +7,6 @@ defineProps<{ savedGameAvailable: boolean }>()
 const emit = defineEmits<{ start: [config: MatchConfig]; resume: []; discard: []; history: []; rules: []; back: [] }>()
 
 const difficultyLabels: Record<Difficulty, string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
-const difficultyHints: Record<Difficulty, string> = {
-  beginner: '算不清剩几张，常打错牌',
-  standard: '会算向听和进张',
-  expert: '挑听得最宽的打法',
-}
 
 interface SetupForm {
   mode: MatchMode
@@ -63,7 +58,7 @@ function submit() {
       <div class="seal">中</div>
       <p class="eyebrow">本地离线 · 红中麻将</p>
       <h1>AI 红中麻将</h1>
-      <p class="subtitle desktop-only">你与三个不看暗牌的离线AI，在浏览器里完整打一场。</p>
+      <p class="subtitle desktop-only">你与三个离线 AI，在浏览器里完整打一场。</p>
       <div class="rule-chips">
         <span>112张</span><span>只能自摸</span><span>支持七对</span><span>六码抓码</span><span>红中万能</span>
       </div>
@@ -97,14 +92,6 @@ function submit() {
         </label>
       </div>
 
-      <section class="ai-guide desktop-only" aria-label="AI设置说明">
-        <div class="guide-title"><span>AI GUIDE</span><strong>三个档位</strong></div>
-        <article><b>菜鸡</b><p>算不清牌河里已经走了几张，常常顺手打错牌，有杠就杠，碰牌也不看划不划算。</p></article>
-        <article><b>凡人</b><p>会算离听牌还差几步、还能摸到多少张有用的牌，副露前会先掂量值不值。</p></article>
-        <article><b>猿神</b><p>在凡人之上还会挑「听得最宽」的那张打，牌墙见底时收手保杠分，也会避开明显在喂给对家的牌。</p></article>
-      </section>
-      <p class="ai-note desktop-only">打什么牌型由 AI 看着手牌自己定，不用你指定风格；想多久也由这手牌好不好打决定——孤张秒出，听牌和能杠的地方会明显慢下来。所有档位都只看自己的手牌和公开信息，不会偷看别人的暗牌。</p>
-
       <h3 class="mobile-field-title mobile-only">座位</h3>
       <div class="players-grid">
         <article v-for="playerId in 4" :key="playerId" class="player-config">
@@ -112,15 +99,14 @@ function submit() {
             <span class="avatar" :class="{ human: playerId === 1 }">{{ playerId === 1 ? '你' : 'AI' }}</span>
             <div><strong>{{ playerId === 1 ? '真人玩家' : '离线AI玩家' }}</strong><small>{{ playerId === 1 ? '固定在牌桌下方' : '只需选一个档位' }}</small></div>
           </header>
-          <label>名称<input v-model="form.names[playerId - 1]" maxlength="8"></label>
-          <label v-if="form.mode === 'finite'">初始积分<input v-model.number="form.points[playerId - 1]" type="number" min="1" max="9999"></label>
+          <label class="name-setting">名称<input v-model="form.names[playerId - 1]" maxlength="8"></label>
+          <label v-if="form.mode === 'finite'" class="seat-points-setting">初始积分<input v-model.number="form.points[playerId - 1]" type="number" min="1" max="9999"></label>
           <template v-if="playerId > 1">
-            <label>智能档位
+            <label class="difficulty-setting">智能档位
               <select v-model="form.profiles[playerId - 2].difficulty">
                 <option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option>
               </select>
             </label>
-            <p class="profile-hint desktop-only">{{ difficultyHints[form.profiles[playerId - 2].difficulty] }}</p>
           </template>
         </article>
       </div>
@@ -174,15 +160,6 @@ h2 { margin: 2px 0 0; font-size: 24px; }
 .mode-switch strong, .mode-switch span { grid-column: 2; min-width: 0; }
 .mode-switch strong { font-size: 15px; line-height: 1.4; }
 .mode-switch span { color: #849a93; font-size: 11px; line-height: 1.5; }
-.ai-guide { display: grid; grid-template-columns: 130px repeat(3, 1fr); gap: 10px; align-items: stretch; margin: 0 0 18px; padding: 11px; border: 1px solid #29453d; border-radius: 14px; background: #0c1e19; }
-.guide-title { display: flex; flex-direction: column; justify-content: center; padding: 7px; }
-.guide-title span { color: #6d837c; font-size: 9px; letter-spacing: .18em; }
-.guide-title strong { color: #e7cf88; font-size: 16px; }
-.ai-guide article { padding: 9px 11px; border-left: 1px solid #29453d; }
-.ai-guide b { color: #e5c76e; font-size: 12px; }
-.ai-guide p { margin: 4px 0 0; color: #82978f; font-size: 10px; line-height: 1.65; }
-.ai-note { margin: -10px 0 18px; color: #7f948d; font-size: 11px; line-height: 1.75; }
-.profile-hint { margin: 7px 0 0; color: #7f948d; font-size: 10px; line-height: 1.6; }
 .players-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
 .player-config { padding: 15px; border: 1px solid #29453d; border-radius: 14px; background: #0d211c; }
 .player-config header { display: flex; gap: 9px; align-items: center; margin-bottom: 12px; }
@@ -210,7 +187,7 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
 .saved-match-card button { flex: 1; }
 .saved-drop { background: #8d3a32; color: #ffe4df; }
 .saved-go { background: #e5c66d; color: #20261d; }
-@media (max-width: 900px) { .players-grid { grid-template-columns: 1fr 1fr; } .ai-guide { grid-template-columns: 1fr; } .guide-title { padding-bottom: 2px; } .ai-guide article { border-left: 0; border-top: 1px solid #29453d; } }
+@media (max-width: 900px) { .players-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 620px) { .players-grid, .mode-switch { grid-template-columns: 1fr; } .setup-footer, .card-heading { flex-wrap: wrap; } .setup-footer p { flex-basis: 100%; } .heading-actions { width: 100%; } .heading-actions button { flex: 1; } .seal { display: none; } }
 
 /* 触屏上手指点不准 33px 高的下拉框，开局页的每个控件都放大到能一次点中 */
@@ -250,11 +227,11 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   .mode-switch label { padding: 14px 15px; gap: 3px; }
   .mode-switch strong { font-size: 16px; }
   .mode-switch span { font-size: 11px; }
-  .mode-switch input { display: none; }
+  .mode-switch label { position: relative; }
+  .mode-switch input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .mode-switch label:focus-within { outline: 2px solid #e2bf62; outline-offset: 2px; }
 
-  /* 这几块说明加了 .desktop-only 也没用：组件内的 scoped 规则特异性比全局类高，
-     得在组件自己的媒体查询里关掉。 */
-  .hero, .ai-guide, .ai-note, .profile-hint, .subtitle { display: none !important; }
+  .hero, .subtitle { display: none !important; }
   .player-config header small { display: none; }
 
   /* 座位压成一行一个：头像 + 名称 + 档位，和小程序对齐 */
@@ -272,9 +249,9 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   .player-config .avatar { width: 34px; height: 34px; font-size: 11px; }
   /* 名称占中间，档位靠右，初始积分在这屏用不着（下面统一设） */
   .player-config label { margin: 0; }
-  .player-config label:nth-of-type(1) { grid-column: 2; }
-  .player-config label:nth-of-type(2) { display: none; }
-  .player-config label:last-of-type { grid-column: 3; }
+  .player-config .name-setting { grid-column: 2; }
+  .player-config .seat-points-setting { display: none; }
+  .player-config .difficulty-setting { grid-column: 3; }
   .player-config input, .player-config select {
     min-height: 38px; padding: 7px 10px; font-size: 14px;
   }
@@ -305,7 +282,7 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
 @media (pointer: coarse), (max-width: 700px), (max-height: 620px) {
   .setup-page { padding: max(14px, env(safe-area-inset-top)) 20px calc(16px + env(safe-area-inset-bottom)); background: #0b1a15; }
   .setup-card { width: 100%; max-width: none; margin: 0; padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-  .hero, .ai-guide, .ai-note, .profile-hint, .subtitle { display: none !important; }
+  .hero, .subtitle { display: none !important; }
   .card-heading { min-height: 42px; margin: 0 0 12px; flex-wrap: nowrap; }
   .heading-title { gap: 10px; }
   .heading-title h2 { font-size: 20px; color: #f3d67c; }
@@ -317,7 +294,7 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   .mobile-field-title { margin: 0 0 8px; color: #e4dcc4; font-size: 16px; }
   .mobile-field-title + .mode-switch { margin-bottom: 18px; }
   .mode-switch { gap: 9px; margin: 0; }
-  .mode-switch input { display: none; }
+  .mode-switch input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
   .mode-switch label { min-height: 72px; padding: 13px 15px; border-radius: 12px; }
   .mode-switch strong { font-size: 17px; }
   .mode-switch span { font-size: 11px; }
@@ -327,9 +304,9 @@ button { border: 0; border-radius: 10px; font: 700 13px/1 'Microsoft YaHei'; pad
   .player-config header strong, .player-config header small { display: none; }
   .player-config .avatar { width: 34px; height: 34px; border-radius: 9px; }
   .player-config label { font-size: 0; }
-  .player-config label:nth-of-type(1) { grid-column: 2; margin: 0; }
-  .player-config label:nth-of-type(2) { display: none; }
-  .player-config label:last-of-type { grid-column: 3; margin: 0; }
+  .player-config .name-setting { grid-column: 2; margin: 0; }
+  .player-config .seat-points-setting { display: none; }
+  .player-config .difficulty-setting { grid-column: 3; margin: 0; }
   .player-config input, .player-config select { height: 36px; min-height: 36px; padding: 0 10px; border-radius: 8px; font-size: 14px; }
   .player-config select { width: 94px; min-width: 94px; color: #f3d67c; background: #16332a; }
   .points-row { margin: 0; align-items: flex-start; flex-direction: column; gap: 8px; }

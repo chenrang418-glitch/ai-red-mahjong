@@ -241,24 +241,31 @@ function processEvents(state: GameState, listenerPlayerId?: number) {
     // 震动只在自己的动作上给：四家都震手机会一直抖
     const mine = event.playerId === humanId
     if (event.type === 'dice') playEffect('dice', delay)
-    else if (event.type === 'draw') playEffect('draw', delay)
+    else if (event.type === 'draw') {
+      playEffect('draw', delay)
+      if (mine) vibrate(12)
+    }
     else if (event.type === 'discard') {
       playEffect('discard', delay)
-      if (mine) vibrate(18)
+      if (mine) vibrate(24)
     } else if (event.type === 'peng') {
       playEffect('peng', delay)
-      if (mine) vibrate([0, 28, 40, 28])
+      if (mine) vibrate([0, 36, 45, 36])
     } else if (['ming-gang', 'an-gang', 'bu-gang'].includes(event.type)) {
       playEffect('gang', delay)
-      if (mine) vibrate([0, 30, 50, 30, 50, 40])
+      if (mine) vibrate([0, 38, 48, 42, 48, 72])
     } else if (event.type === 'win') {
       playEffect(mine ? 'win' : 'loss', delay)
       // 别人胡牌也震一下，提醒这局结束了
-      vibrate(mine ? [0, 45, 60, 45, 60, 90] : 22)
-    } else if (event.type === 'draw-game') playEffect('draw-game', delay)
+      vibrate(mine ? [0, 55, 65, 55, 65, 110] : 28)
+    } else if (event.type === 'draw-game') {
+      playEffect('draw-game', delay)
+      vibrate(20)
+    }
     else if (event.type === 'match-over') {
       const ranking = [...state.players].sort((a, b) => (b.points ?? b.stats.netPoints) - (a.points ?? a.stats.netPoints))
       playEffect(ranking[0]?.id === humanId ? 'win' : 'loss', delay + 0.35)
+      vibrate([0, 32, 55, 70])
       window.setTimeout(stopMusic, 1300)
     }
   })

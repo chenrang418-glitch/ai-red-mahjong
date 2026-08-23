@@ -80,7 +80,18 @@ const meldLabel: Record<string, string> = {
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
   transition: border-color .2s, box-shadow .2s;
 }
-.seat.active { border-color: #f3ca69; box-shadow: 0 0 0 2px rgba(243,202,105,.16), 0 0 26px rgba(243,202,105,.16); }
+.seat.active {
+  border-color: #f3ca69;
+  box-shadow: 0 0 0 2px rgba(243,202,105,.16), 0 0 26px rgba(243,202,105,.16);
+  animation: seat-breathe 2.2s ease-in-out infinite;
+}
+@keyframes seat-breathe {
+  50% {
+    border-color: #ffe08a;
+    background: linear-gradient(180deg, rgba(24, 70, 57, .92), rgba(6, 34, 28, .9));
+    box-shadow: 0 0 0 2px rgba(255,222,133,.26), 0 0 34px rgba(243,202,105,.3);
+  }
+}
 header { display: flex; gap: 6px; align-items: center; min-width: 0; color: #f7f0d9; }
 header strong { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header :deep(.seat-countdown) { margin-left: 2px; }
@@ -151,6 +162,7 @@ header :deep(.seat-countdown) { margin-left: 2px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .seat.active { animation: none; }
   .bubble-enter-active, .bubble-leave-active { transition: none; }
 }
 </style>

@@ -378,7 +378,14 @@ function countdownFor(seatId: number) {
   border: 1px solid rgba(220,193,113,.2);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
 }
-.human-seat.active { border-color: #f3ca69; box-shadow: 0 0 0 2px rgba(243,202,105,.14), inset 0 1px 0 rgba(255,255,255,.06); }
+.human-seat.active {
+  border-color: #f3ca69;
+  box-shadow: 0 0 0 2px rgba(243,202,105,.14), inset 0 1px 0 rgba(255,255,255,.06);
+  animation: human-seat-breathe 2.2s ease-in-out infinite;
+}
+@keyframes human-seat-breathe {
+  50% { border-color: #ffe08a; box-shadow: 0 0 0 2px rgba(255,224,138,.2), 0 0 30px rgba(243,202,105,.18), inset 0 1px 0 rgba(255,255,255,.08); }
+}
 .human-seat header { display: flex; align-items: center; gap: 8px; color: #f8efd4; margin-bottom: 4px; }
 .human-seat header strong { font-size: 14px; }
 .human-points { margin-left: auto; color: #f3cf75; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -903,6 +910,7 @@ function countdownFor(seatId: number) {
 @media (prefers-reduced-motion: reduce) {
   .last-action { animation: none; }
   .table-shell.my-turn { animation: none; }
+  .human-seat.active { animation: none; }
   .bubble-enter-active, .bubble-leave-active { transition: none; }
   .river :deep(.just-discarded) { transform: none; animation: none; }
   .drawn-tile-slot, .last-action, .last-action.strong { animation: none; }
