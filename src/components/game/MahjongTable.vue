@@ -395,7 +395,18 @@ function countdownFor(seatId: number) {
 .meld-group { display: flex; gap: 1px; }
 .meld-row :deep(.mahjong-tile.compact) { width: var(--meld-tile-width); height: var(--meld-tile-height); padding: 1px; border-radius: 4px; }
 .human-hand { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: flex-end; justify-content: center; gap: clamp(1px, .3cqw, 4px); min-height: var(--human-tile-height); padding-top: 9px; }
-.human-hand :deep(.mahjong-tile) { width: var(--human-tile-width); height: var(--human-tile-height); padding: clamp(1px, .28cqw, 3px); border-radius: clamp(4px, .62cqw, 7px); }
+/* 牌宽是「理想值」，容器塞不下时要能收缩：
+   flex 项默认 min-width:auto，会卡在内容宽度不肯再小，
+   再加上牌宽 clamp 有 23px 硬下限，320 宽的屏幕上十四张必然溢出，
+   最右边那张（通常正是刚摸的）就够不着了。给一个明确的收缩下限即可。 */
+.human-hand :deep(.mahjong-tile) {
+  flex: 0 1 var(--human-tile-width);
+  width: var(--human-tile-width);
+  min-width: 17px;
+  height: var(--human-tile-height);
+  padding: clamp(1px, .28cqw, 3px);
+  border-radius: clamp(4px, .62cqw, 7px);
+}
 /* 手牌是全局点得最多的东西，但十四张铺满屏宽之后单张只有二十几像素，
    比 iOS 建议的 44 小一半。牌面尺寸不能再大了，改成用伪元素把可点范围
    向四周撑开——手指按在两张牌中间的缝里也能选中，视觉上没有任何变化。 */
@@ -721,7 +732,7 @@ function countdownFor(seatId: number) {
   .hand-row { flex-direction: column; align-items: stretch; gap: 3px; }
   .meld-row { justify-content: center; flex-wrap: wrap; }
   /* 极窄屏塞不下十四张时允许横向滑动，而不是把牌桌撑破 */
-  .human-hand { justify-content: center; padding-top: 10px; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  .human-hand { justify-content: center; padding-top: 10px; gap: 0; }
   /* 触屏没有 hover 可以试错，热区给得比桌面端更宽一些 */
   .human-hand :deep(.mahjong-tile) { --hand-hit-x: 4px; --hand-hit-y: 9px; }
   .human-hand::-webkit-scrollbar { display: none; }
@@ -861,7 +872,7 @@ function countdownFor(seatId: number) {
     gap: 1px;
     overflow: visible;
   }
-  .human-hand :deep(.mahjong-tile) { flex: 0 0 auto; width: var(--human-tile-width); height: var(--human-tile-height); padding: 2px; border-radius: 5px; }
+  .human-hand :deep(.mahjong-tile) { flex: 0 1 var(--human-tile-width); width: var(--human-tile-width); min-width: 17px; height: var(--human-tile-height); padding: 2px; border-radius: 5px; }
   .drawn-tile-slot { margin-left: 5px; padding-left: 5px; }
   .fullscreen-toggle { display: none; }
 }
