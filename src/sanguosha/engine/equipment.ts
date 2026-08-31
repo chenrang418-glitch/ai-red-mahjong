@@ -1,4 +1,6 @@
 import type { EventContext, GameEvent, GameEventName } from './events'
+import { skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import type { DamageNature, PlayerId, SanguoshaState } from './types'
 
 /** 装备特效需要的最小宿主：读状态 + 派发事件。 */
@@ -91,9 +93,13 @@ export function adjustDamageAmount(
   return adjusted
 }
 
-/** 诸葛连弩：出牌阶段使用【杀】的次数不受限制。 */
+/**
+ * 出牌阶段【杀】是否不限次。
+ * 诸葛连弩和张飞【咆哮】走同一个入口——技能不另写一套出杀次数逻辑。
+ */
 export function hasUnlimitedSlash(state: SanguoshaState, playerId: PlayerId): boolean {
-  return hasWeapon(state, playerId, '诸葛连弩')
+  if (hasWeapon(state, playerId, '诸葛连弩')) return true
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.unlimitedSlash)
 }
 
 /**

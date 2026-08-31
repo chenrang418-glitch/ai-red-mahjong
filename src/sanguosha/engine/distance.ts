@@ -1,4 +1,14 @@
+import { skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import type { PlayerId, SanguoshaState } from './types'
+
+/** 技能带来的距离修正：来源的「与他人距离」和目标的「他人与我距离」都算进来。 */
+function skillDistanceModifier(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): number {
+  let total = 0
+  for (const runtime of skillsOf(state, sourceId, skillIdsOf)) total += runtime.distanceModifier?.toOthers ?? 0
+  for (const runtime of skillsOf(state, targetId, skillIdsOf)) total += runtime.distanceModifier?.fromOthers ?? 0
+  return total
+}
 
 function player(state: SanguoshaState, playerId: PlayerId) {
   const found = state.players.find((candidate) => candidate.id === playerId)
@@ -22,7 +32,10 @@ export function getDistance(state: SanguoshaState, sourceId: PlayerId, targetId:
   const target = player(state, targetId)
   const sourceHorse = source.zones.equipment.offensiveHorse ? 1 : 0
   const targetHorse = target.zones.equipment.defensiveHorse ? 1 : 0
-  return Math.max(1, getSeatDistance(state, sourceId, targetId) - sourceHorse + targetHorse + source.distanceToOthers + target.distanceFromOthers)
+  // 技能的距离修正（马术等）和坐骑走同一条公式，技能自己不重算距离
+  const skill = skillDistanceModifier(state, sourceId, targetId)
+  return Math.max(1, getSeatDistance(state, sourceId, targetId) - sourceHorse + targetHorse
+    + source.distanceToOthers + target.distanceFromOthers + skill)
 }
 
 export function getAttackRange(state: SanguoshaState, playerId: PlayerId): number {

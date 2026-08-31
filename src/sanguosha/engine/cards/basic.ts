@@ -3,6 +3,8 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
+import { dodgeViewAsOptions, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
+import { skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
@@ -25,6 +27,11 @@ export type { CardEngineHost }
 
 const DELAYED_TRICKS = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
+/** 出牌阶段这名玩家能做的所有牌面转化。 */
+function viewAsPlayOptions(state: SanguoshaState, playerId: PlayerId) {
+  return skillsOf(state, playerId, skillIdsOf).flatMap((runtime) => runtime.viewAs?.(state, playerId) ?? [])
+}
+
 function hasDelayedTrick(state: SanguoshaState, playerId: PlayerId, name: string): boolean {
   return player(state, playerId).zones.judgingArea.some((cardId) => state.cards[cardId]?.name === name)
 }
@@ -35,6 +42,21 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   const source = player(state, playerId)
   if (!source.alive) return []
   const actions: LegalAction[] = [{ id: 'play:pass', kind: 'pass', playerId, label: '结束出牌', requestId: `play-${state.turnNumber}` }]
+
+  // 转化技（武圣、龙胆）：把「这张红牌当杀打某人」作为独立动作发出去。
+  // 不能让前端自己猜牌的用途——同一张红牌既可以原样用，也可以当杀，
+  // 必须两条动作都在，玩家才选得到用途。
+  for (const option of viewAsPlayOptions(state, playerId)) {
+    if (option.asCardName !== '杀') continue
+    if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) continue
+    for (const target of state.players) {
+      if (!canTarget(state, playerId, target.id)) continue
+      actions.push({
+        ...useAction(option.cardId, playerId, '杀', [target.id], `${option.label}，目标${target.nickname}`),
+        id: `play:viewas:${option.cardId}:${target.id}`,
+      })
+    }
+  }
 
   for (const cardId of source.zones.hand) {
     const card = state.cards[cardId]
@@ -56,7 +78,8 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【乐不思蜀】`))
       }
     } else if (card.name === '兵粮寸断') {
-      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && getDistance(state, playerId, candidate.id) <= 1 && !hasDelayedTrick(state, candidate.id, card.name))) {
+      const ignoreDistance = ignoresTrickDistance(state, playerId)
+      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && (ignoreDistance || getDistance(state, playerId, candidate.id) <= 1) && !hasDelayedTrick(state, candidate.id, card.name))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【兵粮寸断】`))
       }
     } else if (card.name === '闪电' && !hasDelayedTrick(state, playerId, card.name)) {
@@ -98,6 +121,10 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   const actionIds = target.zones.hand
     .filter((candidateId) => host.state.cards[candidateId]?.name === '闪')
     .map((candidateId) => `respond-dodge:${candidateId}`)
+  // 龙胆把【杀】当【闪】打出，同样要作为独立动作发出去
+  for (const option of dodgeViewAsOptions(host.state, targetId)) {
+    actionIds.push(`respond-dodge:${option.cardId}`)
+  }
   // 八卦阵不是手牌，但同样是「打出闪」的一种途径，必须出现在合法动作里，
   // 否则前端永远点不到它——服务端支持不等于前端能用。
   if (canInvokeBagua(host.state, targetId)) actionIds.push(BAGUA_ACTION_ID)
@@ -136,6 +163,11 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
   const card = host.state.cards[cardId]
   if (!card || !player(host.state, playerId).zones.hand.includes(cardId)) throw new Error('卡牌不属于出牌玩家')
 
+  // 转化出的动作以 asCardName 为准：武圣打出的红桃仍然按【杀】结算
+  if (action.asCardName === '杀') {
+    beginSlash(host, action)
+    return
+  }
   if (card.name === '杀') {
     beginSlash(host, action)
     return
@@ -222,7 +254,12 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     if (!actionId.startsWith(prefix)) throw new Error('响应 action 类型不匹配')
     responseCardId = actionId.slice(prefix.length)
     const responder = player(host.state, response.playerId)
-    if (!responder.zones.hand.includes(responseCardId) || host.state.cards[responseCardId]?.name !== requiredName) throw new Error(`响应牌不是该玩家持有的${requiredName}`)
+    const heldName = host.state.cards[responseCardId]?.name
+    const convertible = resolution.kind === 'slash'
+      && dodgeViewAsOptions(host.state, response.playerId).some((option) => option.cardId === responseCardId)
+    if (!responder.zones.hand.includes(responseCardId) || (heldName !== requiredName && !convertible)) {
+      throw new Error(`响应牌不是该玩家持有的${requiredName}`)
+    }
   }
   removeResponseRequest(host.state, request.id)
   resolution.requestId = null

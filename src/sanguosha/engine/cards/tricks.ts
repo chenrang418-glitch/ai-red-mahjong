@@ -3,6 +3,7 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import { drawCards } from '../draw'
 import { handleEquipmentLost, isCardIneffective } from '../equipment'
+import { ignoresTrickDistance } from '../../data/characters/standard'
 import { recover } from '../recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
@@ -93,8 +94,8 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return actions
     case '顺手牵羊':
       for (const target of others) {
-        // 顺手牵羊受距离限制，拆桥不受
-        if (getDistance(state, playerId, target.id) > 1) continue
+        // 顺手牵羊受距离限制，拆桥不受；奇才无视这个限制
+        if (!ignoresTrickDistance(state, playerId) && getDistance(state, playerId, target.id) > 1) continue
         if (!hasAnyStealable(state, target.id)) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【顺手牵羊】`))
       }
