@@ -28,7 +28,9 @@ import type {
 
 const DEFAULT_AI: AIProfile = { difficulty: 'standard' }
 const DIFFICULTY_TEXT: Record<AIProfile['difficulty'], string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
-const MAX_RECENT_EVENTS = 50
+// 界面上「牌局记录」最多只渲染 30 条，服务端却按 50 条广播，多出来的 20 条
+// 每次全量快照都要重发一遍。自摸牌已经改成读 state.lastDrawn，不再依赖翻事件。
+const MAX_RECENT_EVENTS = 30
 const MAX_ROUND_TRANSFERS = 24
 
 function emptyStats() {
