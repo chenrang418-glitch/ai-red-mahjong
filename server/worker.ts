@@ -1,4 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
+import { InvalidRoomCommandError, parseRoomCommand } from './command-parser'
+import { SESSION_MAX_AGE_SECONDS, resolveStoredSession } from './session-policy'
 
 import { RoomCoordinator } from './room-core'
 import type { RoomUser, StoredRoomState } from './room-core'
@@ -7,7 +9,6 @@ import type {
   OnlineRoomDirectoryEntry,
   OnlineRoomDirectoryPlayer,
   OnlineRoomSettings,
-  RoomCommand,
   RoomServerMessage,
 } from '../src/online/types'
 
@@ -29,7 +30,7 @@ interface SessionRecord extends RoomUser {
 }
 
 const SESSION_COOKIE = 'mahjong_session'
-const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+
 
 // 全局设置：托管 AI 档位、维护模式开关和提示文案。
 // 放在 LOBBY 这个单例 Durable Object 里——建房时要读它，D1 每次都走网络太慢。
@@ -145,6 +146,11 @@ function rejectSocket(reason: string, code = ROOM_REJECT_CLOSE_CODE): Response {
   // close reason 上限 123 字节，中文按 3 字节算最多 40 字。
   server.close(code, reason.slice(0, 40))
   return new Response(null, { status: 101, webSocket: client })
+}
+
+/** 只用来在解析前区分 ping：真正的指令形状交给 parseRoomCommand 校验。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function json(data: unknown, status = 200, extraHeaders?: HeadersInit): Response {
@@ -637,11 +643,14 @@ export class MahjongRoom {
         socket.send('pong')
         return
       }
-      const parsed = JSON.parse(text) as RoomCommand | { type: 'ping' }
-      if (parsed.type === 'ping') {
+      // ping 不是房间指令，先单独放行，剩下的一律过运行时校验：
+      // 客户端是任何人都能自己写的，编译期的 RoomCommand 类型在这里没有约束力。
+      const payload = JSON.parse(text) as unknown
+      if (isRecord(payload) && payload.type === 'ping') {
         this.send(socket, { type: 'pong', at: Date.now() })
         return
       }
+      const parsed = parseRoomCommand(payload)
       if (parsed.type === 'leave-room') {
         socket.serializeAttachment({ ...user, leaving: true })
         this.coordinator.leave(user.userId)
@@ -665,7 +674,9 @@ export class MahjongRoom {
       else this.broadcastState()
     } catch (cause) {
       this.send(socket, { type: 'error', message: cause instanceof Error ? cause.message : String(cause) })
-      await this.sendState(socket, user.userId)
+      // 格式就不对的包不回全量快照：那是最贵的一条响应，
+      // 否则谁都可以用一串垃圾 JSON 把房间推成持续广播。合法但被业务拒绝的操作才需要纠正客户端状态。
+      if (!(cause instanceof InvalidRoomCommandError)) await this.sendState(socket, user.userId)
     }
   }
 
@@ -886,10 +897,15 @@ export class MahjongLobby {
     if (url.pathname === '/session/resolve' && request.method === 'POST') {
       const body = await request.json<{ sessionId: string }>()
       const record = await this.state.storage.get<SessionRecord>(`session:${body.sessionId}`)
-      if (!record) return json({ error: '会话不存在' }, 401)
-      const currentId = await this.state.storage.get<string>(`current:${record.userId}`)
-      if (currentId !== body.sessionId) return json({ error: '会话已失效' }, 401)
-      return json({ user: { userId: record.userId, nickname: record.nickname } })
+      const currentId = record ? await this.state.storage.get<string>(`current:${record.userId}`) : undefined
+      // 有效期固定 30 天、不滑动续期，判定逻辑见 session-policy.ts
+      const resolution = resolveStoredSession(body.sessionId, record, currentId, Date.now())
+      if (!resolution.ok) {
+        if (resolution.dropSession) await this.state.storage.delete(`session:${body.sessionId}`)
+        if (resolution.dropCurrentPointer && record) await this.state.storage.delete(`current:${record.userId}`)
+        return json({ error: resolution.error }, 401)
+      }
+      return json({ user: { userId: resolution.userId, nickname: resolution.nickname } })
     }
     if (url.pathname === '/session/revoke' && request.method === 'POST') {
       const body = await request.json<{ sessionId: string }>()

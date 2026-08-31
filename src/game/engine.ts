@@ -10,6 +10,7 @@ import {
   sortTiles,
   tileLabel,
 } from './tiles'
+import { createMatchId, secureRandomInt, secureShuffle } from './rng'
 import type {
   AIObservation,
   AIProfile,
@@ -41,6 +42,18 @@ function clone<T>(value: T): T {
   return structuredClone(value)
 }
 
+/**
+ * 把别人暗杠的牌面抹掉，只留下「有这么一副暗杠」。
+ *
+ * 用空 tiles 而不是占位牌：占位牌的 suit 是 zhong，AI 的 visibleCounts() 会把它
+ * 当成真的红中统计进去，反而制造出错误情报。空数组则是自然地「数不到」，
+ * 而 melds.length 不变，AI 仍然知道对手亮了几副。
+ */
+function hideOpponentAnGang(melds: Meld[], isSelf: boolean): Meld[] {
+  if (isSelf) return melds
+  return melds.map((meld) => (meld.type === 'an-gang' ? { ...meld, tiles: [] } : meld))
+}
+
 export class GameEngine {
   state: GameState
 
@@ -50,7 +63,10 @@ export class GameEngine {
       return
     }
     if (config.players.length !== 4) throw new Error('必须配置四名玩家')
-    const seed = (config.seed ?? Date.now()) >>> 0
+    // 只有显式传了 seed 才走可复现路径（测试用）。正式牌局一律用密码学安全随机，
+    // 且不把任何能反推牌序的状态写进 GameState。
+    const deterministic = config.seed !== undefined
+    const seed = deterministic ? config.seed! >>> 0 : 0
     const players: PlayerState[] = config.players.map((setup, id) => ({
       id,
       name: setup.name.trim() || (setup.isHuman ? '玩家' : `AI ${id}`),
@@ -64,7 +80,7 @@ export class GameEngine {
     }))
     this.state = {
       schemaVersion: 1,
-      matchId: `match-${Date.now()}-${seed}`,
+      matchId: createMatchId(),
       config: clone(config),
       phase: 'rolling',
       turnStage: 'must-discard',
@@ -82,7 +98,7 @@ export class GameEngine {
       events: [],
       result: null,
       seed,
-      rngState: seed || 0x6d2b79f5,
+      rngState: deterministic ? (seed || 0x6d2b79f5) : 0,
     }
     this.addEvent('match-start', '新牌局开始')
     this.rollForDealer()
@@ -97,14 +113,26 @@ export class GameEngine {
     return clone(this.state)
   }
 
+  /** 这局牌是不是可复现模式。restore 出来的牌局也走同一判断，恢复后不会退回公开状态。 */
+  private get deterministic(): boolean {
+    return this.state.config.seed !== undefined
+  }
+
   private random(): number {
+    if (!this.deterministic) {
+      // 取 32 位再归一化，精度和 xorshift 那条路一致，调用方无需区分
+      return secureRandomInt(0x100000000) / 0x100000000
+    }
     const result = nextRandom(this.state.rngState)
     this.state.rngState = result.state
     return result.value
   }
 
   private randomInt(min: number, max: number): number {
-    return min + Math.floor(this.random() * (max - min + 1))
+    const span = max - min + 1
+    // 安全模式直接取整数，避免先归一化再乘回去引入的取模偏差
+    if (!this.deterministic) return min + secureRandomInt(span)
+    return min + Math.floor(this.random() * span)
   }
 
   private addEvent(type: GameEvent['type'], detail: string, playerId?: number, tile?: Tile) {
@@ -152,9 +180,14 @@ export class GameEngine {
       player.melds = []
       player.discards = []
     }
-    const shuffled = shuffleWithState(createDeck(), this.state.rngState)
-    this.state.rngState = shuffled.state
-    const deck = shuffled.items
+    let deck: Tile[]
+    if (this.deterministic) {
+      const shuffled = shuffleWithState(createDeck(), this.state.rngState)
+      this.state.rngState = shuffled.state
+      deck = shuffled.items
+    } else {
+      deck = secureShuffle(createDeck())
+    }
     this.state.maReserve = deck.splice(-6)
     this.state.wall = deck
     for (let pass = 0; pass < 13; pass += 1) {
@@ -485,7 +518,9 @@ export class GameEngine {
         id: candidate.id,
         name: candidate.name,
         handCount: candidate.hand.length,
-        melds: clone(candidate.melds),
+        // AI 能看到的信息必须和真人客户端看到的一样多。别人的暗杠对真人是暗的，
+        // 对 AI 也得是暗的，否则 AI 数牌时白捡一条「那四张已经没了」的情报。
+        melds: hideOpponentAnGang(clone(candidate.melds), candidate.id === playerId),
         discards: clone(candidate.discards),
         points: candidate.points,
         stats: clone(candidate.stats),

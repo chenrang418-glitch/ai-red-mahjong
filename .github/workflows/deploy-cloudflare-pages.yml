@@ -36,8 +36,9 @@ jobs:
       - name: Run tests
         run: npm run test:run
 
-      - name: Install browser for UI tests
-        run: npx playwright install --with-deps chromium
+      - name: Install browsers for UI tests
+        # WebKit 只跑四条关键路径的冒烟，但 iOS Safari 的 dvh / safe-area 差异值得盯
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Run responsive UI tests
         run: npm run test:e2e

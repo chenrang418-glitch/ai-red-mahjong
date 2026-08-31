@@ -107,6 +107,92 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('大厅目录连接的心跳', () => {
+  /** 拿到大厅目录那条连接：它是 login 之后建立的第一条 socket。 */
+  function directorySocketOf(): FakeWebSocket {
+    const socket = FakeWebSocket.instances.find((candidate) => candidate.url.includes('/api/lobby/socket'))
+    if (!socket) throw new Error('没有建立大厅目录连接')
+    return socket
+  }
+
+  it('持续收到 pong 时不会重连', async () => {
+    const online = useOnlineGame()
+    await online.login('测试玩家')
+    const socket = directorySocketOf()
+    socket.open()
+    // 真实服务端收到 ping 会立刻回 pong；假 socket 得手动补上，包括 open 时那一次
+    socket.rawMessage('pong')
+    const created = FakeWebSocket.instances.length
+
+    for (let round = 0; round < 4; round += 1) {
+      await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
+      socket.rawMessage('pong')
+    }
+
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+    expect(FakeWebSocket.instances.length).toBe(created)
+    online.logout()
+  })
+
+  it('对端不再回 pong 时关闭半死连接并重连', async () => {
+    const online = useOnlineGame()
+    await online.login('测试玩家')
+    const socket = directorySocketOf()
+    socket.open()
+    socket.rawMessage('pong')
+    const created = FakeWebSocket.instances.length
+
+    // 从这里开始只发 ping 不回 pong：连接看上去还是 OPEN，但房间列表其实已经不更新了
+    await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
+    expect(socket.sent.filter((payload) => payload === 'ping').length).toBeGreaterThan(0)
+    await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS)
+
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+    // 按既有的 1500ms 策略重连
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(created)
+    online.logout()
+  })
+
+  it('pong 恢复之后连接继续保持', async () => {
+    const online = useOnlineGame()
+    await online.login('测试玩家')
+    const socket = directorySocketOf()
+    socket.open()
+    socket.rawMessage('pong')
+
+    // 中间漏掉一次 pong，但还没到超时线
+    await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
+    await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS - 1)
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+
+    // pong 回来了，deadline 被清掉，之后继续正常心跳
+    socket.rawMessage('pong')
+    await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
+    socket.rawMessage('pong')
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+    online.logout()
+  })
+
+  it('登出后心跳定时器全部清掉，不再发 ping', async () => {
+    const online = useOnlineGame()
+    await online.login('测试玩家')
+    const socket = directorySocketOf()
+    socket.open()
+    socket.rawMessage('pong')
+    await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
+    socket.rawMessage('pong')
+
+    online.logout()
+    const sentAfterLogout = socket.sent.length
+    const created = FakeWebSocket.instances.length
+    await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS * 3)
+
+    expect(socket.sent.length).toBe(sentAfterLogout)
+    expect(FakeWebSocket.instances.length).toBe(created)
+  })
+})
+
 describe('联机客户端连接恢复', () => {
   it('HTTP 与 WebSocket 都不再携带可读 token', async () => {
     const online = useOnlineGame()

@@ -1,8 +1,9 @@
 import { decideClaim, decideTurn, estimateThinkMs } from '../src/game/ai'
 import { GameEngine } from '../src/game/engine'
 import { claimMaskDelay } from '../src/game/timing'
+import { createOpaqueMatchToken, isSeedBearingMatchId } from '../src/game/rng'
 import { placeholderTiles } from '../src/game/tiles'
-import type { AIProfile, ClaimAction, GameState } from '../src/game/types'
+import type { AIProfile, ClaimAction, GameEvent, GameState } from '../src/game/types'
 import type {
   ChatMessage,
   OnlineLegalActions,
@@ -73,6 +74,11 @@ export interface StoredRoomState {
   deleteRequested: boolean
   chatSeq: number
   lastChatAt: Record<string, number>
+  /**
+   * 只在「升级前就已经开着的旧房间」上出现：老 matchId 里带着洗牌种子，
+   * 下发时用这个随机替身把它换掉。新房间的 matchId 本身就是不透明的，用不到它。
+   */
+  publicMatchToken?: string
 }
 
 // 托管默认用最弱档：帮你顶着别把牌打崩就行，真要赢还得自己回来。
@@ -118,8 +124,47 @@ function humanSeat(seatId: number, user: RoomUser, ready = false): StoredSeat {
   }
 }
 
+/**
+ * 真正推进麻将阶段的事件。
+ *
+ * stageKey 变了就意味着「进入了新阶段」：reconcile 会重置 stageStartedAt、
+ * 清空 claimResponses、丢掉本阶段的定时任务。所以只有牌局本身往前走了才算数。
+ *
+ * 用白名单而不是「排除 ai-change」：以后再加任何外围事件（掉线、上线、房主移交、
+ * presence 之类），默认就不会误伤倒计时，不用回头再想起来加排除项。
+ */
+const STAGE_EVENT_TYPES: ReadonlySet<GameEvent['type']> = new Set([
+  'match-start',
+  'dice',
+  'round-start',
+  'draw',
+  'discard',
+  'peng',
+  'ming-gang',
+  'an-gang',
+  'bu-gang',
+  'win',
+  'draw-game',
+  'match-over',
+])
+
+export function isStageEvent(event: GameEvent): boolean {
+  return STAGE_EVENT_TYPES.has(event.type)
+}
+
+/**
+ * 阶段标识。刻意只看「最后一条推进牌局的事件」，不看整条事件流的末尾：
+ *
+ * 以前用 events.at(-1)，于是有人退出被 AI 接管（插一条 ai-change）、
+ * 或者对局中改 AI 档位，都会让 stageKey 变化，进而把抢牌窗口重新计时、
+ * 把别人已经点过的「过」清空、把当前玩家的 30 秒出牌倒计时刷回满格。
+ *
+ * claim-pass 同样不算：某个人点过不应该开一个新的抢牌阶段，
+ * 否则其他人的响应会被连带清掉。
+ */
 function stageKey(game: GameState): string {
-  return `${game.matchId}:${game.round}:${game.phase}:${game.turnStage}:${game.currentPlayer}:${game.events.at(-1)?.id ?? 'none'}`
+  const latestStageEvent = [...game.events].reverse().find(isStageEvent)
+  return `${game.matchId}:${game.round}:${game.phase}:${game.turnStage}:${game.currentPlayer}:${latestStageEvent?.id ?? 'none'}`
 }
 
 // 阶段内重建定时任务时必须拿到同一个随机值，否则托管切换会让 AI 的等待时间跳变。
@@ -308,6 +353,11 @@ export class RoomCoordinator {
     }
 
     if (this.state.recentActionIds.includes(command.actionId)) return null
+    // 先把已经到点的阶段推掉，再判这条命令。
+    // Alarm 只保证「没人操作时也能往下走」，不保证准时：它可能晚几十上百毫秒才醒。
+    // 玩家的操作包往往赶在 Alarm 前面到，如果不在这里先结算超时，
+    // 一个事实上已经超过 deadline 的出牌／抢牌就会被当成有效操作接受。
+    this.expireDueStage(now)
     this.assertFreshAction(command.version)
     const engine = this.engine()
     if (seat.trustee) throw new Error('请先取消托管')
@@ -327,6 +377,19 @@ export class RoomCoordinator {
     this.reconcile(now)
     this.touch(now)
     return null
+  }
+
+  /**
+   * 结算所有已经到点的阶段任务。
+   *
+   * 判定边界全项目统一为：now < deadlineAt 允许，now >= deadlineAt 算超时。
+   * 任务的 dueAt <= now 正好是同一条线。
+   *
+   * 注意这里是真的把状态推进到下一阶段，而不是只抛个错：
+   * 只抛错的话服务端会继续停在那个已经过期的阶段上，客户端也拿不到新状态。
+   */
+  private expireDueStage(now: number): void {
+    this.runDueJobs(now)
   }
 
   runDueJobs(now = Date.now()): boolean {
@@ -710,14 +773,32 @@ export class RoomCoordinator {
     })
   }
 
+  /**
+   * 下发给某一个座位的牌局视图。
+   *
+   * 允许这个座位知道的：
+   *   自己  —— 完整手牌、自己的暗杠、自己刚摸的牌
+   *   别人  —— 手牌张数、弃牌、碰／明杠／补杠、暗杠的存在（不含牌面）、积分、在线状态
+   *   全桌  —— 牌墙和码区的剩余张数、骰子点数、当前玩家、庄家、局数、阶段
+   *
+   * 绝对不能知道的：别人的手牌、别人刚摸的牌、别人暗杠的牌面、牌墙真实顺序、
+   * 码区牌面、以及任何能反推出这些的随机源（seed / rngState / config.seed / matchId）。
+   * 改这个函数时对着上面这份清单逐条过一遍。
+   */
   private redactedGame(selfSeatId: number): GameState {
     const game = structuredClone(this.state.game!)
     const reveal = game.phase === 'settlement' || game.phase === 'match-over'
     game.wall = hiddenTiles(game.wall.length, 'wall')
     game.maReserve = hiddenTiles(game.maReserve.length, 'ma')
+    // 随机源三处都要清：seed 和 rngState 是 xorshift 的状态，
+    // config.seed 是它的来源，漏任何一个都等于把整副牌的顺序送出去。
     game.seed = 0
     game.rngState = 0
+    if (game.config.seed !== undefined) game.config = { ...game.config, seed: undefined }
     game.claimOptions = game.claimOptions.filter((option) => option.playerId === selfSeatId)
+    // 摸牌是暗的：lastDrawn 里带着真实牌面，不清掉的话，
+    // 别人客户端直接读 room.game.lastDrawn.tile 就知道你刚摸到什么。
+    if (!reveal && game.lastDrawn && game.lastDrawn.playerId !== selfSeatId) game.lastDrawn = null
     for (const player of game.players) {
       if (reveal || player.id === selfSeatId) continue
       player.hand = hiddenTiles(player.hand.length, `seat-${player.id}`)
@@ -735,6 +816,27 @@ export class RoomCoordinator {
       }
       return event
     })
+    return this.withOpaqueMatchId(game)
+  }
+
+  /**
+   * 老版本的 matchId 是 `match-${时间戳}-${seed}`，seed 就是 xorshift 的初始状态，
+   * 而事件 id 又以 matchId 打头，等于每条事件都在广播洗牌种子。
+   * 新牌局的 matchId 已经换成不透明随机 id，这里只兜住升级时还在进行中的旧房间：
+   * 下发前把 matchId 和事件 id 前缀统一换成一个房间级的随机替身。
+   * 替身存在房间状态里保持稳定，客户端拿到的 id 前后一致，也不碰引擎内部状态和 stageKey。
+   */
+  private withOpaqueMatchId(game: GameState): GameState {
+    if (!isSeedBearingMatchId(game.matchId)) return game
+    if (!this.state.publicMatchToken) this.state.publicMatchToken = createOpaqueMatchToken()
+    const token = this.state.publicMatchToken
+    const legacyId = game.matchId
+    game.matchId = token
+    game.events = game.events.map((event) => (
+      event.id.startsWith(`${legacyId}:`)
+        ? { ...event, id: `${token}${event.id.slice(legacyId.length)}` }
+        : event
+    ))
     return game
   }
 
@@ -818,7 +920,8 @@ export class RoomCoordinator {
       const actions = game.claimOptions.find((option) => option.playerId === seat.seatId)?.actions ?? []
       return actions.length ? '请选择碰、杠或过' : ''
     }
-    if (game.phase === 'settlement') return seat.userId === this.state.hostUserId ? '本局结束，请开始下一局' : '本局结束，等待房主开始下一局'
+    // 下一局是全员确认制，不是房主一个人说了算，文案要跟机制对上。
+    if (game.phase === 'settlement') return seat.nextRoundReady ? '已准备，等待其他玩家' : '本局结束，请确认开始下一局'
     if (game.phase === 'match-over') return '整场牌局结束'
     if (game.currentPlayer === seat.seatId) return game.turnStage === 'after-draw' ? '轮到你操作' : '轮到你出牌'
     return ''

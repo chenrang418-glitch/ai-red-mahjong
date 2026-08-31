@@ -86,6 +86,8 @@ export function useOnlineGame() {
   let lastPongAt = 0
   let directoryReconnectTimer: number | null = null
   let directoryHeartbeatTimer: number | null = null
+  let directoryDeadlineTimer: number | null = null
+  let directoryLastPongAt = 0
   let directoryRefreshTimer: number | null = null
   let pendingActionTimer: number | null = null
   let errorTimer: number | null = null
@@ -487,6 +489,37 @@ export function useOnlineGame() {
     if (nextRoom.seats[nextRoom.selfSeatId]?.trustee === pending.enabled) clearPendingAction()
   }
 
+  function clearDirectoryDeadline() {
+    if (directoryDeadlineTimer !== null) window.clearTimeout(directoryDeadlineTimer)
+    directoryDeadlineTimer = null
+  }
+
+  function stopDirectoryHeartbeat() {
+    if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
+    directoryHeartbeatTimer = null
+    clearDirectoryDeadline()
+  }
+
+  /**
+   * 大厅目录连接的心跳。和房间连接用同一套参数和判定：
+   * 发完 ping 起一个 deadline，到点还没收到 pong 就认定这条连接是半死的。
+   *
+   * 只发 ping 不看 pong 是不够的：TCP 连接可能一直是 OPEN，但对端早就不推送了，
+   * 表现出来就是房间列表停止更新，而界面看上去一切正常。
+   */
+  function sendDirectoryHeartbeat(currentSocket: WebSocket) {
+    if (directorySocket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) return
+    currentSocket.send('ping')
+    clearDirectoryDeadline()
+    directoryDeadlineTimer = window.setTimeout(() => {
+      if (directorySocket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) return
+      if (Date.now() - directoryLastPongAt >= ONLINE_PONG_TIMEOUT_MS) {
+        // 关掉就会走 close 分支，按既有的 1500ms 策略重连
+        currentSocket.close()
+      }
+    }, ONLINE_PONG_TIMEOUT_MS)
+  }
+
   function connectDirectorySocket() {
     if (!session.value || directorySocket?.readyState === WebSocket.OPEN || directorySocket?.readyState === WebSocket.CONNECTING) return
     if (directoryReconnectTimer !== null) window.clearTimeout(directoryReconnectTimer)
@@ -497,14 +530,19 @@ export function useOnlineGame() {
     directorySocket = currentSocket
     currentSocket.addEventListener('open', () => {
       if (directorySocket !== currentSocket) return
-      currentSocket.send('ping')
-      if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
-      directoryHeartbeatTimer = window.setInterval(() => {
-        if (directorySocket === currentSocket && currentSocket.readyState === WebSocket.OPEN) currentSocket.send('ping')
-      }, ONLINE_HEARTBEAT_INTERVAL_MS)
+      // 刚连上先当作收到过一次 pong，否则第一个 deadline 会拿 0 去比而立刻误判
+      directoryLastPongAt = Date.now()
+      stopDirectoryHeartbeat()
+      sendDirectoryHeartbeat(currentSocket)
+      directoryHeartbeatTimer = window.setInterval(() => sendDirectoryHeartbeat(currentSocket), ONLINE_HEARTBEAT_INTERVAL_MS)
     })
     currentSocket.addEventListener('message', (event) => {
-      if (directorySocket !== currentSocket || event.data === 'pong') return
+      if (directorySocket !== currentSocket) return
+      if (event.data === 'pong') {
+        directoryLastPongAt = Date.now()
+        clearDirectoryDeadline()
+        return
+      }
       try {
         const message = JSON.parse(String(event.data)) as LobbyServerMessage
         if (message.type === 'rooms-updated') scheduleDirectoryRefresh()
@@ -515,8 +553,7 @@ export function useOnlineGame() {
     currentSocket.addEventListener('close', (event) => {
       if (directorySocket !== currentSocket) return
       directorySocket = null
-      if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
-      directoryHeartbeatTimer = null
+      stopDirectoryHeartbeat()
       if (event.code === SESSION_SUPERSEDED_CODE) {
         handleSuperseded(event.reason)
         return
@@ -535,10 +572,9 @@ export function useOnlineGame() {
 
   function closeDirectorySocket() {
     if (directoryReconnectTimer !== null) window.clearTimeout(directoryReconnectTimer)
-    if (directoryHeartbeatTimer !== null) window.clearInterval(directoryHeartbeatTimer)
     if (directoryRefreshTimer !== null) window.clearTimeout(directoryRefreshTimer)
+    stopDirectoryHeartbeat()
     directoryReconnectTimer = null
-    directoryHeartbeatTimer = null
     directoryRefreshTimer = null
     const previous = directorySocket
     directorySocket = null
