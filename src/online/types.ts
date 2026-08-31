@@ -3,20 +3,8 @@ import type { ClaimAction, Difficulty, GameState, MatchMode } from '@/game/types
 export type RoomPhase = 'lobby' | 'playing'
 
 export interface OnlineSession {
-  token: string
   userId: string
   nickname: string
-}
-
-export interface LeaderboardEntry {
-  userId: string
-  nickname: string
-  totalGames: number
-  wins: number
-  winRate: number
-  sevenPairs: number
-  gangCount: number
-  maCount: number
 }
 
 export interface OnlineRoomSettings {

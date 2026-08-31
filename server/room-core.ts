@@ -33,14 +33,6 @@ interface StoredSeat {
   nextRoundReady?: boolean
 }
 
-// 中途换成 AI 的人，本局那条战绩要从排行榜里撤掉。
-// 房间这边只记下要撤谁，真正的删除交给 Worker（DO 里不直接写 D1 业务表）。
-export interface StatCleanup {
-  matchId: string
-  round: number
-  userId: string
-}
-
 type ScheduledJobKind =
   | 'ai-turn'
   | 'turn-timeout'
@@ -78,20 +70,9 @@ export interface StoredRoomState {
   stageStartedAt: number
   claimResponses: Record<string, ClaimAction | 'pass'>
   recentActionIds: string[]
-  recordedRounds: string[]
   deleteRequested: boolean
   chatSeq: number
-  statCleanups?: StatCleanup[]
-}
-
-export interface RoundLeaderboardResult {
-  matchId: string
-  round: number
-  userId: string
-  won: number
-  sevenPairs: number
-  gangCount: number
-  maCount: number
+  lastChatAt: Record<string, number>
 }
 
 // 托管默认用最弱档：帮你顶着别把牌打崩就行，真要赢还得自己回来。
@@ -99,12 +80,13 @@ export interface RoundLeaderboardResult {
 const DEFAULT_TRUSTEE_DIFFICULTY: AIProfile['difficulty'] = 'beginner'
 const TABLE_AI: AIProfile = { difficulty: 'standard' }
 const DISCONNECT_GRACE_MS = 30_000
-// 掉线后座位还留着的时间。过了这个点就换成 AI，本局战绩也一并作废。
+// 掉线后座位还留着的时间。过了这个点就换成 AI，避免牌桌被长期锁住。
 const DISCONNECT_REPLACE_MS = 3 * 60_000
 // 结算界面等所有人点「开始下一局」的上限。有人挂机也不能把整桌锁死。
 const NEXT_ROUND_TIMEOUT_MS = 30_000
 const LOBBY_DISCONNECT_GRACE_MS = 60_000
 export const ROOM_RECONNECT_GRACE_MS = 5 * 60_000
+const CHAT_RATE_LIMIT_MS = 600
 
 function emptySeat(seatId: number): StoredSeat {
   return {
@@ -137,7 +119,7 @@ function humanSeat(seatId: number, user: RoomUser, ready = false): StoredSeat {
 }
 
 function stageKey(game: GameState): string {
-  return `${game.matchId}:${game.round}:${game.phase}:${game.turnStage}:${game.currentPlayer}:${game.events.length}`
+  return `${game.matchId}:${game.round}:${game.phase}:${game.turnStage}:${game.currentPlayer}:${game.events.at(-1)?.id ?? 'none'}`
 }
 
 // 阶段内重建定时任务时必须拿到同一个随机值，否则托管切换会让 AI 的等待时间跳变。
@@ -160,7 +142,7 @@ export class RoomCoordinator {
     for (const seat of this.state.seats) seat.leftRoom ??= false
     this.state.deleteRequested ??= false
     this.state.chatSeq ??= this.state.chat.length
-    this.state.statCleanups ??= []
+    this.state.lastChatAt ??= {}
   }
 
   static create(code: string, host: RoomUser, settings: OnlineRoomSettings, now = Date.now()): RoomCoordinator {
@@ -180,10 +162,9 @@ export class RoomCoordinator {
       stageStartedAt: now,
       claimResponses: {},
       recentActionIds: [],
-      recordedRounds: [],
-      statCleanups: [],
       deleteRequested: false,
       chatSeq: 0,
+      lastChatAt: {},
     })
   }
 
@@ -472,37 +453,6 @@ export class RoomCoordinator {
     }
   }
 
-  unrecordedLeaderboardResults(): RoundLeaderboardResult[] {
-    const game = this.state.game
-    if (!game || (game.phase !== 'settlement' && game.phase !== 'match-over')) return []
-    const roundKey = `${game.matchId}:${game.round}`
-    if (this.state.recordedRounds.includes(roundKey)) return []
-    const winnerId = game.result?.winnerId
-    return this.state.seats
-      .filter((seat): seat is StoredSeat & { userId: string } => seat.kind === 'human' && !!seat.userId)
-      .map((seat) => ({
-        matchId: game.matchId,
-        round: game.round,
-        userId: seat.userId,
-        won: winnerId === seat.seatId ? 1 : 0,
-        sevenPairs: winnerId === seat.seatId && game.result?.winKind === 'seven-pairs' ? 1 : 0,
-        gangCount: game.events.filter((event) => event.round === game.round && event.playerId === seat.seatId && ['an-gang', 'bu-gang', 'ming-gang'].includes(event.type)).length,
-        maCount: winnerId === seat.seatId ? game.result?.maCount ?? 0 : 0,
-      }))
-  }
-
-  takeStatCleanups(): StatCleanup[] {
-    const pending = this.state.statCleanups ?? []
-    this.state.statCleanups = []
-    return pending
-  }
-
-  markRoundRecorded(matchId: string, round: number): void {
-    const key = `${matchId}:${round}`
-    if (!this.state.recordedRounds.includes(key)) this.state.recordedRounds.push(key)
-    if (this.state.recordedRounds.length > 200) this.state.recordedRounds.splice(0, this.state.recordedRounds.length - 200)
-  }
-
   // 结算界面上还没点「开始下一局」的人。托管的也算——他照样看得见按钮，
   // 只是可能人不在，所以另有 NEXT_ROUND_TIMEOUT_MS 兜底。掉线的不算，
   // 他们会走三分钟那条路换成 AI。
@@ -535,14 +485,8 @@ export class RoomCoordinator {
   // 那时候本来就在开局流程里，再回头触发一次开局检查会把牌局往前推两次。
   private replaceWithAI(seat: StoredSeat, now: number, announce = true, cascade = true): void {
     const name = seat.name
-    const userId = seat.userId
     const wasHost = seat.userId === this.state.hostUserId
-    // 人走了，这一局就不该再记在他名下——已经写进排行榜的那条也要撤掉
     const game = this.state.game
-    if (userId && game) {
-      this.state.statCleanups ??= []
-      this.state.statCleanups.push({ matchId: game.matchId, round: game.round, userId })
-    }
     this.state.seats[seat.seatId] = {
       ...emptySeat(seat.seatId),
       kind: 'ai',
@@ -881,12 +825,16 @@ export class RoomCoordinator {
   }
 
   private addChat(seat: StoredSeat, rawText: string, quick: boolean, now: number): ChatMessage {
+    const userId = seat.userId!
+    const lastSentAt = this.state.lastChatAt[userId]
+    if (lastSentAt !== undefined && now - lastSentAt < CHAT_RATE_LIMIT_MS) throw new Error('发送太快，请稍后再试')
     const text = rawText.trim().replace(/[\r\n\t]+/g, ' ').slice(0, 100)
     if (!text) throw new Error('消息不能为空')
+    this.state.lastChatAt[userId] = now
     this.state.chatSeq += 1
     const message: ChatMessage = {
       id: `chat-${now}-${this.state.chatSeq}`,
-      userId: seat.userId!,
+      userId,
       nickname: seat.name,
       text,
       sentAt: now,

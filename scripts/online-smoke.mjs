@@ -6,6 +6,8 @@ const migrations = await Promise.all([
   readFile(new URL('../server/migrations/0001_online.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server/migrations/0002_room_directory.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server/migrations/0003_room_phase.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../server/migrations/0004_admin_audit.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../server/migrations/0005_remove_player_stats.sql', import.meta.url), 'utf8'),
 ])
 
 const miniflare = new Miniflare(convertV4MiniflareOptions({
@@ -35,12 +37,22 @@ async function jsonRequest(url, init) {
   return payload
 }
 
-function waitForOpen(socket) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('WebSocket连接超时')), 5000)
-    socket.addEventListener('open', () => { clearTimeout(timer); resolve() }, { once: true })
-    socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('WebSocket连接失败')) }, { once: true })
+async function loginSession(baseUrl, nickname) {
+  const response = await fetch(`${baseUrl}/api/session`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nickname }),
   })
+  const payload = await response.json()
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`)
+  return { ...payload, cookie: (response.headers.get('set-cookie') || '').split(';')[0] }
+}
+
+async function openSocket(path, cookie) {
+  const response = await miniflare.dispatchFetch(`https://example.com${path}`, {
+    headers: { Upgrade: 'websocket', Cookie: cookie },
+  })
+  if (!response.webSocket) throw new Error(`WebSocket升级失败：${path}`)
+  response.webSocket.accept()
+  return response.webSocket
 }
 
 function waitForMessage(socket, predicate) {
@@ -92,27 +104,20 @@ try {
     },
   })
   assert(preflight.status === 204, '跨域预检失败')
-  assert(preflight.headers.get('access-control-allow-origin') === '*', '跨域响应头缺失')
+  assert(preflight.headers.get('access-control-allow-origin') === 'http://127.0.0.1:5173', '跨域响应头缺失')
+  assert(preflight.headers.get('access-control-allow-credentials') === 'true', '跨域 Cookie 未允许')
 
-  const session = await jsonRequest(`${baseUrl}/api/session`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nickname: '联调玩家' }),
-  })
-  assert(session.token && session.userId, '昵称登录没有返回会话')
+  const session = await loginSession(baseUrl, '联调玩家')
+  assert(session.cookie.startsWith('mahjong_session=') && session.userId, '昵称登录没有返回 HttpOnly 会话')
 
-  const directorySocketUrl = new URL(`${baseUrl}/api/lobby/socket`)
-  directorySocketUrl.protocol = directorySocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-  directorySocketUrl.searchParams.set('session', session.token)
-  const directorySocket = new WebSocket(directorySocketUrl)
-  await waitForOpen(directorySocket)
+  const directorySocket = await openSocket('/api/lobby/socket', session.cookie)
 
   const createdNotification = waitForMessage(directorySocket, (message) => message.type === 'rooms-updated')
   const created = await jsonRequest(`${baseUrl}/api/rooms`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${session.token}`,
+      cookie: session.cookie,
     },
     body: JSON.stringify({ settings: { mode: 'finite', initialPoints: 30, claimWindowMs: 4000 } }),
   })
@@ -120,18 +125,14 @@ try {
   assert(/^[A-Z0-9]{6}$/.test(created.code), '房间号格式不正确')
 
   const listed = await jsonRequest(`${baseUrl}/api/rooms`, {
-    headers: { authorization: `Bearer ${session.token}` },
+    headers: { cookie: session.cookie },
   })
   const listedRoom = listed.rooms.find((room) => room.code === created.code)
   assert(listedRoom?.occupiedSeats === 1 && listedRoom?.availableSeats === 3, '房间列表人数不正确')
   assert(listedRoom?.players[0]?.nickname === '联调玩家', '房间列表玩家信息不正确')
 
-  const socketUrl = new URL(`${baseUrl}/api/rooms/${created.code}/socket`)
-  socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-  socketUrl.searchParams.set('session', session.token)
-  const socket = new WebSocket(socketUrl)
+  const socket = await openSocket(`/api/rooms/${created.code}/socket`, session.cookie)
   const initialStatePromise = waitForMessage(socket, (message) => message.type === 'room-state')
-  await waitForOpen(socket)
   const initialState = await initialStatePromise
   assert(initialState.room.phase === 'lobby', '连接后没有进入房间等待页')
   const pongPromise = waitForRawMessage(socket, 'pong')
@@ -147,7 +148,7 @@ try {
   assert(started.room.turnTimer?.seatId === started.room.game.currentPlayer, '当前行动座位没有倒计时')
 
   const roomsAfterStart = await jsonRequest(`${baseUrl}/api/rooms`, {
-    headers: { authorization: `Bearer ${session.token}` },
+    headers: { cookie: session.cookie },
   })
   const activeRoom = roomsAfterStart.rooms.find((room) => room.code === created.code)
   // 自己本来就坐在里面：刷新页面后要能从列表直接回去，所以对本人是可加入的
@@ -155,13 +156,9 @@ try {
   assert(activeRoom?.rejoinable === true && activeRoom?.joinable === true, '房主自己回不到进行中的牌局')
 
   // 但外人仍然不能中途插进一局已经开始的牌
-  const outsider = await jsonRequest(`${baseUrl}/api/session`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nickname: '冒烟路人' }),
-  })
+  const outsider = await loginSession(baseUrl, '冒烟路人')
   const roomsForOutsider = await jsonRequest(`${baseUrl}/api/rooms`, {
-    headers: { authorization: `Bearer ${outsider.token}` },
+    headers: { cookie: outsider.cookie },
   })
   const seenByOutsider = roomsForOutsider.rooms.find((room) => room.code === created.code)
   assert(
@@ -179,7 +176,7 @@ try {
   await activeSocketClosed
   await activeRoomDeleted
   const roomsAfterActiveLeave = await jsonRequest(`${baseUrl}/api/rooms`, {
-    headers: { authorization: `Bearer ${session.token}` },
+    headers: { cookie: session.cookie },
   })
   assert(!roomsAfterActiveLeave.rooms.some((room) => room.code === created.code), '最后一名真人明确退出后没有删除牌局')
 
@@ -187,29 +184,17 @@ try {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${session.token}`,
+      cookie: session.cookie,
     },
     body: JSON.stringify({ settings: { mode: 'finite', initialPoints: 30, claimWindowMs: 4000 } }),
   })
-  const lobbyHostSocketUrl = new URL(`${baseUrl}/api/rooms/${lobbyRoom.code}/socket`)
-  lobbyHostSocketUrl.protocol = lobbyHostSocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-  lobbyHostSocketUrl.searchParams.set('session', session.token)
-  const lobbyHostSocket = new WebSocket(lobbyHostSocketUrl)
+  const lobbyHostSocket = await openSocket(`/api/rooms/${lobbyRoom.code}/socket`, session.cookie)
   const lobbyHostState = waitForMessage(lobbyHostSocket, (message) => message.type === 'room-state')
-  await waitForOpen(lobbyHostSocket)
   await lobbyHostState
 
-  const guestSession = await jsonRequest(`${baseUrl}/api/session`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nickname: '联调访客' }),
-  })
-  const guestSocketUrl = new URL(`${baseUrl}/api/rooms/${lobbyRoom.code}/socket`)
-  guestSocketUrl.protocol = guestSocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-  guestSocketUrl.searchParams.set('session', guestSession.token)
-  const guestSocket = new WebSocket(guestSocketUrl)
+  const guestSession = await loginSession(baseUrl, '联调访客')
+  const guestSocket = await openSocket(`/api/rooms/${lobbyRoom.code}/socket`, guestSession.cookie)
   const guestJoined = waitForMessage(guestSocket, (message) => message.type === 'room-state' && message.room.seats.filter((seat) => seat.kind === 'human').length === 2)
-  await waitForOpen(guestSocket)
   await guestJoined
 
   const guestClosed = waitForClose(guestSocket)
@@ -217,21 +202,20 @@ try {
   await guestClosed
   await new Promise((resolve) => setTimeout(resolve, 30))
   const roomsAfterGuestDropped = await jsonRequest(`${baseUrl}/api/rooms`, {
-    headers: { authorization: `Bearer ${session.token}` },
+    headers: { cookie: session.cookie },
   })
   const lobbyAfterGuestDropped = roomsAfterGuestDropped.rooms.find((room) => room.code === lobbyRoom.code)
   assert(lobbyAfterGuestDropped?.occupiedSeats === 2 && lobbyAfterGuestDropped?.players.some((player) => player.nickname === '联调访客' && !player.connected), '等待页意外断线后没有保留座位')
 
-  const guestReconnectSocket = new WebSocket(guestSocketUrl)
+  const guestReconnectSocket = await openSocket(`/api/rooms/${lobbyRoom.code}/socket`, guestSession.cookie)
   const guestReconnected = waitForMessage(guestReconnectSocket, (message) => message.type === 'room-state' && message.room.seats[1]?.connected)
-  await waitForOpen(guestReconnectSocket)
   await guestReconnected
   const guestLeft = waitForClose(guestReconnectSocket)
   guestReconnectSocket.send(JSON.stringify({ type: 'leave-room' }))
   await guestLeft
   await new Promise((resolve) => setTimeout(resolve, 30))
   const roomsAfterGuestLeft = await jsonRequest(`${baseUrl}/api/rooms`, {
-    headers: { authorization: `Bearer ${session.token}` },
+    headers: { cookie: session.cookie },
   })
   const lobbyAfterGuestLeft = roomsAfterGuestLeft.rooms.find((room) => room.code === lobbyRoom.code)
   assert(lobbyAfterGuestLeft?.occupiedSeats === 1 && lobbyAfterGuestLeft?.availableSeats === 3, '明确离开等待页后没有释放座位')

@@ -8,33 +8,23 @@ import type { OnlineRoomSettings } from '@/online/types'
 const props = defineProps<{ joinCode?: string }>()
 const emit = defineEmits<{ back: []; joinConsumed: [] }>()
 const online = useOnlineGame()
-const nickname = ref('')
-const joinCode = ref('')
-const settings = reactive<OnlineRoomSettings>({ ...DEFAULT_ONLINE_SETTINGS })
-// 从分享链接进来时先记着要去哪个房间，输完昵称立刻自动进
+const nickname = ref(online.lastNickname.value)
+const manualCode = ref('')
 const invitedCode = ref((props.joinCode ?? '').toUpperCase())
-const hubTab = ref<'create' | 'rooms' | 'rank'>('create')
+const settings = reactive<OnlineRoomSettings>({ ...DEFAULT_ONLINE_SETTINGS, claimWindowMs: 4000 })
 
-watch(() => props.joinCode, (code) => {
-  if (code) invitedCode.value = code.toUpperCase()
-})
+watch(() => props.joinCode, (code) => { if (code) invitedCode.value = code.toUpperCase() })
 
-onMounted(() => {
+onMounted(async () => {
   if (!online.apiConfigured) return
-  // 刷新页面后用存下来的会话直接接回去，包括回到刚才那个房间
-  void online.restoreSession().then((restored) => {
-    if (!restored) void online.refreshLeaderboard()
-    // 分享链接优先：既然是点链接进来的，就去链接指定的房间
-    if (invitedCode.value && online.session.value) enterInvitedRoom()
-  })
+  const restored = await online.restoreSession()
+  if (restored && invitedCode.value) enterInvitedRoom()
 })
 
-// 进房之后把 hash 清掉：留着的话一刷新又会重新触发一次自动加入，
-// 地址栏也不该一直挂着别人的房间号。
-function clearInviteHash() {
-  if (location.hash.startsWith('#join=')) {
-    history.replaceState(null, '', `${location.pathname}${location.search}`)
-  }
+function consumeInvite() {
+  const url = new URL(location.href)
+  url.searchParams.delete('room')
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
   emit('joinConsumed')
 }
 
@@ -42,34 +32,18 @@ function enterInvitedRoom() {
   const code = invitedCode.value
   if (!code) return
   invitedCode.value = ''
-  clearInviteHash()
+  consumeInvite()
   online.joinRoom(code)
 }
 
-function submitNickname() {
-  void online.login(nickname.value).then(() => {
-    if (online.session.value && invitedCode.value) enterInvitedRoom()
-  })
+async function submitNickname() {
+  await online.login(nickname.value)
+  if (online.session.value && invitedCode.value) enterInvitedRoom()
 }
 
-function dismissInvite() {
-  invitedCode.value = ''
-  clearInviteHash()
-}
-
-function createRoom() {
-  void online.createRoom({ ...settings })
-}
-
-function leaveRoom() {
-  online.leaveRoom()
-  void online.refreshRooms()
-}
-
-function back() {
-  if (online.room.value) leaveRoom()
-  else emit('back')
-}
+function createRoom() { void online.createRoom({ ...settings, claimWindowMs: 4000 }) }
+function leaveRoom() { online.leaveRoom(); void online.refreshRooms() }
+function back() { if (online.room.value) leaveRoom(); else emit('back') }
 </script>
 
 <template>
@@ -85,282 +59,136 @@ function back() {
 
   <main v-else class="online-hub">
     <header class="hub-header">
-      <button type="button" @click="back">← 返回模式选择</button>
-      <div><span>中</span><div><strong>联机模式</strong><small>AI 红中麻将</small></div></div>
-      <button v-if="online.session.value" type="button" @click="online.logout">退出昵称</button>
+      <button type="button" aria-label="返回首页" @click="back">‹</button>
+      <h1>联机大厅</h1>
+      <button v-if="online.session.value" type="button" @click="online.logout">退出</button>
+      <span v-else></span>
     </header>
 
-    <section v-if="online.maintenance.value.active" class="maintenance-notice">
-      <strong>服务器维护中</strong>
-      <p>{{ online.maintenance.value.message }}</p>
-      <small>已经开始的牌局不受影响，也仍然可以加入现有房间。</small>
+    <section v-if="!online.session.value" class="login-panel">
+      <strong v-if="invitedCode">加入房间 {{ invitedCode }}</strong>
+      <strong v-else>输入昵称</strong>
+      <form @submit.prevent="submitNickname">
+        <input v-model="nickname" maxlength="12" autocomplete="nickname" aria-label="昵称" placeholder="昵称">
+        <button type="submit" :disabled="online.busy.value || !online.apiConfigured">{{ online.busy.value ? '连接中…' : invitedCode ? '加入房间' : '进入大厅' }}</button>
+      </form>
     </section>
 
-    <section v-if="!online.apiConfigured" class="server-notice">
-      <strong>联机服务器尚未配置</strong>
-      <p>本地开发请同时运行联机服务器；生产环境默认使用当前网页域名，也可以通过 <code>VITE_ONLINE_API_BASE</code> 覆盖。</p>
-    </section>
-
-    <nav v-if="online.session.value" class="mobile-hub-tabs">
-      <button :class="{ active: hubTab === 'create' }" @click="hubTab = 'create'">开房 / 加入</button>
-      <button :class="{ active: hubTab === 'rooms' }" @click="hubTab = 'rooms'">房间动态</button>
-      <button :class="{ active: hubTab === 'rank' }" @click="hubTab = 'rank'">排行榜</button>
-    </nav>
-
-    <section class="hub-grid" :class="{ logged: online.session.value }">
-      <article v-if="!online.session.value" class="login-card hub-card" :class="{ invited: invitedCode }">
-        <small>{{ invitedCode ? 'JOIN BY LINK' : 'NICKNAME LOGIN' }}</small>
-        <h1>{{ invitedCode ? '加入房间' : '输入昵称' }}</h1>
-        <p v-if="invitedCode" class="invited-code">{{ invitedCode }}</p>
-        <p>{{ invitedCode ? '输入昵称就直接进这个房间。同一个昵称同时只能在一个地方登录。' : '第一次使用会自动注册；之后输入相同昵称即可继续累计排行榜数据。' }}</p>
-        <form @submit.prevent="submitNickname">
-          <label>昵称<input v-model="nickname" maxlength="12" autocomplete="off" placeholder="例如：齐天大圣A123"></label>
-          <button type="submit" :disabled="online.busy.value || !online.apiConfigured">{{ online.busy.value ? '连接中…' : invitedCode ? '进入房间' : '进入联机大厅' }}</button>
-        </form>
-        <button v-if="invitedCode" class="invite-skip" type="button" @click="dismissInvite">不进这个房间，只去大厅</button>
-        <div class="privacy-note">不使用密码、手机号或验证码。昵称会记在这台设备上，刷新页面能直接接着玩。</div>
-      </article>
-
-      <template v-else>
-        <article class="hub-card room-action-card" :class="{ 'mobile-tab-hidden': hubTab !== 'create' }">
-          <small>CREATE ROOM</small>
+    <section v-else class="hub-content">
+      <div class="actions">
+        <article>
+          <div class="identity"><span>当前昵称</span><strong>{{ online.session.value.nickname }}</strong></div>
           <h2>创建房间</h2>
-          <div class="online-mode-switch">
-            <label :class="{ selected: settings.mode === 'finite' }"><input v-model="settings.mode" type="radio" value="finite"><strong>有限积分</strong><span>有人归零整场结束</span></label>
-            <label :class="{ selected: settings.mode === 'unlimited' }"><input v-model="settings.mode" type="radio" value="unlimited"><strong>无限模式</strong><span>只记录本场净分</span></label>
+          <div class="mode-switch">
+            <button type="button" :class="{ active: settings.mode === 'finite' }" @click="settings.mode = 'finite'">有限积分</button>
+            <button type="button" :class="{ active: settings.mode === 'unlimited' }" @click="settings.mode = 'unlimited'">无限模式</button>
           </div>
-          <div class="create-fields">
-            <label v-if="settings.mode === 'finite'">统一初始积分<input v-model.number="settings.initialPoints" type="number" min="1" max="9999"></label>
-            <label>抢牌窗口<select v-model.number="settings.claimWindowMs"><option :value="2000">2秒</option><option :value="3000">3秒</option><option :value="4000">4秒（推荐）</option><option :value="5000">5秒</option><option :value="6000">6秒</option><option :value="7000">7秒</option></select></label>
-            <label>空位 AI 档位<select v-model="settings.aiDifficulty"><option v-for="(label, value) in DIFFICULTY_LABELS" :key="value" :value="value">{{ label }}{{ value === 'standard' ? '（推荐）' : '' }}</option></select></label>
-          </div>
-          <p>普通操作限时固定30秒；人没坐满时空位由这个档位的 AI 补上。</p>
-          <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : online.busy.value ? '创建中…' : online.connecting.value ? '正在进入…' : '创建新房间' }}</button>
+          <label v-if="settings.mode === 'finite'">初始积分<input v-model.number="settings.initialPoints" type="number" min="1" max="9999"></label>
+          <label>AI 难度<select v-model="settings.aiDifficulty"><option v-for="(label, value) in DIFFICULTY_LABELS" :key="value" :value="value">{{ label }}</option></select></label>
+          <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : '创建房间' }}</button>
         </article>
 
-        <article class="hub-card room-action-card join-card" :class="{ 'mobile-tab-hidden': hubTab !== 'create' }">
-          <small>JOIN ROOM</small>
+        <article>
           <h2>加入房间</h2>
-          <p>可以从下方房间列表直接加入，也可以输入6位房间号。</p>
-          <form @submit.prevent="online.joinRoom(joinCode)">
-            <label>房间号<input v-model="joinCode" maxlength="6" autocomplete="off" placeholder="例如：7K9M2Q" @input="joinCode = joinCode.toUpperCase()"></label>
-            <button class="primary" type="submit" :disabled="online.connecting.value">{{ online.connecting.value ? '正在加入…' : '加入房间' }}</button>
+          <form class="join-form" @submit.prevent="online.joinRoom(manualCode)">
+            <input v-model="manualCode" maxlength="6" autocomplete="off" aria-label="房间号" placeholder="6 位房间号" @input="manualCode = manualCode.toUpperCase()">
+            <button class="primary" type="submit" :disabled="online.connecting.value">加入</button>
           </form>
-          <div class="login-user"><span>当前昵称</span><strong>{{ online.session.value.nickname }}</strong></div>
         </article>
-      </template>
+      </div>
 
-      <article v-if="online.session.value" class="hub-card room-directory-card" :class="{ 'mobile-tab-hidden': hubTab !== 'rooms' }">
-        <header>
-          <div><small>LIVE ROOMS</small><h2>房间动态</h2></div>
-          <button type="button" @click="online.refreshRooms">刷新房间</button>
-        </header>
-        <div v-if="online.rooms.value.length" class="room-directory-list">
-          <section v-for="entry in online.rooms.value" :key="entry.code" class="room-directory-row">
-            <div class="room-directory-main">
-              <div><strong>房间 {{ entry.code }}</strong><span>房主：{{ entry.hostNickname }}</span><b :class="entry.phase">{{ entry.phase === 'lobby' ? '等待加入' : '牌局进行中' }}</b></div>
-              <div class="room-directory-players">
-                <span v-for="player in entry.players" :key="`${entry.code}-${player.nickname}`" :class="{ offline: !player.connected && player.kind === 'human', ai: player.kind === 'ai' || player.trustee }">
-                  {{ player.nickname }}<i v-if="player.isHost">房主</i><i v-if="player.kind === 'ai'">AI</i><i v-else-if="player.trustee">托管</i><i v-if="player.kind === 'human' && !player.connected">离线</i>
-                </span>
-                <span v-for="seat in entry.phase === 'lobby' ? entry.availableSeats : 0" :key="`${entry.code}-empty-${seat}`" class="empty-seat">空位</span>
-              </div>
-            </div>
-            <div class="room-directory-rules">
-              <span>{{ entry.settings.mode === 'finite' ? `有限积分 ${entry.settings.initialPoints}分` : '无限模式' }}</span>
-              <span>抢牌 {{ entry.settings.claimWindowMs / 1000 }}秒</span>
-              <b>{{ entry.occupiedSeats }}/4 人</b>
-            </div>
-            <button class="primary" :class="{ rejoin: entry.rejoinable }" type="button" :disabled="!entry.joinable || online.connecting.value" @click="online.joinRoom(entry.code)">
-              {{ online.connecting.value ? '正在加入…' : entry.rejoinable ? '返回牌局' : entry.phase === 'playing' ? '进行中' : entry.availableSeats === 0 ? '房间已满' : '加入房间' }}
-            </button>
+      <article class="directory">
+        <header><h2>公开房间</h2><button type="button" @click="online.refreshRooms">刷新</button></header>
+        <div class="room-list">
+          <section v-for="entry in online.rooms.value" :key="entry.code" :class="['room-row', entry.phase]">
+            <div><strong>{{ entry.code }}</strong><span>{{ entry.hostNickname }}</span></div>
+            <div><b>{{ entry.occupiedSeats }}/4</b><span>{{ entry.phase === 'lobby' ? '等待中' : '游戏中' }}</span></div>
+            <button type="button" :disabled="!entry.joinable || online.connecting.value" @click="online.joinRoom(entry.code)">{{ entry.rejoinable ? '重新进入' : entry.joinable ? '加入' : '不可加入' }}</button>
           </section>
+          <p v-if="!online.rooms.value.length">暂无公开房间</p>
         </div>
-        <p v-else class="empty-ranking">暂时没有等待中或进行中的房间，可以创建新房间。</p>
-      </article>
-
-      <article class="hub-card leaderboard-card" :class="{ 'mobile-tab-hidden': online.session.value && hubTab !== 'rank' }">
-        <header><div><small>LEADERBOARD</small><h2>胜局排行榜</h2></div><button type="button" @click="online.refreshLeaderboard">刷新</button></header>
-        <div class="leaderboard-head"><span>名次 / 昵称</span><span>胜局</span><span>总局</span><span>胜率</span><span>七对</span><span>杠</span><span>码</span></div>
-        <ol v-if="online.leaderboard.value.length">
-          <li v-for="(entry, index) in online.leaderboard.value" :key="entry.userId">
-            <span><i>{{ index + 1 }}</i><strong>{{ entry.nickname }}</strong></span>
-            <b>{{ entry.wins }}</b><em>{{ entry.totalGames }}</em><em>{{ (entry.winRate * 100).toFixed(1) }}%</em><em>{{ entry.sevenPairs }}</em><em>{{ entry.gangCount }}</em><em>{{ entry.maCount }}</em>
-          </li>
-        </ol>
-        <p v-else class="empty-ranking">还没有已结算的联机牌局。</p>
       </article>
     </section>
+
   </main>
 
-  <!-- 提示条挂在最外层：进了房间也要看得到「还有玩家未准备」这类服务器反馈 -->
-  <div v-if="online.error.value" class="online-error" @click="online.error.value = ''">{{ online.error.value }} ×</div>
+  <!-- 错误提示挂在房间视图和大厅视图之外：以前它写在大厅的 <main> 里，
+       一旦进了房间整段就不渲染，服务端驳回（比如「还有玩家未准备」）在界面上毫无反应。 -->
+  <div v-if="online.error.value" class="online-error" role="alert" @click="online.error.value = ''">{{ online.error.value }}</div>
 </template>
 
 <style scoped>
-.online-hub { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: clamp(14px, 3vh, 24px) clamp(16px, 5vw, 64px) clamp(14px, 2.5vh, 28px); color: #f5efdd; background: radial-gradient(circle at 10% 0, #24483d 0, transparent 35%), #091410; }
-.hub-header { width: min(1180px, 100%); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
-.hub-header > button { padding: 9px 12px; border: 1px solid #345047; border-radius: 9px; background: #10251f; color: #d8dfda; cursor: pointer; }
-.hub-header > div { display: flex; align-items: center; gap: 10px; }
-.hub-header > div > span { width: 40px; height: 40px; display: grid; place-items: center; border: 2px solid #b94a42; border-radius: 11px; color: #d45a51; font: 800 23px/1 serif; transform: rotate(-4deg); }
-.hub-header > div > div { display: grid; }
-.hub-header strong { font-size: 15px; }
-.hub-header small { color: #748981; font-size: 9px; letter-spacing: .14em; }
-.server-notice { width: min(1180px, 100%); margin: 22px auto 0; padding: 13px 16px; border: 1px solid #8d5e34; border-radius: 11px; background: #38291c; }
-.server-notice p { margin: 4px 0 0; color: #c6a981; font-size: 11px; }
-.hub-grid { width: min(1180px, 100%); margin: 25px auto 0; display: grid; grid-template-columns: minmax(300px, 410px) minmax(0, 1fr); gap: 16px; align-items: start; }
-.hub-grid.logged { grid-template-columns: 1fr 1fr; }
-.hub-card { padding: 24px; border: 1px solid #345047; border-radius: 20px; background: rgba(14,34,29,.94); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-.hub-card > small, .hub-card header small { color: #748981; font-size: 9px; font-weight: 800; letter-spacing: .2em; }
-.hub-card h1, .hub-card h2 { margin: 4px 0 8px; }
-.hub-card p { color: #849991; font-size: 11px; line-height: 1.7; }
-.hub-card label { display: grid; gap: 5px; color: #80958e; font-size: 10px; }
-.hub-card input, .hub-card select { width: 100%; min-width: 0; padding: 11px; border: 1px solid #355148; border-radius: 9px; background: #112a22; color: #f4eedc; outline: 0; }
-.hub-card button.primary, .login-card form button { padding: 12px 15px; border: 0; border-radius: 9px; background: #e2c168; color: #20261e; font-weight: 900; cursor: pointer; }
-.hub-card button:disabled { opacity: .48; cursor: default; }
-.login-card form { display: grid; gap: 12px; margin-top: 22px; }
-.privacy-note, .login-user { margin-top: 17px; padding: 11px; border-radius: 9px; background: #10261f; color: #71867f; font-size: 9px; }
-.online-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 17px 0; }
-.online-mode-switch label { grid-template-columns: auto 1fr; padding: 11px; border: 1px solid #304b42; border-radius: 10px; cursor: pointer; }
-.online-mode-switch label.selected { border-color: #bfa451; background: rgba(191,164,81,.06); }
-.online-mode-switch input { grid-row: 1 / 3; width: auto; padding: 0; accent-color: #d8b95f; }
-.online-mode-switch strong, .online-mode-switch span { grid-column: 2; }
-.online-mode-switch span { color: #738780; font-size: 8px; }
-.create-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
-.room-action-card > button.primary { width: 100%; margin-top: 10px; }
-.join-card form { display: grid; gap: 10px; margin-top: 25px; }
-.join-card input { text-transform: uppercase; letter-spacing: .22em; font-size: 18px; font-weight: 900; }
-.login-user { display: flex; justify-content: space-between; }
-.login-user strong { color: #ebcb72; }
-.room-directory-card { grid-column: 1 / 3; min-width: 0; }
-.room-directory-card header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.room-directory-card header button { padding: 7px 10px; border: 1px solid #355148; border-radius: 8px; background: #10261f; color: #b9c4bf; cursor: pointer; }
-.room-directory-list { display: grid; gap: 9px; margin-top: 16px; }
-.room-directory-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 112px; gap: 14px; align-items: center; padding: 14px; border: 1px solid #29443b; border-radius: 12px; background: #10261f; }
-.room-directory-main > div:first-child { display: flex; align-items: baseline; gap: 10px; }
-.room-directory-main > div:first-child span { color: #80958e; font-size: 9px; }
-.room-directory-main > div:first-child b { margin-left: auto; padding: 3px 7px; border-radius: 99px; font-size: 8px; white-space: nowrap; }
-.room-directory-main > div:first-child b.lobby { background: rgba(91,184,130,.13); color: #7bd19e; }
-.room-directory-main > div:first-child b.playing { background: rgba(224,178,73,.13); color: #e3bd63; }
-.room-directory-players { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.room-directory-players > span { padding: 5px 7px; border-radius: 7px; background: #1a392f; color: #dfe7e2; font-size: 9px; }
-.room-directory-players > span.ai { border: 1px solid rgba(214,179,88,.22); background: #20372c; }
-.room-directory-players > span.offline { opacity: .58; }
-.room-directory-players > span.empty-seat { border: 1px dashed #3a574e; background: transparent; color: #71867f; }
-.room-directory-players i { margin-left: 5px; color: #d9bc67; font-style: normal; font-size: 7px; }
-.room-directory-rules { display: grid; gap: 4px; color: #81968f; font-size: 9px; text-align: right; }
-.room-directory-rules b { color: #e4c66f; font-size: 11px; }
-.room-directory-row > button.primary { width: 100%; }
-.leaderboard-card { grid-column: 2; grid-row: 1 / span 2; min-width: 0; }
-.hub-grid.logged .leaderboard-card { grid-column: 1 / 3; grid-row: auto; }
-.leaderboard-card header { display: flex; justify-content: space-between; align-items: center; }
-.leaderboard-card header button { padding: 7px 10px; border: 1px solid #355148; border-radius: 8px; background: #10261f; color: #b9c4bf; cursor: pointer; }
-.leaderboard-head, .leaderboard-card li { display: grid; grid-template-columns: minmax(120px, 1.6fr) repeat(6, minmax(42px, .55fr)); gap: 5px; align-items: center; }
-.leaderboard-head { padding: 10px 8px 7px; color: #667b74; font-size: 8px; text-align: center; }
-.leaderboard-head span:first-child { text-align: left; }
-.leaderboard-card ol { max-height: 440px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
-.leaderboard-card li { padding: 9px 8px; border-top: 1px solid #263f37; font-size: 11px; text-align: center; }
-.leaderboard-card li > span { display: flex; align-items: center; gap: 8px; text-align: left; }
-.leaderboard-card li i { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: #1b3930; color: #d6bb69; font-style: normal; font-size: 9px; }
-.leaderboard-card li b { color: #efcf72; }
-.leaderboard-card li em { color: #8fa29b; font-style: normal; }
-.empty-ranking { padding: 35px 0; text-align: center; }
-.login-card.invited { border-color: rgba(226, 192, 105, .55); }
-.invited-code { margin: 4px 0 2px; color: #f0d68a; font-size: 30px; font-weight: 800; letter-spacing: .18em; }
-.invite-skip { margin-top: 10px; padding: 8px 12px; border: 1px solid #35524a; border-radius: 9px; background: transparent; color: #93a8a0; cursor: pointer; font-size: 12px; }
-.room-directory-card .primary.rejoin { background: #7fc79a; color: #10251c; }
-.maintenance-notice { width: min(1180px, 100%); margin: 18px auto 0; padding: 15px 18px; border: 1px solid #a8863f; border-radius: 14px; background: rgba(72, 55, 21, .55); }
-.maintenance-notice strong { color: #f2d47c; font-size: 15px; }
-.maintenance-notice p { margin: 6px 0 4px; color: #ecdcae; font-size: 13px; line-height: 1.6; }
-.maintenance-notice small { color: #b9a97c; font-size: 12px; }
-.online-error { position: fixed; z-index: 90; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #ad5148; border-radius: 12px; background: rgba(94, 45, 40, .97); color: #ffd8d3; cursor: pointer; font-size: 13px; text-align: center; box-shadow: 0 14px 36px rgba(0,0,0,.45); }
-.mobile-hub-tabs { display: none; }
-@media (max-width: 800px) {
-  .hub-grid, .hub-grid.logged { grid-template-columns: 1fr; }
-  .room-directory-card, .leaderboard-card, .hub-grid.logged .leaderboard-card { grid-column: 1; grid-row: auto; }
-  .room-directory-row { grid-template-columns: 1fr auto; }
-  .room-directory-main { grid-column: 1 / 3; }
+.online-hub { width: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); color: #f5efdd; background: radial-gradient(circle at 10% 0, #21483b, transparent 38%), #081510; }
+.hub-header { width: min(1160px, 100%); min-height: 48px; margin: 0 auto 14px; display: grid; grid-template-columns: 80px 1fr 80px; align-items: center; }
+.hub-header h1 { margin: 0; color: #f1d078; font-size: 24px; text-align: center; }
+button { min-height: 42px; border: 1px solid #345248; border-radius: 10px; background: #112b24; color: #e9dfc4; cursor: pointer; font-weight: 800; }
+button:disabled { opacity: .45; cursor: default; }
+.hub-header button { padding: 0 12px; }
+.hub-header button:first-child { width: 42px; padding: 0; font-size: 27px; }
+.login-panel { width: min(430px, 100%); margin: auto; padding: 28px; border: 1px solid rgba(220,187,96,.28); border-radius: 22px; background: #0e241e; }
+.login-panel > strong { display: block; margin-bottom: 18px; color: #f1d078; font-size: 25px; }
+.login-panel form { display: grid; gap: 12px; }
+input, select { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid #345248; border-radius: 10px; outline: 0; background: #102a23; color: #f5efdd; font-size: 15px; }
+.login-panel button, .primary { border: 0; background: linear-gradient(135deg, #efd17c, #c9a54d); color: #172019; }
+.hub-content { width: min(1160px, 100%); min-height: 0; flex: 1; margin: 0 auto; display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 14px; }
+.actions { min-height: 0; display: grid; gap: 12px; align-content: start; }
+.actions article, .directory { padding: 18px; border: 1px solid #304b42; border-radius: 18px; background: rgba(14,35,29,.96); }
+h2 { margin: 0 0 13px; font-size: 18px; }
+.identity { display: flex; justify-content: space-between; margin-bottom: 16px; color: #8ea29b; font-size: 12px; }
+.identity strong { color: #f1d078; }
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 11px; }
+.mode-switch button.active { border-color: #d5b65b; color: #f1d078; background: #1a382f; }
+label { display: grid; gap: 5px; margin-top: 10px; color: #8ea29b; font-size: 11px; }
+.actions .primary { width: 100%; margin-top: 13px; }
+.join-form { display: grid; grid-template-columns: 1fr 76px; gap: 8px; }
+.join-form input { text-transform: uppercase; letter-spacing: .12em; }
+.directory { min-height: 0; display: flex; flex-direction: column; }
+.directory > header { display: flex; align-items: center; justify-content: space-between; }
+.directory > header button { padding: 0 12px; }
+.room-list { min-height: 0; flex: 1; display: grid; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; }
+.room-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 96px; align-items: center; gap: 12px; padding: 13px; border: 1px solid #2c483e; border-radius: 12px; background: #102821; }
+.room-row.playing { opacity: .62; }
+.room-row > div { display: grid; gap: 3px; }
+.room-row > div:nth-child(2) { text-align: right; }
+.room-row strong { color: #f1d078; font-size: 20px; letter-spacing: .1em; }
+.room-row span { color: #8fa49c; font-size: 11px; }
+.room-row b { color: #e7ddc2; }
+.room-row > button { min-height: 40px; }
+.room-list > p { margin: auto; color: #82978f; text-align: center; }
+.online-error { position: fixed; z-index: 90; top: calc(12px + env(safe-area-inset-top)); left: 50%; width: min(520px, calc(100vw - 24px)); padding: 12px 16px; transform: translateX(-50%); border: 1px solid #b55249; border-radius: 12px; background: #672f2b; color: #ffe2dd; text-align: center; }
+@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
+  .online-hub { padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  .hub-header { min-height: 42px; margin-bottom: 8px; }
+  .hub-header h1 { font-size: 20px; }
+  .login-panel { margin: auto; padding: 20px; }
+  .hub-content { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
+  .actions { grid-template-columns: 1.2fr .8fr; gap: 8px; }
+  .actions article, .directory { padding: 12px; border-radius: 14px; }
+  h2 { margin-bottom: 8px; font-size: 16px; }
+  .identity { display: none; }
+  label { margin-top: 6px; }
+  input, select { min-height: 42px; }
+  .actions .primary { margin-top: 8px; }
+  .actions article:nth-child(2) { display: flex; flex-direction: column; }
+  .join-form { grid-template-columns: 1fr; }
+  .join-form .primary { margin-top: 0; }
+  .room-row { grid-template-columns: minmax(0, 1fr) auto 82px; padding: 10px; }
 }
-@media (max-width: 560px) {
-  .online-hub { padding: max(16px, env(safe-area-inset-top)) 11px max(35px, env(safe-area-inset-bottom)); }
-  .hub-header { flex-wrap: wrap; }
-  .hub-header > div { order: -1; flex-basis: 100%; justify-content: center; }
-  .hub-card { padding: 17px; }
-  .online-mode-switch, .create-fields { grid-template-columns: 1fr; }
-  .room-directory-row { grid-template-columns: 1fr; }
-  .room-directory-main { grid-column: 1; }
-  .room-directory-rules { grid-template-columns: repeat(3, auto); text-align: left; }
-  .room-directory-row > button.primary { width: 100%; }
-  .leaderboard-card { overflow-x: auto; }
-  .leaderboard-head, .leaderboard-card ol { min-width: 570px; }
-}
-
-/* 联机大厅在手机上也不滚整页：登录一屏，登录后用三个标签切换内容。 */
-@media (pointer: coarse), (max-width: 700px), (max-height: 620px) {
-  .online-hub { padding: max(12px, env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom)); background: radial-gradient(circle at 10% 0, #24483d 0, transparent 35%), #0b1a15; }
-  .hub-header { flex: none; min-height: 42px; flex-wrap: nowrap; margin: 0; }
-  .hub-header > div { order: 0; flex: 1; flex-basis: auto; justify-content: center; }
-  .hub-header > div > span { width: 34px; height: 34px; border-radius: 10px; font-size: 19px; }
-  .hub-header > button { min-width: 70px; min-height: 36px; padding: 6px 9px; font-size: 11px; }
-  .hub-header strong { font-size: 14px; }
-  .maintenance-notice, .server-notice { flex: none; margin: 8px 0 0; padding: 9px 12px; }
-  .maintenance-notice p, .server-notice p { margin: 3px 0 0; font-size: 10px; line-height: 1.45; }
-  .maintenance-notice small { display: none; }
-  .mobile-hub-tabs { flex: none; height: 48px; margin-top: 9px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .mobile-hub-tabs button { border: 1px solid #355249; border-radius: 10px; background: transparent; color: #91a69f; font-size: 12px; }
-  .mobile-hub-tabs button.active { border-color: #d3b45e; background: #1b3a31; color: #f3d67c; font-weight: 800; }
-  .hub-grid, .hub-grid.logged { flex: 1; min-height: 0; width: 100%; margin: 9px 0 0; overflow: hidden; }
-  .hub-grid:not(.logged) { display: block; }
-  .hub-grid:not(.logged) .leaderboard-card { display: none; }
-  .hub-grid.logged { display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1.4fr) minmax(0, .85fr); gap: 9px; align-items: stretch; }
-  .hub-grid.logged .mobile-tab-hidden { display: none; }
-  .hub-card { min-height: 0; padding: 14px; border-radius: 15px; box-shadow: none; overflow: hidden; }
-  .login-card { height: 100%; display: flex; flex-direction: column; justify-content: center; }
-  .login-card h1 { font-size: 28px; }
-  .login-card > p { font-size: 12px; }
-  .login-card form { margin-top: 18px; }
-  .login-card input, .login-card form button { min-height: 50px; font-size: 15px; }
-  .privacy-note { margin-top: 12px; font-size: 10px; }
-  .room-action-card { display: flex; flex-direction: column; }
-  .room-action-card > small { font-size: 8px; }
-  .room-action-card h2 { margin: 2px 0 5px; font-size: 19px; }
-  .online-mode-switch { grid-template-columns: 1fr 1fr; gap: 7px; margin: 7px 0; }
-  .online-mode-switch label { padding: 8px 9px; }
-  .online-mode-switch input { display: none; }
-  .online-mode-switch strong, .online-mode-switch span { grid-column: 1; }
-  .online-mode-switch strong { font-size: 13px; }
-  .create-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-  .create-fields label { font-size: 9px; }
-  .hub-card input, .hub-card select { min-height: 38px; padding: 7px; font-size: 11px; }
-  .room-action-card > p { margin: 7px 0 0; font-size: 9px; line-height: 1.45; }
-  .room-action-card > button.primary { min-height: 44px; margin-top: auto; font-size: 14px; }
-  .join-card > p, .join-card .login-user { display: none; }
-  .join-card form { flex: 1; margin-top: 4px; display: grid; grid-template-columns: 1fr 112px; align-items: end; gap: 8px; }
-  .join-card form button { min-height: 42px; }
-  .join-card input { min-height: 42px; font-size: 16px; }
-  .room-directory-card, .hub-grid.logged .leaderboard-card { grid-column: 1; grid-row: 1 / 3; height: 100%; display: flex; flex-direction: column; }
-  .room-directory-list, .leaderboard-card ol { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  .room-directory-row { grid-template-columns: 1fr auto; gap: 8px; padding: 11px; }
-  .room-directory-main { grid-column: 1 / 3; }
-  .room-directory-rules { grid-template-columns: repeat(3, auto); text-align: left; }
-  .leaderboard-card { overflow: hidden; }
-  .leaderboard-head, .leaderboard-card ol { min-width: 0; }
-  .leaderboard-head, .leaderboard-card li { grid-template-columns: minmax(90px, 1.6fr) repeat(6, minmax(28px, .55fr)); font-size: 9px; }
-}
-
 @media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
-  .online-hub { padding: max(7px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
-  .hub-header { min-height: 34px; }
-  .hub-header > div > span { width: 30px; height: 30px; }
-  .mobile-hub-tabs { height: 38px; margin-top: 5px; }
-  .hub-grid, .hub-grid.logged { margin-top: 6px; }
-  .hub-grid.logged { grid-template-columns: 1.15fr .85fr; grid-template-rows: 1fr; }
-  .hub-grid.logged .room-action-card { grid-row: 1; }
-  .hub-grid.logged .join-card { grid-column: 2; }
-  .room-directory-card, .hub-grid.logged .leaderboard-card { grid-column: 1 / 3; grid-row: 1; }
-  .online-mode-switch { margin: 4px 0; }
-  .create-fields label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px; }
-  .room-action-card > p { display: none; }
-  .hub-card { padding: 10px 12px; }
+  .online-hub { padding: max(6px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  .hub-header { min-height: 34px; margin-bottom: 5px; }
+  .hub-header h1 { font-size: 18px; }
+  .hub-header button { min-height: 32px; }
+  .hub-content { grid-template-columns: minmax(330px, 42%) 1fr; gap: 8px; }
+  .actions { grid-template-columns: 1.2fr .8fr; gap: 8px; }
+  .actions article, .directory { padding: 10px; border-radius: 12px; }
+  .identity { display: none; }
+  h2 { margin-bottom: 6px; font-size: 15px; }
+  .mode-switch { margin-bottom: 5px; }
+  .mode-switch button, input, select, .actions .primary { min-height: 34px; }
+  label { margin-top: 4px; }
+  .join-form { grid-template-columns: 1fr; gap: 5px; }
+  .actions .primary { margin-top: 5px; }
+  .room-row { padding: 8px 10px; }
 }
 </style>

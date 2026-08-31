@@ -137,6 +137,9 @@ export interface GameState {
   wall: Tile[]
   maReserve: Tile[]
   lastDiscard: LastDiscard | null
+  /** 最近一次摸到的牌。自摸判定要用它，不能靠翻 events——events 有条数上限，是会被截断的。
+      老房间反序列化出来没有这个字段，所以是可选的，取不到时回落到旧的事件反查。 */
+  lastDrawn?: { playerId: number; tile: Tile } | null
   claimOptions: ClaimOption[]
   transfers: PointTransfer[]
   events: GameEvent[]

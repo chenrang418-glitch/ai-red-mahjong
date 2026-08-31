@@ -32,7 +32,7 @@ const meldLabel: Record<string, string> = {
 </script>
 
 <template>
-  <section class="seat" :class="{ active }">
+  <section class="seat" :class="{ active, urgent: active && countdown && !countdown.ai && countdown.seconds <= 5 }">
     <header>
       <span class="dealer" v-if="dealer">庄</span>
       <strong>{{ player.name }}</strong>
@@ -85,6 +85,7 @@ const meldLabel: Record<string, string> = {
   box-shadow: 0 0 0 2px rgba(243,202,105,.16), 0 0 26px rgba(243,202,105,.16);
   animation: seat-breathe 2.2s ease-in-out infinite;
 }
+.seat.active.urgent { animation-duration: .75s; }
 @keyframes seat-breathe {
   50% {
     border-color: #ffe08a;
@@ -146,7 +147,7 @@ header :deep(.seat-countdown) { margin-left: 2px; }
 .bubble-enter-active, .bubble-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .bubble-enter-from, .bubble-leave-to { opacity: 0; transform: translateY(6px); }
 
-@media (pointer: coarse), (max-width: 700px), (max-height: 600px) {
+@media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
   .seat { padding: 6px 7px; gap: 3px; border-radius: 10px; }
   header { gap: 4px; }
   header strong { font-size: 12px; }

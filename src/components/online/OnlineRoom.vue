@@ -10,6 +10,7 @@ import { gameAudio } from '@/composables/useGameAudio'
 import { useImmersiveTable } from '@/composables/useImmersiveTable'
 import { tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
+import { DIFFICULTY_LABELS } from '@/online/types'
 import type { OnlinePendingAction, OnlineRoomView, RoomActionDraft, RoomCommand } from '@/online/types'
 
 const props = defineProps<{
@@ -99,6 +100,9 @@ onBeforeUnmount(() => {
   if (audioMatchId) gameAudio.stopMatch()
 })
 watch(() => props.room.game?.currentPlayer, () => { selectedTileId.value = '' })
+watch(() => props.room.game?.phase === 'playing' && props.room.game.currentPlayer === props.room.selfSeatId, (isMyTurn, wasMyTurn) => {
+  if (isMyTurn && !wasMyTurn) gameAudio.turnFeedback()
+})
 watch(() => props.room.game, (game) => {
   if (!game) {
     if (audioMatchId) gameAudio.stopMatch()
@@ -144,8 +148,7 @@ const playerNotice = computed(() => {
 const showActionDock = computed(() => !!props.pendingAction
   || displayedTrustee.value
   || props.room.legal.claimActions.length > 0
-  || props.room.legal.canDiscard
-  || !!playerNotice.value)
+  || props.room.legal.canDiscard)
 const claimSeconds = computed(() => props.room.deadlineAt
   ? String(Math.max(0, Math.ceil((props.room.deadlineAt - serverClock.value) / 1000)))
   : '')
@@ -197,6 +200,18 @@ function selectTile(tile: Tile) {
 watch(() => props.room.legal.claimActions.join(','), (actions, previous) => {
   if (actions && !previous) gameAudio.vibrate([18, 38, 24])
 })
+const urgentCountdownSecond = computed(() => {
+  const deadline = props.room.deadlineAt
+    ?? (props.room.turnTimer?.seatId === props.room.selfSeatId && props.room.turnTimer.kind === 'turn'
+      ? props.room.turnTimer.deadlineAt
+      : null)
+  return deadline ? Math.max(0, Math.ceil((deadline - serverClock.value) / 1000)) : 0
+})
+let lastUrgentCountdownSecond = 0
+watch(urgentCountdownSecond, (second) => {
+  if (second >= 1 && second <= 3 && second !== lastUrgentCountdownSecond) gameAudio.countdownFeedback()
+  lastUrgentCountdownSecond = second
+})
 
 function discardSelected() {
   if (!selectedTile.value) return
@@ -204,12 +219,33 @@ function discardSelected() {
   selectedTileId.value = ''
 }
 
+// 离开／结算页退出都走同一个底部弹层，替掉原来的 window.confirm：
+// 系统弹窗跟界面风格对不上，手机上还会盖住半屏。
+const confirmAction = ref<{ label: string; hint: string; run: () => void } | null>(null)
+
+function askConfirm(label: string, hint: string, run: () => void) {
+  confirmAction.value = { label, hint, run }
+  gameAudio.vibrate(10)
+}
+
+function runConfirm() {
+  const action = confirmAction.value
+  confirmAction.value = null
+  if (!action) return
+  gameAudio.vibrate([24, 42, 48])
+  action.run()
+}
+
 function leave() {
-  if (window.confirm('离开后你的座位会立即由 AI 接管，牌局继续。用同一个昵称输入房间号还能回来。确定离开吗？')) emit('leave')
+  askConfirm('离开房间', '座位立刻由 AI 接管，牌局继续；用同一个昵称还能回来', () => emit('leave'))
 }
 
 const shareState = ref<'idle' | 'copied' | 'manual'>('idle')
-const shareLink = computed(() => `${location.origin}${location.pathname}#join=${props.room.code}`)
+const shareLink = computed(() => {
+  const url = new URL(location.origin)
+  url.searchParams.set('room', props.room.code)
+  return url.toString()
+})
 let shareResetTimer: number | null = null
 
 function flashShareState(next: 'copied' | 'manual') {
@@ -225,7 +261,7 @@ async function shareRoom() {
   // 微信、QQ 这些内置浏览器里剪贴板经常是禁的，系统分享反而能用
   if (navigator.share) {
     try {
-      await navigator.share({ title: 'AI 红中麻将', text, url: link })
+      await navigator.share({ title: '红中麻将', text, url: link })
       return
     } catch (cause) {
       // 用户自己取消的不算失败，不用再弹别的
@@ -264,8 +300,7 @@ function confirmNextRound() {
 }
 
 function quitRoom() {
-  if (!window.confirm('退出后座位立刻换成 AI，你不能再回到这一场，本局战绩也不会计入你名下。确定退出吗？')) return
-  emit('leave')
+  askConfirm('退出这一场', '座位换成 AI，你不能再回到这一场，本局战绩也不保留', () => emit('leave'))
 }
 
 // 有人在结算界面退出时，牌桌上方冒一条提示——
@@ -280,7 +315,7 @@ watch(() => props.room.game?.events, (events) => {
   if (latest.id === lastSeenEventId) return
   const first = lastSeenEventId === ''
   lastSeenEventId = latest.id
-  // 首次进房不回放历史事件，否则一进来就弹一堆旧提示
+  // 首次进房不重复展示历史事件，否则一进来就弹一堆旧提示
   if (first || latest.type !== 'ai-change' || !latest.detail.includes('离开房间')) return
   leaveToast.value = latest.detail
   if (leaveToastTimer !== null) window.clearTimeout(leaveToastTimer)
@@ -296,16 +331,14 @@ function sendChat(text: string, quick: boolean) {
   <main v-if="room.phase === 'lobby'" class="online-lobby-page" @pointerdown.capture="gameAudio.unlock">
     <header class="lobby-header">
       <button type="button" @click="emit('leave')">← 返回联机大厅</button>
-      <div class="lobby-room-code"><small>ROOM CODE</small><strong>{{ room.code }}</strong></div>
+      <div class="lobby-room-code"><small>房间号</small><strong>{{ room.code }}</strong></div>
       <div class="lobby-header-actions"><AudioControl /><span :class="{ online: connected }">{{ connected ? '已连接' : '重连中…' }}</span></div>
     </header>
 
     <section class="lobby-card">
       <div class="lobby-heading">
         <div>
-          <small>ONLINE ROOM</small>
           <h1>等待开局</h1>
-          <p>把房间号或链接发给其他玩家；开局时空位会自动补充 AI。</p>
           <div class="share-row">
             <button class="share-button" type="button" @click="shareRoom">分享房间链接</button>
             <span v-if="shareState === 'copied'" class="share-hint ok">链接已复制，发给朋友即可</span>
@@ -313,7 +346,7 @@ function sendChat(text: string, quick: boolean) {
           </div>
           <input v-if="shareState === 'manual'" class="share-link" :value="shareLink" readonly @focus="($event.target as HTMLInputElement).select()">
         </div>
-        <div class="lobby-rules"><span>{{ room.settings.mode === 'finite' ? `有限积分 · ${room.settings.initialPoints}分` : '无限模式' }}</span><span>抢牌 {{ room.settings.claimWindowMs / 1000 }} 秒</span><span>操作 30 秒</span></div>
+        <div class="lobby-rules"><span>{{ room.settings.mode === 'finite' ? `有限积分 · ${room.settings.initialPoints}分` : '无限模式' }}</span><span>AI {{ DIFFICULTY_LABELS[room.settings.aiDifficulty] }}</span></div>
       </div>
 
       <div class="online-seats">
@@ -328,8 +361,6 @@ function sendChat(text: string, quick: boolean) {
       </div>
 
       <footer>
-        <p v-if="isHost">其他真人准备后即可开局；不足四人的位置自动补 AI。</p>
-        <p v-else>准备后等待房主开局。</p>
         <button v-if="isHost" class="start-button" type="button" @click="emit('command', { type: 'start-game' })">开始牌局</button>
         <button v-else class="ready-button" type="button" @click="emit('command', { type: 'ready', ready: !selfSeat.ready })">{{ selfSeat.ready ? '取消准备' : '准备' }}</button>
       </footer>
@@ -425,7 +456,6 @@ function sendChat(text: string, quick: boolean) {
             <button v-for="face in room.legal.buGangFaces" :key="`bu-${face}`" class="gold" type="button" @click="action({ type: 'gang', gangType: 'bu-gang', face })">补杠 {{ tileLabel(tileFromFace(face)) }}</button>
             <button class="discard-button" type="button" :disabled="!selectedTile" @click="discardSelected">{{ selectedTile ? `打出 ${tileLabel(selectedTile)}` : '选一张牌' }}</button>
           </template>
-          <span v-else-if="playerNotice" class="action-status">{{ playerNotice }}</span>
         </div>
       </section>
 
@@ -453,7 +483,7 @@ function sendChat(text: string, quick: boolean) {
 
     <div v-if="(room.game.phase === 'settlement' && !nextRoundDismissed) || room.game.phase === 'match-over'" class="result-backdrop">
       <section class="result-card">
-        <small>{{ room.game.phase === 'match-over' ? 'MATCH OVER' : 'ROUND RESULT' }}</small>
+        <small>{{ room.game.phase === 'match-over' ? '整场结束' : '本局结果' }}</small>
         <h2>{{ room.game.result?.detail }}</h2>
         <div v-if="room.game.result?.winningTile" class="win-result">
           <div><span>自摸牌</span><b>{{ tileLabel(room.game.result.winningTile) }}</b></div>
@@ -463,7 +493,7 @@ function sendChat(text: string, quick: boolean) {
           <div><span>抓码</span><b>{{ room.game.result.maCount }}码</b></div>
           <MahjongTile v-for="tile in room.game.result.maTiles" :key="tile.id" :tile="tile" disabled />
         </div>
-        <ol class="final-scores"><li v-for="player in sortedScores" :key="player.id"><span>{{ player.name }}</span><b>{{ player.points === null ? `净分 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}积分` }}</b><small>胡{{ player.stats.wins }} · 杠{{ player.stats.gangCount }} · 码{{ player.stats.maCount }}</small></li></ol>
+        <ol class="final-scores"><li v-for="player in sortedScores" :key="player.id"><span>{{ player.name }}</span><b>{{ player.points === null ? `净分 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}积分` }}</b></li></ol>
         <div class="result-actions">
           <template v-if="room.game.phase === 'settlement'">
             <button v-if="room.legal.canQuitRoom" class="quit-button" type="button" @click="quitRoom">退出房间</button>
@@ -471,6 +501,13 @@ function sendChat(text: string, quick: boolean) {
           </template>
           <button v-if="room.game.phase === 'match-over' && room.legal.canReturnToLobby" class="primary" type="button" @click="emit('command', { type: 'return-to-lobby' })">返回房间</button>
         </div>
+      </section>
+    </div>
+
+    <div v-if="confirmAction" class="exit-sheet-backdrop" @click.self="confirmAction = null">
+      <section class="exit-sheet" role="dialog" aria-modal="true" :aria-label="confirmAction.label">
+        <button class="finish" type="button" @click="runConfirm"><b>{{ confirmAction.label }}</b><span>{{ confirmAction.hint }}</span></button>
+        <button class="cancel" type="button" @click="confirmAction = null">取消</button>
       </section>
     </div>
 
@@ -569,12 +606,12 @@ function sendChat(text: string, quick: boolean) {
 .leave-toast { position: fixed; z-index: 60; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); max-width: min(420px, calc(100vw - 24px)); padding: 11px 18px; border: 1px solid #a8863f; border-radius: 12px; background: rgba(38, 30, 12, .96); color: #f2d9a0; font-size: 13px; font-weight: 700; text-align: center; box-shadow: 0 14px 40px rgba(0,0,0,.45); }
 .leave-toast-enter-active, .leave-toast-leave-active { transition: opacity .25s ease, transform .25s ease; }
 .leave-toast-enter-from, .leave-toast-leave-to { opacity: 0; transform: translate(-50%, -10px); }
-@media (max-width: 800px) {
+@media (max-width: 820px) {
   .online-seats { grid-template-columns: 1fr 1fr; }
   .lobby-heading { flex-direction: column; }
   .lobby-rules { justify-content: flex-start; }
 }
-@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 700px) {
+@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
   .online-lobby-page { padding: max(18px, env(safe-area-inset-top)) 12px max(18px, env(safe-area-inset-bottom)); }
   .lobby-header { flex-wrap: wrap; }
   .lobby-room-code { order: -1; flex-basis: 100%; }
@@ -600,7 +637,7 @@ function sendChat(text: string, quick: boolean) {
 
 }
 
-/* 手机联机界面沿用单机小程序的尺寸与弹层方式，只保留房间号、托管和聊天这些联机特有信息。 */
+/* 手机联机界面沿用单机牌桌尺寸与弹层方式，只保留房间号、托管和聊天。 */
 @media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
   .online-lobby-page { padding: max(12px, env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom)); background: #0b1a15; }
   .lobby-header { flex: none; min-height: 44px; margin: 0; flex-wrap: nowrap; }

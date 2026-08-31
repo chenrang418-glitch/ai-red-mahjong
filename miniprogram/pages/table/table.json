@@ -1,7 +1,0 @@
-{
-  "usingComponents": {
-    "tile": "/components/tile/tile"
-  },
-  "navigationStyle": "custom",
-  "pageOrientation": "auto"
-}

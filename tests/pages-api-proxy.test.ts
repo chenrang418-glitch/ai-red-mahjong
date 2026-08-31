@@ -30,7 +30,7 @@ describe('联机同源代理', () => {
   })
 
   it('将 API 请求原样转交给内部 Worker', async () => {
-    const request = new Request('https://ai-red-mahjong.pages.dev/api/leaderboard')
+    const request = new Request('https://ai-red-mahjong.pages.dev/api/health')
     let forwardedRequest: Request | null = null
     const response = await onRequest({
       request,
@@ -38,7 +38,7 @@ describe('联机同源代理', () => {
         ONLINE_SERVICE: {
           async fetch(candidate) {
             forwardedRequest = candidate
-            return Response.json({ entries: [] })
+            return Response.json({ ok: true })
           },
         },
       },
@@ -46,6 +46,6 @@ describe('联机同源代理', () => {
 
     expect(forwardedRequest).toBe(request)
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ entries: [] })
+    await expect(response.json()).resolves.toEqual({ ok: true })
   })
 })

@@ -84,7 +84,7 @@ describe('下一局全员准备', () => {
 })
 
 describe('掉线与退出', () => {
-  it('掉线三分钟没回来就换成 AI，本局战绩一并撤销', () => {
+  it('掉线三分钟没回来就换成 AI', () => {
     const room = roomAtSettlement()
     room.state.game!.phase = 'playing'
     room.disconnect('u2', 2000)
@@ -96,9 +96,6 @@ describe('掉线与退出', () => {
     // 三分钟到了才换 AI
     room.runDueJobs(2000 + 3 * 60_000)
     expect(room.state.seats[1].kind).toBe('ai')
-    expect(room.takeStatCleanups()).toEqual([
-      expect.objectContaining({ userId: 'u2', round: room.state.game!.round }),
-    ])
   })
 
   it('三分钟内重连回来，座位和身份都还在', () => {
@@ -146,10 +143,6 @@ describe('结算界面退出房间', () => {
       detail: '玩家二 离开房间，座位由 AI 接手',
     })
 
-    // 本局战绩要撤掉，不留在排行榜上
-    expect(room.takeStatCleanups()).toEqual([
-      expect.objectContaining({ userId: 'u2', round: room.state.game!.round }),
-    ])
   })
 
   it('走掉的人不再算在等待名单里，剩下的人点完就能开下一局', () => {

@@ -21,15 +21,18 @@
     "start": "node server.mjs",
     "preview": "vite preview",
     "test": "vitest --configLoader runner",
-    "test:run": "vitest run --configLoader runner",
+    "test:run": "vite build --config server/vite.config.ts --configLoader runner && vitest run --configLoader runner",
+    "test:e2e": "playwright test",
+    "test:online": "npm run test:online:smoke",
     "test:online:smoke": "vite build --config server/vite.config.ts --configLoader runner && node scripts/online-smoke.mjs",
-    "sync:miniprogram": "node scripts/sync-miniprogram-core.mjs"
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260815.1",
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-vue": "^5.0.0",
     "miniflare": "5.20260811.1-alpha",
     "typescript": "^5.0.0",

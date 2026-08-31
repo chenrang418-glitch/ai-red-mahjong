@@ -1,5 +1,8 @@
 import { reactive } from 'vue'
 import type { GameEvent, GameState } from '@/game/types'
+import { haptics, vibrationSupported } from './useHaptics'
+
+export { vibrationSupported } from './useHaptics'
 
 type AudioSettingKey = 'musicEnabled' | 'effectsEnabled' | 'musicVolume' | 'effectsVolume' | 'vibrateEnabled'
 
@@ -45,6 +48,7 @@ function loadSettings(): GameAudioSettings {
 }
 
 export const gameAudioSettings = reactive<GameAudioSettings>(loadSettings())
+haptics.setEnabled(gameAudioSettings.vibrateEnabled)
 
 let context: AudioContext | null = null
 let noiseBuffer: AudioBuffer | null = null
@@ -149,7 +153,7 @@ function noise(start: number, duration: number, volume: number, lowPass = 1700) 
   source.stop(start + duration)
 }
 
-type EffectName = 'dice' | 'draw' | 'discard' | 'peng' | 'gang' | 'win' | 'loss' | 'draw-game'
+type EffectName = 'button' | 'turn' | 'countdown' | 'dice' | 'draw' | 'discard' | 'peng' | 'gang' | 'win' | 'loss' | 'draw-game'
 
 function playEffect(effect: EffectName, delay = 0) {
   if (!gameAudioSettings.effectsEnabled || gameAudioSettings.effectsVolume <= 0 || document.hidden) return
@@ -159,7 +163,14 @@ function playEffect(effect: EffectName, delay = 0) {
   if (audio.state !== 'running') resumeAudio()
   const start = audio.currentTime + 0.015 + delay
   const volume = 1
-  if (effect === 'dice') {
+  if (effect === 'button') {
+    tone(620, start, 0.035, volume * 0.045, 'triangle')
+  } else if (effect === 'turn') {
+    tone(660, start, 0.09, volume * 0.08, 'triangle')
+    tone(880, start + 0.08, 0.14, volume * 0.09, 'triangle')
+  } else if (effect === 'countdown') {
+    tone(520, start, 0.075, volume * 0.08, 'square')
+  } else if (effect === 'dice') {
     noise(start, 0.08, volume * 0.18, 2300)
     noise(start + 0.1, 0.08, volume * 0.16, 1900)
     noise(start + 0.2, 0.1, volume * 0.2, 1500)
@@ -219,6 +230,7 @@ function setSetting<K extends AudioSettingKey>(key: K, value: GameAudioSettings[
     : value) as GameAudioSettings[K]
   saveSettings()
   syncGains()
+  if (key === 'vibrateEnabled') haptics.setEnabled(Boolean(value))
   if (gameAudioSettings.musicEnabled && gameAudioSettings.musicVolume > 0 && activeMatchId) startMusic()
   else stopMusic()
 }
@@ -296,21 +308,32 @@ if (typeof document !== 'undefined') {
 // 出牌轻震一下，碰杠胡这种大动作重震。
 // 注意：iOS Safari 不支持 navigator.vibrate（Apple 一直没实现，也没有替代 API），
 // 所以这个开关在 iPhone 上不会有反应，界面里已经标出来了。
-export const vibrationSupported = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
-
 function vibrate(pattern: number | number[]): void {
-  if (!gameAudioSettings.vibrateEnabled || !vibrationSupported || document.hidden) return
-  try {
-    navigator.vibrate(pattern)
-  } catch {
-    // 有的浏览器在没有用户交互前调用会抛错，忽略
-  }
+  haptics.pattern(pattern)
+}
+
+function buttonFeedback(): void {
+  unlock()
+  playEffect('button')
+  haptics.light()
+}
+
+function turnFeedback(): void {
+  playEffect('turn')
+  haptics.light()
+}
+
+function countdownFeedback(): void {
+  playEffect('countdown')
 }
 
 export const gameAudio = {
   settings: gameAudioSettings,
   setSetting,
   vibrate,
+  buttonFeedback,
+  turnFeedback,
+  countdownFeedback,
   vibrationSupported,
   unlock,
   prepareMatch,

@@ -28,6 +28,8 @@ import type {
 
 const DEFAULT_AI: AIProfile = { difficulty: 'standard' }
 const DIFFICULTY_TEXT: Record<AIProfile['difficulty'], string> = { beginner: '菜鸡', standard: '凡人', expert: '猿神' }
+const MAX_RECENT_EVENTS = 50
+const MAX_ROUND_TRANSFERS = 24
 
 function emptyStats() {
   return { wins: 0, sevenPairsWins: 0, gangCount: 0, maCount: 0, netPoints: 0 }
@@ -72,6 +74,7 @@ export class GameEngine {
       wall: [],
       maReserve: [],
       lastDiscard: null,
+      lastDrawn: null,
       claimOptions: [],
       transfers: [],
       events: [],
@@ -103,15 +106,19 @@ export class GameEngine {
   }
 
   private addEvent(type: GameEvent['type'], detail: string, playerId?: number, tile?: Tile) {
+    const at = Date.now()
     this.state.events.push({
-      id: `event-${this.state.events.length + 1}`,
+      id: `${this.state.matchId}:${this.state.round}:${at}:${type}:${playerId ?? 'system'}:${this.state.events.length}`,
       round: this.state.round,
       type,
       playerId,
       tile: tile ? clone(tile) : undefined,
       detail,
-      at: Date.now(),
+      at,
     })
+    if (this.state.events.length > MAX_RECENT_EVENTS) {
+      this.state.events.splice(0, this.state.events.length - MAX_RECENT_EVENTS)
+    }
   }
 
   private rollForDealer() {
@@ -135,7 +142,9 @@ export class GameEngine {
     this.state.round += 1
     this.state.result = null
     this.state.lastDiscard = null
+    this.state.lastDrawn = null
     this.state.claimOptions = []
+    this.state.transfers = []
     for (const player of this.state.players) {
       player.hand = []
       player.melds = []
@@ -318,6 +327,7 @@ export class GameEngine {
     this.state.currentPlayer = playerId
     this.state.phase = 'playing'
     this.state.turnStage = 'after-draw'
+    this.state.lastDrawn = { playerId, tile: clone(tile) }
     const detail = player.isHuman
       ? `${player.name}${fromTail ? '从牌尾补摸到' : '摸到'}${tileLabel(tile)}`
       : `${player.name}${fromTail ? '从牌尾补摸' : '摸牌'}`
@@ -333,7 +343,10 @@ export class GameEngine {
     const win = this.winResult(playerId)
     if (!win.won || !win.kind) throw new Error('当前手牌不能胡')
     const winner = this.player(playerId)
-    const winningTile = [...this.state.events]
+    // turnStage 只有摸牌那条路径会置成 after-draw，所以 lastDrawn 一定就是这次自摸的牌。
+    // 事件反查只留给升级前就已经存在的老房间（那种状态里没有 lastDrawn）。
+    const drawnThisTurn = this.state.lastDrawn?.playerId === playerId ? this.state.lastDrawn.tile : undefined
+    const winningTile = drawnThisTurn ?? [...this.state.events]
       .reverse()
       .find((event) => event.round === this.state.round && event.type === 'draw' && event.playerId === playerId && event.tile)
       ?.tile ?? winner.hand.at(-1)
@@ -411,7 +424,7 @@ export class GameEngine {
     paid: number,
   ) {
     this.state.transfers.push({
-      id: `transfer-${this.state.transfers.length + 1}`,
+      id: `transfer-${this.state.round}-${Date.now()}-${fromPlayer}-${toPlayer}-${reason}-${this.state.transfers.length}`,
       round: this.state.round,
       reason,
       fromPlayer,
@@ -419,6 +432,9 @@ export class GameEngine {
       requested,
       paid,
     })
+    if (this.state.transfers.length > MAX_ROUND_TRANSFERS) {
+      this.state.transfers.splice(0, this.state.transfers.length - MAX_ROUND_TRANSFERS)
+    }
   }
 
   private anyBankrupt(): boolean {

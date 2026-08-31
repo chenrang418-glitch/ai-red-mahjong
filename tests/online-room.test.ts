@@ -195,12 +195,20 @@ describe('联机房间协调器', () => {
     const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '小陈' }, settings, 1000)
     const version = room.view('u1').version
     for (let index = 0; index < 35; index += 1) {
-      room.handle('u1', { type: 'chat', text: `消息${index}`, quick: false }, 2000 + index)
+      room.handle('u1', { type: 'chat', text: `消息${index}`, quick: false }, 2000 + index * 600)
     }
     const view = room.view('u1')
     expect(view.chat).toHaveLength(30)
     expect(view.chat[0].text).toBe('消息5')
     expect(view.version).toBe(version)
+  })
+
+  it('聊天限制长度和发送频率', () => {
+    const room = RoomCoordinator.create('ABC234', { userId: 'u1', nickname: '小陈' }, settings, 1000)
+    room.handle('u1', { type: 'chat', text: '第一条', quick: false }, 2000)
+    expect(() => room.handle('u1', { type: 'chat', text: '太快了', quick: false }, 2500)).toThrow('发送太快')
+    room.handle('u1', { type: 'chat', text: '长'.repeat(120), quick: false }, 2600)
+    expect(room.view('u1').chat.at(-1)?.text).toHaveLength(100)
   })
 
   it('对局中房主退出后，房主身份交给还在线的真人', () => {

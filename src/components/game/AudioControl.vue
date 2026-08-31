@@ -22,7 +22,7 @@ const open = computed({
 
 // 手机上这个组件常常嵌在「⋯」菜单里，弹层跟着按钮定位就会被菜单的宽度和层级坑住
 // （310px 的面板塞进 176px 的菜单，右对齐直接跑到屏幕外）。
-// 所以手机端把弹层 Teleport 到 body，改成从底部升起的整条，和小程序一致。
+// 所以手机端把弹层 Teleport 到 body，改成底部抽屉。
 const compact = ref(false)
 let query: MediaQueryList | null = null
 function syncCompact(event: MediaQueryList | MediaQueryListEvent) {

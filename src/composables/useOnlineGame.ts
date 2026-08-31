@@ -2,7 +2,6 @@ import { onBeforeUnmount, ref } from 'vue'
 import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE } from '@/online/types'
 import type {
   ChatMessage,
-  LeaderboardEntry,
   LobbyServerMessage,
   OnlinePendingAction,
   OnlineRoomDirectoryEntry,
@@ -28,9 +27,7 @@ export function resolveApiBase(): string {
   return window.location.origin
 }
 
-// 刷新页面原本会把会话丢掉，重新登录后又因为牌局已开始而回不去原房间，
-// 座位就一直挂着托管。这里把会话和当前房间号都记下来，刷新后自动接回去。
-const SESSION_STORAGE_KEY = 'ai-red-mahjong.online-session'
+const NICKNAME_STORAGE_KEY = 'red-mahjong.nickname'
 const ROOM_STORAGE_KEY = 'ai-red-mahjong.online-room'
 
 function readStored<T>(key: string): T | null {
@@ -52,12 +49,23 @@ function writeStored(key: string, value: unknown): void {
   }
 }
 
+function readRoomCode(): string {
+  try { return window.sessionStorage.getItem(ROOM_STORAGE_KEY) ?? '' } catch { return '' }
+}
+
+function writeRoomCode(value: string): void {
+  try {
+    if (value) window.sessionStorage.setItem(ROOM_STORAGE_KEY, value)
+    else window.sessionStorage.removeItem(ROOM_STORAGE_KEY)
+  } catch { /* 刷新后不能自动回房不影响当前连接 */ }
+}
+
 export function useOnlineGame() {
   const apiBase = resolveApiBase()
-  const session = ref<OnlineSession | null>(readStored<OnlineSession>(SESSION_STORAGE_KEY))
+  const session = ref<OnlineSession | null>(null)
+  const lastNickname = ref(readStored<string>(NICKNAME_STORAGE_KEY) ?? '')
   const room = ref<OnlineRoomView | null>(null)
   const rooms = ref<OnlineRoomDirectoryEntry[]>([])
-  const leaderboard = ref<LeaderboardEntry[]>([])
   const connected = ref(false)
   const connecting = ref(false)
   const busy = ref(false)
@@ -121,11 +129,10 @@ export function useOnlineGame() {
     assertConfigured()
     const headers = new Headers(init.headers)
     headers.set('content-type', 'application/json')
-    if (session.value) headers.set('authorization', `Bearer ${session.value.token}`)
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), ONLINE_REQUEST_TIMEOUT_MS)
     try {
-      const response = await fetch(`${apiBase}${path}`, { ...init, headers, signal: controller.signal })
+      const response = await fetch(`${apiBase}${path}`, { ...init, headers, credentials: 'include', signal: controller.signal })
       const payload = await response.json() as T & { error?: string }
       if (!response.ok) throw new Error(payload.error || `服务器返回 ${response.status}`)
       return payload
@@ -146,8 +153,9 @@ export function useOnlineGame() {
         body: JSON.stringify({ nickname }),
       })
       session.value = result
-      writeStored(SESSION_STORAGE_KEY, result)
-      await Promise.all([refreshLeaderboard(), refreshRooms(), refreshService()])
+      lastNickname.value = result.nickname
+      writeStored(NICKNAME_STORAGE_KEY, result.nickname)
+      await Promise.all([refreshRooms(), refreshService()])
       connectDirectorySocket()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -156,23 +164,22 @@ export function useOnlineGame() {
     }
   }
 
-  // 页面重新加载时用存下来的会话接着来：会话失效（比如被别处顶掉）时
-  // 服务器会用 4003 把我们踢回登录页，不用在这里提前判断。
   async function restoreSession(): Promise<boolean> {
-    if (!session.value || !apiBase) return false
-    await Promise.all([refreshLeaderboard(), refreshRooms(), refreshService()])
-    connectDirectorySocket()
-    const storedRoom = readStored<string>(ROOM_STORAGE_KEY)
-    if (storedRoom && !room.value) connectRoom(storedRoom)
-    return true
-  }
-
-  async function refreshLeaderboard() {
+    if (!apiBase) return false
     try {
-      const result = await request<{ entries: LeaderboardEntry[] }>('/api/leaderboard')
-      leaderboard.value = result.entries
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      const restored = await request<{ session: OnlineSession | null }>('/api/session')
+      session.value = restored.session
+      if (!session.value) return false
+      lastNickname.value = session.value.nickname
+      writeStored(NICKNAME_STORAGE_KEY, session.value.nickname)
+      await Promise.all([refreshRooms(), refreshService()])
+      connectDirectorySocket()
+      const storedRoom = readRoomCode()
+      if (storedRoom && !room.value) connectRoom(storedRoom)
+      return true
+    } catch {
+      session.value = null
+      return false
     }
   }
 
@@ -226,12 +233,11 @@ export function useOnlineGame() {
     assertConfigured()
     cleanupSocket(false)
     roomCode = code
-    writeStored(ROOM_STORAGE_KEY, code)
+    writeRoomCode(code)
     manualClose = false
     connecting.value = true
     const url = new URL(`${apiBase}/api/rooms/${code}/socket`)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-    url.searchParams.set('session', session.value.token)
     const currentGeneration = ++socketGeneration
     const currentSocket = new WebSocket(url)
     socket = currentSocket
@@ -265,7 +271,7 @@ export function useOnlineGame() {
       if (event.code === SESSION_SUPERSEDED_CODE) {
         manualClose = true
         roomCode = ''
-        writeStored(ROOM_STORAGE_KEY, null)
+        writeRoomCode('')
         room.value = null
         handleSuperseded(event.reason)
         return
@@ -273,7 +279,7 @@ export function useOnlineGame() {
       if (event.code === ROOM_CLOSED_BY_ADMIN_CODE) {
         manualClose = true
         roomCode = ''
-        writeStored(ROOM_STORAGE_KEY, null)
+        writeRoomCode('')
         room.value = null
         setError(event.reason || '房间已被管理员关闭')
         return
@@ -282,7 +288,7 @@ export function useOnlineGame() {
       if (event.code === ROOM_REJECT_CLOSE_CODE) {
         manualClose = true
         roomCode = ''
-        writeStored(ROOM_STORAGE_KEY, null)
+        writeRoomCode('')
         room.value = null
         setError(event.reason || '无法加入这个房间')
         return
@@ -352,7 +358,7 @@ export function useOnlineGame() {
     // 重新拉回牌桌，而且因为不再重连，会一直卡在「连接中断，正在重连…」。
     socketGeneration += 1
     roomCode = ''
-    writeStored(ROOM_STORAGE_KEY, null)
+    writeRoomCode('')
     room.value = null
     chatBubbles.value = {}
     clearPendingAction()
@@ -376,12 +382,11 @@ export function useOnlineGame() {
   }
 
   function logout() {
+    void request('/api/session', { method: 'DELETE' }).catch(() => undefined)
     leaveRoom()
     session.value = null
-    writeStored(SESSION_STORAGE_KEY, null)
-    writeStored(ROOM_STORAGE_KEY, null)
+    writeRoomCode('')
     rooms.value = []
-    leaderboard.value = []
     closeDirectorySocket()
   }
 
@@ -488,7 +493,6 @@ export function useOnlineGame() {
     directoryReconnectTimer = null
     const url = new URL(`${apiBase}/api/lobby/socket`)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-    url.searchParams.set('session', session.value.token)
     const currentSocket = new WebSocket(url)
     directorySocket = currentSocket
     currentSocket.addEventListener('open', () => {
@@ -577,9 +581,9 @@ export function useOnlineGame() {
   return {
     apiConfigured: !!apiBase,
     session,
+    lastNickname,
     room,
     rooms,
-    leaderboard,
     connected,
     connecting,
     busy,
@@ -591,7 +595,6 @@ export function useOnlineGame() {
     restoreSession,
     login,
     logout,
-    refreshLeaderboard,
     refreshRooms,
     createRoom,
     joinRoom,

@@ -1,5 +1,0 @@
-<view class="tile {{size}} {{concealed ? 'concealed' : ''}} {{selected ? 'selected' : ''}} {{fresh ? 'fresh' : ''}}" bindtap="onTap">
-  <view wx:if="{{concealed}}" class="tile-back"></view>
-  <image wx:elif="{{src}}" class="tile-face" src="{{src}}" mode="aspectFit" />
-  <text wx:else class="tile-text">{{label}}</text>
-</view>

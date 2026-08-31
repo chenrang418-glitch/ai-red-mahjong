@@ -36,6 +36,15 @@ jobs:
       - name: Run tests
         run: npm run test:run
 
+      - name: Install browser for UI tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run responsive UI tests
+        run: npm run test:e2e
+
+      - name: Run online smoke test
+        run: npm run test:online
+
       - name: Type-check online server
         run: npm run typecheck:online
 

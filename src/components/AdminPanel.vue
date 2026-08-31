@@ -10,11 +10,6 @@ interface AdminUser {
   nickname: string
   createdAt: number
   lastSeenAt: number
-  totalGames: number
-  wins: number
-  sevenPairs: number
-  gangCount: number
-  maCount: number
 }
 
 interface AdminRoom {
@@ -44,8 +39,6 @@ const DIFFICULTY_TEXT: Record<ServerSettings['trusteeDifficulty'], string> = {
 }
 const ACTION_TEXT: Record<string, string> = {
   'delete-user': '删除用户',
-  'reset-user': '清空战绩',
-  'reset-leaderboard': '清空排行榜',
   'destroy-room': '解散房间',
   'update-settings': '修改设置',
 }
@@ -65,7 +58,7 @@ const error = ref('')
 const notice = ref('')
 const apiBase = resolveApiBase()
 
-const sortedUsers = computed(() => [...users.value].sort((left, right) => right.wins - left.wins || right.totalGames - left.totalGames))
+const sortedUsers = computed(() => [...users.value].sort((left, right) => right.lastSeenAt - left.lastSeenAt))
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
@@ -160,18 +153,8 @@ function switchTab(next: 'users' | 'rooms' | 'settings') {
 }
 
 async function removeUser(user: AdminUser) {
-  if (!window.confirm(`删除「${user.nickname}」？\n\n该玩家的账号和全部对局记录都会被清掉，排行榜上也不再有他。此操作不可撤销。`)) return
+  if (!window.confirm(`删除「${user.nickname}」？此操作不可撤销。`)) return
   await run(`/api/admin/users/${user.userId}`, { method: 'DELETE' }, `已删除 ${user.nickname}`)
-}
-
-async function resetUser(user: AdminUser) {
-  if (!window.confirm(`清空「${user.nickname}」的战绩？\n\n账号保留，局数、胜局、七对、杠、码全部归零。`)) return
-  await run(`/api/admin/users/${user.userId}/reset`, { method: 'POST' }, `已清空 ${user.nickname} 的战绩`)
-}
-
-async function resetLeaderboard() {
-  if (!window.confirm('清空所有人的排行榜数据？\n\n账号都保留，但每个人的战绩都会归零。此操作不可撤销。')) return
-  await run('/api/admin/leaderboard/reset', { method: 'POST' }, '排行榜已清空')
 }
 
 async function run(path: string, init: RequestInit, successMessage: string) {
@@ -248,7 +231,7 @@ void restoreSession()
       </header>
 
       <nav class="admin-tabs">
-        <button type="button" :class="{ active: tab === 'users' }" @click="switchTab('users')">用户与排行榜</button>
+        <button type="button" :class="{ active: tab === 'users' }" @click="switchTab('users')">用户</button>
         <button type="button" :class="{ active: tab === 'rooms' }" @click="switchTab('rooms')">房间</button>
         <button type="button" :class="{ active: tab === 'settings' }" @click="switchTab('settings')">联机设置</button>
       </nav>
@@ -259,23 +242,17 @@ void restoreSession()
       <div v-if="tab === 'users'" class="admin-table-wrap">
         <div class="table-actions">
           <button type="button" :disabled="busy" @click="loadUsers">刷新</button>
-          <button class="danger" type="button" :disabled="busy" @click="resetLeaderboard">清空排行榜</button>
         </div>
         <table class="admin-table">
           <thead>
-            <tr><th>昵称</th><th>总局</th><th>胜局</th><th>七对</th><th>杠</th><th>码</th><th>最后活跃</th><th>操作</th></tr>
+            <tr><th>昵称</th><th>创建时间</th><th>最后活跃</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="user in sortedUsers" :key="user.userId">
               <td class="nickname">{{ user.nickname }}</td>
-              <td>{{ user.totalGames }}</td>
-              <td>{{ user.wins }}</td>
-              <td>{{ user.sevenPairs }}</td>
-              <td>{{ user.gangCount }}</td>
-              <td>{{ user.maCount }}</td>
+              <td class="time">{{ formatTime(user.createdAt) }}</td>
               <td class="time">{{ formatTime(user.lastSeenAt) }}</td>
               <td class="row-actions">
-                <button type="button" :disabled="busy" @click="resetUser(user)">清空战绩</button>
                 <button class="danger" type="button" :disabled="busy" @click="removeUser(user)">删除</button>
               </td>
             </tr>

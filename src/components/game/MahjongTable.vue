@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
   timerNow?: number
   seatStatus?: Record<number, string>
   bubbles?: Record<number, string>
-  // 只有对局页需要全屏按钮，牌谱回放里不显示
+  // 对局页可按需显示全屏按钮
   fullscreenToggle?: boolean
   immersive?: boolean
 }>(), {
@@ -455,7 +455,7 @@ function countdownFor(seatId: number) {
 
 /* 横屏／矮窗口：高度紧张，牌河压到两行，中央信息收窄 */
 @media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
-  /* 横屏中央同样是四行弃牌列表，只是行压矮一点——小程序横屏也是这个摆法 */
+  /* 横屏中央保留四行弃牌列表，并压缩行高 */
   .table-center {
     display: flex;
     flex-direction: column;
@@ -641,7 +641,7 @@ function countdownFor(seatId: number) {
 
 /* 竖屏：左右两家收成窄条，中央牌河列数减少，下半屏全部留给手牌 */
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
-  /* 中央按小程序改成四行列表：一行一家，左边固定标出是谁打的。
+  /* 中央使用四行列表：一行一家，左边固定标出是谁打的。
      原来那套四方位环绕的摆法在手机上每家只剩一条窄缝，看不出谁打了什么。 */
   .table-center {
     display: flex;
@@ -674,7 +674,7 @@ function countdownFor(seatId: number) {
     font-size: 9px;
     letter-spacing: .02em;
   }
-  /* 顺序按小程序：你、下家、对家、上家。
+  /* 顺序为：你、下家、对家、上家。
      选择器要和上面那条 .table-center .river 同样具体，否则压不过它的 order: 5 */
   .table-center .river-bottom { order: 1; }
   .table-center .river-right { order: 2; }
@@ -764,7 +764,7 @@ function countdownFor(seatId: number) {
   .self-bubble { left: 8px; max-width: 78%; font-size: 12px; }
 }
 
-/* 2026 手机版：以小程序牌桌为唯一布局来源；以下规则保持在组件样式末尾。 */
+/* 手机版牌桌的统一布局规则保持在组件样式末尾。 */
 @media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
   .felt-pattern, .table-strip, .center-info { display: none !important; }
   .table-shell {

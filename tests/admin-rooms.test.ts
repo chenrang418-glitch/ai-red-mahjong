@@ -22,13 +22,13 @@ async function loginAs(nickname: string): Promise<string> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ nickname }),
   })
-  return (await response.json() as { token: string }).token
+  return (response.headers.get('set-cookie') ?? '').split(';')[0]
 }
 
 beforeAll(async () => {
   const script = readFileSync(resolve(root, 'server/dist/worker.js'), 'utf8')
   const migrations = [
-    '0001_online.sql', '0002_room_directory.sql', '0003_room_phase.sql', '0004_admin_audit.sql',
+    '0001_online.sql', '0002_room_directory.sql', '0003_room_phase.sql', '0004_admin_audit.sql', '0005_remove_player_stats.sql',
   ].map((name) => readFileSync(resolve(root, 'server/migrations', name), 'utf8'))
   mf = new Miniflare(convertV4MiniflareOptions({
     workers: [{
@@ -54,10 +54,10 @@ afterAll(async () => {
 
 describe('管理端房间与联机设置', () => {
   it('能看到服务器上的全部房间', async () => {
-    const token = await loginAs('房主甲')
+    const cookie = await loginAs('房主甲')
     const created = await api('/api/rooms', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ settings: { mode: 'finite', initialPoints: 30, claimWindowMs: 4000 } }),
     })
     expect(created.status).toBe(201)
@@ -70,10 +70,10 @@ describe('管理端房间与联机设置', () => {
   })
 
   it('强制解散后房间从列表里消失，且留下操作记录', async () => {
-    const token = await loginAs('房主乙')
+    const cookie = await loginAs('房主乙')
     const created = await api('/api/rooms', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ settings: {} }),
     })
     const { code } = await created.json() as { code: string }
@@ -95,10 +95,10 @@ describe('管理端房间与联机设置', () => {
       method: 'PUT', headers: adminHeaders,
       body: JSON.stringify({ trusteeDifficulty: 'expert', maintenance: false }),
     })
-    const token = await loginAs('房主丙')
+    const cookie = await loginAs('房主丙')
     const created = await api('/api/rooms', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { cookie, 'content-type': 'application/json' },
       // 客户端就算硬塞 trusteeDifficulty 也不该被采纳
       body: JSON.stringify({ settings: { aiDifficulty: 'beginner', trusteeDifficulty: 'beginner' } }),
     })
@@ -118,17 +118,17 @@ describe('管理端房间与联机设置', () => {
     expect(service.maintenance).toBe(true)
     expect(service.maintenanceMessage).toContain('升级')
 
-    const token = await loginAs('房主丁')
+    const cookie = await loginAs('房主丁')
     const blocked = await api('/api/rooms', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ settings: {} }),
     })
     expect(blocked.status).toBe(503)
     expect((await blocked.json() as { error: string }).error).toContain('升级')
 
     // 房间列表这类只读接口照常
-    const rooms = await api('/api/rooms', { headers: { authorization: `Bearer ${token}` } })
+    const rooms = await api('/api/rooms', { headers: { cookie } })
     expect(rooms.status).toBe(200)
 
     // 关掉维护后又能开房
@@ -138,7 +138,7 @@ describe('管理端房间与联机设置', () => {
     })
     const allowed = await api('/api/rooms', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ settings: {} }),
     })
     expect(allowed.status).toBe(201)

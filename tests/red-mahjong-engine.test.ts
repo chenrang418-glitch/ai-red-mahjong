@@ -160,6 +160,19 @@ describe('红中麻将四人引擎', () => {
     expect(engine.assertTileInvariant()).toBe(true)
   })
 
+  it('事件被截断后仍能认出自摸的是哪张牌', () => {
+    const engine = new GameEngine(config())
+    arrangeWinningScenario(engine)
+    const winningTile = engine.state.players[0].hand.find((tile) => faceKey(tile) === 'wan-1')!
+    // events 有条数上限，长局里摸牌那条会被挤掉；自摸牌必须从 lastDrawn 认出来。
+    engine.state.lastDrawn = { playerId: 0, tile: structuredClone(winningTile) }
+    engine.state.events = []
+    engine.declareWin(0)
+    expect(engine.state.result?.winningTile).toEqual(winningTile)
+    expect(engine.state.result?.detail).toContain(`自摸${tileLabel(winningTile)}`)
+    expect(engine.assertTileInvariant()).toBe(true)
+  })
+
   it('支付不能低于零，结算后有人归零则整场结束', () => {
     const engine = new GameEngine(config(2))
     arrangeWinningScenario(engine, 2)
@@ -311,5 +324,18 @@ describe('红中麻将四人引擎', () => {
     expect(observation.players).toHaveLength(4)
     expect(observation.players[0]).toHaveProperty('handCount')
     expect(observation.players[0]).not.toHaveProperty('hand')
+  })
+
+  it('实时事件有上限且新一局会清理积分流水', () => {
+    const engine = new GameEngine(config())
+    for (let index = 0; index < 80; index += 1) {
+      engine.updateAI(1, { difficulty: index % 2 ? 'beginner' : 'standard' })
+    }
+    expect(engine.state.events.length).toBeLessThanOrEqual(50)
+
+    engine.state.transfers.push({ id: 'old', round: engine.state.round, reason: 'an-gang', fromPlayer: 0, toPlayer: 1, requested: 1, paid: 1 })
+    engine.startRound()
+    expect(engine.state.transfers).toEqual([])
+    expect(engine.assertTileInvariant()).toBe(true)
   })
 })

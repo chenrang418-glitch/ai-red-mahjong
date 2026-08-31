@@ -20,9 +20,9 @@ const ALL_FACES = [
 // —— 思考时间 ——
 // 没有「速度」这个档位了。想多久由这手牌好不好打决定：
 // 一眼就该扔的孤张秒出，听牌、能胡、能杠这些要算账的地方才慢下来。
-const THINK_BASE_MS: Record<Difficulty, number> = { beginner: 800, standard: 1200, expert: 1600 }
-export const THINK_MIN_MS = 600
-export const THINK_MAX_MS = 6000
+const THINK_BASE_MS: Record<Difficulty, number> = { beginner: 600, standard: 900, expert: 1200 }
+export const THINK_MIN_MS = 420
+export const THINK_MAX_MS = 4200
 
 // AI 自己挑路线，不再由玩家指定性格。三条路线对应三种打法。
 type Route = 'meld' | 'concealed' | 'ma'

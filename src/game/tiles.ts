@@ -17,7 +17,7 @@ export function createDeck(): Tile[] {
   return tiles
 }
 
-// 牌背占位：联机时代替别人的暗牌，回放时代替只存了数量的牌墙。
+// 牌背占位：联机时只展示其他玩家持牌数量，不泄露牌面。
 // id 以 hidden- 开头，界面据此一律渲染成牌背。
 export function placeholderTiles(count: number, prefix: string): Tile[] {
   return Array.from({ length: Math.max(0, count) }, (_, index) => ({

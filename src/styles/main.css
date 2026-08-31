@@ -1,7 +1,26 @@
-:root { font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif; color: #f4eedc; background: #091410; font-synthesis: none; text-rendering: optimizeLegibility; }
+:root {
+  --color-background: #07130f;
+  --color-surface: #102821;
+  --color-gold: #e2bf62;
+  --color-red: #c85148;
+  --color-text: #f4eedc;
+  --color-text-muted: #8fa49c;
+  --color-success: #75c793;
+  --color-warning: #e2b75e;
+  --color-error: #d66a60;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --shadow-raised: 0 14px 36px rgba(0,0,0,.28);
+  --motion-fast: 140ms;
+  font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif;
+  color: var(--color-text);
+  background: var(--color-background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
 * { box-sizing: border-box; }
 /* 整页永远不滚动：根节点锁死在视口内，需要滚动的只能是页面内部
-   明确指定的区域（聊天、排行榜、牌谱列表这些）。
+   明确指定的区域（聊天、房间列表、规则等）。
    min-height 会被内容撑高，所以这里必须是 height。 */
 html, body, #app {
   min-width: 320px;
@@ -17,6 +36,9 @@ body {
 }
 #app { display: flex; flex-direction: column; }
 button, input, select { font: inherit; }
+button { transition: transform var(--motion-fast) ease, filter var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
+button:active:not(:disabled) { transform: scale(.96); filter: brightness(.92); }
+button:disabled { cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #e2bf62; outline-offset: 2px; }
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: #0a1b16; }
@@ -143,8 +165,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   cursor: pointer;
   font-size: 17px;
 }
-.exit-sheet button:first-child { border-radius: 18px 18px 0 0; }
-.exit-sheet button.finish { border-top: 1px solid #e7e7e7; border-radius: 0 0 18px 18px; }
+.exit-sheet button.finish { border-radius: 18px; }
 .exit-sheet button.cancel { margin-top: 8px; border-radius: 18px; font-weight: 700; }
 .exit-sheet button b::after { content: '，'; }
 .exit-sheet button:active { background: #ececec; }
@@ -247,7 +268,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .event-panel { display: none; }
 }
 
-@media (pointer: coarse), (max-width: 700px), (max-height: 600px) {
+@media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
   button { touch-action: manipulation; }
   .topbar {
     position: static;
@@ -274,7 +295,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .table-column { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
 }
 
-@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 600px) {
+@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
   .topbar { min-height: 48px; padding-top: max(5px, env(safe-area-inset-top)); padding-bottom: 5px; gap: 8px; }
   .brand { min-width: 136px; gap: 7px; }
   .brand > span { width: 32px; height: 32px; font-size: 19px; }
@@ -521,7 +542,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .rules-body b { display: block; margin-bottom: 4px; color: #eee4c8; font-size: 13px; }
 .rules-body p { margin: 0; color: #98aaa4; font-size: 12px; line-height: 1.65; }
 
-/* —— 手机网页版：完全采用小程序的一屏牌桌与抽屉骨架 —— */
+/* —— 手机竖屏：一屏牌桌与抽屉骨架 —— */
 @media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
   .mobile-only, .topbar nav > .mobile-only { display: block; }
   .desktop-only, .topbar nav > .desktop-only { display: none; }

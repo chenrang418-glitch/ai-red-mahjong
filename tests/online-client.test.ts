@@ -76,8 +76,7 @@ function installBrowserGlobals() {
   vi.stubGlobal('WebSocket', FakeWebSocket)
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const url = String(input)
-    if (url.endsWith('/api/session')) return Response.json({ token: 'session-token', userId: 'u1', nickname: '测试玩家' })
-    if (url.endsWith('/api/leaderboard')) return Response.json({ entries: [] })
+    if (url.endsWith('/api/session')) return Response.json({ userId: 'u1', nickname: '测试玩家' })
     if (url.endsWith('/api/rooms')) return Response.json({ rooms: [] })
     return Response.json({ error: 'not found' }, { status: 404 })
   }))
@@ -109,6 +108,16 @@ afterEach(() => {
 })
 
 describe('联机客户端连接恢复', () => {
+  it('HTTP 与 WebSocket 都不再携带可读 token', async () => {
+    const online = useOnlineGame()
+    await online.login('测试玩家')
+    online.joinRoom('ABC234')
+    expect(FakeWebSocket.instances.every((socket) => !socket.url.includes('session='))).toBe(true)
+    const fetchCalls = vi.mocked(fetch).mock.calls
+    expect(fetchCalls.every(([, init]) => new Headers(init?.headers).get('authorization') === null)).toBe(true)
+    expect(fetchCalls.every(([, init]) => init?.credentials === 'include')).toBe(true)
+  })
+
   it('意外断线后自动重连，明确退出后不再重连', async () => {
     const { online, socket } = await connectedClient()
     socket.rawMessage('pong')

@@ -23,17 +23,13 @@ interface SocketAttachment extends RoomUser {
   leaving?: boolean
 }
 
-// 同一昵称拿到的是同一个 userId，所以光有 userId 分不出「谁是当前这次登录」。
-// sessionId 就是干这个的：每次输昵称换一个，全局只认最新的那个。
-interface SessionPayload extends RoomUser {
+interface SessionRecord extends RoomUser {
   sessionId: string
-}
-
-interface SessionRecord {
-  sessionId: string
-  nickname: string
   at: number
 }
+
+const SESSION_COOKIE = 'mahjong_session'
+const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
 // 全局设置：托管 AI 档位、维护模式开关和提示文案。
 // 放在 LOBBY 这个单例 Durable Object 里——建房时要读它，D1 每次都走网络太慢。
@@ -93,20 +89,14 @@ async function claimSession(env: Env, user: RoomUser, sessionId: string): Promis
   })
 }
 
-// 校验一次会话是不是最新的。读不到注册表时一律放行：
-// 注册表挂了不该把所有人挡在门外，顶号本来也只是防误操作，不是安全边界。
-async function sessionIsCurrent(env: Env, session: SessionPayload): Promise<boolean> {
-  if (!session.sessionId) return true
-  try {
-    const response = await lobbyStub(env).fetch('https://lobby.internal/session/verify', {
-      method: 'POST',
-      body: JSON.stringify({ userId: session.userId, sessionId: session.sessionId }),
-    })
-    if (!response.ok) return true
-    return (await response.json<{ ok: boolean }>()).ok
-  } catch {
-    return true
-  }
+async function resolveSession(env: Env, sessionId: string): Promise<RoomUser> {
+  const response = await lobbyStub(env).fetch('https://lobby.internal/session/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  })
+  if (!response.ok) throw new Error('登录状态已失效，请重新输入昵称')
+  const result = await response.json<{ user: RoomUser }>()
+  return { userId: result.user.userId, nickname: normalizeNickname(result.user.nickname) }
 }
 
 // 把这个人挂在各个房间里的旧连接踢掉。房间目录只存昵称，不过顶号本来就是按昵称算的。
@@ -134,8 +124,6 @@ async function evictRoomSessions(env: Env, user: RoomUser): Promise<void> {
   }
 }
 
-const SESSION_SUPERSEDED_MESSAGE = '这个昵称已经在别的设备上登录了'
-
 async function recordAudit(env: Env, action: string, target: string | null, detail: string): Promise<void> {
   try {
     await env.DB.prepare('INSERT INTO admin_audit (action, target, detail, created_at) VALUES (?, ?, ?, ?)')
@@ -159,16 +147,26 @@ function rejectSocket(reason: string, code = ROOM_REJECT_CLOSE_CODE): Response {
   return new Response(null, { status: 101, webSocket: client })
 }
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status = 200, extraHeaders?: HeadersInit): Response {
+  const headers = new Headers(extraHeaders)
+  headers.set('content-type', 'application/json; charset=utf-8')
   return new Response(status === 204 ? null : JSON.stringify(data), {
     status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'content-type, authorization',
-      'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
-    },
+    headers,
   })
+}
+
+function allowedCorsOrigin(request: Request): string {
+  const origin = request.headers.get('origin')
+  if (!origin) return ''
+  try {
+    const caller = new URL(origin)
+    const target = new URL(request.url)
+    if (caller.origin === target.origin) return origin
+    const localHosts = new Set(['127.0.0.1', 'localhost'])
+    if (localHosts.has(caller.hostname) && localHosts.has(target.hostname)) return origin
+  } catch { /* 非法 Origin 直接不给跨域权限 */ }
+  return ''
 }
 
 function errorResponse(cause: unknown, fallbackStatus = 400): Response {
@@ -189,31 +187,24 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
-function base64UrlToBytes(value: string): Uint8Array {
-  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
-  const binary = atob(padded)
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+function sessionCookie(request: Request, sessionId: string, maxAge = SESSION_MAX_AGE_SECONDS): string {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : ''
+  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`
 }
 
-function createSessionToken(payload: SessionPayload): string {
-  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)))
-}
-
-function readSessionToken(request: Request): SessionPayload {
-  const authorization = request.headers.get('authorization') ?? ''
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : new URL(request.url).searchParams.get('session') ?? ''
-  if (!token) throw new Error('请先输入昵称')
-  try {
-    const payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(token))) as Partial<SessionPayload>
-    if (typeof payload.userId !== 'string' || typeof payload.nickname !== 'string') throw new Error('invalid session')
-    return {
-      userId: payload.userId,
-      nickname: normalizeNickname(payload.nickname),
-      sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : '',
-    }
-  } catch {
-    throw new Error('登录状态无效，请重新输入昵称')
+function readCookie(request: Request, name: string): string {
+  const cookies = request.headers.get('cookie') ?? ''
+  for (const part of cookies.split(';')) {
+    const [key, ...value] = part.trim().split('=')
+    if (key === name) return value.join('=')
   }
+  return ''
+}
+
+async function readSession(request: Request, env: Env): Promise<RoomUser> {
+  const sessionId = readCookie(request, SESSION_COOKIE)
+  if (!sessionId || !/^[A-Za-z0-9_-]{40,}$/.test(sessionId)) throw new Error('请先输入昵称')
+  return resolveSession(env, sessionId)
 }
 
 function roomCode(): string {
@@ -249,17 +240,32 @@ async function login(request: Request, env: Env): Promise<Response> {
     user = await env.DB.prepare('SELECT id, nickname FROM users WHERE nickname = ? COLLATE NOCASE').bind(nickname).first<{ id: string; nickname: string }>()
   }
   if (!user) throw new Error('昵称创建失败，请重试')
-  await env.DB.batch([
-    env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(Date.now(), user.id),
-    env.DB.prepare('INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)').bind(user.id),
-  ])
+  await env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(Date.now(), user.id).run()
   // 同名只留一个在线：先把旧连接踢下去，再把新会话号发出去
-  const sessionId = crypto.randomUUID()
+  const sessionId = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)))
   const identity: RoomUser = { userId: user.id, nickname: user.nickname }
   await claimSession(env, identity, sessionId)
   await evictRoomSessions(env, identity)
-  const session: SessionPayload = { ...identity, sessionId }
-  return json({ token: createSessionToken(session), ...session })
+  return json(identity, 200, { 'set-cookie': sessionCookie(request, sessionId) })
+}
+
+async function currentSession(request: Request, env: Env): Promise<Response> {
+  try {
+    return json({ session: await readSession(request, env) })
+  } catch {
+    return json({ session: null })
+  }
+}
+
+async function logout(request: Request, env: Env): Promise<Response> {
+  const sessionId = readCookie(request, SESSION_COOKIE)
+  if (sessionId) {
+    await lobbyStub(env).fetch('https://lobby.internal/session/revoke', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    })
+  }
+  return json({ ok: true }, 200, { 'set-cookie': sessionCookie(request, '', 0) })
 }
 
 // —— 管理接口 ——
@@ -286,30 +292,15 @@ function isAdmin(request: Request, env: Env): boolean {
 
 async function adminUsers(env: Env): Promise<Response> {
   const result = await env.DB.prepare(`
-    SELECT
-      u.id AS user_id,
-      u.nickname AS nickname,
-      u.created_at AS created_at,
-      u.last_seen_at AS last_seen_at,
-      COALESCE(s.total_games, 0) AS total_games,
-      COALESCE(s.wins, 0) AS wins,
-      COALESCE(s.seven_pairs, 0) AS seven_pairs,
-      COALESCE(s.gang_count, 0) AS gang_count,
-      COALESCE(s.ma_count, 0) AS ma_count
-    FROM users u
-    LEFT JOIN user_stats s ON s.user_id = u.id
-    ORDER BY u.last_seen_at DESC
+    SELECT id AS user_id, nickname, created_at, last_seen_at
+    FROM users
+    ORDER BY last_seen_at DESC
     LIMIT 500
   `).all<{
     user_id: string
     nickname: string
     created_at: number
     last_seen_at: number
-    total_games: number
-    wins: number
-    seven_pairs: number
-    gang_count: number
-    ma_count: number
   }>()
   return json({
     users: result.results.map((row) => ({
@@ -317,11 +308,6 @@ async function adminUsers(env: Env): Promise<Response> {
       nickname: row.nickname,
       createdAt: row.created_at,
       lastSeenAt: row.last_seen_at,
-      totalGames: row.total_games,
-      wins: row.wins,
-      sevenPairs: row.seven_pairs,
-      gangCount: row.gang_count,
-      maCount: row.ma_count,
     })),
   })
 }
@@ -329,31 +315,9 @@ async function adminUsers(env: Env): Promise<Response> {
 async function adminDeleteUser(env: Env, userId: string): Promise<Response> {
   const user = await env.DB.prepare('SELECT nickname FROM users WHERE id = ?').bind(userId).first<{ nickname: string }>()
   if (!user) return json({ error: '用户不存在' }, 404)
-  // round_player_results 和 user_stats 都有 ON DELETE CASCADE，删用户会一并清掉。
   await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
   await recordAudit(env, 'delete-user', userId, `删除用户 ${user.nickname}`)
   return json({ ok: true, nickname: user.nickname })
-}
-
-async function adminResetUser(env: Env, userId: string): Promise<Response> {
-  const user = await env.DB.prepare('SELECT nickname FROM users WHERE id = ?').bind(userId).first<{ nickname: string }>()
-  if (!user) return json({ error: '用户不存在' }, 404)
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM round_player_results WHERE user_id = ?').bind(userId),
-    env.DB.prepare('UPDATE user_stats SET total_games = 0, wins = 0, seven_pairs = 0, gang_count = 0, ma_count = 0 WHERE user_id = ?').bind(userId),
-  ])
-  await recordAudit(env, 'reset-user', userId, `清空 ${user.nickname} 的战绩`)
-  return json({ ok: true, nickname: user.nickname })
-}
-
-async function adminResetLeaderboard(env: Env): Promise<Response> {
-  // 只清战绩，账号保留：下次用同一个昵称登录还是原来那个人，只是从零开始。
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM round_player_results'),
-    env.DB.prepare('UPDATE user_stats SET total_games = 0, wins = 0, seven_pairs = 0, gang_count = 0, ma_count = 0'),
-  ])
-  await recordAudit(env, 'reset-leaderboard', null, '清空全部排行榜数据')
-  return json({ ok: true })
 }
 
 // 房间目录表里已经存了每个房间的阶段、玩家和座位数，玩家接口只是做了截断和排序；
@@ -420,24 +384,9 @@ async function adminAudit(env: Env): Promise<Response> {
 }
 
 async function adminRoute(request: Request, env: Env, url: URL): Promise<Response> {
-  if (!isAdmin(request, env)) {
-    // 对外一律 404，但在 Worker 日志里留下够定位的线索（`wrangler tail` 可见）。
-    // 只记形状不记内容：有没有配密钥、请求有没有带密钥、两边长度差多少，
-    // 足以区分「服务器没配」「请求没带」「值不一样」，又不会把密钥写进日志。
-    const configured = (env.ADMIN_TOKEN ?? '').trim()
-    const authorization = request.headers.get('authorization') ?? ''
-    const presented = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
-    console.log('admin rejected', JSON.stringify({
-      path: url.pathname,
-      serverHasToken: configured.length > 0,
-      serverTokenLength: configured.length,
-      requestHasAuthHeader: authorization.length > 0,
-      requestUsesBearer: authorization.startsWith('Bearer '),
-      presentedLength: presented.length,
-      lengthMatches: presented.length === configured.length,
-    }))
-    return NOT_FOUND()
-  }
+  // 管理接口对外一律 404，不回任何可以用来判断「密钥对不对」的线索。
+  // 这里原来打过一段排查日志（含密钥长度），问题定位完就没有继续保留的理由了。
+  if (!isAdmin(request, env)) return NOT_FOUND()
   if (request.method === 'POST' && url.pathname === '/api/admin/session') return json({ ok: true })
   if (request.method === 'GET' && url.pathname === '/api/admin/users') return adminUsers(env)
   if (request.method === 'GET' && url.pathname === '/api/admin/rooms') return adminRooms(env)
@@ -450,57 +399,15 @@ async function adminRoute(request: Request, env: Env, url: URL): Promise<Respons
       `托管档位=${incoming.trusteeDifficulty} 维护=${incoming.maintenance ? '开' : '关'}`)
     return json(incoming)
   }
-  if (request.method === 'POST' && url.pathname === '/api/admin/leaderboard/reset') return adminResetLeaderboard(env)
   const roomMatch = url.pathname.match(/^\/api\/admin\/rooms\/([A-Z0-9]{6})$/)
   if (request.method === 'DELETE' && roomMatch) return adminDestroyRoom(env, roomMatch[1])
   const userMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})$/)
   if (request.method === 'DELETE' && userMatch) return adminDeleteUser(env, userMatch[1])
-  const resetMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})\/reset$/)
-  if (request.method === 'POST' && resetMatch) return adminResetUser(env, resetMatch[1])
   return NOT_FOUND()
 }
 
-async function leaderboard(env: Env): Promise<Response> {
-  const result = await env.DB.prepare(`
-    SELECT
-      u.id AS user_id,
-      u.nickname AS nickname,
-      s.total_games AS total_games,
-      s.wins AS wins,
-      CASE WHEN s.total_games = 0 THEN 0 ELSE CAST(s.wins AS REAL) / s.total_games END AS win_rate,
-      s.seven_pairs AS seven_pairs,
-      s.gang_count AS gang_count,
-      s.ma_count AS ma_count
-    FROM users u
-    JOIN user_stats s ON s.user_id = u.id
-    ORDER BY s.wins DESC, win_rate DESC, s.total_games DESC, s.seven_pairs DESC, s.gang_count DESC, s.ma_count DESC, u.created_at ASC
-    LIMIT 100
-  `).all<{
-    user_id: string
-    nickname: string
-    total_games: number
-    wins: number
-    win_rate: number
-    seven_pairs: number
-    gang_count: number
-    ma_count: number
-  }>()
-  return json({
-    entries: result.results.map((row) => ({
-      userId: row.user_id,
-      nickname: row.nickname,
-      totalGames: row.total_games,
-      wins: row.wins,
-      winRate: row.win_rate,
-      sevenPairs: row.seven_pairs,
-      gangCount: row.gang_count,
-      maCount: row.ma_count,
-    })),
-  })
-}
-
 async function listRooms(request: Request, env: Env): Promise<Response> {
-  const user = readSessionToken(request)
+  const user = await readSession(request, env)
   const result = await env.DB.prepare(`
     SELECT
       code,
@@ -568,16 +475,15 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
 }
 
 async function lobbySocket(request: Request, env: Env): Promise<Response> {
-  const user = readSessionToken(request)
-  if (!await sessionIsCurrent(env, user)) return rejectSocket(SESSION_SUPERSEDED_MESSAGE, SESSION_SUPERSEDED_CODE)
+  let user: RoomUser
+  try { user = await readSession(request, env) } catch { return rejectSocket('登录状态已失效，请重新输入昵称', SESSION_SUPERSEDED_CODE) }
   const headers = new Headers(request.headers)
   headers.set('x-user-id', user.userId)
   return lobbyStub(env).fetch('https://lobby.internal/socket', { headers })
 }
 
 async function createRoom(request: Request, env: Env): Promise<Response> {
-  const user = readSessionToken(request)
-  if (!await sessionIsCurrent(env, user)) return json({ error: SESSION_SUPERSEDED_MESSAGE }, 409)
+  const user = await readSession(request, env)
   const body = await request.json<{ settings?: Partial<OnlineRoomSettings> }>()
   const server = await readServerSettings(env)
   // 维护期间只拦「开新房」：正在打的牌局和重连都不受影响，中途被掐断太难受了
@@ -597,9 +503,8 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
 }
 
 async function roomSocket(request: Request, env: Env, code: string): Promise<Response> {
-  const user = readSessionToken(request)
-  // 被顶下线的旧连接会一直重连，这里必须挡住，否则它一进来又把座位抢回去
-  if (!await sessionIsCurrent(env, user)) return rejectSocket(SESSION_SUPERSEDED_MESSAGE, SESSION_SUPERSEDED_CODE)
+  let user: RoomUser
+  try { user = await readSession(request, env) } catch { return rejectSocket('登录状态已失效，请重新输入昵称', SESSION_SUPERSEDED_CODE) }
   const headers = new Headers(request.headers)
   headers.set('x-user-id', user.userId)
   headers.set('x-user-nickname', encodeURIComponent(user.nickname))
@@ -618,7 +523,8 @@ async function route(request: Request, env: Env): Promise<Response> {
     return json({ maintenance: server.maintenance, maintenanceMessage: server.maintenanceMessage })
   }
   if (request.method === 'POST' && url.pathname === '/api/session') return login(request, env)
-  if (request.method === 'GET' && url.pathname === '/api/leaderboard') return leaderboard(env)
+  if (request.method === 'GET' && url.pathname === '/api/session') return currentSession(request, env)
+  if (request.method === 'DELETE' && url.pathname === '/api/session') return logout(request, env)
   if (request.method === 'GET' && url.pathname === '/api/rooms') return listRooms(request, env)
   if (request.method === 'POST' && url.pathname === '/api/rooms') return createRoom(request, env)
   if (request.method === 'GET' && url.pathname === '/api/lobby/socket') return lobbySocket(request, env)
@@ -629,11 +535,22 @@ async function route(request: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    let response: Response
     try {
-      return await route(request, env)
+      response = await route(request, env)
     } catch (cause) {
-      return errorResponse(cause)
+      response = errorResponse(cause)
     }
+    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') return response
+    const origin = allowedCorsOrigin(request)
+    if (!origin) return response
+    const headers = new Headers(response.headers)
+    headers.set('access-control-allow-origin', origin)
+    headers.set('access-control-allow-credentials', 'true')
+    headers.set('access-control-allow-headers', 'content-type, authorization')
+    headers.set('access-control-allow-methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    headers.append('vary', 'Origin')
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
   },
 }
 
@@ -662,7 +579,8 @@ export class MahjongRoom {
       const body = await request.json<{ code: string; user: RoomUser; settings: OnlineRoomSettings }>()
       this.coordinator = RoomCoordinator.create(body.code, body.user, body.settings)
       await this.persist()
-      this.state.waitUntil(this.syncRoomDirectory())
+      // 创建响应前先落下轻量目录，确保紧随其后的顶号/分享加入不会撞上目录竞态。
+      await this.syncRoomDirectory()
       return json({ code: body.code }, 201)
     }
     if (url.pathname === '/admin/destroy' && request.method === 'POST') {
@@ -727,7 +645,6 @@ export class MahjongRoom {
       if (parsed.type === 'leave-room') {
         socket.serializeAttachment({ ...user, leaving: true })
         this.coordinator.leave(user.userId)
-        await this.syncLeaderboard()
         if (await this.deleteRequestedRoom() || await this.deleteEmptyLobby()) {
           socket.close(1000, 'left room')
           return
@@ -744,7 +661,6 @@ export class MahjongRoom {
       if (parsed.type === 'start-game' || parsed.type === 'return-to-lobby' || parsed.type === 'trustee') {
         this.state.waitUntil(this.syncRoomDirectory())
       }
-      await this.syncLeaderboard()
       if (chatMessage) this.broadcast({ type: 'chat', message: chatMessage })
       else this.broadcastState()
     } catch (cause) {
@@ -791,7 +707,6 @@ export class MahjongRoom {
     if (await this.deleteRequestedRoom() || await this.deleteEmptyLobby()) return
     await this.persist()
     if (changed) {
-      await this.syncLeaderboard()
       if (directoryBefore !== this.directorySignature()) this.state.waitUntil(this.syncRoomDirectory())
       this.broadcastState()
     }
@@ -803,37 +718,6 @@ export class MahjongRoom {
     const alarmAt = this.coordinator.nextAlarmAt()
     if (alarmAt === null) await this.state.storage.deleteAlarm()
     else await this.state.storage.setAlarm(alarmAt)
-  }
-
-  private async syncLeaderboard(): Promise<void> {
-    if (!this.coordinator) return
-    // 中途换成 AI 的人，本局那条战绩要撤掉。放在写入之前跑：
-    // 万一他是在本局刚记完之后走的，这里正好把已经落库的那条删掉。
-    const cleanups = this.coordinator.takeStatCleanups()
-    if (cleanups.length) {
-      await this.env.DB.batch(cleanups.map((cleanup) => this.env.DB.prepare(
-        'DELETE FROM round_player_results WHERE match_id = ? AND round_number = ? AND user_id = ?',
-      ).bind(cleanup.matchId, cleanup.round, cleanup.userId)))
-      await this.persist()
-    }
-    const results = this.coordinator.unrecordedLeaderboardResults()
-    if (!results.length) return
-    await this.env.DB.batch(results.map((result) => this.env.DB.prepare(`
-      INSERT OR IGNORE INTO round_player_results
-        (match_id, round_number, user_id, won, seven_pairs, gang_count, ma_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      result.matchId,
-      result.round,
-      result.userId,
-      result.won,
-      result.sevenPairs,
-      result.gangCount,
-      result.maCount,
-      Date.now(),
-    )))
-    this.coordinator.markRoundRecorded(results[0].matchId, results[0].round)
-    await this.persist()
   }
 
   private async syncRoomDirectory(): Promise<void> {
@@ -982,11 +866,15 @@ export class MahjongLobby {
     }
     if (url.pathname === '/session/claim' && request.method === 'POST') {
       const body = await request.json<{ userId: string; nickname: string; sessionId: string }>()
-      await this.state.storage.put(`session:${body.userId}`, {
+      const previousId = await this.state.storage.get<string>(`current:${body.userId}`)
+      if (previousId) await this.state.storage.delete(`session:${previousId}`)
+      await this.state.storage.put(`session:${body.sessionId}`, {
         sessionId: body.sessionId,
+        userId: body.userId,
         nickname: body.nickname,
         at: Date.now(),
       } satisfies SessionRecord)
+      await this.state.storage.put(`current:${body.userId}`, body.sessionId)
       // 同一个人挂在大厅的旧连接直接请出去，不然它还会继续收房间列表推送
       for (const socket of this.state.getWebSockets(`user:${body.userId}`)) {
         if (socket.readyState !== WebSocket.OPEN) continue
@@ -995,11 +883,23 @@ export class MahjongLobby {
       }
       return json({ ok: true })
     }
-    if (url.pathname === '/session/verify' && request.method === 'POST') {
-      const body = await request.json<{ userId: string; sessionId: string }>()
-      const record = await this.state.storage.get<SessionRecord>(`session:${body.userId}`)
-      // 没记录说明这人还没在新版本上登录过，放行，免得上线那一刻把在场的人全踢了
-      return json({ ok: !record || record.sessionId === body.sessionId })
+    if (url.pathname === '/session/resolve' && request.method === 'POST') {
+      const body = await request.json<{ sessionId: string }>()
+      const record = await this.state.storage.get<SessionRecord>(`session:${body.sessionId}`)
+      if (!record) return json({ error: '会话不存在' }, 401)
+      const currentId = await this.state.storage.get<string>(`current:${record.userId}`)
+      if (currentId !== body.sessionId) return json({ error: '会话已失效' }, 401)
+      return json({ user: { userId: record.userId, nickname: record.nickname } })
+    }
+    if (url.pathname === '/session/revoke' && request.method === 'POST') {
+      const body = await request.json<{ sessionId: string }>()
+      const record = await this.state.storage.get<SessionRecord>(`session:${body.sessionId}`)
+      await this.state.storage.delete(`session:${body.sessionId}`)
+      if (record) {
+        const currentId = await this.state.storage.get<string>(`current:${record.userId}`)
+        if (currentId === body.sessionId) await this.state.storage.delete(`current:${record.userId}`)
+      }
+      return json({ ok: true })
     }
     if (url.pathname === '/settings') {
       if (request.method === 'PUT') {

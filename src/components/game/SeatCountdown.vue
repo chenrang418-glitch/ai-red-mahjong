@@ -47,7 +47,7 @@ b { position: relative; font-size: 19px; line-height: 1; font-weight: 800; font-
   .urgent { animation: none; }
   .progress { transition: none; }
 }
-@media (pointer: coarse), (max-width: 700px), (max-height: 600px) {
+@media (pointer: coarse), (max-width: 820px), (max-height: 620px) {
   .seat-countdown { width: 40px; height: 40px; flex-basis: 40px; }
   b { font-size: 16px; }
 }

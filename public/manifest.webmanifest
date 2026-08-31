@@ -1,7 +1,7 @@
 {
-  "name": "AI 红中麻将",
+  "name": "红中麻将",
   "short_name": "红中麻将",
-  "description": "四人红中麻将，和三个 AI 打，也能开房间和朋友联机。",
+  "description": "四人红中麻将，单机和联机都能打。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

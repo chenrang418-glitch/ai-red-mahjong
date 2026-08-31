@@ -9,24 +9,21 @@ import { RULE_SECTIONS } from '@/game/rules'
 import GameSetup from '@/components/game/GameSetup.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
-import ReplayCenter from '@/components/game/ReplayCenter.vue'
 import TopbarMenu from '@/components/game/TopbarMenu.vue'
 import OnlineHub from '@/components/online/OnlineHub.vue'
 import { gameAudio } from '@/composables/useGameAudio'
 import { useImmersiveTable } from '@/composables/useImmersiveTable'
 import { useMahjongGame } from '@/composables/useMahjongGame'
-import { downloadJson } from '@/game/persistence'
 import { countFaces, faceKey, tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
 import { checkWin } from '@/game/win'
 
 const game = useMahjongGame()
 const { immersive, toggleImmersive } = useImmersiveTable()
-// 分享链接：#join=ABC123 直接进联机大厅并自动进这个房间。
-// 用 hash 而不是查询参数，Pages 那边不用额外配路由回退。
+// 分享链接只携带公开房间号；身份由同源 HttpOnly Cookie 提供。
 function readJoinCode(): string {
-  const match = location.hash.match(/^#join=([A-Za-z0-9]{6})$/)
-  return match ? match[1].toUpperCase() : ''
+  const room = new URLSearchParams(location.search).get('room') ?? ''
+  return /^[A-Za-z0-9]{6}$/.test(room) ? room.toUpperCase() : ''
 }
 const pendingJoinCode = ref(readJoinCode())
 const appMode = ref<'home' | 'local' | 'online'>(pendingJoinCode.value ? 'online' : 'home')
@@ -34,7 +31,6 @@ const appMode = ref<'home' | 'local' | 'online'>(pendingJoinCode.value ? 'online
 // 真正拦人的是服务器上的管理密钥，这个 hash 只是不想让它出现在正常游玩的路径里。
 const adminMode = ref(location.hash === '#admin')
 const syncAdminMode = () => { adminMode.value = location.hash === '#admin' }
-// 别人把链接发过来时页面可能已经开着，所以 hash 变化也要认
 function syncJoinCode() {
   const code = readJoinCode()
   if (!code) return
@@ -42,41 +38,37 @@ function syncJoinCode() {
   appMode.value = 'online'
 }
 window.addEventListener('hashchange', syncAdminMode)
-window.addEventListener('hashchange', syncJoinCode)
+window.addEventListener('popstate', syncJoinCode)
 const selectedTileId = ref('')
 const settingsOpen = ref(false)
-const replayOpen = ref(false)
 const rulesOpen = ref(false)
 // 手机端积分和牌局记录收进抽屉，牌桌才占得满一屏
 const infoOpen = ref(false)
 const infoTab = ref<'score' | 'flow' | 'log'>('score')
 // 声音弹层的开关放在页面上：挂在菜单里的话，菜单一收起组件就卸载了
 const audioOpen = ref(false)
-const exitSheetOpen = ref(false)
+// 退出／重开／结束都走同一个底部弹层。原来后两个用的是 window.confirm，
+// 系统弹窗和整个界面风格完全对不上，手机上还会盖住半屏。
+const confirmAction = ref<{ label: string; hint: string; run: () => void } | null>(null)
 
-// 手机端顶栏那个返回箭头：牌局一直在自动存档，回首页不影响进度
-function backToHome() {
-  game.pauseMatch()
-  appMode.value = 'home'
-}
-
-function requestExit() {
-  exitSheetOpen.value = true
+function askConfirm(label: string, hint: string, run: () => void) {
+  confirmAction.value = { label, hint, run }
   gameAudio.vibrate(10)
 }
 
-function keepMatchAndHome() {
-  exitSheetOpen.value = false
-  gameAudio.vibrate(14)
-  backToHome()
+function runConfirm() {
+  const action = confirmAction.value
+  confirmAction.value = null
+  if (!action) return
+  gameAudio.vibrate([24, 42, 48])
+  action.run()
 }
 
-function finishMatchAndHome() {
-  exitSheetOpen.value = false
-  gameAudio.vibrate([24, 42, 48])
-  game.endMatch()
-  game.pauseMatch()
-  appMode.value = 'home'
+function requestExit() {
+  askConfirm('结束并退出', '当前牌局不会保存', () => {
+    game.abandonMatch()
+    appMode.value = 'home'
+  })
 }
 
 function returnHomeAfterMatch() {
@@ -120,7 +112,7 @@ onBeforeUnmount(() => {
   if (clockTimer !== null) window.clearInterval(clockTimer)
   document.removeEventListener('visibilitychange', syncTicking)
   window.removeEventListener('hashchange', syncAdminMode)
-  window.removeEventListener('hashchange', syncJoinCode)
+  window.removeEventListener('popstate', syncJoinCode)
 })
 
 const human = computed(() => game.humanPlayer.value)
@@ -159,8 +151,17 @@ const sortedRanking = computed(() => {
 })
 
 watch(() => game.state.value?.currentPlayer, () => { selectedTileId.value = '' })
+watch(() => game.isHumanTurn.value && game.state.value?.phase === 'playing', (isMyTurn, wasMyTurn) => {
+  if (isMyTurn && !wasMyTurn) gameAudio.turnFeedback()
+})
 watch(() => !!game.humanClaimOption.value, (available, previous) => {
   if (available && !previous) gameAudio.vibrate([18, 38, 24])
+})
+let lastClaimCountdownSecond = 0
+watch(claimSeconds, (value) => {
+  const second = Math.ceil(Number(value))
+  if (second >= 1 && second <= 3 && second !== lastClaimCountdownSecond) gameAudio.countdownFeedback()
+  lastClaimCountdownSecond = second
 })
 function selectTile(tile: Tile) {
   gameAudio.vibrate(selectedTileId.value === tile.id ? 7 : 11)
@@ -179,11 +180,11 @@ function discardSelected() {
 }
 
 function newMatch() {
-  if (window.confirm('结束并清除当前未完成牌局，返回开局设置？')) game.abandonMatch()
+  askConfirm('重开一局', '当前牌局不会保存', game.abandonMatch)
 }
 
 function endMatch() {
-  if (window.confirm('确定结束整场牌局并保存当前牌谱？')) game.endMatch()
+  askConfirm('结束本场', '直接看本场结算', game.endMatch)
 }
 
 const transferReason: Record<string, string> = {
@@ -213,11 +214,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
   <template v-else>
   <GameSetup
     v-if="!game.state.value"
-    :saved-game-available="game.savedGameAvailable.value"
     @start="game.startMatch"
-    @resume="game.resumeMatch"
-    @discard="game.abandonMatch"
-    @history="replayOpen = true"
     @rules="rulesOpen = true"
     @back="appMode = 'home'"
   />
@@ -225,7 +222,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
   <!-- iOS 只允许在用户手势里恢复音频，所以牌桌上任何一次触摸都顺带解锁一次 -->
   <div v-else class="game-page" :class="{ immersive, 'info-open': infoOpen }" @pointerdown.capture="gameAudio.unlock">
     <header class="topbar">
-      <div class="brand desktop-only"><span>中</span><div><strong>AI 红中麻将</strong><small>本地离线版</small></div></div>
+      <div class="brand desktop-only"><span>中</span><div><strong>红中麻将</strong></div></div>
       <!-- 手机端顶栏就是信息栏：局数挪上来，中央位置全让给弃牌区 -->
       <div class="round-bar mobile-only">
         <button class="round-back" type="button" aria-label="返回" @click="requestExit">‹</button>
@@ -236,11 +233,9 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       <div class="status-pill" :class="game.state.value.phase">{{ playerNotice || game.state.value.events.at(-1)?.detail }}</div>
       <nav>
         <button class="desktop-only" @click="rulesOpen = true">规则</button>
-        <button class="desktop-only" @click="replayOpen = true">牌谱</button>
         <button class="mobile-only" @click="infoOpen = true">积分</button>
         <button class="desktop-only" @click="settingsOpen = true">AI设置</button>
         <AudioControl class="desktop-only" />
-        <button class="desktop-only" @click="downloadJson(`红中麻将-${game.state.value.matchId}.json`, game.state.value)">导出</button>
         <button class="desktop-only" @click="endMatch">结束</button>
         <button class="danger desktop-only" @click="newMatch">新牌局</button>
         <!-- 竖屏顶栏只留「AI设置」，其余七个按钮收进菜单 -->
@@ -357,17 +352,15 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     <AudioControl v-model:open="audioOpen" hide-trigger />
     <DiceToast :state="game.state.value" />
 
-    <div v-if="exitSheetOpen" class="exit-sheet-backdrop" @click.self="exitSheetOpen = false">
-      <section class="exit-sheet" role="dialog" aria-label="退出牌局">
-        <button type="button" @click="keepMatchAndHome"><b>保留对局</b><span>下次接着打</span></button>
-        <button class="finish" type="button" @click="finishMatchAndHome"><b>结束对局</b><span>存进牌谱</span></button>
-        <button class="cancel" type="button" @click="exitSheetOpen = false">取消</button>
+    <div v-if="confirmAction" class="exit-sheet-backdrop" @click.self="confirmAction = null">
+      <section class="exit-sheet" role="dialog" aria-modal="true" :aria-label="confirmAction.label">
+        <button class="finish" type="button" @click="runConfirm"><b>{{ confirmAction.label }}</b><span>{{ confirmAction.hint }}</span></button>
+        <button class="cancel" type="button" @click="confirmAction = null">取消</button>
       </section>
     </div>
 
     <div v-if="game.state.value.phase === 'settlement' || game.state.value.phase === 'match-over'" class="result-backdrop">
       <section class="result-card">
-        <small>{{ game.state.value.phase === 'match-over' ? 'MATCH OVER' : 'ROUND RESULT' }}</small>
         <h2>{{ game.state.value.result?.detail }}</h2>
         <div v-if="game.state.value.result?.winningTile" class="win-result">
           <div><span>自摸牌</span><b>{{ tileLabel(game.state.value.result.winningTile) }}</b></div>
@@ -381,7 +374,6 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
           <li v-for="player in sortedRanking" :key="player.id"><span>{{ player.name }}</span><b>{{ player.points === null ? `净分 ${player.stats.netPoints >= 0 ? '+' : ''}${player.stats.netPoints}` : `${player.points}积分` }}</b><small>胡{{ player.stats.wins }} · 杠{{ player.stats.gangCount }} · 码{{ player.stats.maCount }}</small></li>
         </ol>
         <div class="result-actions">
-          <button @click="replayOpen = true">查看牌谱</button>
           <button v-if="game.state.value.phase === 'settlement'" class="primary" @click="game.nextRound">{{ game.state.value.result?.type === 'draw' ? '下一局（流局留庄）' : '下一局（赢家坐庄）' }}</button>
           <button v-else class="primary" @click="returnHomeAfterMatch">返回首页</button>
         </div>
@@ -390,8 +382,6 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 
     <AISettingsDrawer :open="settingsOpen" :players="game.state.value.players" @close="settingsOpen = false" @change="game.updateAI" />
   </div>
-
-  <ReplayCenter :open="replayOpen" @close="replayOpen = false" />
 
   <div v-if="rulesOpen" class="rules-backdrop" @click.self="rulesOpen = false">
     <section class="rules-card">

@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMahjongGame } from '@/composables/useMahjongGame'
+import { CLAIM_MASK_DELAY_RANGE } from '@/game/timing'
 import { GameEngine } from '@/game/engine'
-import { faceKey } from '@/game/tiles'
-import type { GameState, MatchConfig, Tile } from '@/game/types'
-
-const ACTIVE_GAME_KEY = 'red-mahjong-active-v1'
+import type { MatchConfig } from '@/game/types'
 
 function config(seed: number): MatchConfig {
   return {
@@ -30,68 +28,10 @@ function findHumanDealerWithRed(): { config: MatchConfig; redTileId: string } {
   throw new Error('没有找到真人坐庄且持有红中的固定种子')
 }
 
-function collectAll(state: GameState): Tile[] {
-  return [
-    ...state.wall,
-    ...state.maReserve,
-    ...state.players.flatMap((player) => [
-      ...player.hand,
-      ...player.discards,
-      ...player.melds.flatMap((meld) => meld.tiles),
-    ]),
-  ]
-}
-
-function take(pool: Tile[], face: string, count: number): Tile[] {
-  const result: Tile[] = []
-  for (let index = pool.length - 1; index >= 0 && result.length < count; index -= 1) {
-    if (faceKey(pool[index]) === face) result.push(...pool.splice(index, 1))
-  }
-  return result
-}
-
-function savedHumanClaimState(): GameState {
-  const engine = new GameEngine(config(20260815))
-  const pool = collectAll(engine.state)
-  for (const player of engine.state.players) {
-    player.hand = []
-    player.discards = []
-    player.melds = []
-  }
-  engine.state.maReserve = pool.splice(-6)
-  const discarded = take(pool, 'wan-3', 1)[0]
-  engine.state.players[0].hand = [...take(pool, 'wan-3', 2), ...pool.splice(0, 11)]
-  engine.state.players[1].hand = [discarded, ...pool.splice(0, 13)]
-  engine.state.players[2].hand = pool.splice(0, 13)
-  engine.state.players[3].hand = pool.splice(0, 13)
-  engine.state.wall = pool
-  engine.state.currentPlayer = 1
-  engine.state.phase = 'playing'
-  engine.state.turnStage = 'must-discard'
-  engine.state.lastDiscard = null
-  engine.state.claimOptions = []
-  engine.assertTileInvariant()
-  engine.discard(1, discarded.id)
-  return engine.snapshot()
-}
-
-function memoryStorage(): Storage {
-  const values = new Map<string, string>()
-  return {
-    get length() { return values.size },
-    clear: () => values.clear(),
-    getItem: (key) => values.get(key) ?? null,
-    key: (index) => [...values.keys()][index] ?? null,
-    removeItem: (key) => { values.delete(key) },
-    setItem: (key, value) => { values.set(key, value) },
-  }
-}
-
 describe('抢牌响应流程', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-15T00:00:00Z'))
-    vi.stubGlobal('localStorage', memoryStorage())
     vi.stubGlobal('document', { hidden: false, addEventListener: () => {}, removeEventListener: () => {} })
     vi.stubGlobal('window', {
       clearTimeout: globalThis.clearTimeout.bind(globalThis),
@@ -108,7 +48,8 @@ describe('抢牌响应流程', () => {
     vi.useRealTimers()
   })
 
-  it('无人可碰杠时至少等待1.2秒再让下家摸牌', () => {
+  // 下限直接引用常量：调过一次节奏后这个断言写死过一次数字，跟着漂了。
+  it('无人可碰杠时也要等满掩护时间再让下家摸牌', () => {
     const scenario = findHumanDealerWithRed()
     const game = useMahjongGame()
     game.startMatch(scenario.config)
@@ -118,30 +59,14 @@ describe('抢牌响应流程', () => {
     expect(game.state.value?.claimOptions).toHaveLength(0)
     expect(game.notice.value).toBe('')
 
-    vi.advanceTimersByTime(1199)
+    // Math.random 被固定成 0，掩护时长就是区间下限
+    const maskDelay = CLAIM_MASK_DELAY_RANGE[0]
+    vi.advanceTimersByTime(maskDelay - 1)
     expect(game.state.value?.phase).toBe('claiming')
 
     vi.advanceTimersByTime(1)
     expect(game.state.value?.phase).toBe('playing')
     expect(game.state.value?.currentPlayer).toBe(1)
-    game.abandonMatch()
-  })
-
-  it('所有候选人提前选择过也要满足最低伪装停顿', async () => {
-    localStorage.setItem(ACTIVE_GAME_KEY, JSON.stringify(savedHumanClaimState()))
-    const game = useMahjongGame()
-    await game.resumeMatch()
-
-    expect(game.humanClaimOption.value?.actions).toContain('peng')
-    game.humanPassClaim()
-    expect(game.humanPassed.value).toBe(true)
-
-    vi.advanceTimersByTime(1199)
-    expect(game.state.value?.phase).toBe('claiming')
-
-    vi.advanceTimersByTime(1)
-    expect(game.state.value?.phase).toBe('playing')
-    expect(game.state.value?.currentPlayer).toBe(2)
     game.abandonMatch()
   })
 })
