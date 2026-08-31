@@ -108,3 +108,10 @@ export function handleEquipmentLost(host: EquipmentHost, playerId: PlayerId, car
   owner.hp += 1
   host.dispatch('Recover', { playerId, amount: 1, reason: '白银狮子' }, { targetId: playerId })
 }
+
+/** 八卦阵：需要打出【闪】时，可以改为判定，红色即视为出了一张【闪】。 */
+export const BAGUA_ACTION_ID = 'invoke-bagua'
+
+export function canInvokeBagua(state: SanguoshaState, playerId: PlayerId): boolean {
+  return hasArmor(state, playerId, '八卦阵')
+}

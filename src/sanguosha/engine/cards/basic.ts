@@ -3,11 +3,12 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
+import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { PlayerId, SanguoshaState } from '../types'
 import { moveCard } from '../zones'
-import { handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
+import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
@@ -97,6 +98,9 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   const actionIds = target.zones.hand
     .filter((candidateId) => host.state.cards[candidateId]?.name === '闪')
     .map((candidateId) => `respond-dodge:${candidateId}`)
+  // 八卦阵不是手牌，但同样是「打出闪」的一种途径，必须出现在合法动作里，
+  // 否则前端永远点不到它——服务端支持不等于前端能用。
+  if (canInvokeBagua(host.state, targetId)) actionIds.push(BAGUA_ACTION_ID)
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     id: `request-${host.state.seq}`,
@@ -186,6 +190,31 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
   const validationError = validateResponse(request, response)
   if (validationError) throw new Error(validationError)
   const actionId = (response.payload as { actionId: string }).actionId
+
+  // 八卦阵：判定红色就当作打出了一张【闪】，黑色则视为没有响应
+  if (actionId === BAGUA_ACTION_ID) {
+    if (resolution.kind !== 'slash' || !canInvokeBagua(host.state, response.playerId)) throw new Error('当前不能发动【八卦阵】')
+    removeResponseRequest(host.state, request.id)
+    resolution.requestId = null
+    recordResponse(host, request, response)
+    const judged = performJudgment(host, response.playerId, '八卦阵')
+    if (judged.color === 'red') {
+      finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+      host.state.cardResolution = null
+      return
+    }
+    resolution.stage = 'awaiting-dying'
+    resolveDamage(host, {
+      sourceId: resolution.sourceId,
+      targetId: resolution.targetId,
+      amount: resolution.damageAmount,
+      nature: resolution.damageNature,
+      cardName: '杀',
+    })
+    if (!host.state.dying && !host.state.damageChain) resumeCardResolution(host)
+    return
+  }
+
   let responseCardId: string | null = null
   if (actionId !== 'respond-pass') {
     const prefix = resolution.kind === 'slash' ? 'respond-dodge:' : 'respond-nullification:'

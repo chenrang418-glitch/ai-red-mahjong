@@ -281,6 +281,55 @@ describe('装备特效', () => {
     assertCardConservation(game.state)
   })
 
+  it('八卦阵判定为红时视为出闪，为黑时照常受伤', () => {
+    // 判定牌是牌堆顶那一张，所以直接摆一张确定颜色的牌上去
+    const red = playPhaseGame('equip-bagua-red')
+    equip(red, 'p1', '八卦阵')
+    stripCard(red, '闪')
+    const redJudge = Object.values(red.state.cards).find((card) => card.color === 'red' && red.state.zones.drawPile.includes(card.id))!
+    moveCard(red.state, redJudge.id, { kind: 'drawPile' }, { kind: 'drawPile' }, { toTop: true })
+    const slashId = giveSlash(red, 'p0', 'red')
+    const hpBefore = red.state.players[1].hp
+
+    useOn(red, slashId, ['p1'])
+    const request = red.state.pendingRequests[0] as Extract<typeof red.state.pendingRequests[0], { kind: 'respond-card' }>
+    // 关键：八卦阵必须出现在合法动作里，否则前端永远点不到
+    expect(request.actionIds).toContain('invoke-bagua')
+    red.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: 'invoke-bagua' } })
+
+    expect(red.state.players[1].hp).toBe(hpBefore)
+    expect(red.state.cardResolution).toBeNull()
+    assertCardConservation(red.state)
+  })
+
+  it('八卦阵判定为黑时仍然受伤', () => {
+    const game = playPhaseGame('equip-bagua-black')
+    equip(game, 'p1', '八卦阵')
+    stripCard(game, '闪')
+    const blackJudge = Object.values(game.state.cards).find((card) => card.color === 'black' && game.state.zones.drawPile.includes(card.id))!
+    moveCard(game.state, blackJudge.id, { kind: 'drawPile' }, { kind: 'drawPile' }, { toTop: true })
+    const slashId = giveSlash(game, 'p0', 'red')
+    const hpBefore = game.state.players[1].hp
+
+    useOn(game, slashId, ['p1'])
+    const request = game.state.pendingRequests[0]
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: 'invoke-bagua' } })
+    passAll(game)
+
+    expect(game.state.players[1].hp).toBe(hpBefore - 1)
+    assertCardConservation(game.state)
+  })
+
+  it('没有八卦阵的人不能发动它', () => {
+    const game = playPhaseGame('equip-bagua-none')
+    stripCard(game, '闪')
+    const slashId = giveSlash(game, 'p0', 'red')
+    useOn(game, slashId, ['p1'])
+    const request = game.state.pendingRequests[0] as Extract<typeof game.state.pendingRequests[0], { kind: 'respond-card' }>
+    expect(request.actionIds).not.toContain('invoke-bagua')
+    expect(() => game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: 'invoke-bagua' } })).toThrow()
+  })
+
   it('马匹通过统一距离入口生效，不需要各自实现', () => {
     const game = playPhaseGame('equip-horses')
     const before = game.legalActions('p0').filter((action) => action.kind === 'use-card').length

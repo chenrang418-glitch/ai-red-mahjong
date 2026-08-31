@@ -33,6 +33,22 @@ function aliveOrderFromCurrent(state: SanguoshaState): PlayerId[] {
   return result
 }
 
+/**
+ * 走一次完整判定并返回判定牌。
+ *
+ * 抽出来给八卦阵这类「不在判定区、但要用判定结果」的效果复用；
+ * 之后司马懿【鬼才】这种改判技能也挂在 JudgeResult 时机上，只改这一处。
+ */
+export function performJudgment(host: JudgmentEngineHost, playerId: PlayerId, reason: string) {
+  host.dispatch('JudgeStart', { playerId, reason }, { targetId: playerId })
+  const judgeCardId = takeJudgmentCard(host)
+  const judgeCard = host.state.cards[judgeCardId]
+  host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit: judgeCard.suit, rank: judgeCard.rank, color: judgeCard.color }, { targetId: playerId, cardIds: [judgeCardId] })
+  host.dispatch('JudgeEnd', { playerId, reason, judgeCardId }, { targetId: playerId, cardIds: [judgeCardId] })
+  moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+  return judgeCard
+}
+
 function takeJudgmentCard(host: JudgmentEngineHost): CardId {
   if (host.state.zones.drawPile.length === 0) {
     if (host.state.zones.discardPile.length === 0) throw new Error('没有可用于判定的牌')
