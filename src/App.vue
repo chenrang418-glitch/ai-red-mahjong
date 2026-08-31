@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import './styles/main.css'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AdminPanel from '@/components/AdminPanel.vue'
 import ModeHome from '@/components/ModeHome.vue'
@@ -17,6 +18,8 @@ import { useMahjongGame } from '@/composables/useMahjongGame'
 import { countFaces, faceKey, tileFromFace, tileLabel } from '@/game/tiles'
 import type { Tile } from '@/game/types'
 import { checkWin } from '@/game/win'
+
+const emit = defineEmits<{ backToPortal: [] }>()
 
 const game = useMahjongGame()
 const { immersive, toggleImmersive } = useImmersiveTable()
@@ -207,7 +210,7 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 <template>
   <AdminPanel v-if="adminMode" />
 
-  <ModeHome v-else-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" />
+  <ModeHome v-else-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" @portal="emit('backToPortal')" />
 
   <OnlineHub
     v-else-if="appMode === 'online'"

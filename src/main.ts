@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
-import App from './App.vue'
-import './styles/main.css'
+import RootApp from './RootApp.vue'
+import './styles/root.css'
 import { gameAudio } from './composables/useGameAudio'
 import { cleanupLegacyStorage } from './cleanupLegacyStorage'
 
@@ -11,4 +11,4 @@ document.addEventListener('pointerdown', (event) => {
   if (button && !button.disabled) gameAudio.buttonFeedback()
 })
 
-createApp(App).mount('#app')
+createApp(RootApp).mount('#app')

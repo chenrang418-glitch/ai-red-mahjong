@@ -1,0 +1,38 @@
+:root {
+  font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  min-width: 320px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#app { display: flex; flex-direction: column; }
+
+.root-loading,
+.root-error {
+  width: 100%;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #f4eedc;
+  background: #08110e;
+  text-align: center;
+}
+
+.root-loading span,
+.root-error section > span { color: #d1ad60; font: 900 34px/1 Georgia, serif; }
+.root-loading p,
+.root-error p { color: #9ba8a2; }
+.root-error section { width: min(440px, 100%); padding: 30px; border: 1px solid #3b4b44; border-radius: 20px; background: #111d18; }
+.root-error h1 { margin: 16px 0 0; }
+.root-error div { display: flex; justify-content: center; gap: 10px; margin-top: 22px; }
+.root-error button { min-height: 42px; padding: 0 16px; border: 1px solid #6f654a; border-radius: 9px; color: #f2e5c9; background: #283129; cursor: pointer; }

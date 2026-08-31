@@ -26,7 +26,7 @@ async function expectNoPageScroll(page: Page) {
 }
 
 async function startLocalMatch(page: Page) {
-  await page.goto('/')
+  await page.goto('/?game=mahjong')
   await page.getByRole('button', { name: '单机模式' }).click()
   await page.getByRole('button', { name: '开始', exact: true }).click()
   await expect(page.locator('.human-hand')).toBeVisible()
@@ -113,7 +113,7 @@ test('WebKit 退出确认框居中显示', async ({ page }) => {
 test('WebKit 联机大厅显示昵称且不整页滚动', async ({ page }) => {
   await page.setViewportSize(PORTRAIT)
   await mockLobby(page)
-  await page.goto('/')
+  await page.goto('/?game=mahjong')
   await page.getByRole('button', { name: '联机模式' }).click()
 
   await expect(page.locator('.identity-bar')).toContainText('WebKit 玩家')

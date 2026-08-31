@@ -82,7 +82,7 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await installMockWebSocket(page)
     await mockOnlineApi(page)
-    await page.goto('/')
+    await page.goto('/?game=mahjong')
 
     await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
     await expect(page.getByRole('button', { name: '单机模式' })).toBeVisible()
@@ -104,7 +104,7 @@ for (const viewport of viewports) {
     await expect(page.locator('.action-dock button, .top-seat.active, .left-seat.active, .right-seat.active').first()).toBeVisible()
     await expectNoPageScroll(page)
 
-    await page.goto('/')
+    await page.goto('/?game=mahjong')
     await page.getByRole('button', { name: '联机模式' }).click()
     await expect(page.getByRole('heading', { name: '公开房间' })).toBeVisible()
     await expect(page.getByText('ABC234')).toBeVisible()

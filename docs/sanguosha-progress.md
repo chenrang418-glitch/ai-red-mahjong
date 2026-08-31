@@ -1,0 +1,264 @@
+# CRPlay 三国杀开发进度
+
+> 本文档是持续更新的交接记录。任何后续开发者开始工作前，应先阅读本文档，再核对当前 Git 状态和远端 `main`。
+
+## 当前基线
+
+- 工作目录：`C:\Users\cr\Documents\work\crplay-sanguosha-dev`
+- 上游仓库：`https://github.com/chenrang418-glitch/ai-red-mahjong.git`
+- **当前分支：`feature/sanguosha`**（Claude 接手时从 `main` 切出，见下方「工作分支与端口」）
+- 基线分支：`main`
+- 基线提交：`ac5c448d632f5b34ac9da18550107990ba9eda61`
+- 基线提交说明：`fix: 堵住牌序与暗牌泄露，修阶段被外围事件重置，补运行时校验`
+- 基线获取时间：2026-08-31（Asia/Shanghai）
+- 部署限制：本任务只做代码、测试和本地验证，不自动部署生产环境。
+
+### 2026-08-31 23:11 交接快照
+
+- 已执行 `git fetch origin main`；`HEAD` 与 `origin/main` 仍均为 `ac5c448d632f5b34ac9da18550107990ba9eda61`，ahead/behind 为 `0/0`。
+- 当前工作树为**有意保留的未提交开发状态**：9 个 tracked 文件被修改，另有 42 个 untracked 文件（本交接文档创建后为 43 个）。不要执行 `git reset --hard`、`git clean`、切换分支或重新 clone 覆盖。
+- 没有 commit、push、PR、远端 migration 或生产部署。
+- codex 交接时的验证：三国杀 61/61；全量 Vitest 255/255。
+- **Claude 接手后的最新验证（见文末「最新测试结果」）：三国杀 78 项；全量 Vitest 266/266；
+  Playwright 30/30 已重跑，麻将零回归。**
+- Claude 开始前应先阅读 `docs/CLAUDE_HANDOFF.md`、本文档、`docs/sanguosha-architecture.md` 和 `docs/sanguosha-ruleset-v1.md`，再运行 `git status --short --branch`。
+
+## 工作分支与端口（Claude 接手时新增）
+
+这三条是用户点名要处理的风险，已经落实，后续开发必须继续遵守。
+
+1. **留在 `feature/sanguosha`，不要回到 `main`。**
+   `.github/workflows/deploy-cloudflare-pages.yml` 是 `push: branches: [main]` 触发的，
+   在 `main` 上提交并推送会直接把生产麻将部署出去，而任务书明确禁止自动部署。
+   codex 的交接文档里写的是「确认正在 main」，那是接手前的状态，现在以本节为准。
+
+2. **端口必须和生产 checkout 错开。**
+   本目录是麻将仓库的第二份 checkout，`work/ai-red-mahjong` 是稳定的生产 checkout。
+   Playwright 的 `reuseExistingServer: true` 会连上任何已经占着该端口的 dev server——
+   两边同时开着时，测试会静默跑在另一份代码上，而且全绿。已经改开：
+
+   | checkout | dev server | Playwright |
+   | --- | --- | --- |
+   | `ai-red-mahjong`（生产） | 5180 | 4173 |
+   | `crplay-sanguosha-dev`（本项目） | 5190 | **4183** |
+
+3. **不要往全局 CSS 加宽泛选择器。**
+   `src/styles/main.css` 现在只由麻将 `App.vue` 加载，跟着麻将 bundle 懒加载；
+   `src/styles/root.css` 是门户用的，全局只保留一条 `* { box-sizing }`。
+   在门户或三国杀里写 `button {}` / `div {}` 会直接改掉麻将全站的观感。
+
+## 保护边界
+
+- 不重写或重构现有麻将规则、状态机、AI、胡牌/碰杠逻辑和联机协议。
+- 保留旧分享链接 `/?room=ABC234` 和 `/#admin` 行为。
+- 仅允许为 RootApp、游戏中心、CSS 隔离和 Worker 路由做最小接线。
+- 不提交、不推送、不部署，除非用户之后明确要求。
+- 单机与联机三国杀必须共用同一纯 TypeScript Engine。
+- 联机状态必须服务端权威，并按玩家裁剪隐藏信息。
+
+## 已完成
+
+### 2026-08-31：仓库与基线审计
+
+- 在 `work` 下新建目标目录并从远端克隆最新 `main`。
+- 再次执行 `git pull --ff-only origin main`，结果为 `Already up to date`。
+- 克隆后工作区洁净。
+- 已阅读顶层结构、入口、构建与测试配置、Wrangler 配置、迁移列表、README、第三方声明和主要 E2E 测试；正在继续逐文件审计实现。
+- 使用现有 `package-lock.json` 执行 `npm ci`，未升级依赖，审计结果为 0 漏洞。
+
+### 2026-08-31：Phase A 游戏中心与保护性接入
+
+- 新增 `src/RootApp.vue`，顶层统一解析 URL，支持前进、后退和刷新恢复。
+- 新增数据驱动的 `src/portal/gameManifest.ts` 与 `GamePortal.vue`。
+- 红中麻将和三国杀 App 均使用动态 `import()`；Vite 产物确认麻将、三国杀各自形成独立 chunk，访问门户不会加载完整麻将 App。
+- URL 兼容已实现并测试：
+  - `/`：游戏中心；
+  - `/?game=mahjong`：麻将；
+  - 旧 `/?room=ABC234`：自动进入麻将分享流程；
+  - `/?game=sanguosha`：三国杀；
+  - `/?game=sanguosha&room=ABC234`：由顶层归属三国杀；
+  - `/#admin`：仍进入原管理员功能。
+- 麻将原 `App.vue` 没有搬迁；只增加 CSS 懒加载和向上返回游戏中心事件。
+- 麻将模式首页只新增“返回游戏中心”按钮；管理员“返回游戏”改为显式进入 `?game=mahjong`。
+- 新增独立 namespace 门户样式；三国杀占位首页使用 `.sgs-app` namespace，并明确标注尚未可玩，避免假完成。
+- 三国杀 manifest 当前暂时显示“开发中”；只有完成真实可玩性后才能改为“可游玩”。
+
+### 2026-08-31：Phase B 第一段规则底座
+
+- 在项目外参考区审计：
+  - `wmzy/sanguosha` commit `177ca5f24cd985458fd6e38bb036d45fc414386b`，MIT；研究分层与视图思想，当前未复制源文件。
+  - `maxi-max-dev/sanguosha-online` commit `8efcf8815f138a959259fa9ca355b9d12822a636`，未发现明确许可证；只研究事件溯源、DO 与玩家视图架构，没有复制代码。
+- 规则资料核对：BWIKI 标准包 108、军争篇 52，以及官方身份模式介绍。
+- 新增纯 TypeScript Engine 基础：
+  - `types.ts`：玩家、卡牌、手牌/装备/判定区、牌堆/弃牌堆/处理区与可序列化状态；
+  - `rng.ts`：统一确定性 `GameRng`，支持 snapshot；
+  - `events.ts`：覆盖开局、阶段、用牌、伤害、濒死、死亡、移动和判定的事件总线；
+  - `requests.ts`：12 类 Request、穷尽检查和运行时 validation；
+  - `skills/types.ts`：11 类技能能力与 subSkill；
+  - `modes/identity.ts`：经典 5～8 人身份表与独立胜负判定；
+  - `distance.ts`：死亡座次、+1/-1 马、武器与技能修正统一计算；
+  - `view.ts`：隐藏他人手牌、未公开身份与牌堆顺序；
+  - `game.ts`：`new SanguoshaGame({ seed, setup })`、确定性身份/洗牌/发牌和回放记录骨架。
+- `data/ruleset-v1/deck.ts` 已逐张录入 160 张牌，含花色、点数、属性、类别、装备槽和武器范围。
+- 第二小节补充 `actions.ts`、`zones.ts` 与 `turn.ts`：合法 action 双重校验、单一移动牌入口、装备替换、牌张守恒检查，以及可序列化/可暂停的六阶段推进；有 pending Request 时禁止推进。
+- 第三小节补充 `draw.ts` 与 `damage.ts`：
+  - 伤害依次经过 `BeforeDamage`、`DamageCaused`、`DamageInflicted`、扣减体力、`Damaged`、`AfterDamage`；处理器可修改或取消伤害；
+  - 体力降至 0 或以下后进入可序列化 `DyingState`，按当前回合角色起的座次顺序生成 `rescue` Request；
+  - 桃可救援任意濒死角色，酒仅允许濒死者自救，同一响应者可连续使用多张救援牌；
+  - 无人救援后依次结算死亡、公开身份、弃置死亡角色区域、击杀反贼摸三张、主公误杀忠臣弃置手牌和装备、统一胜负判定；
+  - 救援响应经过 runtime validation 并写入 decision log，没有 Promise resolver 或等待中的 async 调用栈；
+  - 新增统一确定性摸牌入口，牌堆耗尽时使用本局 `GameRng` 重洗弃牌堆。
+- 第四小节补充：
+  - `PlayerView` 仅返回属于观察者自己的 pending Request，其他玩家只能看到规则公开的濒死角色和所需回复量；
+  - `invariants.ts` 统一校验玩家/座次/体力/装备槽/Request/濒死/结算状态及牌张守恒，可直接用于后续 soak 与服务端提交后防线；
+  - `phase.ts` 让判定、摸牌、出牌、弃牌阶段产生真实 Engine 行为；摸牌阶段摸两张，超出体力上限时生成可序列化、强制定量的弃牌 Request；
+  - `SanguoshaGame.respond()` 已统一分发救援与阶段弃牌响应，两者均验证归属、候选和当前上下文并写入 decision log。
+- 第五小节建立第一版可序列化卡牌结算：
+  - `engine/cards/basic.ts` 由完整 state 生成当前玩家的 `LegalAction[]`，客户端不自行判断距离、目标或卡牌用途；
+  - 打通【杀】→目标私有【闪】Request→闪避或伤害；杀造成濒死时，实体牌保留在处理区，救援/死亡结束后再恢复并收束原结算；
+  - 【桃】在受伤时回复一点体力；【酒】每个出牌阶段限一次并只强化下一张杀；回合结束重置杀/酒计数；
+  - 装备牌通过统一用牌入口进入明确装备槽，替换的旧装备进入弃牌堆；装备特效仍未实现；
+  - 【无中生有】接入完整无懈响应链：按当前回合座次逐人询问，打出【无懈可击】后重新开始响应轮，奇数次取消、偶数次恢复生效；延时锦囊不在使用时开启此窗口；
+  - 卡牌结算状态、当前响应 Request、处理区实体牌均可序列化，并加入 invariant 一致性检查；玩家视图公开已使用的牌和目标，但仅向当前响应者发送私有 actionIds。
+- 第六小节补齐属性传导和第一版判定区：
+  - 火焰/雷电伤害命中横置角色后，按受伤目标之后的座次依次传播相同基础点数并解除相关横置；普通伤害不传播；
+  - `state.damageChain` 保存剩余目标。任一传播目标濒死时队列暂停，救援/死亡结束后继续，全部传播完成后才恢复原卡牌结算；
+  - 【乐不思蜀】【兵粮寸断】【闪电】使用后直接进入判定区，并限制同名延时锦囊重复放置；兵粮目标由统一距离入口限制为距离 1；
+  - 判定阶段按后置先判取出延时锦囊，在翻开判定牌前开启可被再次无懈的响应链；单数次无懈抵消本次延时锦囊，双数次恢复结算；
+  - 未被抵消时从牌堆顶亮出实体判定牌并发出 JudgeStart/JudgeResult/JudgeEnd；非红桃乐跳过出牌、非梅花兵粮跳过摸牌；
+  - 闪电黑桃 2～9 造成无来源 3 点雷电伤害，否则移动给下一名可放置角色；闪电导致濒死时 `state.judgment` 可序列化暂停并在救援结束后恢复；
+  - 乐/兵粮被无懈抵消后弃置；闪电被抵消后不翻判定牌并传给下一名合法角色。
+- 新增正式架构文档、ruleset-v1 文档和第三方参考记录。
+- 当前这只是底座，尚不能进行完整回合，武将完成度仍为 0/25。
+
+## 基线测试结果
+
+以下结果均在任何功能修改之前获得：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run test:run` | 通过：20 个测试文件、188 个测试 |
+| `npm run typecheck` | 通过 |
+| `npm run typecheck:online` | 通过 |
+| `npm run build` | 通过 |
+| `npm run build:online` | 通过，Wrangler dry-run 成功 |
+| `npm run test:online:smoke` | 通过 |
+| `npm run test:e2e` | 首次运行 Chromium 17/17 通过；WebKit 因本机缺浏览器而未启动 |
+| `npx playwright test --project=webkit` | 安装匹配版本 WebKit 后通过：4/4 |
+
+WebKit 的 4 项失败不是产品断言失败，而是本机缺少 Playwright WebKit 可执行文件：
+
+```text
+Executable doesn't exist at
+C:\Users\cr\AppData\Local\ms-playwright\webkit-2336\Playwright.exe
+```
+
+已执行 `npx playwright install webkit` 安装匹配的 WebKit 2336，并重跑 4 项全部通过。因此原始代码基线没有已知测试失败；首次 E2E 非零退出仅由测试运行环境缺件造成。
+
+## Phase A 验证结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run typecheck` | 通过 |
+| `npm run test:run` | 通过：21 个测试文件、194 个测试（含 6 个 URL 单测） |
+| `npm run build` | 通过；门户主 JS 约 88.56 kB，麻将 App 独立 JS chunk 约 122.59 kB，三国杀占位独立 JS chunk 约 1.34 kB |
+| `npm run typecheck:online` | 通过 |
+| `npm run build:online` | 通过，Wrangler dry-run 成功；未部署 |
+| `npm run test:online:smoke` | 通过 |
+| `npm run test:e2e` | 通过：30/30（Chromium 26，WebKit 4） |
+| `git diff --check` | 通过（仅有 Windows LF/CRLF 提示，无空白错误） |
+
+新增 E2E 覆盖门户 7 种验收尺寸、横向溢出、三张游戏卡、动态入口、前进/后退/刷新、旧房间分享和管理员入口。原麻将响应式与视觉回归用例保持全部通过。
+
+另用真实 Vite 页面检查了 1440×900 与 393×852 门户截图：三张卡片、状态、中文排版与响应式布局正常，没有发现裁切、重叠或页面级滚动；截图仅保存在 Codex 本地可视化目录，未加入仓库。
+
+Phase B 当前新增 9 个测试文件、61 项规则底座与卡牌结算测试。判定时机纠正后的最新合并验证为 **30 个测试文件、255 项全部通过**；`typecheck`、`typecheck:online`、前端 `build`、Worker `build:online` dry-run、麻将联机 smoke 和 `git diff --check` 均通过。未部署。
+
+## 当前仓库要点
+
+- 前端：Vue 3 + TypeScript + Vite，当前由 `src/main.ts` 挂载 `src/RootApp.vue`；原麻将仍完整保留在 `src/App.vue` 并按需加载。
+- 麻将单机：`src/game/**`、`src/composables/useMahjongGame.ts`。
+- 麻将联机：`server/room-core.ts`、`server/worker.ts`、`src/composables/useOnlineGame.ts`、`src/online/types.ts`。
+- Cloudflare：`MahjongRoom` + `MahjongLobby` Durable Objects，D1 migration 已到 `0005_remove_player_stats.sql`。
+- Wrangler DO migration tag 当前已到 `v2`；新增三国杀 DO 必须追加新 tag，不能改历史 migration。
+- 当前测试脚本会先构建 Worker，Vitest 基线共 188 项。
+
+### 2026-08-31：Claude 接手，逐目标锦囊结算帧 + 8 张即时锦囊
+
+按 `docs/CLAUDE_HANDOFF.md` 里「建议下一开发顺序」的第 1～3 条推进。
+
+**引擎结构**
+
+- `TrickResolutionState` 从单目标 `targetId` 扩成 `targetIds[] + targetIndex`。
+  无懈可击取消的是「这张牌对某一个目标的效果」，不是整张牌——
+  万箭齐发被一个人无懈掉，其他目标照样要出闪。
+- 锦囊效果从硬编码 `if (cardName === '无中生有')` 改成 `applyTrickEffect` 分派。
+- 新增 `engine/cards/host.ts`（`CardEngineHost` + 使用/收束/暗槽等共用件）
+  和 `engine/cards/tricks.ts`（即时锦囊）；`basic.ts` 只留基本牌并委派，
+  正是交接文档里点名要避免的「所有牌塞进 basic.ts」。
+- 效果阶段要等人决策时一律写进可序列化的 `resolution.effect`，不用 await 挂起。
+- `PlayerView.cardResolution` 改为下发 `targetIds[]`，杀这类单目标牌也包成一个元素，
+  客户端只需处理一种形状。
+
+**新实现的即时锦囊（11 张全部完成，均有测试）**
+
+桃园结义、铁索连环、南蛮入侵、万箭齐发、决斗、过河拆桥、顺手牵羊、
+五谷丰登、火攻、借刀杀人（无中生有迁移到新框架）。
+
+**即时锦囊层至此完成，ruleset-v1 的锦囊不再有缺口。**
+
+要点：
+- 过河拆桥不受距离限制，顺手牵羊受距离 1 限制。
+- 拆桥/顺手选目标手牌时，Request 里只给不含牌面信息的暗槽 `hidden:<playerId>:<index>`，
+  真实 cardId 只在服务端解析——有测试断言真实 id 不出现在 Request 的任何字段里。
+- 南蛮/万箭/决斗/火攻/借刀造成濒死时暂停，救援结束后继续结算剩余目标。
+- 五谷丰登在第一个目标结算前一次性亮牌到处理区，整张牌共用这批牌，中途不重新亮。
+- 火攻两段结算：目标展示一张手牌（只公开这一张），使用者再决定是否弃同花色牌。
+- 借刀杀人两段结算：目标先选受害者，再决定出杀还是交武器；出了杀由受害者响应闪。
+
+**行为变更（有意）**
+
+手上没有无懈可击的玩家不再被询问，少一轮无谓往返。
+原「锦囊→无懈→再无懈」用例的中间态断言随之调整为断言最终结果（更强），
+不是放宽断言。
+
+## 下一步
+
+1. 实现单张装备的特殊效果（诸葛连弩、青龙偃月刀、八卦阵、藤甲、四匹马……）。
+   距离修正的读取入口 `distance.ts` 已经统一，接上去即可。
+2. 再建立 character/pack 注册；技能没完整实现的武将不要标记为完成。
+3. 顺序不要乱：卡牌底座 → 武将 → AI → Vue 牌桌 → Cloudflare 联机。
+4. 每完成一个可交接小节，继续更新本文档并执行相关测试。
+
+**已知的规则简化，后续要补**：
+- 借刀杀人里目标打出的【杀】没有走完整的出杀流程（不触发武器特效、不计入出杀次数），
+  只做了「出杀 → 受害者响应闪 → 伤害」。等装备特效做完之后应该改成复用同一条结算路径。
+- 铁索连环目前只实现横置用法，还没有「当两张牌摸」的替代用法。
+
+## 尚未完成
+
+- Phase B 仍缺：选将流程、完整 replay reducer（目前只存 `seed + setup + decisions`，
+  还没有能从 decisions 重建整局的 runner）。逐目标锦囊结算帧已完成。
+- Phase C 仍缺：**全部单张装备特效**，以及标准 25 将技能
+  （当前 **0/25**，`data/characters/` 和 `skills/` 目录都还不存在）。
+  即时锦囊和延时锦囊已全部实现。
+- Phase D～F：AI/soak、Vue 牌桌与全部 Request UI、Cloudflare 联机/重连/DO 集成测试。
+- README 和第三方声明仍需在最终范围确定后做最终更新；架构与 ruleset 文档已经建立并持续维护。
+
+## 最新测试结果（Claude 接手后）
+
+在 `feature/sanguosha` 上实际执行：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run test:run` | **271 通过 / 31 个文件**（麻将 188 + 三国杀 77 + 门户 6） |
+| `npm run test:sanguosha` | **77 通过 / 10 个文件** |
+| `npm run typecheck` | 通过 |
+| `npm run typecheck:online` | 通过 |
+| `npm run build` | 通过，产物已按游戏分包（门户 88KB / 麻将 App 122KB） |
+| `npm run build:online` | 通过（Wrangler dry-run） |
+| `npm run test:online:smoke` | 通过，麻将联机冒烟正常 |
+| `npx playwright test` | **30 通过**（Chromium 26 + WebKit 4），麻将原有用例全绿 |
+
+本轮全部验收命令都实际执行过。**没有 commit、没有 push、没有部署**——
+工作仍然全部留在 `feature/sanguosha` 的工作区里，等人工验收。

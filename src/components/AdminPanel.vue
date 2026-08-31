@@ -180,8 +180,11 @@ function lock() {
 }
 
 function backToGame() {
-  window.location.hash = ''
-  window.location.reload()
+  const url = new URL(window.location.href)
+  url.hash = ''
+  url.searchParams.set('game', 'mahjong')
+  url.searchParams.delete('room')
+  window.location.assign(`${url.pathname}${url.search}`)
 }
 
 function formatTime(value: number) {

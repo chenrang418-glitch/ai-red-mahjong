@@ -83,7 +83,7 @@ async function settleAnimations(page: Page) {
 }
 
 async function startLocalMatch(page: Page) {
-  await page.goto('/')
+  await page.goto('/?game=mahjong')
   await page.getByRole('button', { name: '单机模式' }).click()
   await page.getByRole('button', { name: '开始', exact: true }).click()
   await expect(page.locator('.human-hand')).toBeVisible()
@@ -205,7 +205,7 @@ test('横屏牌桌左上角返回键保持深色，不是浏览器默认白按�
 test('手机竖屏联机大厅显示当前昵称，并按创建→加入→公开房间自上而下排列', async ({ page }) => {
   await page.setViewportSize(PORTRAIT)
   await installMockSockets(page, ROOM_VIEW)
-  await page.goto('/')
+  await page.goto('/?game=mahjong')
   await page.getByRole('button', { name: '联机模式' }).click()
 
   const identity = page.locator('.identity-bar')
@@ -232,7 +232,7 @@ test('手机竖屏联机大厅显示当前昵称，并按创建→加入→公�
 test('手机横屏联机大厅三列并排，公开房间最宽', async ({ page }) => {
   await page.setViewportSize(LANDSCAPE)
   await installMockSockets(page, ROOM_VIEW)
-  await page.goto('/')
+  await page.goto('/?game=mahjong')
   await page.getByRole('button', { name: '联机模式' }).click()
 
   await expect(page.locator('.identity-bar')).toContainText('测试玩家')
