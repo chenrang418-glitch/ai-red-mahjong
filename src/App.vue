@@ -47,12 +47,12 @@ const infoOpen = ref(false)
 const infoTab = ref<'score' | 'flow' | 'log'>('score')
 // 声音弹层的开关放在页面上：挂在菜单里的话，菜单一收起组件就卸载了
 const audioOpen = ref(false)
-// 退出／重开／结束都走同一个底部弹层。原来后两个用的是 window.confirm，
-// 系统弹窗和整个界面风格完全对不上，手机上还会盖住半屏。
-const confirmAction = ref<{ label: string; hint: string; run: () => void } | null>(null)
+// 退出／重开／结束共用一个居中确认框，联机那边是同一套 .confirm-* 类名。
+type ConfirmAction = { title: string; hint: string; confirmText: string; run: () => void }
+const confirmAction = ref<ConfirmAction | null>(null)
 
-function askConfirm(label: string, hint: string, run: () => void) {
-  confirmAction.value = { label, hint, run }
+function askConfirm(action: ConfirmAction) {
+  confirmAction.value = action
   gameAudio.vibrate(10)
 }
 
@@ -65,9 +65,14 @@ function runConfirm() {
 }
 
 function requestExit() {
-  askConfirm('结束并退出', '当前牌局不会保存', () => {
-    game.abandonMatch()
-    appMode.value = 'home'
+  askConfirm({
+    title: '退出这局牌？',
+    hint: '本局进度不会保留，回到首页后要重新开一局。',
+    confirmText: '结束并退出',
+    run: () => {
+      game.abandonMatch()
+      appMode.value = 'home'
+    },
   })
 }
 
@@ -180,11 +185,11 @@ function discardSelected() {
 }
 
 function newMatch() {
-  askConfirm('重开一局', '当前牌局不会保存', game.abandonMatch)
+  askConfirm({ title: '重开一局？', hint: '当前这局的进度不会保留。', confirmText: '重开', run: game.abandonMatch })
 }
 
 function endMatch() {
-  askConfirm('结束本场', '直接看本场结算', game.endMatch)
+  askConfirm({ title: '结束本场？', hint: '直接跳到本场结算，看四家的最终积分。', confirmText: '结束本场', run: game.endMatch })
 }
 
 const transferReason: Record<string, string> = {
@@ -352,10 +357,14 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     <AudioControl v-model:open="audioOpen" hide-trigger />
     <DiceToast :state="game.state.value" />
 
-    <div v-if="confirmAction" class="exit-sheet-backdrop" @click.self="confirmAction = null">
-      <section class="exit-sheet" role="dialog" aria-modal="true" :aria-label="confirmAction.label">
-        <button class="finish" type="button" @click="runConfirm"><b>{{ confirmAction.label }}</b><span>{{ confirmAction.hint }}</span></button>
-        <button class="cancel" type="button" @click="confirmAction = null">取消</button>
+    <div v-if="confirmAction" class="confirm-backdrop" @click.self="confirmAction = null">
+      <section class="confirm-card" role="dialog" aria-modal="true" :aria-label="confirmAction.title">
+        <h2>{{ confirmAction.title }}</h2>
+        <p>{{ confirmAction.hint }}</p>
+        <div class="confirm-actions">
+          <button class="cancel" type="button" @click="confirmAction = null">取消</button>
+          <button class="danger" type="button" @click="runConfirm">{{ confirmAction.confirmText }}</button>
+        </div>
       </section>
     </div>
 

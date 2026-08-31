@@ -47,3 +47,6 @@ playwright-report/
 
 # Generated icon source
 app-icon.png
+
+# 本机预览用的启动配置，不进仓库
+.claude/

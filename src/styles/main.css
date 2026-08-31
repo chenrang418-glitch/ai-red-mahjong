@@ -135,53 +135,85 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .event-list article small { color: #5f756e; font-size: 8px; }
 /* 提示条放在顶部：手机上底部整条都是操作区，压在那里会被手指和按钮挡住 */
 .error-toast { position: fixed; z-index: 80; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #ad5148; border-radius: 12px; background: rgba(94, 45, 40, .97); color: #ffd8d3; cursor: pointer; font-size: 13px; text-align: center; box-shadow: 0 14px 36px rgba(0,0,0,.45); }
-.exit-sheet-backdrop {
+/* 退出/重开确认框。原来是 iOS 那种底部白底 action sheet，和整套深绿金配色完全不搭，
+   而且重心压在屏幕底边。现在改成居中模态：暗色遮罩 + 墨绿卡片 + 细金描边，
+   危险动作走暗红，取消走中性灰绿。单机和联机共用这一套类名。 */
+.confirm-backdrop {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
-  background: rgba(0,0,0,.7);
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(3, 12, 9, .72);
+  backdrop-filter: blur(3px);
   animation: veil-in .18s ease-out;
 }
-.exit-sheet {
-  width: min(560px, 100%);
-  animation: sheet-up .24s cubic-bezier(.2,.82,.24,1);
+.confirm-card {
+  width: min(400px, 100%);
+  padding: 24px 24px 20px;
+  border: 1px solid rgba(226, 191, 98, .38);
+  border-radius: 20px;
+  background: linear-gradient(160deg, #14332a, #0b2119);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
+  animation: confirm-in .22s cubic-bezier(.2, .82, .24, 1);
+  text-align: center;
 }
-.exit-sheet button {
-  width: 100%;
-  min-height: 68px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px 20px;
-  border: 0;
-  border-radius: 0;
-  background: #fff;
-  color: #151515;
+.confirm-card h2 {
+  margin: 0 0 10px;
+  color: #f3d67c;
+  font-size: 20px;
+  font-weight: 800;
+}
+.confirm-card p {
+  margin: 0 0 20px;
+  color: #9db3ab;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.confirm-actions button {
+  min-height: 46px;
+  padding: 10px 14px;
+  border-radius: 12px;
   cursor: pointer;
-  font-size: 17px;
+  font-size: 15px;
+  font-weight: 700;
 }
-.exit-sheet button.finish { border-radius: 18px; }
-.exit-sheet button.cancel { margin-top: 8px; border-radius: 18px; font-weight: 700; }
-.exit-sheet button b::after { content: '，'; }
-.exit-sheet button:active { background: #ececec; }
-.exit-sheet button.finish b { color: #9f302d; }
+.confirm-actions .cancel {
+  border: 1px solid #3a574d;
+  background: #142e26;
+  color: #d5e0da;
+}
+.confirm-actions .cancel:hover { border-color: #4d6f62; }
+.confirm-actions .danger {
+  border: 1px solid rgba(196, 87, 78, .75);
+  background: linear-gradient(165deg, #7b3430, #58231f);
+  color: #ffd9d3;
+}
+.confirm-actions .danger:hover { filter: brightness(1.1); }
+@keyframes confirm-in { from { opacity: 0; transform: translateY(10px) scale(.97); } }
+/* 窄屏按钮竖排，避免两个中文按钮挤成两行字 */
+@media (max-width: 360px) {
+  .confirm-actions { grid-template-columns: 1fr; }
+  .confirm-actions .danger { order: -1; }
+}
+/* 横屏高度紧张：卡片压扁一点，仍然居中 */
 @media (orientation: landscape) and (max-height: 620px) {
-  .exit-sheet-backdrop { padding: 0; }
-  .exit-sheet { width: 100%; }
-  .exit-sheet button.finish,
-  .exit-sheet button.cancel { border-radius: 0; }
+  .confirm-card { width: min(420px, 100%); padding: 16px 20px 14px; border-radius: 16px; }
+  .confirm-card h2 { margin-bottom: 6px; font-size: 17px; }
+  .confirm-card p { margin-bottom: 14px; font-size: 12px; }
+  .confirm-actions button { min-height: 40px; font-size: 14px; }
 }
 .result-backdrop, .rules-backdrop { position: fixed; inset: 0; z-index: 35; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.68); }
 .result-card, .rules-card { width: min(610px, 94vw); max-height: 90vh; overflow: auto; padding: 24px; border: 1px solid #806d38; border-radius: 21px; background: #0e241e; box-shadow: 0 25px 80px rgba(0,0,0,.5); }
 .result-backdrop, .rules-backdrop { animation: veil-in .18s ease-out; }
 .result-card, .rules-card { animation: modal-rise .24s cubic-bezier(.2,.82,.24,1); }
 @keyframes veil-in { from { opacity: 0; } }
-@keyframes sheet-up { from { opacity: 0; transform: translateY(40px); } }
 @keyframes modal-rise { from { opacity: 0; transform: translateY(12px) scale(.98); } }
 .result-card > small { color: #7d918a; letter-spacing: .2em; }
 .result-card h2 { margin: 5px 0 18px; color: #f3d67c; }
@@ -252,7 +284,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 @keyframes enter { from { opacity: 0; transform: translate(-50%, -10px); } }
 @media (prefers-reduced-motion: reduce) {
   .action-dock .discard-button:not(:disabled),
-  .exit-sheet-backdrop, .exit-sheet,
+  .confirm-backdrop, .confirm-card,
   .result-backdrop, .rules-backdrop,
   .result-card, .rules-card { animation: none; }
   .claim-clock em { transition: none; }
@@ -353,29 +385,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   /* 这两条要压过组件自己的 display（AudioControl 的 scoped 样式特异性更高），所以写得更具体 */
   .topbar nav > .mobile-only, .mobile-only { display: block; }
   .topbar nav > .desktop-only, .desktop-only { display: none; }
-
-  /* 顶栏即信息栏：局数从牌桌中央搬上来，一行小字加一个返回箭头。
-     品牌区和状态条在手机上一点用没有，纯占地方。 */
-  .round-bar {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: #8ba49c;
-    font-size: 11px;
-    white-space: nowrap;
-  }
-  .round-bar b { color: #f3d67c; font-size: 14px; font-weight: 800; }
-  .round-back {
-    flex: none;
-    width: 30px; height: 30px;
-    display: grid; place-items: center;
-    padding: 0;
-    border: 1px solid #2f4b41; border-radius: 9px;
-    background: #10251f;
-    color: #cbd6d0; font-size: 19px; line-height: 1;
-  }
 
   /* 牌桌铺满：去掉外框和内边距，操作条并进来，视觉上是一整块 */
   .table-shell {
@@ -557,9 +566,39 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     border: 0;
     background: transparent;
   }
-  .round-bar { gap: 13px; font-size: 12px; }
-  .round-bar b { font-size: 17px; }
-  .round-back { width: 38px; height: 38px; border-radius: 11px; font-size: 25px; }
+  /* 顶栏即信息栏：局数从牌桌中央搬上来，一行小字加一个返回箭头。
+     品牌区和状态条在手机上一点用没有，纯占地方。
+     这一整块必须放在横竖屏共用的媒体查询里：之前只写在竖屏块内，
+     横屏时 .round-back 拿不到任何背景和描边，退回浏览器默认样式，就成了一个白底方块。 */
+  .round-bar {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    color: #8ba49c;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .round-bar b { color: #f3d67c; font-size: 17px; font-weight: 800; }
+  /* 移动端牌局返回键的统一视觉规范：深色半透明底 + 细边 + 米白箭头。
+     单机和联机用的是同一个 .round-back，改这一处两边都生效。 */
+  .round-back {
+    flex: none;
+    width: 38px; height: 38px;
+    display: grid; place-items: center;
+    padding: 0;
+    border: 1px solid rgba(90, 130, 110, .35);
+    border-radius: 11px;
+    background: rgba(10, 28, 23, .78);
+    color: #efe7d2;
+    font-size: 25px;
+    line-height: 1;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .28);
+    transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease, filter var(--motion-fast) ease;
+  }
+  .round-back:hover { border-color: rgba(226, 191, 98, .5); filter: brightness(1.12); }
+  .round-back:active { background: rgba(6, 20, 16, .88); filter: brightness(.94); }
   .topbar nav { gap: 6px; }
   .topbar nav button { min-height: 36px; padding: 5px 13px; border-radius: 99px; background: transparent; color: #d9c489; font-size: 12px; }
   .topbar nav > .topbar-menu .menu-trigger { min-width: 44px; padding: 5px 13px; }
@@ -652,7 +691,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar { height: 38px; min-height: 38px; padding: 2px max(10px, env(safe-area-inset-right)) 2px max(10px, env(safe-area-inset-left)); }
   .round-bar { gap: 18px; font-size: 11px; }
   .round-bar b { font-size: 14px; }
-  .round-back { width: 28px; height: 28px; border-radius: 8px; font-size: 18px; }
+  /* 横屏只收尺寸，配色沿用上面的统一规范 */
+  .round-back { width: 30px; height: 30px; border-radius: 9px; font-size: 19px; }
   .topbar nav button { min-height: 30px; padding: 3px 10px; font-size: 11px; }
   .game-layout { padding: 0; }
   .table-column { padding: 0; }

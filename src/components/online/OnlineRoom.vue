@@ -219,12 +219,12 @@ function discardSelected() {
   selectedTileId.value = ''
 }
 
-// 离开／结算页退出都走同一个底部弹层，替掉原来的 window.confirm：
-// 系统弹窗跟界面风格对不上，手机上还会盖住半屏。
-const confirmAction = ref<{ label: string; hint: string; run: () => void } | null>(null)
+// 离开／结算页退出共用一个居中确认框，用的是和单机同一套 .confirm-* 全局类名。
+type ConfirmAction = { title: string; hint: string; confirmText: string; run: () => void }
+const confirmAction = ref<ConfirmAction | null>(null)
 
-function askConfirm(label: string, hint: string, run: () => void) {
-  confirmAction.value = { label, hint, run }
+function askConfirm(action: ConfirmAction) {
+  confirmAction.value = action
   gameAudio.vibrate(10)
 }
 
@@ -237,7 +237,12 @@ function runConfirm() {
 }
 
 function leave() {
-  askConfirm('离开房间', '座位立刻由 AI 接管，牌局继续；用同一个昵称还能回来', () => emit('leave'))
+  askConfirm({
+    title: '离开这个房间？',
+    hint: '你的座位会立刻交给 AI，牌局继续。用同一个昵称还能回来。',
+    confirmText: '离开房间',
+    run: () => emit('leave'),
+  })
 }
 
 const shareState = ref<'idle' | 'copied' | 'manual'>('idle')
@@ -300,7 +305,12 @@ function confirmNextRound() {
 }
 
 function quitRoom() {
-  askConfirm('退出这一场', '座位换成 AI，你不能再回到这一场，本局战绩也不保留', () => emit('leave'))
+  askConfirm({
+    title: '退出这一场？',
+    hint: '座位会换成 AI，你不能再回到这一场，本局战绩也不保留。',
+    confirmText: '退出',
+    run: () => emit('leave'),
+  })
 }
 
 // 有人在结算界面退出时，牌桌上方冒一条提示——
@@ -504,10 +514,14 @@ function sendChat(text: string, quick: boolean) {
       </section>
     </div>
 
-    <div v-if="confirmAction" class="exit-sheet-backdrop" @click.self="confirmAction = null">
-      <section class="exit-sheet" role="dialog" aria-modal="true" :aria-label="confirmAction.label">
-        <button class="finish" type="button" @click="runConfirm"><b>{{ confirmAction.label }}</b><span>{{ confirmAction.hint }}</span></button>
-        <button class="cancel" type="button" @click="confirmAction = null">取消</button>
+    <div v-if="confirmAction" class="confirm-backdrop" @click.self="confirmAction = null">
+      <section class="confirm-card" role="dialog" aria-modal="true" :aria-label="confirmAction.title">
+        <h2>{{ confirmAction.title }}</h2>
+        <p>{{ confirmAction.hint }}</p>
+        <div class="confirm-actions">
+          <button class="cancel" type="button" @click="confirmAction = null">取消</button>
+          <button class="danger" type="button" @click="runConfirm">{{ confirmAction.confirmText }}</button>
+        </div>
       </section>
     </div>
 

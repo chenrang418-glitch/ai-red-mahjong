@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { claimDiceEvent, diceEventId } from '@/game/diceToast'
 import type { GameState } from '@/game/types'
 
 const props = defineProps<{ state: GameState | null }>()
 
-// 只有开局那次投骰定首庄，之后是赢家坐庄、流局留庄，引擎也不会再摇。
-// 所以只在第一局弹，第二局往后弹出来的其实是第一局的旧点数。
+// 整场只在开局前投一次骰定首庄，之后是赢家坐庄、流局留庄，引擎不会再摇。
 const open = ref(false)
 let timer: number | null = null
-let shownMatchId = ''
 
 const rolls = computed(() => {
   const state = props.state
@@ -29,12 +28,16 @@ const dealerName = computed(() => {
   return state.players[state.dealer]?.name ?? ''
 })
 
-watch(() => [props.state?.matchId, props.state?.round, props.state?.diceRolls.length] as const, () => {
-  const state = props.state
-  if (!state || state.round !== 1 || !state.diceRolls.length) return
-  // 同一场只弹一次，重连、状态刷新都不该再弹
-  if (shownMatchId === state.matchId) return
-  shownMatchId = state.matchId
+// 以投骰事件的 id 作为这次投骰的唯一身份。
+//
+// 之前是 watch 一个每次都新建的数组字面量，联机端每来一份 room-state（出牌、摸牌、
+// 碰杠、托管、心跳广播都会来）都会触发一次；真正兜住重复的只有组件内的 shownMatchId，
+// 而它随组件卸载就没了——回大厅再进来、刷新页面、断线重连拿到整份 GameState，
+// 都会让第一局的旧点数重新弹一遍。现在换成按事件 id 去重，并记在 sessionStorage 里。
+const currentDiceEventId = computed(() => diceEventId(props.state))
+
+watch(currentDiceEventId, (eventId) => {
+  if (!claimDiceEvent(eventId)) return
   open.value = true
   if (timer !== null) window.clearTimeout(timer)
   timer = window.setTimeout(() => { open.value = false }, 2800)

@@ -203,6 +203,13 @@ function countdownFor(seatId: number) {
   --meld-tile-height: clamp(21px, 3.5cqw, 43px);
   --river-tile-width: clamp(15px, 2.2cqw, 26px);
   --river-tile-height: clamp(21px, 3.1cqw, 36px);
+  /* 最新弃牌会抬起 2px、外描边 2px、再加一圈发光，这些全画在牌的边界之外。
+     .table-center 为了兜住极端牌数是 clip 容器，会沿 padding box 把它们切掉，
+     所以中央区的内边距必须至少留出这个余量。 */
+  --river-highlight-room: 6px;
+  /* 弃牌飞入的起始偏移。手机上中央区只有一百多像素高，46px 会让牌从容器外面飞进来，
+     前半段直接被裁掉，所以移动端另给一个小值。 */
+  --river-fly-distance: 46px;
   /* 四家牌河都按固定列数、往下加行：列数一旦浮动，打到二十张时左右两堆会把中央撑爆 */
   --river-columns: 12;
   --river-side-columns: 4;
@@ -298,13 +305,15 @@ function countdownFor(seatId: number) {
     "river-left   center-info  river-right"
     "river-bottom river-bottom river-bottom";
   gap: clamp(4px, .7cqw, 10px);
-  padding: clamp(6px, .9cqw, 12px);
+  padding: max(clamp(6px, .9cqw, 12px), var(--river-highlight-room));
   border-radius: 18px;
   background: rgba(3, 26, 22, .34);
   box-shadow: inset 0 0 34px rgba(0,0,0,.24);
 }
 .table-center::-webkit-scrollbar { display: none; }
-.river { display: grid; gap: 2px; align-content: start; justify-content: center; transition: opacity .2s; }
+/* 牌河是高亮牌的直接父级，必须放开裁切，抬起和描边才画得出来。
+   真正需要兜底滚动的是外面的 .table-center，不在这一层。 */
+.river { display: grid; gap: 2px; align-content: start; justify-content: center; overflow: visible; transition: opacity .2s; }
 .river :deep(.mahjong-tile.compact) {
   width: var(--river-tile-width);
   height: var(--river-tile-height);
@@ -324,18 +333,21 @@ function countdownFor(seatId: number) {
 }
 .river-left { grid-area: river-left; }
 .river-right { grid-area: river-right; }
+/* 描边 2px + 发光向上外扩约 1.5px + 抬起 2px，合计不到 6px，
+   刚好落在 --river-highlight-room 预留的范围内。原来是 12px 模糊、4px 下偏移，
+   贴着中央区上边那一行会被切掉一截。 */
 .river :deep(.just-discarded) {
-  box-shadow: 0 0 0 2px #f3ca69, 0 4px 12px rgba(243, 202, 105, .35);
+  box-shadow: 0 0 0 2px #f3ca69, 0 2px 7px rgba(243, 202, 105, .34);
   transform: translateY(-2px);
 }
 /* 刚打出的牌从打牌人那一侧飞进牌河。
    之前是凭空出现在牌河里，四家轮得快的时候根本看不清谁打了什么。
    每个牌河朝向不同，起点方向也跟着变，视线自然跟着牌走。 */
 .river :deep(.just-discarded) { animation: river-fly .34s cubic-bezier(.22, .68, .3, 1); }
-.river-bottom :deep(.just-discarded) { --fly-x: 0; --fly-y: 46px; }
-.river-top :deep(.just-discarded) { --fly-x: 0; --fly-y: -46px; }
-.river-left :deep(.just-discarded) { --fly-x: -46px; --fly-y: 0; }
-.river-right :deep(.just-discarded) { --fly-x: 46px; --fly-y: 0; }
+.river-bottom :deep(.just-discarded) { --fly-x: 0; --fly-y: var(--river-fly-distance); }
+.river-top :deep(.just-discarded) { --fly-x: 0; --fly-y: calc(-1 * var(--river-fly-distance)); }
+.river-left :deep(.just-discarded) { --fly-x: calc(-1 * var(--river-fly-distance)); --fly-y: 0; }
+.river-right :deep(.just-discarded) { --fly-x: var(--river-fly-distance); --fly-y: 0; }
 @keyframes river-fly {
   from {
     transform: translate(var(--fly-x, 0), var(--fly-y, 0)) scale(1.22);
@@ -460,7 +472,8 @@ function countdownFor(seatId: number) {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 4px 6px;
+    /* 竖向和横向都要够高亮牌外扩，否则贴边那一行的描边被切 */
+    padding: max(4px, var(--river-highlight-room)) max(6px, var(--river-highlight-room));
     border: 1px solid rgba(122, 152, 140, .28);
     border-radius: 10px;
     background: rgba(6, 24, 19, .38);
@@ -494,6 +507,7 @@ function countdownFor(seatId: number) {
     --meld-tile-height: clamp(22px, 3.36cqw, 34px);
     --river-tile-width: clamp(14px, 1.95cqw, 21px);
     --river-tile-height: clamp(19px, 2.7cqw, 29px);
+    --river-fly-distance: 20px;
     --river-columns: 16;
     --river-side-columns: 10;
     grid-template-columns: clamp(88px, 12.5cqw, 150px) minmax(0, 1fr) clamp(88px, 12.5cqw, 150px);
@@ -647,7 +661,7 @@ function countdownFor(seatId: number) {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 6px 7px;
+    padding: max(6px, var(--river-highlight-room)) max(7px, var(--river-highlight-room));
     border: 1px solid rgba(122, 152, 140, .3);
     border-radius: 12px;
     background: rgba(6, 24, 19, .4);
@@ -687,6 +701,7 @@ function countdownFor(seatId: number) {
     --meld-tile-height: clamp(20px, 5.5cqw, 29px);
     --river-tile-width: clamp(14px, 3.75cqw, 19px);
     --river-tile-height: clamp(19px, 5.2cqw, 26px);
+    --river-fly-distance: 20px;
     --river-columns: 10;
     --river-side-columns: 5;
     grid-template-columns: clamp(72px, 21cqw, 104px) minmax(0, 1fr) clamp(72px, 21cqw, 104px);
@@ -814,8 +829,8 @@ function countdownFor(seatId: number) {
     align-self: center;
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 8px 9px;
+    gap: 2px;
+    padding: max(8px, var(--river-highlight-room)) max(9px, var(--river-highlight-room));
     overflow: hidden;
     border: 1px solid rgba(52,82,72,.58);
     border-radius: 12px;
@@ -832,14 +847,17 @@ function countdownFor(seatId: number) {
     justify-content: flex-start;
     flex-wrap: wrap;
     gap: 2px;
-    padding: 0 0 0 34px;
+    /* 顶部这几像素是留给最新弃牌的：它会抬起 2px、外描边 2px、再加一点发光，
+       全画在牌的边界之外。这一行本身是 overflow: hidden 的裁切盒（弃牌堆到三四行时
+       不能糊到下一家那行去），所以只能在行内把空间留出来，不能改成 visible。 */
+    padding: var(--river-highlight-room) 0 0 34px;
     position: relative;
     overflow: hidden;
   }
   .table-center .river::before {
     content: attr(data-seat);
     position: absolute;
-    left: 0; top: 4px;
+    left: 0; top: var(--river-highlight-room);
     width: 30px;
     color: #74897f;
     font-size: 10px;
@@ -898,7 +916,7 @@ function countdownFor(seatId: number) {
   .top-seat :deep(.points), .left-seat :deep(.points), .right-seat :deep(.points) { font-size: 11px; }
   .top-seat :deep(.hand-count), .left-seat :deep(.hand-count), .right-seat :deep(.hand-count) { min-width: 56px; padding: 1px 7px; font-size: 9px; }
   .top-seat :deep(.hand-count b), .left-seat :deep(.hand-count b), .right-seat :deep(.hand-count b) { font-size: 12px; }
-  .table-center { height: 126px; min-height: 92px; padding: 5px 7px; gap: 2px; }
+  .table-center { height: 126px; min-height: 92px; padding: max(5px, var(--river-highlight-room)) max(7px, var(--river-highlight-room)); gap: 2px; }
   .table-center .river { padding-left: 30px; }
   .table-center .river::before { top: 2px; width: 26px; font-size: 8px; }
   .human-seat {

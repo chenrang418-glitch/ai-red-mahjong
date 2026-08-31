@@ -75,27 +75,33 @@ function back() { if (online.room.value) leaveRoom(); else emit('back') }
     </section>
 
     <section v-else class="hub-content">
-      <div class="actions">
-        <article>
-          <div class="identity"><span>当前昵称</span><strong>{{ online.session.value.nickname }}</strong></div>
-          <h2>创建房间</h2>
-          <div class="mode-switch">
-            <button type="button" :class="{ active: settings.mode === 'finite' }" @click="settings.mode = 'finite'">有限积分</button>
-            <button type="button" :class="{ active: settings.mode === 'unlimited' }" @click="settings.mode = 'unlimited'">无限模式</button>
-          </div>
+      <!-- 昵称从「创建房间」卡片里挪出来单独成一条：原来它写在卡片内部，
+           而手机端那两条媒体查询都把它 display:none 了，等于手机上根本看不到自己是谁。 -->
+      <div class="identity-bar">
+        <span>当前昵称</span>
+        <strong>{{ online.session.value.nickname }}</strong>
+      </div>
+
+      <article class="create-card">
+        <h2>创建房间</h2>
+        <div class="mode-switch">
+          <button type="button" :class="{ active: settings.mode === 'finite' }" @click="settings.mode = 'finite'">有限积分</button>
+          <button type="button" :class="{ active: settings.mode === 'unlimited' }" @click="settings.mode = 'unlimited'">无限模式</button>
+        </div>
+        <div class="create-fields">
           <label v-if="settings.mode === 'finite'">初始积分<input v-model.number="settings.initialPoints" type="number" min="1" max="9999"></label>
           <label>AI 难度<select v-model="settings.aiDifficulty"><option v-for="(label, value) in DIFFICULTY_LABELS" :key="value" :value="value">{{ label }}</option></select></label>
-          <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : '创建房间' }}</button>
-        </article>
+        </div>
+        <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : '创建房间' }}</button>
+      </article>
 
-        <article>
-          <h2>加入房间</h2>
-          <form class="join-form" @submit.prevent="online.joinRoom(manualCode)">
-            <input v-model="manualCode" maxlength="6" autocomplete="off" aria-label="房间号" placeholder="6 位房间号" @input="manualCode = manualCode.toUpperCase()">
-            <button class="primary" type="submit" :disabled="online.connecting.value">加入</button>
-          </form>
-        </article>
-      </div>
+      <article class="join-card">
+        <h2>加入房间</h2>
+        <form class="join-form" @submit.prevent="online.joinRoom(manualCode)">
+          <input v-model="manualCode" maxlength="6" autocomplete="off" aria-label="房间号" placeholder="6 位房间号" @input="manualCode = manualCode.toUpperCase()">
+          <button class="ghost" type="submit" :disabled="online.connecting.value">加入</button>
+        </form>
+      </article>
 
       <article class="directory">
         <header><h2>公开房间</h2><button type="button" @click="online.refreshRooms">刷新</button></header>
@@ -130,18 +136,61 @@ button:disabled { opacity: .45; cursor: default; }
 .login-panel form { display: grid; gap: 12px; }
 input, select { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid #345248; border-radius: 10px; outline: 0; background: #102a23; color: #f5efdd; font-size: 15px; }
 .login-panel button, .primary { border: 0; background: linear-gradient(135deg, #efd17c, #c9a54d); color: #172019; }
-.hub-content { width: min(1160px, 100%); min-height: 0; flex: 1; margin: 0 auto; display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 14px; }
-.actions { min-height: 0; display: grid; gap: 12px; align-content: start; }
-.actions article, .directory { padding: 18px; border: 1px solid #304b42; border-radius: 18px; background: rgba(14,35,29,.96); }
+/* 大厅按区域排：昵称条横跨顶部，左列创建+加入，右列公开房间占满高度。
+   三个断点只换 grid-template-areas 和列宽，卡片本身的样式共用一套。 */
+.hub-content {
+  width: min(1160px, 100%);
+  min-height: 0;
+  flex: 1;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "identity  directory"
+    "create    directory"
+    "join      directory"
+    ".         directory";
+  gap: 12px 14px;
+}
+.identity-bar { grid-area: identity; }
+.create-card { grid-area: create; }
+.join-card { grid-area: join; }
+.directory { grid-area: directory; }
+
+/* 身份条：存在感低于卡片标题，但横竖屏都在 */
+.identity-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border: 1px solid rgba(226, 191, 98, .22);
+  border-radius: 99px;
+  background: rgba(20, 45, 37, .72);
+}
+.identity-bar span { color: #8ea29b; font-size: 12px; }
+.identity-bar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #f1d078; font-size: 15px; }
+
+.create-card, .join-card, .directory {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #304b42;
+  border-radius: 18px;
+  background: rgba(14, 35, 29, .96);
+}
 h2 { margin: 0 0 13px; font-size: 18px; }
-.identity { display: flex; justify-content: space-between; margin-bottom: 16px; color: #8ea29b; font-size: 12px; }
-.identity strong { color: #f1d078; }
-.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 11px; }
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .mode-switch button.active { border-color: #d5b65b; color: #f1d078; background: #1a382f; }
-label { display: grid; gap: 5px; margin-top: 10px; color: #8ea29b; font-size: 11px; }
-.actions .primary { width: 100%; margin-top: 13px; }
-.join-form { display: grid; grid-template-columns: 1fr 76px; gap: 8px; }
+.create-fields { display: grid; gap: 10px; margin-top: 11px; }
+label { display: grid; gap: 5px; color: #8ea29b; font-size: 11px; }
+.create-card .primary { width: 100%; margin-top: 14px; }
+/* 加入房间内容少，顶对齐即可，不要被拉高留一大片空白 */
+.join-card { align-self: start; }
+.join-form { display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 8px; }
 .join-form input { text-transform: uppercase; letter-spacing: .12em; }
+/* 「加入」是次操作：保留描边不抢「创建房间」的金色主按钮 */
+.ghost { border: 1px solid #46685b; background: #16342b; color: #ecd9a2; }
+.ghost:hover:not(:disabled) { border-color: #d5b65b; color: #f1d078; }
 .directory { min-height: 0; display: flex; flex-direction: column; }
 .directory > header { display: flex; align-items: center; justify-content: space-between; }
 .directory > header button { padding: 0 12px; }
@@ -154,24 +203,29 @@ label { display: grid; gap: 5px; margin-top: 10px; color: #8ea29b; font-size: 11
 .room-row span { color: #8fa49c; font-size: 11px; }
 .room-row b { color: #e7ddc2; }
 .room-row > button { min-height: 40px; }
-.room-list > p { margin: auto; color: #82978f; text-align: center; }
+.room-list > p { margin: auto; padding: 24px 0; color: #6d827a; font-size: 13px; text-align: center; }
 .online-error { position: fixed; z-index: 90; top: calc(12px + env(safe-area-inset-top)); left: 50%; width: min(520px, calc(100vw - 24px)); padding: 12px 16px; transform: translateX(-50%); border: 1px solid #b55249; border-radius: 12px; background: #672f2b; color: #ffe2dd; text-align: center; }
 @media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
   .online-hub { padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
   .hub-header { min-height: 42px; margin-bottom: 8px; }
   .hub-header h1 { font-size: 20px; }
   .login-panel { margin: auto; padding: 20px; }
-  .hub-content { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
-  .actions { grid-template-columns: 1.2fr .8fr; gap: 8px; }
-  .actions article, .directory { padding: 12px; border-radius: 14px; }
-  h2 { margin-bottom: 8px; font-size: 16px; }
-  .identity { display: none; }
-  label { margin-top: 6px; }
-  input, select { min-height: 42px; }
-  .actions .primary { margin-top: 8px; }
-  .actions article:nth-child(2) { display: flex; flex-direction: column; }
-  .join-form { grid-template-columns: 1fr; }
-  .join-form .primary { margin-top: 0; }
+  /* 竖屏改成上下堆叠：创建房间是主操作放最上，加入房间只占内容需要的高度，
+     剩下的全给公开房间。原来把创建和加入并成一行，加入那格被拉得又窄又高。 */
+  .hub-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas: "identity" "create" "join" "directory";
+    gap: 8px;
+  }
+  .identity-bar { padding: 8px 14px; }
+  .identity-bar span { font-size: 11px; }
+  .identity-bar strong { font-size: 14px; }
+  .create-card, .join-card, .directory { padding: 13px; border-radius: 14px; }
+  h2 { margin-bottom: 9px; font-size: 16px; }
+  input, select { min-height: 44px; }
+  .create-fields { grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
+  .create-card .primary { margin-top: 11px; }
   .room-row { grid-template-columns: minmax(0, 1fr) auto 82px; padding: 10px; }
 }
 @media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
@@ -179,16 +233,24 @@ label { display: grid; gap: 5px; margin-top: 10px; color: #8ea29b; font-size: 11
   .hub-header { min-height: 34px; margin-bottom: 5px; }
   .hub-header h1 { font-size: 18px; }
   .hub-header button { min-height: 32px; }
-  .hub-content { grid-template-columns: minmax(330px, 42%) 1fr; gap: 8px; }
-  .actions { grid-template-columns: 1.2fr .8fr; gap: 8px; }
-  .actions article, .directory { padding: 10px; border-radius: 12px; }
-  .identity { display: none; }
-  h2 { margin-bottom: 6px; font-size: 15px; }
-  .mode-switch { margin-bottom: 5px; }
-  .mode-switch button, input, select, .actions .primary { min-height: 34px; }
-  label { margin-top: 4px; }
-  .join-form { grid-template-columns: 1fr; gap: 5px; }
-  .actions .primary { margin-top: 5px; }
+  /* 横屏三列并排，公开房间拿最大的一份 */
+  .hub-content {
+    grid-template-columns: 1.15fr .9fr 2fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "identity identity identity"
+      "create   join     directory";
+    gap: 6px 8px;
+  }
+  .identity-bar { padding: 5px 12px; }
+  .identity-bar span { font-size: 10px; }
+  .identity-bar strong { font-size: 13px; }
+  .create-card, .join-card, .directory { padding: 10px; border-radius: 12px; }
+  h2 { margin-bottom: 7px; font-size: 15px; }
+  .mode-switch button, input, select, .create-card .primary, .join-form .ghost { min-height: 34px; }
+  .create-fields { gap: 6px; margin-top: 6px; }
+  .create-card .primary { margin-top: 8px; }
+  .join-form { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .room-row { padding: 8px 10px; }
 }
 </style>
