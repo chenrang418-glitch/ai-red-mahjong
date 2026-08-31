@@ -7,8 +7,9 @@ import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { PlayerId, SanguoshaState } from '../types'
 import { moveCard } from '../zones'
+import { handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import type { CardEngineHost } from './host'
-import { beginPhysicalCard, finishPhysicalCard, playerOf as player, useAction } from './host'
+import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
   INSTANT_TRICKS,
   askNullification,
@@ -37,7 +38,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   for (const cardId of source.zones.hand) {
     const card = state.cards[cardId]
     if (!card) continue
-    if (card.name === '杀' && state.turnUsage.slashUses < 1) {
+    if (card.name === '杀' && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
       for (const target of state.players) {
         if (canTarget(state, playerId, target.id)) actions.push(useAction(cardId, playerId, '杀', [target.id], `对${target.nickname}使用【杀】`))
       }
@@ -82,6 +83,11 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   const damageAmount = 1 + host.state.turnUsage.wineDamageBonus
   host.state.turnUsage.slashUses += 1
   host.state.turnUsage.wineDamageBonus = 0
+  // 仁王盾挡黑杀、藤甲挡普通杀：这张牌对目标完全无效，连闪都不用问
+  if (isCardIneffective(host.state, targetId, '杀', card.color, card.damageNature ?? 'normal')) {
+    finishPhysicalCard(host, action.playerId, cardId, [targetId], true)
+    return
+  }
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
@@ -146,7 +152,9 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     host.state.turnUsage.wineUses += 1
     host.state.turnUsage.wineDamageBonus = 1
   } else if (card.category === 'equipment' && card.equipmentSlot) {
+    const replaced = playerOf(host.state, playerId).zones.equipment[card.equipmentSlot]
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'equipment', playerId, slot: card.equipmentSlot })
+    if (replaced) handleEquipmentLost(host, playerId, replaced)
   } else {
     throw new Error(`尚未实现卡牌：${card.name}`)
   }
@@ -224,6 +232,7 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     targetId: resolution.targetId,
     amount: resolution.damageAmount,
     nature: resolution.damageNature,
+    cardName: '杀',
   })
   if (!host.state.dying && !host.state.damageChain) resumeCardResolution(host)
 }

@@ -4,6 +4,7 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
+import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
 import type { DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 import { moveCard } from './zones'
@@ -13,6 +14,8 @@ export interface DamageOptions {
   targetId: PlayerId
   amount?: number
   nature?: DamageNature
+  /** 造成这次伤害的牌名。装备特效要靠它区分「【杀】造成的伤害」和别的伤害。 */
+  cardName?: string | null
 }
 
 interface InternalDamageOptions extends DamageOptions {
@@ -184,6 +187,11 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   const nature = options.nature ?? 'normal'
   let amount = options.amount ?? 1
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('伤害值必须是正整数')
+
+  // 装备的数值修正放在技能时机之前：古锭刀 / 藤甲加成、白银狮子封顶都是牌本身的规则，
+  // 技能仍然可以在随后的时机里继续改或者直接取消。
+  amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null)
+  if (amount <= 0) return
 
   for (const timing of ['BeforeDamage', 'DamageCaused', 'DamageInflicted'] as const) {
     const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature)

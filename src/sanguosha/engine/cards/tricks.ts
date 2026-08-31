@@ -2,6 +2,7 @@ import type { LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import { drawCards } from '../draw'
+import { handleEquipmentLost, isCardIneffective } from '../equipment'
 import { recover } from '../recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
@@ -406,11 +407,20 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       advanceToNextTarget(host)
       return
     case '南蛮入侵': {
+      // 藤甲让南蛮/万箭完全无效：不问响应，也不造成伤害
+      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal')) {
+        advanceToNextTarget(host)
+        return
+      }
       const requestId = askRespondCard(host, resolution, targetId, '杀', `${playerOf(host.state, resolution.sourceId).nickname}使用【南蛮入侵】，请打出【杀】`)
       resolution.effect = { kind: 'ask-slash', targetId, requestId }
       return
     }
     case '万箭齐发': {
+      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal')) {
+        advanceToNextTarget(host)
+        return
+      }
       const requestId = askRespondCard(host, resolution, targetId, '闪', `${playerOf(host.state, resolution.sourceId).nickname}使用【万箭齐发】，请打出【闪】`)
       resolution.effect = { kind: 'ask-dodge', targetId, requestId }
       return
@@ -587,6 +597,8 @@ export function resolveTrickPickResponse(host: CardEngineHost, request: ChooseCa
   } else {
     moveCard(host.state, cardId, from, { kind: 'hand', playerId: resolution.sourceId })
   }
+  // 被拆掉或被顺走的装备同样算「失去装备」，白银狮子要回血
+  if (from.kind === 'equipment') handleEquipmentLost(host, effect.targetId, cardId)
   host.dispatch('CardMove', { cardId, mode: effect.mode }, { sourceId: resolution.sourceId, targetId: effect.targetId, cardIds: [cardId] })
   resolution.effect = null
   advanceToNextTarget(host)
