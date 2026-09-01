@@ -400,3 +400,34 @@ Phase B 当前新增 9 个测试文件、61 项规则底座与卡牌结算测试
 
 本轮全部验收命令都实际执行过。**没有 commit、没有 push、没有部署**——
 工作仍然全部留在 `feature/sanguosha` 的工作区里，等人工验收。
+
+## 2026-09-01 战报 + 技能请求通道 + 魏群四将
+
+### 战报
+- 新增 `src/sanguosha/engine/log.ts`：`describeEvent(state, event, viewerId)` 把引擎事件翻成一行战报。
+- 按观看者过滤：别人摸到的牌只报张数不报牌名；判定牌、装备、死亡时公开的身份才写出来。
+- `useLocalSanguosha` 订阅 10 类事件生成战报，界面不再自己推断。
+- 顺带修正 `GainCard` 的 payload 形状——摸牌带的是 `cardIds` 数组，不是单张 `cardId`。
+
+### 技能请求通道（剩余武将的共同前提）
+- `SanguoshaState.skillResolution`：技能发问之后的等待状态，**完全可序列化**，DO 休眠后能原样恢复。
+- `SkillHost.askSkill({ skillId, ownerId, step, data, build })` + `SkillRuntime.resume(...)`。
+- 挂着 Request 时 `advancePhase` 本来就会拒绝推进，所以不需要任何形式的 `await`。
+- `DrawPhase` 事件现在可以被技能 `cancel()` 接管，摸牌数交给技能决定。
+- `invariants` 增加校验：`skillResolution` 必须指向真实存在的 Request 和玩家。
+
+### 新增武将（8 → 12）
+- 甄姬【洛神】、许褚【裸衣】、张辽【突袭】、华佗【青囊】，见 `src/sanguosha/data/characters/wei.ts`。
+
+### 明确没做的部分（不是遗漏）
+伤害结算中途发问的技能——曹操【奸雄】、司马懿【反馈】、夏侯惇【刚烈】、郭嘉【遗计】——
+还不能实现：在 `Damaged` 事件里挂起会让后续结算和玩家的回答错位（等玩家回答时，
+要拿的那张牌可能已经移动了）。需要先让 `resolveDamage` 支持中断续接。
+`wei.ts` 顶部的注释记录了这个判断。
+
+### 验证
+- `npx vitest run` → 36 文件 / 341 用例通过
+- `npm run sanguosha:soak 200` → 5 人局与 8 人局各 200 局全部完成
+- `npx playwright test` → 37 通过（Chromium 33 + WebKit 4）
+- `npm run typecheck` / `typecheck:online` / `build` / `build:online` 全部通过
+- 浏览器实测：许褚开局摸牌阶段弹出【裸衣】选项，点「发动」后手牌 4→5，战报同步记录

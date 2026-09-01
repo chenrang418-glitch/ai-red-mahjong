@@ -66,9 +66,16 @@ export function assertGameInvariants(state: SanguoshaState): void {
     // 判定阶段的无懈请求挂在 state.judgment 上，不属于 cardResolution，要排除掉。
     // JudgmentState 是联合类型，只有等待无懈那一支才有 requestId。
     const judgmentRequestId = state.judgment?.stage === 'awaiting-nullification' ? state.judgment.requestId : null
-    if (state.pendingRequests.some((request) => request.kind === 'respond-card' && request.id !== judgmentRequestId)) {
+    const skillRequestId = state.skillResolution?.requestId ?? null
+    if (state.pendingRequests.some((request) => request.kind === 'respond-card' && request.id !== judgmentRequestId && request.id !== skillRequestId)) {
       throw new Error('存在卡牌响应 Request 但没有结算状态')
     }
+  }
+
+  if (state.skillResolution) {
+    const { requestId, ownerId } = state.skillResolution
+    if (!state.pendingRequests.some((request) => request.id === requestId)) throw new Error('技能等待状态指向不存在的 Request')
+    if (!state.players.some((player) => player.id === ownerId)) throw new Error('技能等待状态的拥有者不存在')
   }
 
   if (state.status === 'game-over' && (!state.result || state.pendingRequests.length > 0)) throw new Error('结束状态缺少结果或仍有 Request')

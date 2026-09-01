@@ -199,6 +199,23 @@ export interface JudgmentDamageState {
 
 export type JudgmentState = JudgmentNullificationState | JudgmentDamageState
 
+/**
+ * 技能发起 Request 之后的等待状态。
+ *
+ * 必须完全可序列化——Durable Object 随时可能休眠，
+ * 技能不能靠闭包记住「我问到哪一步了」。
+ * `data` 只放技能自己的可序列化局部变量。
+ */
+export interface SkillResolutionState {
+  kind: 'skill'
+  skillId: string
+  ownerId: PlayerId
+  /** 技能自定义的步骤名，恢复时靠它分支 */
+  step: string
+  requestId: string
+  data: Record<string, unknown>
+}
+
 export interface SanguoshaState {
   rulesetVersion: RulesetVersion
   seed: string
@@ -218,6 +235,7 @@ export interface SanguoshaState {
   damageChain: DamageChainState | null
   judgment: JudgmentState | null
   cardResolution: CardResolutionState | null
+  skillResolution: SkillResolutionState | null
   decisions: GameDecision[]
   result: GameResult | null
 }

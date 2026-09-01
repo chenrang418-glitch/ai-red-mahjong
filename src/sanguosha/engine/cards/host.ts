@@ -2,13 +2,14 @@ import type { LegalAction } from '../actions'
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRng } from '../rng'
 import type { CardId, PlayerId, PlayerState, SanguoshaState } from '../types'
+import type { SkillHost } from '../skills/runtime'
 import { moveCard } from '../zones'
 
 /**
  * 卡牌实现能接触到的最小宿主接口。
  * 抽出来是为了让 basic.ts 和 tricks.ts 共用同一套底座，而不是互相 import 造成环。
  */
-export interface CardEngineHost {
+export interface CardEngineHost extends SkillHost {
   state: SanguoshaState
   rng: GameRng
   dispatch(

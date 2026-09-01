@@ -190,6 +190,12 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
 
   // 装备的数值修正放在技能时机之前：古锭刀 / 藤甲加成、白银狮子封顶都是牌本身的规则，
   // 技能仍然可以在随后的时机里继续改或者直接取消。
+  // 裸衣：本回合【杀】和【决斗】伤害 +1。
+  // 必须加在 adjustDamageAmount 之前，白银狮子的封顶才仍然是最后一步。
+  if (sourceId && (options.cardName === '杀' || options.cardName === '决斗')) {
+    const source = host.state.players.find((player) => player.id === sourceId)
+    if (source?.marks.luoyi) amount += 1
+  }
   amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null)
   if (amount <= 0) return
 

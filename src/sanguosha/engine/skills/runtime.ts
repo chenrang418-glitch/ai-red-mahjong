@@ -1,6 +1,8 @@
 
 import type { EventContext, GameEvent, GameEventName } from '../events'
-import type { CardId, PlayerId, SanguoshaState } from '../types'
+import type { GameRequest, GameResponse } from '../requests'
+import type { GameRng } from '../rng'
+import type { CardId, PlayerId, SanguoshaState, SkillResolutionState } from '../types'
 
 /**
  * 技能运行时。
@@ -21,11 +23,28 @@ import type { CardId, PlayerId, SanguoshaState } from '../types'
 
 export interface SkillHost {
   state: SanguoshaState
+  rng: GameRng
   dispatch(
     name: GameEventName,
     payload?: Record<string, unknown>,
     metadata?: Omit<GameEvent, 'id' | 'seq' | 'name' | 'payload'>,
   ): EventContext
+  /**
+   * 技能向某名玩家发问，并把「问到哪一步」写进可序列化的 SkillResolutionState。
+   *
+   * 只允许在能安全挂起的时机调用——回合开始、阶段开始这类边界。
+   * 引擎收到回应后会回调这个技能的 `resume`。
+   *
+   * `build` 拿到引擎分配的 requestId，用它组装 Request，
+   * 免得技能自己编 id 撞车。
+   */
+  askSkill(options: {
+    skillId: string
+    ownerId: PlayerId
+    step: string
+    data?: Record<string, unknown>
+    build(requestId: string): GameRequest
+  }): void
 }
 
 export interface SkillTrigger {
@@ -62,6 +81,13 @@ export interface SkillRuntime {
   activeActions?(state: SanguoshaState, ownerId: PlayerId): Array<{ id: string; label: string }>
   /** 主动技的执行。id 是 activeActions 给出的那一个。 */
   invokeActive?(host: SkillHost, ownerId: PlayerId, actionId: string): void
+  /**
+   * 技能发问之后的续接。
+   *
+   * `resolution` 就是发问时写下的那份状态，`response` 已经通过引擎的合法性校验。
+   * 想继续问下一步就再调用一次 `host.askSkill`。
+   */
+  resume?(host: SkillHost, ownerId: PlayerId, resolution: SkillResolutionState, response: GameResponse): void
   /**
    * 转化技：把手牌当成别的牌用。
    * 返回这名玩家当前能做的所有转化，引擎据此生成 LegalAction。

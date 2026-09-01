@@ -9,10 +9,10 @@ import { legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCa
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resumeJudgment } from './judgment'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
-import type { GameResponse } from './requests'
+import type { GameRequest, GameResponse } from './requests'
 import { validateResponse } from './requests'
 import { allCharacterIds, getCharacter, skillIdsOf } from '../data/characters/standard'
-import { registerSkillTriggers } from './skills/runtime'
+import { getSkillRuntime, registerSkillTriggers } from './skills/runtime'
 import { buildPlayerView } from './view'
 
 export interface SanguoshaGameOptions {
@@ -73,6 +73,7 @@ export class SanguoshaGame {
       damageChain: null,
       judgment: null,
       cardResolution: null,
+      skillResolution: null,
       decisions: [],
       result: null,
     }
@@ -99,9 +100,58 @@ export class SanguoshaGame {
     resolveDamage(this, options)
   }
 
+  /**
+   * 技能发问。写下可序列化的等待状态，把 Request 挂进 pendingRequests。
+   *
+   * 挂着 Request 时 `advancePhase` 会拒绝推进，所以牌局自然停在这里等回应，
+   * 不需要任何形式的 `await`。
+   */
+  askSkill(options: {
+    skillId: string
+    ownerId: string
+    step: string
+    data?: Record<string, unknown>
+    build(requestId: string): GameRequest
+  }): void {
+    if (this.state.skillResolution) throw new Error('已有技能正在等待回应')
+    const requestId = `request-skill-${++this.state.seq}`
+    const request = options.build(requestId)
+    if (request.id !== requestId) throw new Error('技能 Request id 必须使用引擎分配的值')
+    this.state.skillResolution = {
+      kind: 'skill',
+      skillId: options.skillId,
+      ownerId: options.ownerId,
+      step: options.step,
+      requestId,
+      data: structuredClone(options.data ?? {}),
+    }
+    this.state.pendingRequests.push(request)
+  }
+
   respond(response: GameResponse): void {
     const request = this.state.pendingRequests.find((candidate) => candidate.id === response.requestId)
     if (!request) throw new Error('Request 不存在或已经处理')
+
+    // 技能自己发起的 Request 优先认领：requestId 唯一，不会和牌的结算混淆
+    const skillResolution = this.state.skillResolution
+    if (skillResolution && skillResolution.requestId === request.id) {
+      const validationError = validateResponse(request, response)
+      if (validationError) throw new Error(validationError)
+      const runtime = getSkillRuntime(skillResolution.skillId)
+      if (!runtime?.resume) throw new Error(`技能缺少续接实现：${skillResolution.skillId}`)
+      this.state.pendingRequests = this.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+      // 先清空再回调，技能才能在 resume 里接着问下一步
+      this.state.skillResolution = null
+      this.state.decisions.push({
+        index: this.state.decisions.length,
+        requestId: request.id,
+        playerId: response.playerId,
+        kind: request.kind,
+        payload: structuredClone(response.payload),
+      })
+      runtime.resume(this, skillResolution.ownerId, skillResolution, response)
+      return
+    }
     if (request.kind === 'rescue') {
       resolveRescueResponse(this, request, response)
       if (!this.state.dying) {

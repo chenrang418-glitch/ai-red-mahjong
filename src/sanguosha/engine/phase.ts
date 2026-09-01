@@ -34,10 +34,14 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       host.dispatch('JudgePhase', { playerId }, { sourceId: playerId, phase: 'judge' })
       beginJudgmentPhase(host)
       return
-    case 'draw':
-      host.dispatch('DrawPhase', { playerId, count: 2 }, { sourceId: playerId, phase: 'draw' })
+    case 'draw': {
+      // 技能可以取消这次事件来接管摸牌（裸衣少摸一张、突袭改为拿别人的牌）。
+      // 取消之后由技能自己负责把牌补上，引擎不再默认摸两张。
+      const context = host.dispatch('DrawPhase', { playerId, count: 2 }, { sourceId: playerId, phase: 'draw' })
+      if (context.cancelled) return
       drawCards(host.state, host.rng, playerId, 2, (name, payload) => { host.dispatch(name, payload) })
       return
+    }
     case 'play':
       host.dispatch('PlayPhase', { playerId }, { sourceId: playerId, phase: 'play' })
       return
