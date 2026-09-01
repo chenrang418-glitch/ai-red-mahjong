@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { seatSlotsForPlayerCount } from '@/sanguosha/composables/useSgsSeatLayout'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { buildPresentationEvent } from '@/sanguosha/engine/presentation'
@@ -32,6 +33,14 @@ describe('三国杀牌桌 V2 座位', () => {
     view = game.viewFor('p0')
     expect(view.players.find((player) => player.id === 'p1')!.distanceFromViewer).toBeNull()
     expect(view.players.find((player) => player.id === 'p2')!.distanceFromViewer).toBe(getDistance(game.state, 'p0', 'p2'))
+  })
+
+  it('移动端不再隐藏装备或裁切技能区', () => {
+    const source = readFileSync('src/sanguosha/components/SgsSeat.vue', 'utf8')
+    const mobileFix = source.slice(source.lastIndexOf('@media (max-width: 820px)'))
+    expect(mobileFix).toContain('display: grid')
+    expect(mobileFix).toContain('max-height: none')
+    expect(mobileFix).toContain('overflow: visible')
   })
 })
 

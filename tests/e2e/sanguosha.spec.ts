@@ -65,6 +65,14 @@ test('八人局座位全部可见且不溢出', async ({ page }) => {
   await page.setViewportSize(LANDSCAPE)
   await enterTable(page, 8)
   await expect(page.locator('.sgs-seat')).toHaveCount(8)
+  const clipped = await page.locator('.sgs-seat').evaluateAll((seats) => seats
+    .filter((seat) => seat.scrollHeight > seat.clientHeight + 1)
+    .map((seat) => seat.querySelector('.sgs-seat__header strong')?.textContent ?? '未知座位'))
+  const clippedSkills = await page.locator('.sgs-seat__skills').evaluateAll((skills) => skills
+    .filter((skill) => skill.scrollHeight > skill.clientHeight + 1)
+    .map((skill) => skill.textContent ?? ''))
+  expect(clipped, '角色卡内容不能被座位高度裁切').toEqual([])
+  expect(clippedSkills, '技能名称必须完整显示').toEqual([])
   await expectNoPageScroll(page)
 })
 
