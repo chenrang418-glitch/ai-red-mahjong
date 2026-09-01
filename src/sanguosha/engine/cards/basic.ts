@@ -10,7 +10,8 @@ import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { moveCard } from '../zones'
-import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
+import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, hasWeapon, isCardIneffective } from '../equipment'
+import { askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
@@ -288,14 +289,7 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     recordResponse(host, request, response)
     const judged = performJudgment(host, response.playerId, '八卦阵')
     if (judged.color === 'red') {
-      resolution.dodgeRemaining -= 1
-      if (resolution.dodgeRemaining > 0) {
-        resolution.surrogate = null
-        askDodge(host, resolution.targetId, '【无双】仍需再打出一张【闪】', true)
-      } else {
-        finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
-        host.state.cardResolution = null
-      }
+      finishDodgedSlash(host, resolution)
       return
     }
     resolution.stage = 'awaiting-dying'
@@ -351,30 +345,71 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     moveCard(host.state, cardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })
     host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId, cardName: '闪' }, { sourceId: responder.id, targetId: resolution.sourceId, cardIds: [cardId] })
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-    resolution.dodgeRemaining -= 1
-    if (resolution.dodgeRemaining > 0) {
-      resolution.surrogate = null
-      askDodge(host, resolution.targetId, '【无双】仍需再打出一张【闪】', true)
-    } else {
-      finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
-      host.state.cardResolution = null
-    }
+    finishDodgedSlash(host, resolution)
     return
   }
 
   // 主公技：目标自己不出闪时，同势力角色还有机会代打
   if (askLordSurrogate(host, resolution)) return
 
-  resolution.stage = 'awaiting-dying'
-  resolveDamage(host, {
+  landSlash(host, resolution)
+}
+
+/**
+ * 【杀】命中之后的结算。
+ *
+ * 寒冰剑是**替代**伤害，只能问在伤害之前，所以这里先把实体牌收干净再发问——
+ * 挂起时不能留下一个半结算的 cardResolution。伤害改由 resume 结算。
+ */
+function landSlash(host: CardEngineHost, resolution: SlashResolutionState): void {
+  const facts: DodgedSlashFacts = {
     sourceId: resolution.sourceId,
     targetId: resolution.targetId,
     amount: resolution.damageAmount,
     nature: resolution.damageNature,
-    cardName: '杀',
     cardId: resolution.cardId,
-  })
+  }
+  if (hasWeapon(host.state, resolution.sourceId, '寒冰剑')) {
+    finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+    host.state.cardResolution = null
+    if (askPreDamageWeapon(host, facts)) return
+    // 问不出来（目标没牌之类）就照常结算伤害
+    resolveDamage(host, { ...facts, cardName: '杀' })
+    queueQilingong(host, facts)
+    return
+  }
+
+  resolution.stage = 'awaiting-dying'
+  resolveDamage(host, { ...facts, cardName: '杀' })
+  // 麒麟弓在伤害之后生效，走延后发问队列，不打断还没走完的濒死流程
+  queueQilingong(host, facts)
   if (!host.state.dying && !host.state.damageChain) resumeCardResolution(host)
+}
+
+/**
+ * 一张【闪】打出来之后的收尾。
+ *
+ * 无双要两张闪，所以先看还差不差；不差了才真正结束这张【杀】。
+ * 结算清干净之后再问武器特效——那时候 cardResolution 已经是 null，
+ * 挂起不会和任何未完成的结算抢状态。
+ */
+function finishDodgedSlash(host: CardEngineHost, resolution: SlashResolutionState): void {
+  resolution.dodgeRemaining -= 1
+  if (resolution.dodgeRemaining > 0) {
+    resolution.surrogate = null
+    askDodge(host, resolution.targetId, '【无双】仍需再打出一张【闪】', true)
+    return
+  }
+  const facts = {
+    sourceId: resolution.sourceId,
+    targetId: resolution.targetId,
+    amount: resolution.damageAmount,
+    nature: resolution.damageNature,
+    cardId: resolution.cardId,
+  }
+  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+  host.state.cardResolution = null
+  askDodgedSlashWeapon(host, facts)
 }
 
 /** 锦囊效果里的「挑一张牌」响应入口。 */
@@ -394,3 +429,25 @@ export function resumeCardResolution(host: CardEngineHost): void {
   finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
   host.state.cardResolution = null
 }
+
+
+// 装备特效要回头调用杀的结算，而 equipment-requests 又被这里 import，
+// 直接互相 import 会成环，所以把能力交进去。
+provideEquipmentCallbacks({
+  dealSlashDamage(host, facts: DodgedSlashFacts) {
+    resolveDamage(host as CardEngineHost, { ...facts, cardName: '杀' })
+    // 不管伤害是正常命中还是贯石斧硬吃出来的，麒麟弓都该有机会
+    queueQilingong(host, facts)
+  },
+  useExtraSlash(host, sourceId, targetId, cardId) {
+    const engineHost = host as CardEngineHost
+    const target = playerOf(engineHost.state, targetId)
+    // 青龙偃月刀的追杀不受距离和次数限制，所以不走 legalPlayActions，
+    // 直接构造动作。用完把次数补回去，免得吃掉本回合正常的出杀机会。
+    const usesBefore = engineHost.state.turnUsage.slashUses
+    const extraSlash = useAction(cardId, sourceId, '杀', [targetId], `【青龙偃月刀】追加【杀】，目标${target.nickname}`)
+    if (extraSlash.kind !== 'use-card') throw new Error('青龙偃月刀追杀动作构造失败')
+    beginSlash(engineHost, { ...extraSlash, id: `equip:qinglong:${cardId}:${targetId}` })
+    engineHost.state.turnUsage.slashUses = usesBefore
+  },
+})

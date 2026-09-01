@@ -669,3 +669,31 @@ codex 新增的 0006 被静默漏掉了。改成读目录——写死的话 smok
 - `npx playwright test` → 39 通过
 - `npm run test:online:smoke` → 通过
 - `npm run sanguosha:soak 200` → 5 人局与 8 人局各 200 局全部完成
+
+## 2026-09-01（第八批）需要发问的装备
+
+装备特效走的是和武将技能同一套 `askSkill` / `resume`——`getSkillRuntime` 是全局按 id
+查的，不依赖武将技能表，所以装备用 `equip:` 前缀注册进去就行，不用另起一套机制。
+新文件 `src/sanguosha/engine/equipment-requests.ts`。
+
+发问时机全部选在结算能安全挂起的位置：
+
+| 装备 | 时机 | 做法 |
+|---|---|---|
+| 贯石斧 | 【杀】被闪抵消之后 | 那时 `cardResolution` 已清空、实体牌已归位，直接 `askSkill` |
+| 青龙偃月刀 | 同上 | 追加的【杀】直接构造动作，绕开距离和次数限制，用完把次数补回去 |
+| 寒冰剑 | 伤害结算**之前** | 它是替代伤害，只能问在前面。先 `finishPhysicalCard` 收干净再问，伤害改由 resume 结算 |
+| 麒麟弓 | 伤害结算**之后** | 走延后发问队列，不打断还没走完的濒死流程 |
+
+为了让上面成立，把「一张闪打出来之后的收尾」抽成了 `finishDodgedSlash`——
+原来八卦阵和普通求闪各有一份一模一样的代码。
+
+### 还没做的三件
+方天画戟（要多目标【杀】，`beginSlash` 目前单目标）、丈八蛇矛（要多张牌转化）、
+雌雄双股剑（要性别比较）。
+
+### 验证
+- `npx vitest run` → 44 文件 / 424 用例（新增 14 条装备用例，每条都从「出一张真的杀」走完整流程）
+- `npm run sanguosha:soak 250` → 5 人局与 8 人局各 250 局全部完成
+- `npx playwright test` → 39 通过
+- `npm run test:online:smoke` → 通过
