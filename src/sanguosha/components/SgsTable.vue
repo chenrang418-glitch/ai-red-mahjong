@@ -160,7 +160,7 @@ const seatColumns = computed(() => {
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
   color: #e7e0cc;
-  background: radial-gradient(circle at 50% 12%, #23402f, transparent 55%), #0b1310;
+  background: radial-gradient(circle at 50% 12%, #2f5741, transparent 58%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }
 .sgs-table__bar {
   display: flex; align-items: center; gap: 10px;

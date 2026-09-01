@@ -2,6 +2,34 @@
   font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  /*
+   * 全站配色（墨绿方案）。
+   *
+   * 定义在这里而不是各组件里，是因为门户、两个游戏的首页、牌桌、弹层
+   * 以前各写各的深色值，改一处就会漏掉别处。
+   * 底色一律保留径向渐变的杂色，不做纯色块。
+   */
+  --ink-bg-top: #1d332a;      /* 墨绿，页面主底 */
+  --ink-bg-bottom: #12211b;   /* 墨绿的暗端 */
+  --ink-glow: rgba(58, 110, 80, .30);   /* 底色上的绿色光晕 */
+  --ink-panel: #22322a;       /* 面板/卡片底 */
+  --ink-panel-deep: #182720;  /* 面板暗端 */
+  --ink-line: #3d5347;        /* 分隔线 */
+  --ink-text: #fbf3e3;        /* 主文字 */
+  --ink-text-soft: #b3c2b6;   /* 次要文字 */
+  --ink-text-muted: #8b9b90;  /* 说明文字 */
+
+  /* 三个入口的主色。麻将红、三国杀金，和门户卡片的强调色一致 */
+  --accent-gold: #cfa456;
+  --accent-gold-fill-top: #9b7a37;
+  --accent-gold-fill-bottom: #6d5527;
+  --accent-red: #cf5c50;
+  --accent-red-fill-top: #a03e35;
+  --accent-red-fill-bottom: #6e2a24;
+  --accent-green: #5aa871;
+  --accent-green-fill-top: #35834b;
+  --accent-green-fill-bottom: #245c33;
 }
 
 * { box-sizing: border-box; }
@@ -23,8 +51,8 @@ html, body, #app {
   display: grid;
   place-items: center;
   padding: 24px;
-  color: #f4eedc;
-  background: #08110e;
+  color: var(--ink-text);
+  background: linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
   text-align: center;
 }
 

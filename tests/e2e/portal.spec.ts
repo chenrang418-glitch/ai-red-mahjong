@@ -60,3 +60,35 @@ test('旧麻将分享链接和管理员入口保持兼容', async ({ page }) => 
   await page.goto('/#admin')
   await expect(page.getByRole('heading', { name: '管理入口' })).toBeVisible()
 })
+
+test('全站用同一套墨绿配色，文字对比度达标', async ({ page }) => {
+  // 配色以前散在七八个组件里各写各的，改一处就漏别处。现在统一定义在 root.css，
+  // 这条守住「变量真的生效」和「暗底上文字仍然读得清」。
+  const relativeLuminance = (color: string) => {
+    const [r, g, b] = color.match(/\d+(\.\d+)?/g)!.slice(0, 3).map(Number)
+    const channel = (value: number) => {
+      const ratio = value / 255
+      return ratio <= 0.03928 ? ratio / 12.92 : ((ratio + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+  }
+
+  for (const [url, root] of [['/', '.game-portal'], ['/?game=mahjong', '.mode-home'], ['/?game=sanguosha', '.sgs-app']] as const) {
+    await page.goto(url)
+    await page.waitForSelector(root)
+    const probe = await page.evaluate((selector) => {
+      const node = document.querySelector(selector)!
+      const style = getComputedStyle(node)
+      return {
+        color: style.color,
+        // 墨绿而不是近黑：底色的绿色通道要明显高于红色通道
+        background: style.backgroundImage + ' ' + style.backgroundColor,
+        ink: getComputedStyle(document.documentElement).getPropertyValue('--ink-bg-top').trim(),
+      }
+    }, root)
+
+    expect(probe.ink, `${url} 应当读到统一的墨绿变量`).toBe('#1d332a')
+    // 文字对亮度：暗底上主文字必须足够亮
+    expect(relativeLuminance(probe.color), `${url} 主文字亮度`).toBeGreaterThan(0.75)
+  }
+})

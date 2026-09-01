@@ -124,7 +124,7 @@ function back() { if (online.room.value) leaveRoom(); else emit('back') }
 </template>
 
 <style scoped>
-.online-hub { width: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); color: #f5efdd; background: radial-gradient(circle at 10% 0, #21483b, transparent 38%), #081510; }
+.online-hub { width: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 10% 0, #2f5741, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .hub-header { width: min(1160px, 100%); min-height: 48px; margin: 0 auto 14px; display: grid; grid-template-columns: 80px 1fr 80px; align-items: center; }
 .hub-header h1 { margin: 0; color: #f1d078; font-size: 24px; text-align: center; }
 button { min-height: 42px; border: 1px solid #345248; border-radius: 10px; background: #112b24; color: #e9dfc4; cursor: pointer; font-weight: 800; }

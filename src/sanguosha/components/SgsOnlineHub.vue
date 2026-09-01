@@ -133,7 +133,7 @@ function shareRoom(): void {
 </template>
 
 <style scoped>
-.sgs-online { height: 100dvh; overflow: hidden; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(300px, 1.2fr); grid-template-rows: auto 1fr 1fr; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); color: #e8dfca; background: radial-gradient(circle at 70% 10%, #3c201c, transparent 42%), #0b110e; }
+.sgs-online { height: 100dvh; overflow: hidden; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(300px, 1.2fr); grid-template-rows: auto 1fr 1fr; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 70% 10%, rgba(207, 164, 86, .22), transparent 44%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .sgs-online__bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 .sgs-online__bar > button { width: 38px; height: 38px; border: 1px solid #465049; border-radius: 9px; background: #15201a; color: #eee2ca; font-size: 22px; }
 .sgs-online__bar div { display: grid; }.sgs-online__bar small { color: #89968e; }.sgs-online__bar > span { margin-left: auto; color: #8f8278; font-size: 12px; }.sgs-online__bar > span.live { color: #79b68d; }

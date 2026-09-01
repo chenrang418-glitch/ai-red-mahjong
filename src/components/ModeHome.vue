@@ -33,41 +33,42 @@ defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
 
 <style scoped>
 .mode-home {
-  width: 100%; height: 100dvh; overflow: hidden; color: #f4ead6;
-  background: radial-gradient(circle at 75% 20%, rgba(132, 42, 32, .28), transparent 35%), linear-gradient(150deg, #141a16, #070f0c);
+  width: 100%; height: 100dvh; overflow: hidden; color: var(--ink-text);
+  /* 麻将主色保持红色 */
+  background: radial-gradient(circle at 70% 18%, rgba(190, 90, 76, .26), transparent 44%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }
 .home {
   width: min(980px, 100%); height: 100%; margin: auto; display: flex; flex-direction: column;
   padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
 }
-.home header { display: flex; justify-content: space-between; align-items: center; color: #887d69; font-size: 11px; letter-spacing: .15em; }
+.home header { display: flex; justify-content: space-between; align-items: center; color: var(--ink-text-muted); font-size: 11px; letter-spacing: .15em; }
 .home header button {
-  min-height: 38px; padding: 0 13px; border: 1px solid #4a453a; border-radius: 9px;
+  min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px;
   /* 麻将站有全局按钮样式，这里显式写死字号，才和三国杀的顶栏按钮一致 */
-  color: #d7c8aa; background: #171c18; cursor: pointer; font-size: 13.3333px;
+  color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer; font-size: 13.3333px;
 }
-.home header button:hover { border-color: #7d7259; color: #f3e6c8; }
+.home header button:hover { border-color: var(--accent-gold); color: var(--ink-text); }
 
 .home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
 .home__seal {
   width: 88px; height: 88px; display: grid; place-items: center;
-  border: 2px solid #af4437; border-radius: 23px; color: #cc5546;
-  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(175, 68, 55, .13);
+  border: 2px solid var(--accent-red); border-radius: 23px; color: #f07a67;
+  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(207, 92, 80, .18);
 }
-.home__hero p { margin: 24px 0 8px; color: #b19d79; font-size: 12px; letter-spacing: .18em; }
+.home__hero p { margin: 24px 0 8px; color: var(--accent-gold); font-size: 12px; letter-spacing: .18em; }
 .home__hero h1 { margin: 0; font-size: clamp(55px, 10vw, 92px); line-height: 1; letter-spacing: -.08em; }
-.home__hero small { max-width: 560px; margin-top: 22px; color: #7f8a84; line-height: 1.7; }
+.home__hero small { max-width: 560px; margin-top: 22px; color: var(--ink-text-muted); line-height: 1.7; }
 
 .home nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .home nav button {
   min-height: 74px; display: grid; align-content: center; gap: 4px;
-  border: 1px solid #3b443f; border-radius: 15px; color: #b9c3ba; background: rgba(18, 26, 22, .85);
+  border: 1px solid var(--ink-line); border-radius: 15px; color: var(--ink-text-soft); background: rgba(34, 50, 42, .85);
   cursor: pointer; font: inherit; transition: filter .16s ease, transform .16s ease;
 }
 /* 三个入口的配色和三国杀一致：金 / 红 / 绿。暗底上底色压暗、字色提亮保对比度 */
-.home nav .home__main { border-color: #9e7f3c; color: #ffe6a8; background: linear-gradient(180deg, #6d5527, #4c3b1a); }
-.home nav .home__online { border-color: #9c4038; color: #ffcfc7; background: linear-gradient(180deg, #6e2a24, #4a1c18); }
-.home nav .home__rules { border-color: #3f7f4e; color: #c4eccd; background: linear-gradient(180deg, #245c33, #173e22); }
+.home nav .home__main { border-color: var(--accent-gold); color: #ffeec0; background: linear-gradient(180deg, var(--accent-gold-fill-top), var(--accent-gold-fill-bottom)); }
+.home nav .home__online { border-color: var(--accent-red); color: #ffd9d2; background: linear-gradient(180deg, var(--accent-red-fill-top), var(--accent-red-fill-bottom)); }
+.home nav .home__rules { border-color: var(--accent-green); color: #d3f3da; background: linear-gradient(180deg, var(--accent-green-fill-top), var(--accent-green-fill-bottom)); }
 .home nav button:hover { filter: brightness(1.08); }
 .home nav button:active { transform: scale(.97); filter: brightness(.92); }
 .home nav button:focus-visible { outline: 3px solid #f3d67c; outline-offset: 3px; }

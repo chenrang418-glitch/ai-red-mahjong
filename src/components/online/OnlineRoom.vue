@@ -541,7 +541,7 @@ function sendChat(text: string, quick: boolean) {
 </template>
 
 <style scoped>
-.online-lobby-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: clamp(14px, 3vh, 28px) clamp(18px, 6vw, 70px); color: #f5efdd; background: radial-gradient(circle at 15% 0, #24483d, transparent 35%), #091410; }
+.online-lobby-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: clamp(14px, 3vh, 28px) clamp(18px, 6vw, 70px); color: var(--ink-text); background: radial-gradient(circle at 15% 0, #2f5741, transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .lobby-header { width: min(1100px, 100%); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .lobby-header > button { padding: 9px 12px; border: 1px solid #345047; border-radius: 9px; background: #10251f; color: #d8dfda; cursor: pointer; }
 .lobby-room-code { display: grid; text-align: center; }

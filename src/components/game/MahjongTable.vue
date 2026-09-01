@@ -232,7 +232,7 @@ function countdownFor(seatId: number) {
   overflow: hidden;
   border: 1px solid rgba(237, 205, 113, .32);
   border-radius: 26px;
-  background: radial-gradient(circle at 50% 42%, #1a7461 0, #0f5346 42%, #073730 78%, #042722 100%);
+  background: radial-gradient(circle at 50% 42%, #23907a 0, #14705f 42%, #0c4f43 78%, #093a32 100%);
   box-shadow: inset 0 0 90px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06), 0 22px 60px rgba(0,0,0,.4);
   transition: border-color .3s, box-shadow .3s;
 }

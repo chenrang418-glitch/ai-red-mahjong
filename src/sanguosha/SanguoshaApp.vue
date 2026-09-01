@@ -168,37 +168,38 @@ function handleRespond(response: GameResponse): void {
 
 <style scoped>
 .sgs-app {
-  width: 100%; height: 100dvh; overflow: hidden; color: #f4ead6;
-  background: radial-gradient(circle at 75% 20%, rgba(132, 42, 32, .28), transparent 35%), linear-gradient(150deg, #171713, #090d0b);
+  width: 100%; height: 100dvh; overflow: hidden; color: var(--ink-text);
+  /* 三国杀主色是金色，和门户上那张卡片的强调色一致；麻将那边保持红色 */
+  background: radial-gradient(circle at 75% 20%, rgba(207, 164, 86, .24), transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }
 .sgs-home, .sgs-panel {
   width: min(980px, 100%); height: 100%; margin: auto; display: flex; flex-direction: column;
   padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
 }
-.sgs-home header { display: flex; justify-content: space-between; align-items: center; color: #887d69; font-size: 11px; letter-spacing: .15em; }
+.sgs-home header { display: flex; justify-content: space-between; align-items: center; color: var(--ink-text-muted); font-size: 11px; letter-spacing: .15em; }
 .sgs-home header button, .sgs-panel header button {
-  min-height: 38px; padding: 0 13px; border: 1px solid #4a453a; border-radius: 9px;
-  color: #d7c8aa; background: #171c18; cursor: pointer;
+  min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px;
+  color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer;
 }
 .sgs-home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
 .sgs-home__seal {
   width: 88px; height: 88px; display: grid; place-items: center;
-  border: 2px solid #af4437; border-radius: 23px; color: #cc5546;
-  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(175, 68, 55, .13);
+  border: 2px solid var(--accent-gold); border-radius: 23px; color: #efc477;
+  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(207, 164, 86, .18);
 }
-.sgs-home__hero p { margin: 24px 0 8px; color: #b19d79; font-size: 12px; letter-spacing: .18em; }
+.sgs-home__hero p { margin: 24px 0 8px; color: var(--accent-gold); font-size: 12px; letter-spacing: .18em; }
 .sgs-home__hero h1 { margin: 0; font-size: clamp(55px, 10vw, 92px); line-height: 1; letter-spacing: -.08em; }
-.sgs-home__hero small { max-width: 560px; margin-top: 22px; color: #7f8a84; line-height: 1.7; }
+.sgs-home__hero small { max-width: 560px; margin-top: 22px; color: var(--ink-text-muted); line-height: 1.7; }
 .sgs-home nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .sgs-home nav button {
   min-height: 74px; display: grid; align-content: center; gap: 4px;
-  border: 1px solid #3b443f; border-radius: 15px; color: #b9c3ba; background: rgba(18, 26, 22, .85); cursor: pointer;
+  border: 1px solid var(--ink-line); border-radius: 15px; color: var(--ink-text-soft); background: rgba(34, 50, 42, .85); cursor: pointer;
 }
 .sgs-home nav button:disabled { color: #767f7a; cursor: default; }
-.sgs-home nav .sgs-home__main { border-color: #9e7f3c; color: #ffe6a8; background: linear-gradient(180deg, #6d5527, #4c3b1a); }
+.sgs-home nav .sgs-home__main { border-color: var(--accent-gold); color: #ffeec0; background: linear-gradient(180deg, var(--accent-gold-fill-top), var(--accent-gold-fill-bottom)); }
 /* 三个入口各用一种颜色，暗底上要保证文字对比度，所以底色压暗、字色提亮 */
-.sgs-home nav .sgs-home__online { border-color: #9c4038; color: #ffcfc7; background: linear-gradient(180deg, #6e2a24, #4a1c18); }
-.sgs-home nav .sgs-home__rules { border-color: #3f7f4e; color: #c4eccd; background: linear-gradient(180deg, #245c33, #173e22); }
+.sgs-home nav .sgs-home__online { border-color: var(--accent-red); color: #ffd9d2; background: linear-gradient(180deg, var(--accent-red-fill-top), var(--accent-red-fill-bottom)); }
+.sgs-home nav .sgs-home__rules { border-color: var(--accent-green); color: #d3f3da; background: linear-gradient(180deg, var(--accent-green-fill-top), var(--accent-green-fill-bottom)); }
 .sgs-home nav b { font-size: 16px; }
 .sgs-home nav span { font-size: 10px; }
 
@@ -210,7 +211,7 @@ function handleRespond(response: GameResponse): void {
 .sgs-panel__choices { display: flex; flex-wrap: wrap; gap: 8px; }
 .sgs-panel__choices button {
   min-height: 46px; padding: 0 18px; border: 1px solid #3f4d45; border-radius: 10px;
-  background: #16241e; color: #cbd6cd; cursor: pointer; font: inherit;
+  background: var(--ink-panel-deep); color: var(--ink-text-soft); cursor: pointer; font: inherit;
 }
 .sgs-panel__choices button.active { border-color: #d3b463; background: #2c2718; color: #f0d68d; }
 .sgs-panel__note { margin: 0; color: #7f8a84; font-size: 12px; }
@@ -236,7 +237,7 @@ function handleRespond(response: GameResponse): void {
 .sgs-result {
   width: min(380px, 100%); padding: 24px; text-align: center;
   border: 1px solid rgba(226, 191, 98, .38); border-radius: 20px;
-  background: linear-gradient(160deg, #1d2a20, #10190f); box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
+  background: linear-gradient(160deg, var(--ink-panel), var(--ink-panel-deep)); box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
 }
 .sgs-result h2 { margin: 0 0 8px; color: #f3d67c; font-size: 21px; }
 .sgs-result p { margin: 0 0 18px; color: #a3aea5; font-size: 13px; }

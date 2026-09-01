@@ -43,7 +43,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: #0a1b16; }
 ::-webkit-scrollbar-thumb { background: #355249; border-radius: 99px; }
-.game-page { flex: 1; min-height: 0; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 50% -20%, #1d4136 0, transparent 38%), #091410; }
+.game-page { flex: 1; min-height: 0; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 50% -20%, #2f5741 0, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .topbar { min-height: 66px; padding: 0 18px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid #263d36; background: rgba(7,20,16,.94); position: sticky; top: 0; z-index: 20; }
 .topbar:has(.topbar-menu .menu-mask) { z-index: 88; }
 .brand { display: flex; align-items: center; gap: 9px; min-width: 190px; }
@@ -557,7 +557,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .desktop-only, .topbar nav > .desktop-only { display: none; }
   .round-bar.mobile-only { display: flex; }
   .status-pill { display: none; }
-  .game-page { background: radial-gradient(circle at 50% 18%, #1d4c3f, transparent 60%), #0b1a15; }
+  .game-page { background: radial-gradient(circle at 50% 18%, #2f6350, transparent 62%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
   .topbar {
     flex: none;
     height: 58px;
