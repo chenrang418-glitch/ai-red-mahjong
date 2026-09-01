@@ -9,9 +9,9 @@ import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { PlayerId, SanguoshaState, SlashResolutionState } from '../types'
-import { moveCard } from '../zones'
+import { effectiveCardName, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, hasWeapon, isCardIneffective } from '../equipment'
-import { askCixiongSword, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { provideSkillLookup, askCixiongSword, askSlashTransfer, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
@@ -34,7 +34,7 @@ function viewAsPlayOptions(state: SanguoshaState, playerId: PlayerId) {
 }
 
 function hasDelayedTrick(state: SanguoshaState, playerId: PlayerId, name: string): boolean {
-  return player(state, playerId).zones.judgingArea.some((cardId) => state.cards[cardId]?.name === name)
+  return player(state, playerId).zones.judgingArea.some((cardId) => effectiveCardName(state, cardId) === name)
 }
 
 /** 只从当前公开规则状态生成操作；客户端不自行推断距离或卡牌用途。 */
@@ -61,6 +61,20 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
         if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
         actions.push({
           ...useAction(option.cardId, playerId, '杀', [target.id], `${option.label}，目标${target.nickname}`),
+          id: `play:viewas:${option.cardId}:${target.id}`,
+        })
+      }
+      continue
+    }
+    // 转化成延时锦囊（大乔【国色】）：放进目标判定区，判定时按转化后的牌名结算
+    if (DELAYED_TRICKS.has(option.asCardName)) {
+      for (const target of state.players) {
+        if (!target.alive) continue
+        // 同名延时锦囊不能叠，闪电例外（它会自己往下传）
+        if (option.asCardName !== '闪电' && hasDelayedTrick(state, target.id, option.asCardName)) continue
+        if (isTargetProhibited(state, playerId, target.id, option.asCardName, skillIdsOf)) continue
+        actions.push({
+          ...useAction(option.cardId, playerId, option.asCardName, [target.id], `${option.label}，目标${target.nickname}`),
           id: `play:viewas:${option.cardId}:${target.id}`,
         })
       }
@@ -137,18 +151,38 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
-    stage: 'awaiting-dodge', requestId: null, surrogate: null,
+    stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [],
     dodgeRemaining: Math.max(1, ...skillsOf(host.state, action.playerId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1)),
   }
-  // 雌雄双股剑要在求闪之前先问目标一次，问完再回到这条路
-  if (askCixiongSword(host, action.playerId, targetId)) {
-    host.state.cardResolution.stage = 'awaiting-equipment'
-    return
-  }
-  askSlashDodge(host)
+  if (!askSlashInterceptors(host)) askSlashDodge(host)
 }
 
-/** 向【杀】的当前目标发出求闪。装备特效插完队之后也回到这里。 */
+/**
+ * 「成为目标时」的插入点。
+ *
+ * 雌雄双股剑问目标选一项，大乔【流离】把这张【杀】转给别人。
+ * 返回 true 表示已经问出去了，调用方不要再求闪——结算会停在 `awaiting-intercept`，
+ * 由 `resumeSlashAfterEquipment` 接回来。
+ */
+function askSlashInterceptors(host: CardEngineHost): boolean {
+  const resolution = host.state.cardResolution
+  if (resolution?.kind !== 'slash') return false
+  const interceptors: Array<[string, () => boolean]> = [
+    ['cixiong', () => askCixiongSword(host, resolution.sourceId, resolution.targetId)],
+    ['liuli', () => askSlashTransfer(host, resolution.sourceId, resolution.targetId)],
+  ]
+  for (const [id, ask] of interceptors) {
+    // 同一个目标只问一次：插入点结算完会回到这里，不记账就会把自己再问一遍
+    if (resolution.interceptsDone.includes(id)) continue
+    resolution.interceptsDone.push(id)
+    if (!ask()) continue
+    resolution.stage = 'awaiting-intercept'
+    return true
+  }
+  return false
+}
+
+/** 向【杀】的当前目标发出求闪。插入点结束之后也回到这里。 */
 function askSlashDodge(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return
@@ -226,6 +260,8 @@ function placeDelayedTrick(host: CardEngineHost, action: Extract<LegalAction, { 
   const [cardId] = action.cardIds
   const [targetId] = action.targetIds
   if (!beginPhysicalCard(host, action.playerId, cardId, [targetId])) return
+  // 转化过来的延时锦囊要把「当作什么用」记下来，判定时才按它结算
+  if (action.asCardName) setCardAlias(host.state, cardId, action.asCardName)
   moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: targetId })
   finishPhysicalCard(host, action.playerId, cardId, [targetId])
 }
@@ -465,7 +501,33 @@ provideEquipmentCallbacks({
     queueQilingong(host, facts)
   },
   resumeSlashAfterEquipment(host) {
-    askSlashDodge(host as CardEngineHost)
+    const engineHost = host as CardEngineHost
+    // 转移之后新目标同样要过一遍插入点（雌雄双股剑、下一个大乔）
+    if (!askSlashInterceptors(engineHost)) askSlashDodge(engineHost)
+  },
+  startVirtualTrick(host, sourceId, targetId, cardId, asName, cardOwnerId) {
+    const engineHost = host as CardEngineHost
+    // 载体牌在发动技能的人手里，而「使用者」是被指定的那个人——
+    // 所以不能直接用 beginPhysicalCard（它会从使用者手上取牌）。
+    moveCard(engineHost.state, cardId, { kind: 'hand', playerId: cardOwnerId }, { kind: 'processingArea' })
+    const metadata = { sourceId, targetId, cardIds: [cardId] }
+    engineHost.dispatch('CardUsed', { cardId, cardName: asName, targetIds: [targetId] }, metadata)
+    engineHost.dispatch('TargetSpecified', { cardId, cardName: asName, targetIds: [targetId] }, metadata)
+    engineHost.dispatch('TargetConfirmed', { cardId, cardName: asName, targetId }, metadata)
+    beginInstantTrick(engineHost, sourceId, cardId, [targetId], asName)
+  },
+  transferSlashTarget(host, newTargetId) {
+    const engineHost = host as CardEngineHost
+    const resolution = engineHost.state.cardResolution
+    if (resolution?.kind !== 'slash') return
+    resolution.targetId = newTargetId
+    // 换了目标就是一次全新的响应：代打进度清掉，插入点也要对新目标重新问一遍
+    resolution.surrogate = null
+    resolution.interceptsDone = []
+    engineHost.dispatch('TargetSpecified', { cardId: resolution.cardId, targetId: newTargetId, reason: '流离' }, {
+      sourceId: resolution.sourceId, targetId: newTargetId, cardIds: [resolution.cardId],
+    })
+    if (!askSlashInterceptors(engineHost)) askSlashDodge(engineHost)
   },
   useExtraSlash(host, sourceId, targetId, cardId) {
     const engineHost = host as CardEngineHost
@@ -483,3 +545,7 @@ provideEquipmentCallbacks({
 
 // 性别表在武将数据那边，运行时回注，引擎不反向依赖 data 层
 provideGenderLookup((characterId) => getCharacter(characterId)?.gender)
+
+
+// 流离要按攻击范围找可转移的目标，技能表和距离计算都在别处，运行时回注
+provideSkillLookup(skillIdsOf, canTarget)

@@ -121,10 +121,19 @@ export interface SlashResolutionState {
   damageNature: DamageNature
   damageAmount: number
   /**
-   * `awaiting-equipment` 是装备特效在求闪之前插进来的一步（雌雄双股剑）。
+   * `awaiting-intercept` 是「成为目标时」插进来的一步：
+   * 雌雄双股剑问目标选一项，大乔【流离】把这张【杀】转给别人。
    * 这一步挂的是技能 Request 而不是求闪 Request，所以 invariants 单独放行。
    */
-  stage: 'awaiting-dodge' | 'awaiting-equipment' | 'awaiting-dying'
+  stage: 'awaiting-dodge' | 'awaiting-intercept' | 'awaiting-dying'
+  /**
+   * 当前目标已经问过哪些插入点。
+   *
+   * 没有这个记录的话，插入点结算完回到 `askSlashInterceptors` 会把自己再问一遍，
+   * 而雌雄双股剑的「让对方摸一张」不消耗任何东西——于是死循环。
+   * 流离换目标时清空：新目标该重新过一遍。
+   */
+  interceptsDone: string[]
   requestId: string | null
   /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
   dodgeRemaining: number
@@ -278,6 +287,14 @@ export interface SanguoshaState {
    * 保存时由 `serialize()` 写入，恢复时由 `restore()` 读回。
    */
   rngState: number
+  /**
+   * 实体牌当前「被当作什么用」。
+   *
+   * 转化技把一张红桃当【乐不思蜀】放进判定区之后，判定时必须按转化后的牌名结算，
+   * 而判定区里只存牌 id。所以在这里额外记一笔，牌离开判定区时由 `moveCard` 清掉。
+   * 普通锦囊不需要它——那条路上转化后的牌名直接存在 `cardResolution.cardName` 里。
+   */
+  cardAliases: Record<CardId, string>
   decisions: GameDecision[]
   result: GameResult | null
 }

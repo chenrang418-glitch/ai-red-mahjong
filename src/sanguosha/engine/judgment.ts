@@ -5,7 +5,7 @@ import { validateResponse } from './requests'
 import type { GameRng } from './rng'
 import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState } from './types'
-import { moveCard } from './zones'
+import { effectiveCardName, moveCard } from './zones'
 
 export interface JudgmentEngineHost {
   state: SanguoshaState
@@ -64,7 +64,7 @@ function nextLightningTarget(state: SanguoshaState, ownerId: PlayerId): PlayerId
   const owner = player(state, ownerId)
   for (let offset = 1; offset < state.players.length; offset += 1) {
     const candidate = state.players[(owner.seat + offset) % state.players.length]
-    const hasLightning = candidate.zones.judgingArea.some((cardId) => state.cards[cardId]?.name === '闪电')
+    const hasLightning = candidate.zones.judgingArea.some((cardId) => effectiveCardName(state, cardId) === '闪电')
     if (candidate.alive && !hasLightning) return candidate.id
   }
   return ownerId
@@ -86,21 +86,23 @@ function finishLightningDamage(host: JudgmentEngineHost): void {
 }
 
 function applyDelayedEffect(host: JudgmentEngineHost, ownerId: PlayerId, delayedCardId: CardId): void {
-  const delayed = host.state.cards[delayedCardId]
-  host.dispatch('JudgeStart', { playerId: ownerId, delayedCardId, delayedCardName: delayed.name }, { targetId: ownerId, cardIds: [delayedCardId], phase: 'judge' })
+  // 一律按「被当作什么用」结算：转化技可以把一张红桃当【乐不思蜀】放进判定区，
+  // 那时候牌面上印的名字是无关的
+  const delayedName = effectiveCardName(host.state, delayedCardId)
+  host.dispatch('JudgeStart', { playerId: ownerId, delayedCardId, delayedCardName: delayedName }, { targetId: ownerId, cardIds: [delayedCardId], phase: 'judge' })
   const judgeCardId = takeJudgmentCard(host)
   const judgeCard = host.state.cards[judgeCardId]
   host.dispatch('JudgeResult', { playerId: ownerId, delayedCardId, judgeCardId, suit: judgeCard.suit, rank: judgeCard.rank }, { targetId: ownerId, cardIds: [judgeCardId], phase: 'judge' })
   host.dispatch('JudgeEnd', { playerId: ownerId, delayedCardId, judgeCardId }, { targetId: ownerId, cardIds: [judgeCardId], phase: 'judge' })
   moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
 
-  if (delayed.name === '乐不思蜀') {
+  if (delayedName === '乐不思蜀') {
     if (judgeCard.suit !== 'heart') skipPhase(host.state, 'play')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-  } else if (delayed.name === '兵粮寸断') {
+  } else if (delayedName === '兵粮寸断') {
     if (judgeCard.suit !== 'club') skipPhase(host.state, 'draw')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-  } else if (delayed.name === '闪电') {
+  } else if (delayedName === '闪电') {
     if (judgeCard.suit === 'spade' && judgeCard.rank >= 2 && judgeCard.rank <= 9) {
       host.state.judgment = { playerId: ownerId, delayedCardId, stage: 'awaiting-damage' }
       resolveDamage(host, { targetId: ownerId, amount: 3, nature: 'thunder', cardName: '闪电', cardId: delayedCardId })
@@ -110,7 +112,7 @@ function applyDelayedEffect(host: JudgmentEngineHost, ownerId: PlayerId, delayed
     }
   } else {
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-    throw new Error(`未知延时锦囊：${delayed.name}`)
+    throw new Error(`未知延时锦囊：${delayedName}`)
   }
 }
 

@@ -248,6 +248,25 @@ registerSkillRuntime({
   },
 })
 
+
+// —— 大乔【国色】——
+// 【流离】的运行时在 engine/equipment-requests.ts：它要改杀的结算目标，
+// 和雌雄双股剑走同一个「成为目标时」的插入点。这里只登记技能说明。
+registerSkillRuntime({
+  id: 'guose',
+  viewAs(state, ownerId) {
+    const owner = state.players.find((player) => player.id === ownerId)
+    if (!owner) return []
+    return owner.zones.hand
+      .filter((cardId) => state.cards[cardId]?.suit === 'heart' && state.cards[cardId]?.name !== '乐不思蜀')
+      .map((cardId) => ({
+        asCardName: '乐不思蜀',
+        cardId,
+        label: `将【${state.cards[cardId].name}】当【乐不思蜀】使用`,
+      }))
+  },
+})
+
 export const WU_CHARACTERS: readonly CharacterDefinition[] = [
   {
     id: 'lvmeng',
@@ -268,6 +287,18 @@ export const WU_CHARACTERS: readonly CharacterDefinition[] = [
     skills: [
       { id: 'yingzi', name: '英姿', description: '摸牌阶段，你可以多摸一张牌。' },
       { id: 'fanjian', name: '反间', description: '出牌阶段限一次，你可以令一名其他角色选择一种花色，然后其获得你的一张随机手牌并展示之；若花色不同，你对其造成1点伤害。' },
+    ],
+  },
+  {
+    id: 'daqiao',
+    name: '大乔',
+    kingdom: 'wu',
+    gender: 'female',
+    maxHp: 3,
+    pack: 'standard',
+    skills: [
+      { id: 'guose', name: '国色', description: '你可以将一张红桃牌当【乐不思蜀】使用。' },
+      { id: 'liuli', name: '流离', description: '当你成为【杀】的目标时，你可以弃置一张牌，将此【杀】转移给你攻击范围内的另一名角色。' },
     ],
   },
   {

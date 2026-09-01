@@ -77,6 +77,7 @@ export class SanguoshaGame {
       skillResolution: null,
       skillQueue: [],
       rngState: 0,
+      cardAliases: {},
       decisions: [],
       result: null,
     }
@@ -335,6 +336,8 @@ export class SanguoshaGame {
     const game = Object.create(SanguoshaGame.prototype) as SanguoshaGame
     const mutable = game as { state: SanguoshaState; rng: GameRng; events: GameEventBus }
     mutable.state = structuredClone(stored)
+    // 旧存档里没有这张表，补一个空的，免得后续读写炸掉
+    mutable.state.cardAliases ??= {}
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1

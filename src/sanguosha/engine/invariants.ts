@@ -53,9 +53,9 @@ export function assertGameInvariants(state: SanguoshaState): void {
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')
     const stage = state.cardResolution.stage
-    // 雌雄双股剑那一步挂的是技能 Request，不是求闪 Request
-    if (stage === 'awaiting-equipment') {
-      if (!state.skillResolution) throw new Error('装备结算阶段缺少技能等待状态')
+    // 「成为目标时」那一步挂的是技能 Request，不是求闪 Request
+    if (stage === 'awaiting-intercept') {
+      if (!state.skillResolution) throw new Error('成为目标阶段缺少技能等待状态')
     } else if (stage === 'awaiting-dodge' || stage === 'awaiting-nullification') {
       if (!state.cardResolution.requestId || !state.pendingRequests.some((request) => request.id === state.cardResolution!.requestId && request.kind === 'respond-card')) {
         throw new Error('卡牌结算缺少响应 Request')

@@ -375,7 +375,7 @@ describe('雌雄双股剑', () => {
     const ask = pending(game)
     expect(ask.playerId, '雌雄双股剑问的是目标，不是持剑的人').toBe('p1')
     expect(ask.prompt).toContain('雌雄双股剑')
-    expect(game.state.cardResolution?.stage).toBe('awaiting-equipment')
+    expect(game.state.cardResolution?.stage).toBe('awaiting-intercept')
     assertGameInvariants(game.state)
 
     game.respond({ requestId: ask.id, playerId: 'p1', payload: { optionId: 'discard' } })

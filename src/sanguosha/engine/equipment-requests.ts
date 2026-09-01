@@ -1,11 +1,16 @@
 import { registerSkillRuntime, type SkillHost } from './skills/runtime'
-import type { ChooseCardsRequest, ChooseOptionRequest } from './requests'
+import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 import { hasWeapon } from './equipment'
 import { moveCard } from './zones'
 
 /**
- * 需要向玩家发问的装备特效。
+ * 需要向玩家发问、并且要动引擎内部状态的效果。
+ *
+ * 大部分是装备，但也有武将技能（大乔【流离】要改杀的结算目标、
+ * 貂蝉【离间】要凭空发起一次决斗）。它们放在这里而不是武将数据里，
+ * 是因为武将数据被 `standard.ts` 汇总，而 `standard.ts` 又被引擎 import——
+ * 放过去会成环。
  *
  * 走的是和武将技能同一套 `askSkill` / `resume`——`getSkillRuntime` 是全局按 id 查的，
  * 不依赖武将技能表，所以装备用 `equip:` 前缀的 id 注册进去就行，不用另起一套机制。
@@ -110,16 +115,23 @@ function discardableCards(state: SanguoshaState, playerId: PlayerId): CardId[] {
  * 直接 import basic.ts 会形成环（basic 要 import 这里的 askDodgedSlashWeapon），
  * 所以反过来让调用方把能力交进来。
  */
-export interface EquipmentCallbacks {
+export interface EngineCallbacks {
   dealSlashDamage(host: SkillHost, facts: DodgedSlashFacts): void
   useExtraSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): void
-  /** 雌雄双股剑那一步结束之后，回到正常的求闪流程。 */
+  /** 「成为目标时」那一步结束之后，回到正常的求闪流程。 */
   resumeSlashAfterEquipment(host: SkillHost): void
+  /** 流离：把这张【杀】改指向新目标，然后重新走一遍插入点。 */
+  transferSlashTarget(host: SkillHost, newTargetId: PlayerId): void
+  /**
+   * 离间：用一张实体牌作为载体，视为 sourceId 对 targetId 使用了某张普通锦囊。
+   * `cardOwnerId` 是牌现在在谁手上——发动技能的人，通常不是「使用者」。
+   */
+  startVirtualTrick(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId, asName: string, cardOwnerId: PlayerId): void
 }
 
-let callbacks: EquipmentCallbacks | null = null
+let callbacks: EngineCallbacks | null = null
 
-export function provideEquipmentCallbacks(next: EquipmentCallbacks): void {
+export function provideEquipmentCallbacks(next: EngineCallbacks): void {
   callbacks = next
 }
 
@@ -368,7 +380,7 @@ export const CIXIONG_SKILL = 'equip:cixiongjian'
  *
  * 问的是**目标**，而且要问在求闪之前——那正是这张剑的意义所在。
  * 这一步挂的是技能 Request 而不是求闪 Request，所以 `cardResolution.stage`
- * 停在 `awaiting-equipment`，invariants 对这个阶段单独放行。
+ * 停在 `awaiting-intercept`，invariants 对这个阶段单独放行。
  *
  * 返回 true 表示已经问出去了，调用方不要再去求闪。
  */
@@ -467,3 +479,234 @@ registerSkillRuntime({
     callbacks?.resumeSlashAfterEquipment(host)
   },
 })
+
+// 技能 id 直接用武将数据里的那个，`getSkillRuntime` 才查得到
+export const LIULI_SKILL = 'liuli'
+
+/**
+ * 大乔【流离】：成为【杀】的目标时，弃一张牌把这张【杀】转给攻击范围内的另一名角色。
+ *
+ * 放在这里而不是武将数据里，是因为它要改 `cardResolution.targetId`——
+ * 那是杀的结算状态，和雌雄双股剑走同一个插入点、同一套恢复路径。
+ *
+ * 返回 true 表示已经问出去了。
+ */
+export function askSlashTransfer(host: SkillHost, sourceId: PlayerId, targetId: PlayerId): boolean {
+  if (host.state.skillResolution) return false
+  const target = host.state.players.find((player) => player.id === targetId)
+  if (!target?.alive || !target.characterId) return false
+  if (!skillIdsProvider?.(target.characterId).includes('liuli')) return false
+  // 手上一张牌都没有就弃不出去
+  if (discardableCards(host.state, targetId).length === 0) return false
+  if (transferCandidates(host.state, sourceId, targetId).length === 0) return false
+
+  host.askSkill({
+    skillId: LIULI_SKILL,
+    ownerId: targetId,
+    step: 'ask',
+    data: { sourceId, targetId },
+    build: (requestId): ChooseOptionRequest => ({
+      id: requestId,
+      kind: 'choose-option',
+      playerId: targetId,
+      prompt: '发动【流离】？弃置一张牌，把这张【杀】转给你攻击范围内的另一名角色',
+      timeoutMs: 20_000,
+      optional: true,
+      options: [{ id: 'yes', label: '发动' }, { id: 'no', label: '放弃' }],
+    }),
+  })
+  return true
+}
+
+/** 流离能转给谁：自己攻击范围内、不是【杀】的使用者、也不是自己。 */
+function transferCandidates(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): PlayerId[] {
+  if (!canTargetProvider) return []
+  return state.players
+    .filter((player) => player.alive && player.id !== targetId && player.id !== sourceId)
+    .filter((player) => canTargetProvider!(state, targetId, player.id))
+    .map((player) => player.id)
+}
+
+let skillIdsProvider: ((characterId: string) => string[]) | null = null
+let canTargetProvider: ((state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId) => boolean) | null = null
+
+/** 技能表和攻击范围计算都在别处，运行时回注，避免形成 import 环。 */
+export function provideSkillLookup(
+  skillIdsOf: (characterId: string) => string[],
+  canTarget: (state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId) => boolean,
+): void {
+  skillIdsProvider = skillIdsOf
+  canTargetProvider = canTarget
+}
+
+registerSkillRuntime({
+  id: LIULI_SKILL,
+  resume(host, _ownerId, resolution, response) {
+    const sourceId = resolution.data.sourceId as PlayerId
+    const targetId = resolution.data.targetId as PlayerId
+
+    if (resolution.step === 'ask') {
+      if ((response.payload as { optionId: string }).optionId !== 'yes') {
+        callbacks?.resumeSlashAfterEquipment(host)
+        return
+      }
+      const pool = discardableCards(host.state, targetId)
+      if (pool.length === 0) {
+        callbacks?.resumeSlashAfterEquipment(host)
+        return
+      }
+      host.askSkill({
+        skillId: LIULI_SKILL,
+        ownerId: targetId,
+        step: 'discard',
+        data: { sourceId, targetId },
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId,
+          kind: 'choose-cards',
+          playerId: targetId,
+          prompt: '【流离】：弃置一张牌',
+          timeoutMs: 20_000,
+          optional: false,
+          purpose: 'skill',
+          cardIds: pool,
+          hiddenCardSlots: [],
+          min: 1,
+          max: 1,
+        }),
+      })
+      return
+    }
+
+    if (resolution.step === 'discard') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      discardOwnCard(host, targetId, cardId, '流离')
+      const candidateIds = transferCandidates(host.state, sourceId, targetId)
+      if (candidateIds.length === 0) {
+        // 弃牌之后没人可转（有人死了）：这张【杀】仍然落在自己身上
+        callbacks?.resumeSlashAfterEquipment(host)
+        return
+      }
+      host.askSkill({
+        skillId: LIULI_SKILL,
+        ownerId: targetId,
+        step: 'target',
+        data: { sourceId, targetId },
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId,
+          kind: 'choose-targets',
+          playerId: targetId,
+          prompt: '【流离】：把这张【杀】转给谁',
+          timeoutMs: 20_000,
+          optional: false,
+          candidateIds,
+          min: 1,
+          max: 1,
+        }),
+      })
+      return
+    }
+
+    const [newTargetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
+    callbacks?.transferSlashTarget(host, newTargetId)
+  },
+})
+
+/** 弃掉自己区域里的一张牌（手牌或装备）。 */
+function discardOwnCard(host: SkillHost, playerId: PlayerId, cardId: CardId, reason: string): void {
+  const owner = playerOf(host.state, playerId)
+  if (owner.zones.hand.includes(cardId)) {
+    moveCard(host.state, cardId, { kind: 'hand', playerId }, { kind: 'discardPile' })
+  } else {
+    const slot = (Object.keys(owner.zones.equipment) as Array<keyof typeof owner.zones.equipment>)
+      .find((key) => owner.zones.equipment[key] === cardId)
+    if (!slot) throw new Error(`${reason}弃置的牌不在自己的区域里`)
+    moveCard(host.state, cardId, { kind: 'equipment', playerId, slot }, { kind: 'discardPile' })
+  }
+  host.dispatch('LoseCard', { playerId, cardIds: [cardId], reason }, { sourceId: playerId, cardIds: [cardId] })
+}
+
+
+export const LIJIAN_SKILL = 'lijian'
+
+/**
+ * 貂蝉【离间】：出牌阶段限一次，弃一张牌，令两名男性角色进行【决斗】。
+ *
+ * 规则上这是一次「视为使用」的决斗，没有实体牌。这里用**被弃置的那张牌**
+ * 作为载体走正常的锦囊结算——两者的可观察差别只有一处：
+ * 那张牌会被当成「造成伤害的牌」，所以曹操【奸雄】可能把它拿走。
+ * 用真正的虚拟牌需要给结算加一套无实体牌的路径，暂时不值得。
+ */
+registerSkillRuntime({
+  id: LIJIAN_SKILL,
+  activeActions(state, ownerId) {
+    const owner = state.players.find((player) => player.id === ownerId)
+    if (!owner?.alive || owner.usedLimitedSkills.includes(LIJIAN_SKILL)) return []
+    if (discardableCards(state, ownerId).length === 0) return []
+    if (maleTargets(state, ownerId).length < 2) return []
+    return [{ id: 'skill:lijian', label: '发动【离间】：弃一张牌，令两名男性角色决斗' }]
+  },
+  invokeActive(host, ownerId, actionId) {
+    if (actionId !== 'skill:lijian') throw new Error('离间动作不匹配')
+    host.askSkill({
+      skillId: LIJIAN_SKILL,
+      ownerId,
+      step: 'discard',
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId,
+        kind: 'choose-cards',
+        playerId: ownerId,
+        prompt: '【离间】：弃置一张牌',
+        timeoutMs: 20_000,
+        optional: false,
+        purpose: 'skill',
+        cardIds: discardableCards(host.state, ownerId),
+        hiddenCardSlots: [],
+        min: 1,
+        max: 1,
+      }),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step === 'discard') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      const candidateIds = maleTargets(host.state, ownerId)
+      if (candidateIds.length < 2) return
+      const owner = playerOf(host.state, ownerId)
+      owner.usedLimitedSkills.push(LIJIAN_SKILL)
+      // 这张牌先留在原处，等选完目标再作为决斗的载体打出去
+      host.askSkill({
+        skillId: LIJIAN_SKILL,
+        ownerId,
+        step: 'targets',
+        data: { cardId },
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId,
+          kind: 'choose-targets',
+          playerId: ownerId,
+          prompt: '【离间】：选择两名男性角色，第一名视为对第二名使用【决斗】',
+          timeoutMs: 25_000,
+          optional: false,
+          candidateIds,
+          min: 2,
+          max: 2,
+        }),
+      })
+      return
+    }
+
+    const cardId = resolution.data.cardId as CardId
+    const [attackerId, victimId] = (response.payload as { targetIds: PlayerId[] }).targetIds
+    const attacker = host.state.players.find((player) => player.id === attackerId)
+    const victim = host.state.players.find((player) => player.id === victimId)
+    if (!attacker?.alive || !victim?.alive) return
+    callbacks?.startVirtualTrick(host, attackerId, victimId, cardId, '决斗', ownerId)
+  },
+})
+
+/** 离间能选的目标：存活的男性角色，不含貂蝉自己。 */
+function maleTargets(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
+  return state.players
+    .filter((player) => player.alive && player.id !== ownerId)
+    .filter((player) => genderOf(player.characterId) === 'male')
+    .map((player) => player.id)
+}

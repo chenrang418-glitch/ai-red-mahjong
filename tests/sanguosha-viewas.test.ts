@@ -104,6 +104,7 @@ describe('转化技不能产出无人消费的牌名', () => {
       闪: 'dodgeViewAsOptions',
       桃: '濒死救援 rescueActionIds',
     }
+    const DELAYED_TRICK_NAMES = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
     const produced = new Set<string>()
     for (const character of STANDARD_CHARACTERS) {
@@ -137,7 +138,7 @@ describe('转化技不能产出无人消费的牌名', () => {
     }
 
     for (const name of produced) {
-      const handled = name in CONSUMERS || INSTANT_TRICK_NAMES.has(name)
+      const handled = name in CONSUMERS || INSTANT_TRICK_NAMES.has(name) || DELAYED_TRICK_NAMES.has(name)
       expect(handled, `【${name}】被转化技产出了，但没有任何地方消费它`).toBe(true)
     }
   })

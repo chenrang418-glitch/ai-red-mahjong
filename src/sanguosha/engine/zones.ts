@@ -65,6 +65,20 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
   removeCard(state, from, cardId)
   const replaced = addCard(state, to, cardId, options.toTop ?? false)
   if (replaced) addCard(state, options.replaceEquipmentTo ?? { kind: 'discardPile' }, replaced, false)
+  // 「当作什么用」只在结算途中有意义。牌回到手牌、弃牌堆或牌堆就该忘掉，
+  // 否则下次再摸到它还会顶着上一次的身份。闪电要在判定区之间流转，所以留着。
+  if (to.kind !== 'judgingArea' && to.kind !== 'processingArea') delete state.cardAliases[cardId]
+}
+
+/** 这张牌当前按什么牌名结算：有转化就用转化后的，否则用牌面上印的。 */
+export function effectiveCardName(state: SanguoshaState, cardId: CardId): string {
+  return state.cardAliases[cardId] ?? state.cards[cardId]?.name ?? ''
+}
+
+/** 记下一张牌「被当作什么用」。和牌面同名时不留记录，免得别名表越积越大。 */
+export function setCardAlias(state: SanguoshaState, cardId: CardId, asName: string): void {
+  if (state.cards[cardId]?.name === asName) delete state.cardAliases[cardId]
+  else state.cardAliases[cardId] = asName
 }
 
 export function allLocatedCardIds(state: SanguoshaState): CardId[] {
