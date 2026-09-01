@@ -568,3 +568,23 @@ Phase B 当前新增 9 个测试文件、61 项规则底座与卡牌结算测试
 - `npx playwright test` → 37 通过
 - `npm run sanguosha:soak 150` → 5 人局与 8 人局各 150 局全部完成
 - `typecheck` / `typecheck:online` / `build` / `build:online` 全部通过
+
+## 2026-09-01（第六批，未提交、未部署）联机接线
+
+- `server/worker.ts` 新增 `SanguoshaRoom` Durable Object 与 `/api/sanguosha/rooms*` 独立路由；麻将原路由未改。
+- `server/wrangler.jsonc` 只追加 `SGS_ROOMS` 和 DO migration `v3`；D1 新增 `0006_sanguosha_room_directory.sql`，未修改历史 migration。
+- `server/sanguosha-command-parser.ts` 对所有线上命令做运行时形状/体积校验。
+- 房间命令新增 `actionId + baseSeq`，持久化最近 actionId，拒绝重复提交和陈旧局面。
+- 无需真人决策的阶段由服务端自动推进，避免每个非出牌阶段等待 30 秒。
+- 新增共享协议、`useOnlineSanguosha` 与 `SgsOnlineHub`：复用现有 Cookie 会话和 `SgsTable`/`SgsRequestDock`，支持建房、列表、加入、准备、AI 补位、选将、牌桌、分享、重连和再来一局入口。
+- 新增真实 Miniflare Worker 测试，覆盖建房/目录、WebSocket、重复/陈旧动作和牌局中重连恢复同一私有 Request。
+
+### 本批验证
+
+- `npx vitest run` → 43 文件 / 390 用例通过。
+- `npx playwright test` → 38/38 通过（Chromium 34 + WebKit 4）。
+- `npm run typecheck` / `npm run typecheck:online` → 通过。
+- `npm run build` / `npm run build:online` → 通过；后者仅 `wrangler deploy --dry-run`，没有部署。
+- `npm run test:online:smoke` → 原麻将联机冒烟通过。
+- `npm run sanguosha:soak 150` → 5 人与 8 人各 150 局全部完成。
+- 尚未执行真实多浏览器完整联机长局，也未执行远端 D1 migration。

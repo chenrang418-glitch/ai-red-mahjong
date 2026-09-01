@@ -6,6 +6,8 @@ import { describeEvent } from '../src/sanguosha/engine/log'
 import type { GameResponse } from '../src/sanguosha/engine/requests'
 import type { PlayerId, SanguoshaState } from '../src/sanguosha/engine/types'
 import type { PlayerView } from '../src/sanguosha/engine/view'
+import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
+export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 
 /**
  * 三国杀联机房间的纯逻辑核心。
@@ -25,21 +27,6 @@ import type { PlayerView } from '../src/sanguosha/engine/view'
 export interface SgsRoomUser {
   userId: string
   nickname: string
-}
-
-export interface SgsRoomSettings {
-  playerCount: number
-  difficulty: AIDifficulty
-  /** 每一步的思考时限，超时由 AI 代打 */
-  turnSeconds: number
-}
-
-export interface SgsChatMessage {
-  id: number
-  userId: string
-  nickname: string
-  text: string
-  at: number
 }
 
 interface SgsSeat {
@@ -87,35 +74,8 @@ export interface StoredSgsRoomState {
   /** 按玩家过滤后的战报。存的是已经翻译好的文本，重连时能直接补上 */
   log: Record<string, string[]>
   deleteRequested: boolean
-}
-
-export type SgsRoomCommand =
-  | { type: 'toggle-ready' }
-  | { type: 'add-ai' }
-  | { type: 'remove-ai'; seatId: number }
-  | { type: 'start-game' }
-  | { type: 'respond'; requestId: string; payload: unknown }
-  | { type: 'act'; actionId: string }
-  | { type: 'advance' }
-  | { type: 'chat'; text: string }
-  | { type: 'trustee'; enabled: boolean }
-  | { type: 'next-round' }
-  | { type: 'leave-room' }
-
-export interface SgsRoomView {
-  code: string
-  version: number
-  phase: 'lobby' | 'playing' | 'finished'
-  hostUserId: string
-  settings: SgsRoomSettings
-  seats: Array<Omit<SgsSeat, 'userId'> & { isSelf: boolean }>
-  /** 只有在座的人才有牌局视图；旁观者拿不到 */
-  playerView: PlayerView | null
-  chat: SgsChatMessage[]
-  log: string[]
-  /** 当前这一步的截止时间，前端用来画倒计时 */
-  deadlineAt: number | null
-  aiThinking: boolean
+  /** 最近成功处理的客户端动作。用于在 DO 休眠恢复后继续拒绝重复 actionId。 */
+  processedActionIds?: string[]
 }
 
 export class InvalidSgsCommandError extends Error {}
@@ -158,6 +118,7 @@ export class SanguoshaRoomCoordinator {
 
   constructor(stored: StoredSgsRoomState) {
     this.state = stored
+    this.state.processedActionIds ??= []
   }
 
   static create(code: string, host: SgsRoomUser, settings: SgsRoomSettings, now = Date.now()): SanguoshaRoomCoordinator {
@@ -181,6 +142,7 @@ export class SanguoshaRoomCoordinator {
       suspicion: {},
       log: {},
       deleteRequested: false,
+      processedActionIds: [],
     })
     coordinator.seatUser(host, now)
     return coordinator
@@ -278,6 +240,23 @@ export class SanguoshaRoomCoordinator {
   // —— 指令 ——
 
   handle(userId: string, command: SgsRoomCommand, now = Date.now()): SgsChatMessage | null {
+    const hasActionId = command.actionId !== undefined
+    const hasBaseSeq = command.baseSeq !== undefined
+    if (hasActionId !== hasBaseSeq) throw new InvalidSgsCommandError('操作元数据不完整')
+    if (command.actionId) {
+      if (this.state.processedActionIds!.includes(command.actionId)) throw new InvalidSgsCommandError('这个操作已经处理过了')
+      if (command.baseSeq !== this.state.version) throw new InvalidSgsCommandError('局面已经变化，请同步后重试')
+    }
+
+    const result = this.handleCommand(userId, command, now)
+    if (command.actionId) {
+      this.state.processedActionIds!.push(command.actionId)
+      if (this.state.processedActionIds!.length > 256) this.state.processedActionIds!.splice(0, this.state.processedActionIds!.length - 256)
+    }
+    return result
+  }
+
+  private handleCommand(userId: string, command: SgsRoomCommand, now: number): SgsChatMessage | null {
     const seat = this.state.seats.find((candidate) => candidate.userId === userId)
     if (!seat) throw new InvalidSgsCommandError('你不在这个房间里')
 
@@ -344,7 +323,7 @@ export class SanguoshaRoomCoordinator {
         const playerId = playerIdOf(seat.seatId)
         if (game.state.currentPlayerId !== playerId) throw new InvalidSgsCommandError('还没轮到你')
         if (game.state.pendingRequests.length > 0) throw new InvalidSgsCommandError('还有待处理的请求')
-        game.act(playerId, command.actionId)
+        game.act(playerId, command.legalActionId)
         this.afterEngineStep(now)
         return null
       }
@@ -470,6 +449,12 @@ export class SanguoshaRoomCoordinator {
     // 免得选将阶段就有人捏着私密手牌
     if (game.state.status === 'choosing-general' && game.state.pendingRequests.length === 0) {
       game.start()
+    }
+    // 准备、判定、摸牌、弃牌、结束阶段若没有请求，不需要真人额外点一次“继续”。
+    // 服务端直接走到真正需要决定的出牌阶段或 Request，避免联机每个阶段白等一个超时。
+    for (let guard = 0; guard < 24; guard += 1) {
+      if (game.state.status !== 'playing' || game.state.pendingRequests.length > 0 || game.state.phase === 'play') break
+      game.advancePhase()
     }
     this.state.game = game.serialize()
     this.state.stageKey = `${game.state.seq}:${game.state.pendingRequests[0]?.id ?? ''}:${game.state.currentPlayerId}:${game.state.phase}`
@@ -604,7 +589,7 @@ export class SanguoshaRoomCoordinator {
 
   // —— 视图 ——
 
-  view(userId: string, now = Date.now()): SgsRoomView {
+  view(userId: string): SgsRoomView {
     const seat = this.state.seats.find((candidate) => candidate.userId === userId)
     const state = this.state.game
     const phase: SgsRoomView['phase'] = !state ? 'lobby' : state.status === 'game-over' ? 'finished' : 'playing'

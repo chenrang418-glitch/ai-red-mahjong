@@ -92,12 +92,22 @@ describe('联机房间：服务端权威', () => {
 
   it('轮不到你就不能行动', () => {
     const room = started()
-    expect(() => room.handle(GUEST.userId, { type: 'act', actionId: 'whatever' })).toThrow(InvalidSgsCommandError)
+    expect(() => room.handle(GUEST.userId, { type: 'act', legalActionId: 'whatever' })).toThrow(InvalidSgsCommandError)
   })
 
   it('不在房间里的人什么都做不了', () => {
     const room = started()
     expect(() => room.handle('u-stranger', { type: 'chat', text: 'hi' })).toThrow(/不在这个房间/)
+  })
+
+  it('拒绝陈旧 baseSeq，并且重复 actionId 不会执行两次', () => {
+    const room = lobby()
+    const baseSeq = room.snapshot().version
+    room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'ready-once', baseSeq })
+    expect(room.snapshot().seats[0].ready).toBe(true)
+    expect(() => room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'stale', baseSeq })).toThrow(/局面已经变化/)
+    expect(() => room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'ready-once', baseSeq: room.snapshot().version })).toThrow(/已经处理/)
+    expect(room.snapshot().seats[0].ready).toBe(true)
   })
 })
 

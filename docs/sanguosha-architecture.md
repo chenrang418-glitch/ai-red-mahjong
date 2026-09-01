@@ -9,10 +9,11 @@ RootApp
 ├── GamePortal
 ├── Mahjong App（原 App.vue，动态加载）
 └── Sanguosha App（动态加载）
-    ├── Vue UI（后续）
-    ├── Browser Local Controller（后续）
+    ├── Vue UI
+    ├── Browser Local Controller
+    ├── Online Controller
     └── 纯 TypeScript Engine
-        └── SanguoshaRoom Durable Object（后续复用）
+        └── SanguoshaRoom Durable Object（同一引擎）
 ```
 
 ## URL 与游戏中心
@@ -47,7 +48,7 @@ RootApp
 - `invariants.ts`：供单测、soak 与服务端动作提交后调用的全状态约束。
 - `game.ts`：确定性初始化、统一响应入口与回放记录骨架。
 
-当前 Engine 仍是 Phase B 底座；阶段推进、摸牌/弃牌、伤害/濒死/死亡、属性传播、杀闪桃酒、无懈链与基础判定区已经具备，但选将、多目标与大部分卡牌效果、25 将技能和 AI 尚未完成。
+Engine 已能完成 5～8 人身份局，包含选将、阶段推进、摸牌/弃牌、伤害/濒死/死亡、属性传播、核心牌、无懈链、判定区、18 名完整登记武将、AI 与回放/持久化。剩余边界以 ruleset 文档为准。
 
 ## Event
 
@@ -92,7 +93,7 @@ Engine 生成候选和合法 `actionId`；客户端只展示并提交选择。`v
 
 ## AI
 
-后续 AI 只接收 `PlayerView + LegalAction[]`，不得接触完整 state。身份判断使用行为更新的 belief/suspicion；难度只改变评估质量和随机失误，不能偷看身份与手牌。测试模式取消延迟。
+AI 只接收 `PlayerView + LegalAction[]`，不接触完整 state。身份判断使用事件驱动的 belief/suspicion；难度只改变评估质量和随机失误，不偷看身份与手牌。`sanguosha:soak` 使用相同 AI 无渲染跑完整局。
 
 ## PlayerView
 
@@ -123,9 +124,11 @@ Engine 生成候选和合法 `actionId`；客户端只展示并提交选择。`v
 
 ## Cloudflare 与 Durable Object
 
-后续追加 `SanguoshaRoom`、`SanguoshaLobby` 和 `/api/sanguosha/*`，保留麻将 `/api/*` 原行为。待操作 Request、deadline、decision log 与托管状态全部持久化；DO 休眠恢复不能依赖 Promise resolver、长 async 调用栈或普通定时器。
+`SanguoshaRoom` 通过独立 `SGS_ROOMS` binding 和 `/api/sanguosha/*` 路由提供联机，麻将 `/api/*` 保持原行为。会话复用现有 opaque HttpOnly Cookie；公开目录复用 `MahjongLobby` 的轻量更新通知。待操作 Request、deadline、decision log、AI 随机源与托管状态全部持久化，DO 休眠恢复不依赖 Promise resolver、长 async 调用栈或普通定时器。
 
-现有 Wrangler migration 已到 DO tag `v2`、D1 migration `0005`；新增内容只能顺延。
+线上命令必须带 `actionId + baseSeq`，经运行时 parser 后才进入协调器；重复和陈旧动作会被拒绝。Worker 只广播按连接用户构造的 `PlayerView`。
+
+Wrangler DO migration 已追加到 tag `v3`；D1 migration 已追加到 `0006_sanguosha_room_directory.sql`。历史 migration 未修改。
 
 ## 扩展武将包
 

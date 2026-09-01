@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import SgsTable from './components/SgsTable.vue'
 import SgsRequestDock from './components/SgsRequestDock.vue'
+import SgsOnlineHub from './components/SgsOnlineHub.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
 import { STANDARD_CHARACTERS } from './data/characters/standard'
 import type { GameResponse } from './engine/requests'
@@ -9,9 +10,9 @@ import type { AIDifficulty } from './ai'
 
 defineEmits<{ backToPortal: [] }>()
 
-type Screen = 'home' | 'setup' | 'playing' | 'rules'
+type Screen = 'home' | 'setup' | 'online' | 'playing' | 'rules'
 
-const screen = ref<Screen>('home')
+const screen = ref<Screen>(new URLSearchParams(window.location.search).has('room') ? 'online' : 'home')
 const game = useLocalSanguosha()
 const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty })
 
@@ -54,6 +55,8 @@ function handleRespond(response: GameResponse): void {
     @quit="quit"
   />
 
+  <SgsOnlineHub v-else-if="screen === 'online'" @back="screen = 'home'" />
+
   <main v-else class="sgs-app">
     <section v-if="screen === 'home'" class="sgs-home">
       <header>
@@ -64,11 +67,11 @@ function handleRespond(response: GameResponse): void {
         <div class="sgs-home__seal" aria-hidden="true">杀</div>
         <p>经典身份局</p>
         <h1>三国杀</h1>
-        <small>规则引擎已完成，单机可玩。武将持续补充中，联机尚未开放。</small>
+        <small>规则引擎已完成，支持单机与好友联机。武将与装备仍在持续补充。</small>
       </div>
       <nav aria-label="三国杀模式">
         <button type="button" class="sgs-home__main" @click="screen = 'setup'"><b>单机游戏</b><span>与电脑对战</span></button>
-        <button type="button" disabled><b>联机游戏</b><span>开发中</span></button>
+        <button type="button" @click="screen = 'online'"><b>联机游戏</b><span>创建或加入房间</span></button>
         <button type="button" @click="screen = 'rules'"><b>规则</b><span>玩法与武将</span></button>
       </nav>
     </section>

@@ -116,6 +116,16 @@ test('规则页的技能说明来自武将数据', async ({ page }) => {
   await expectNoPageScroll(page)
 })
 
+test('联机大厅入口在手机上一屏可操作', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: /联机游戏/ }).click()
+  await expect(page.getByRole('heading', { name: '先取一个昵称' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '昵称' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '进入大厅' })).toBeVisible()
+  await expectNoPageScroll(page)
+})
+
 test('战报由引擎事件生成，且不含别人的手牌牌名', async ({ page }) => {
   await page.setViewportSize(LANDSCAPE)
   await enterTable(page)

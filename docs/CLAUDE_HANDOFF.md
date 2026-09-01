@@ -1,6 +1,6 @@
 # 交接说明：CRPlay + 三国杀
 
-更新时间：2026-09-01，由 Claude 交接给 codex。
+更新时间：2026-09-01，codex 在 Claude 基线上继续更新。
 
 > 这份文件替换了 2026-08-31 那版。旧版里「武将完成度 0/25」「AI 未实现」
 > 「单机 Vue 牌桌未实现」等描述都已经过期，不要再按那些结论行动。
@@ -17,8 +17,8 @@
 
 - 仓库：`https://github.com/chenrang418-glitch/ai-red-mahjong.git`
 - `origin/main` = `17158c9`（`feat(sanguosha): 主公技代打机制 + 刘备/孙权，曹操补上护驾`），CI 全绿，已部署。
-- `feature/sanguosha` 比 `main` 多**一个未部署的提交**：联机房间核心。
-  纯新增文件，没有任何地方 import 它，不影响线上行为。
+- `feature/sanguosha` 的提交基线是 `d76222c`，比 `main` 多一个未部署提交。
+- codex 在该提交之上继续完成联机接线，当前是**未提交工作树**；不要 reset/clean，也不要直接切分支。
 - 部署方式：
 
   ```
@@ -30,8 +30,8 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npx vitest run` | 41 文件 / **383 用例** |
-| `npx playwright test` | **37 通过**（Chromium 33 + WebKit 4） |
+| `npx vitest run` | 43 文件 / **390 用例** |
+| `npx playwright test` | **38 通过**（Chromium 34 + WebKit 4） |
 | `npm run sanguosha:soak 150` | 5 人局与 8 人局各 150 局全部完成 |
 | `npm run typecheck` / `npm run typecheck:online` | 通过 |
 | `npm run build` / `npm run build:online` | 通过 |
@@ -78,29 +78,26 @@
 5 人局主公胜率 12% → 40%，反贼 85% → 44%。
 **没有任何一处读隐藏身份**，`tests/sanguosha-ai-belief.test.ts` 专门守着这条。
 
-## 联机：房间核心已完成，尚未接线
+## 联机：主链路已接线，尚未部署
 
-`server/sanguosha-room-core.ts` + `tests/sanguosha-room-core.test.ts`（15 用例全过）。
+`server/sanguosha-room-core.ts` + `tests/sanguosha-room-core.test.ts`（16 用例全过）。
 
 已实现：座位管理、大厅准备/加电脑、开局、选将、指令处理
 （respond / act / advance / chat / trustee / next-round / leave）、
 按玩家过滤的视图与战报、超时由 AI 代打、掉线转托管、重连取消托管、
 可序列化定时任务 + 局面指纹（`stageKey`）防止超时误伤新局面、下一局。
 
-### 接下来要接的线
+已完成 Worker DO、`SGS_ROOMS`/v3、`/api/sanguosha/rooms*`、D1 `0006` 公开目录、
+运行时指令校验、`actionId + baseSeq` 去重/防陈旧、Vue 联机大厅与牌桌、断线重连入口。
+`tests/sanguosha-worker.test.ts` 通过真实 Miniflare 覆盖创建/列表/动作/重连。
 
-1. **Worker**：`server/worker.ts` 里加 `SanguoshaRoom` Durable Object，套用 `MahjongRoom` 的写法：
-   `blockConcurrencyWhile` 恢复、`acceptWebSocket`、`webSocketMessage` / `webSocketClose`、
-   `setWebSocketAutoResponse` 的 ping/pong、`alarm()` 驱动 `runDueJobs` + `nextAlarmAt`。
-2. **wrangler**：`server/wrangler.jsonc` 加 binding `SGS_ROOMS`，migrations **追加**
-   `{ "tag": "v3", "new_sqlite_classes": ["SanguoshaRoom"] }`——**绝不能修改历史 tag**。
-3. **路由**：`/api/sanguosha/rooms`（建/列）、`/api/sanguosha/rooms/:code/socket`。
-   注意保留麻将现有的 `/?room=ABC234` 分享链接和 `/#admin`。
-4. **指令运行时校验**：照 `server/command-parser.ts` 给 `SgsRoomCommand` 写一份。
-   编译期类型对客户端没有任何约束力。
-5. **前端**：`useOnlineSanguosha` 复用现成的 `SgsTable` / `SgsRequestDock`，
-   把 `SanguoshaApp.vue` 的「联机游戏 · 开发中」换成真入口，
-   同步改 `src/portal/gameManifest.ts` 的状态文案和 E2E 里对应的断言。
+### 下一步
+
+1. 用本地 Worker + 两个真实浏览器完成 5 人真人/AI 混合长局，重点点完选将、请求 UI、断线恢复、结束和再来一局。
+2. 增加联机超时、托管接管、game-over/rematch 的 Worker 集成测试；当前核心单测有覆盖，但浏览器链路还不完整。
+3. 继续剩余 7 将与 5 件装备，不要把未完整角色登记进武将包。
+4. 更新管理员房间页，使其能区分/管理三国杀房间（当前麻将管理接口未改）。
+5. 未经用户明确同意，不要 commit、push、应用远端 migration 或部署。
 
 ## 之后的优先级
 
@@ -120,7 +117,7 @@
 ## 已知简化（都在代码注释里标明了，不是遗漏）
 
 - 借刀杀人的【杀】没有走完整的杀结算管线。
-- 铁索连环缺「改为摸两张牌」的替代用法。
+- 铁索连环缺「重铸并摸一张牌」的替代用法。
 - **8 人局反贼胜率仍有 74%~79%。这是结构性的**：主公技只有 3 个武将有，
   武将池补齐之前靠调 AI 权重拉不动，不要在权重上浪费时间。
 - 遗计的 `distribute-cards` 界面分支只有引擎层单测，没在真实浏览器里点过

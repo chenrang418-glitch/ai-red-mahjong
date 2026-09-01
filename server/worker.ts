@@ -1,9 +1,16 @@
 /// <reference types="@cloudflare/workers-types" />
 import { InvalidRoomCommandError, parseRoomCommand } from './command-parser'
+import { InvalidSgsWireCommandError, parseSgsRoomCommand } from './sanguosha-command-parser'
 import { SESSION_MAX_AGE_SECONDS, resolveStoredSession } from './session-policy'
 
 import { RoomCoordinator } from './room-core'
 import type { RoomUser, StoredRoomState } from './room-core'
+import {
+  SanguoshaRoomCoordinator,
+  normalizeSettings as normalizeSgsSettings,
+  type SgsRoomSettings,
+  type StoredSgsRoomState,
+} from './sanguosha-room-core'
 import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE } from '../src/online/types'
 import type {
   OnlineRoomDirectoryEntry,
@@ -15,6 +22,7 @@ import type {
 interface Env {
   ROOMS: DurableObjectNamespace
   LOBBY: DurableObjectNamespace
+  SGS_ROOMS: DurableObjectNamespace
   DB: D1Database
   // 通过 wrangler secret 单独配置。没配置时管理接口整体不存在。
   ADMIN_TOKEN?: string
@@ -518,6 +526,86 @@ async function roomSocket(request: Request, env: Env, code: string): Promise<Res
   return stub.fetch('https://room.internal/socket', { headers })
 }
 
+interface SgsDirectoryPlayer {
+  nickname: string
+  connected: boolean
+  isHost: boolean
+  kind: 'human' | 'ai'
+  trustee: boolean
+}
+
+async function listSgsRooms(request: Request, env: Env): Promise<Response> {
+  const user = await readSession(request, env)
+  const result = await env.DB.prepare(`
+    SELECT code, phase, host_nickname, players_json, occupied_seats, player_count, settings_json, updated_at
+    FROM sanguosha_room_directory
+    ORDER BY CASE phase WHEN 'lobby' THEN 0 WHEN 'playing' THEN 1 ELSE 2 END, updated_at DESC
+    LIMIT 40
+  `).all<{
+    code: string
+    phase: 'lobby' | 'playing' | 'finished'
+    host_nickname: string
+    players_json: string
+    occupied_seats: number
+    player_count: number
+    settings_json: string
+    updated_at: number
+  }>()
+  const rooms = (result.results ?? []).map((row) => {
+    let players: SgsDirectoryPlayer[] = []
+    let settings = normalizeSgsSettings({ playerCount: row.player_count })
+    try {
+      const parsed = JSON.parse(row.players_json)
+      if (Array.isArray(parsed)) players = parsed as SgsDirectoryPlayer[]
+    } catch { players = [] }
+    try { settings = normalizeSgsSettings(JSON.parse(row.settings_json) as Partial<SgsRoomSettings>) } catch { /* 使用表中的人数兜底 */ }
+    const rejoinable = players.some((player) => player.kind === 'human' && player.nickname === user.nickname)
+    return {
+      code: row.code,
+      phase: row.phase,
+      hostNickname: row.host_nickname,
+      players,
+      occupiedSeats: row.occupied_seats,
+      availableSeats: Math.max(0, row.player_count - row.occupied_seats),
+      settings,
+      rejoinable,
+      joinable: rejoinable || (row.phase === 'lobby' && row.occupied_seats < row.player_count),
+      updatedAt: row.updated_at,
+    }
+  })
+  return json({ rooms })
+}
+
+async function createSgsRoom(request: Request, env: Env): Promise<Response> {
+  const user = await readSession(request, env)
+  const body = await request.json<{ settings?: Partial<SgsRoomSettings> }>()
+  const server = await readServerSettings(env)
+  if (server.maintenance) return json({ error: server.maintenanceMessage, maintenance: true }, 503)
+  const settings = normalizeSgsSettings(body.settings)
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = roomCode()
+    const stub = env.SGS_ROOMS.get(env.SGS_ROOMS.idFromName(code))
+    const response = await stub.fetch('https://sgs-room.internal/create', {
+      method: 'POST',
+      body: JSON.stringify({ code, user: { userId: user.userId, nickname: user.nickname }, settings }),
+    })
+    if (response.status === 201) return json({ code }, 201)
+    if (response.status !== 409) return response
+  }
+  throw new Error('房间号生成失败，请重试')
+}
+
+async function sgsRoomSocket(request: Request, env: Env, code: string): Promise<Response> {
+  let user: RoomUser
+  try { user = await readSession(request, env) } catch { return rejectSocket('登录状态已失效，请重新输入昵称', SESSION_SUPERSEDED_CODE) }
+  if (request.headers.has('origin') && !allowedCorsOrigin(request)) return rejectSocket('请求来源不受信任')
+  const headers = new Headers(request.headers)
+  headers.set('x-user-id', user.userId)
+  headers.set('x-user-nickname', encodeURIComponent(user.nickname))
+  const stub = env.SGS_ROOMS.get(env.SGS_ROOMS.idFromName(code))
+  return stub.fetch('https://sgs-room.internal/socket', { headers })
+}
+
 async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'OPTIONS') return json(null, 204)
   const url = new URL(request.url)
@@ -534,6 +622,10 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET' && url.pathname === '/api/rooms') return listRooms(request, env)
   if (request.method === 'POST' && url.pathname === '/api/rooms') return createRoom(request, env)
   if (request.method === 'GET' && url.pathname === '/api/lobby/socket') return lobbySocket(request, env)
+  if (request.method === 'GET' && url.pathname === '/api/sanguosha/rooms') return listSgsRooms(request, env)
+  if (request.method === 'POST' && url.pathname === '/api/sanguosha/rooms') return createSgsRoom(request, env)
+  const sgsSocketMatch = url.pathname.match(/^\/api\/sanguosha\/rooms\/([A-Z0-9]{6})\/socket$/)
+  if (request.method === 'GET' && sgsSocketMatch) return sgsRoomSocket(request, env, sgsSocketMatch[1])
   const socketMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{6})\/socket$/)
   if (request.method === 'GET' && socketMatch) return roomSocket(request, env, socketMatch[1])
   return json({ error: '接口不存在' }, 404)
@@ -855,6 +947,241 @@ export class MahjongRoom {
   }
 
   private send(socket: WebSocket, message: RoomServerMessage): void {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+  }
+}
+
+export class SanguoshaRoom {
+  private coordinator: SanguoshaRoomCoordinator | null = null
+  private readonly ready: Promise<void>
+  private readonly chatRate = new Map<string, number[]>()
+
+  constructor(private readonly state: DurableObjectState, private readonly env: Env) {
+    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+    this.ready = state.blockConcurrencyWhile(async () => {
+      const stored = await state.storage.get<StoredSgsRoomState>('room')
+      if (stored) this.coordinator = new SanguoshaRoomCoordinator(stored)
+    })
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    await this.ready
+    if (this.coordinator?.isStale() || this.coordinator?.shouldDeleteRoom()) await this.deleteRoom()
+    const url = new URL(request.url)
+    if (url.pathname === '/create' && request.method === 'POST') {
+      if (this.coordinator) return json({ error: '房间号已存在' }, 409)
+      const body = await request.json<{ code: string; user: RoomUser; settings: SgsRoomSettings }>()
+      this.coordinator = SanguoshaRoomCoordinator.create(body.code, body.user, normalizeSgsSettings(body.settings))
+      await this.persist()
+      await this.syncRoomDirectory()
+      return json({ code: body.code }, 201)
+    }
+    if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const userId = request.headers.get('x-user-id') ?? ''
+      const encodedNickname = request.headers.get('x-user-nickname') ?? ''
+      const user: RoomUser = { userId, nickname: normalizeNickname(decodeURIComponent(encodedNickname)) }
+      const rejection = !this.coordinator ? '房间不存在或已经关闭' : this.tryConnect(user)
+      if (rejection) return rejectSocket(rejection)
+      const pair = new WebSocketPair()
+      const [client, server] = Object.values(pair)
+      server.serializeAttachment({ ...user } satisfies SocketAttachment)
+      this.state.acceptWebSocket(server, [`user:${user.userId}`])
+      await this.persist()
+      this.state.waitUntil(this.syncRoomDirectory())
+      this.broadcastState()
+      return new Response(null, { status: 101, webSocket: client })
+    }
+    return json({ error: '房间接口不存在' }, 404)
+  }
+
+  async webSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    await this.ready
+    if (!this.coordinator) return
+    const user = socket.deserializeAttachment() as SocketAttachment | null
+    if (!user) return this.send(socket, { type: 'error', message: '连接身份无效' })
+    try {
+      const byteLength = typeof raw === 'string' ? new TextEncoder().encode(raw).byteLength : raw.byteLength
+      if (byteLength > 64 * 1024) throw new InvalidSgsWireCommandError()
+      const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
+      if (text === 'ping') {
+        socket.send('pong')
+        return
+      }
+      const payload = JSON.parse(text) as unknown
+      if (isRecord(payload) && payload.type === 'ping') {
+        this.send(socket, { type: 'pong', at: Date.now() })
+        return
+      }
+      const parsed = parseSgsRoomCommand(payload)
+      if (parsed.type === 'chat') this.assertChatRate(user.userId)
+      if (parsed.type === 'leave-room') socket.serializeAttachment({ ...user, leaving: true })
+      const chat = this.coordinator.handle(user.userId, parsed)
+      if (this.coordinator.shouldDeleteRoom()) {
+        await this.deleteRoom()
+        return
+      }
+      await this.persist()
+      this.state.waitUntil(this.syncRoomDirectory())
+      if (chat) this.broadcast({ type: 'chat', message: chat })
+      else this.broadcastState()
+      if (parsed.type === 'leave-room') socket.close(1000, 'left room')
+    } catch (cause) {
+      this.send(socket, { type: 'error', message: cause instanceof Error ? cause.message : String(cause) })
+      // 格式错误不附送昂贵快照；业务拒绝则回当前权威状态，供客户端同步 baseSeq。
+      if (!(cause instanceof InvalidSgsWireCommandError)) this.sendState(socket, user.userId)
+    }
+  }
+
+  async webSocketClose(socket: WebSocket): Promise<void> {
+    await this.ready
+    if (!this.coordinator) return
+    const user = socket.deserializeAttachment() as SocketAttachment | null
+    if (!user || user.leaving) return
+    const remaining = this.state.getWebSockets(`user:${user.userId}`)
+      .filter((candidate) => candidate !== socket && candidate.readyState === WebSocket.OPEN)
+    if (remaining.length === 0) this.coordinator.disconnect(user.userId)
+    if (this.coordinator.shouldDeleteRoom()) {
+      await this.deleteRoom()
+      return
+    }
+    await this.persist()
+    this.state.waitUntil(this.syncRoomDirectory())
+    this.broadcastState()
+  }
+
+  async alarm(): Promise<void> {
+    await this.ready
+    if (!this.coordinator) return
+    try {
+      const changed = this.coordinator.runDueJobs()
+      if (this.coordinator.shouldDeleteRoom() || this.coordinator.isStale()) {
+        await this.deleteRoom()
+        return
+      }
+      await this.persist()
+      if (changed) {
+        this.state.waitUntil(this.syncRoomDirectory())
+        this.broadcastState()
+      }
+    } catch (cause) {
+      console.error('三国杀房间定时唤醒失败', cause)
+      await this.persist()
+    }
+  }
+
+  private tryConnect(user: RoomUser): string | null {
+    try {
+      this.coordinator!.connect(user)
+      return null
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause)
+    }
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.coordinator) return
+    await this.state.storage.put('room', this.coordinator.snapshot())
+    // 没有玩家操作等待时也保留一次回收 alarm；否则 finished/空闲 lobby 永远不会再醒，
+    // `isStale()` 只能在下一次外部请求时才有机会运行。
+    const alarmAt = this.coordinator.nextAlarmAt() ?? (this.coordinator.state.updatedAt + 6 * 60 * 60_000)
+    await this.state.storage.setAlarm(Math.max(Date.now() + 1_000, alarmAt))
+  }
+
+  private async syncRoomDirectory(): Promise<void> {
+    if (!this.coordinator) return
+    try {
+      const room = this.coordinator.state
+      const humanSeats = room.seats.filter((seat) => seat.kind === 'human' && seat.userId)
+      const host = humanSeats.find((seat) => seat.userId === room.hostUserId)
+      if (!host) {
+        await this.env.DB.prepare('DELETE FROM sanguosha_room_directory WHERE code = ?').bind(room.code).run()
+        await this.notifyLobbyDirectory()
+        return
+      }
+      const players: SgsDirectoryPlayer[] = room.seats
+        .filter((seat) => seat.kind !== 'empty')
+        .map((seat) => ({
+          nickname: seat.name,
+          connected: seat.connected,
+          isHost: seat.userId === room.hostUserId,
+          kind: seat.kind === 'ai' ? 'ai' : 'human',
+          trustee: seat.trustee,
+        }))
+      const phase = !room.game ? 'lobby' : room.game.status === 'game-over' ? 'finished' : 'playing'
+      await this.env.DB.prepare(`
+        INSERT INTO sanguosha_room_directory
+          (code, phase, host_nickname, players_json, occupied_seats, player_count, settings_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET
+          phase = excluded.phase,
+          host_nickname = excluded.host_nickname,
+          players_json = excluded.players_json,
+          occupied_seats = excluded.occupied_seats,
+          player_count = excluded.player_count,
+          settings_json = excluded.settings_json,
+          updated_at = excluded.updated_at
+      `).bind(
+        room.code,
+        phase,
+        host.name,
+        JSON.stringify(players),
+        players.length,
+        room.settings.playerCount,
+        JSON.stringify(room.settings),
+        Date.now(),
+      ).run()
+      await this.notifyLobbyDirectory()
+    } catch (cause) {
+      // 目录只是可发现性索引，写失败不能终止权威房间本身。
+      console.error('同步三国杀房间列表失败', cause)
+    }
+  }
+
+  private async deleteRoom(): Promise<void> {
+    if (!this.coordinator) return
+    const code = this.coordinator.state.code
+    this.coordinator = null
+    await this.state.storage.deleteAll()
+    await this.state.storage.deleteAlarm()
+    try {
+      await this.env.DB.prepare('DELETE FROM sanguosha_room_directory WHERE code = ?').bind(code).run()
+      await this.notifyLobbyDirectory()
+    } catch (cause) {
+      console.error('移除三国杀房间失败', cause)
+    }
+    for (const socket of this.state.getWebSockets()) socket.close(1000, 'room deleted')
+  }
+
+  private async notifyLobbyDirectory(): Promise<void> {
+    await lobbyStub(this.env).fetch('https://lobby.internal/notify', { method: 'POST' })
+  }
+
+  private assertChatRate(userId: string): void {
+    const now = Date.now()
+    const recent = (this.chatRate.get(userId) ?? []).filter((timestamp) => now - timestamp < 10_000)
+    if (recent.length >= 5) throw new Error('发送太快了，请稍后再试')
+    recent.push(now)
+    this.chatRate.set(userId, recent)
+  }
+
+  private broadcastState(): void {
+    if (!this.coordinator) return
+    for (const socket of this.state.getWebSockets()) {
+      const user = socket.deserializeAttachment() as SocketAttachment | null
+      if (user && !user.leaving) this.sendState(socket, user.userId)
+    }
+  }
+
+  private sendState(socket: WebSocket, userId: string): void {
+    if (!this.coordinator || socket.readyState !== WebSocket.OPEN) return
+    this.send(socket, { type: 'room-state', room: this.coordinator.view(userId) })
+  }
+
+  private broadcast(message: unknown): void {
+    for (const socket of this.state.getWebSockets()) this.send(socket, message)
+  }
+
+  private send(socket: WebSocket, message: unknown): void {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
   }
 }
