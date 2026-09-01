@@ -50,3 +50,8 @@ app-icon.png
 
 # 本机预览用的启动配置，不进仓库
 .claude/
+
+# 立绘素材目录：只放用户提供的合法素材。
+# 保留 .gitkeep 让目录存在；具体图片按需提交，工具脚本一律不进仓库。
+.portrait-*.local.mjs
+.lum-check.local.mjs

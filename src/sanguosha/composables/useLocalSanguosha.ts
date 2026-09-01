@@ -9,6 +9,7 @@ import { emptySuspicion, observeEvent, type SuspicionMap } from '../ai/belief'
 import { describeEvent } from '../engine/log'
 import type { GameEventName } from '../engine/events'
 import { buildPresentationEvent, type PresentationEvent } from '../engine/presentation'
+import { getCharacter } from '../data/characters/standard'
 
 /** 会写进战报的事件。只挑对玩家有意义的，避免把每一次内部时机都刷上去。 */
 const LOGGED_EVENTS: readonly GameEventName[] = [
@@ -195,9 +196,37 @@ export function useLocalSanguosha() {
       created.events.on(name, (context) => { observeEvent(suspicion, created.viewFor(HUMAN_ID), context.event) })
     }
     created.dealGenerals()
+    applyDevLineup(created)
     refresh()
     pushLog(`牌局开始，${options.playerCount} 人身份局`)
     advanceUntilHuman(generation)
+  }
+
+  /**
+   * 开发环境专用：用 `?lineup=caocao,lvbu,…` 指定整桌武将。
+   *
+   * 立绘、座位布局这类 UI 要对着**特定几个武将**看效果，而正常开局是随机发候选，
+   * 靠反复重开去凑齐指定阵容不现实。这里只改 `characterId` 并把选将请求消掉，
+   * 不碰引擎规则、PlayerView 和联机协议；`import.meta.env.DEV` 保证它不进生产构建。
+   */
+  function applyDevLineup(created: SanguoshaGame): void {
+    if (!import.meta.env.DEV) return
+    const raw = new URLSearchParams(window.location.search).get('lineup')
+    if (!raw) return
+    const wanted = raw.split(',').map((id) => id.trim()).filter(Boolean)
+    created.state.players.forEach((player, index) => {
+      const characterId = wanted[index]
+      if (!characterId) return
+      const character = getCharacter(characterId)
+      if (!character) return
+      player.characterId = characterId
+      player.maxHp = character.maxHp + (player.identity === 'lord' ? 1 : 0)
+      player.hp = player.maxHp
+      // 技能触发器在构造时已按事件全局注册，运行时按当前 characterId 查表，
+      // 这里换将不需要重新注册
+    })
+    created.state.pendingRequests = created.state.pendingRequests.filter((request) => request.kind !== 'choose-general')
+    if (!created.state.pendingRequests.length && created.state.status === 'choosing-general') created.start()
   }
 
   /** 真人提交一次响应。 */
