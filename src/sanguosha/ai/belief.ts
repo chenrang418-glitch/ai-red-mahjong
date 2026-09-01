@@ -168,8 +168,10 @@ export function hostility(view: PlayerView, suspicion: SuspicionMap, targetId: P
       // 内奸要留主公到最后单挑，人少了才动手
       if (targetId === lord) return aliveCount <= 2 ? 20 : PROTECTED
       const lordPlayer = view.players.find((player) => player.id === lord)
-      // 主公快撑不住时反过来打反贼：内奸要的是最后单挑，不是让反贼提前赢
-      if (lordPlayer && lordPlayer.alive && lordPlayer.hp <= 2) return score > 0 ? 14 : -2
+      // 反贼人多的时候内奸也输不起：先帮着压反贼，别让他们提前赢。
+      // 判断只用公开信息——存活人数和主公体力，不碰隐藏身份。
+      const lordInDanger = !!lordPlayer?.alive && (lordPlayer.hp <= 2 || aliveCount > 5)
+      if (lordInDanger) return score > 0 ? 14 : -2
       return 8
     }
 
