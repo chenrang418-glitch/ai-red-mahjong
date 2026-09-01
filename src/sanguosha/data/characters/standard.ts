@@ -95,6 +95,67 @@ registerSkillRuntime({
 
 const DELAYED_TRICK_NAMES = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
+
+// —— 甘宁【奇袭】——
+registerSkillRuntime({
+  id: 'qixi',
+  viewAs(state, ownerId): ViewAsOption[] {
+    const owner = playerOf(state, ownerId)
+    const options: ViewAsOption[] = []
+    for (const cardId of owner.zones.hand) {
+      const card = state.cards[cardId]
+      if (!card || card.color !== 'black' || card.name === '过河拆桥') continue
+      options.push({ asCardName: '过河拆桥', cardId, label: `将【${card.name}】当【过河拆桥】使用` })
+    }
+    return options
+  },
+})
+
+// —— 黄盖【苦肉】——
+registerSkillRuntime({
+  id: 'kurou',
+  activeActions(state, ownerId) {
+    const owner = playerOf(state, ownerId)
+    // 体力只剩一点时发动会直接进濒死，规则允许，但 AI 不该主动送——交给 AI 评估
+    if (!owner.alive || owner.hp <= 0) return []
+    return [{ id: 'skill:kurou', label: '发动【苦肉】：失去一点体力，摸两张牌' }]
+  },
+  invokeActive(host, ownerId, actionId) {
+    if (actionId !== 'skill:kurou') throw new Error('苦肉动作不匹配')
+    // 走统一伤害入口的「失去体力」不同：苦肉是失去体力，不是受到伤害，
+    // 所以不触发伤害时机，但仍然可能进入濒死。
+    const owner = playerOf(host.state, ownerId)
+    owner.hp -= 1
+    host.dispatch('LoseHp', { playerId: ownerId, amount: 1, reason: '苦肉' }, { targetId: ownerId })
+    for (let index = 0; index < 2; index += 1) {
+      const drawn = host.state.zones.drawPile.shift()
+      if (!drawn) break
+      owner.zones.hand.push(drawn)
+      host.dispatch('GainCard', { cardId: drawn, reason: '苦肉' }, { targetId: ownerId, cardIds: [drawn] })
+    }
+  },
+})
+
+// —— 孙尚香【枭姬】——
+registerSkillRuntime({
+  id: 'xiaoji',
+  triggers: [{
+    event: 'LoseEquipment',
+    handle(host, ownerId, context) {
+      const payload = context.event.payload as { playerId?: string }
+      if (payload.playerId !== ownerId) return
+      const owner = host.state.players.find((candidate) => candidate.id === ownerId)
+      if (!owner?.alive) return
+      for (let index = 0; index < 2; index += 1) {
+        const drawn = host.state.zones.drawPile.shift()
+        if (!drawn) break
+        owner.zones.hand.push(drawn)
+        host.dispatch('GainCard', { cardId: drawn, reason: '枭姬' }, { targetId: ownerId, cardIds: [drawn] })
+      }
+    },
+  }],
+})
+
 /** 需要打出【闪】时，哪些手牌可以转化成【闪】。 */
 export function dodgeViewAsOptions(state: SanguoshaState, playerId: PlayerId): ViewAsOption[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
@@ -151,6 +212,33 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
       { id: 'jizhi', name: '集智', description: '每当你使用一张非延时类锦囊牌时，你可以摸一张牌。' },
       { id: 'qicai', name: '奇才', description: '锁定技，你使用锦囊牌无距离限制。' },
     ],
+  },
+  {
+    id: 'ganning',
+    name: '甘宁',
+    kingdom: 'wu',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'standard',
+    skills: [{ id: 'qixi', name: '奇袭', description: '你可以将一张黑色牌当【过河拆桥】使用。' }],
+  },
+  {
+    id: 'huanggai',
+    name: '黄盖',
+    kingdom: 'wu',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'standard',
+    skills: [{ id: 'kurou', name: '苦肉', description: '出牌阶段，你可以失去一点体力，然后摸两张牌。' }],
+  },
+  {
+    id: 'sunshangxiang',
+    name: '孙尚香',
+    kingdom: 'wu',
+    gender: 'female',
+    maxHp: 3,
+    pack: 'standard',
+    skills: [{ id: 'xiaoji', name: '枭姬', description: '每当你失去一张装备区里的牌时，你可以摸两张牌。' }],
   },
   {
     id: 'zhaoyun',

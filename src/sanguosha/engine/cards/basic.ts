@@ -43,6 +43,13 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   if (!source.alive) return []
   const actions: LegalAction[] = [{ id: 'play:pass', kind: 'pass', playerId, label: '结束出牌', requestId: `play-${state.turnNumber}` }]
 
+  // 主动技（苦肉等）：技能自己报告现在能不能发动，前端不猜
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    for (const option of runtime.activeActions?.(state, playerId) ?? []) {
+      actions.push({ id: option.id, kind: 'invoke-skill', playerId, label: option.label, skillId: runtime.id, cardIds: [], targetIds: [] })
+    }
+  }
+
   // 转化技（武圣、龙胆）：把「这张红牌当杀打某人」作为独立动作发出去。
   // 不能让前端自己猜牌的用途——同一张红牌既可以原样用，也可以当杀，
   // 必须两条动作都在，玩家才选得到用途。
@@ -156,6 +163,12 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
   recordPlayDecision(host, playerId, actionId)
   if (action.kind === 'pass') {
     advanceGamePhase(host)
+    return
+  }
+  if (action.kind === 'invoke-skill') {
+    const runtime = skillsOf(host.state, playerId, skillIdsOf).find((candidate) => candidate.id === action.skillId)
+    if (!runtime?.invokeActive) throw new Error('技能不可发动')
+    runtime.invokeActive(host, playerId, action.id)
     return
   }
   if (action.kind !== 'use-card') throw new Error('当前不是可执行的出牌动作')

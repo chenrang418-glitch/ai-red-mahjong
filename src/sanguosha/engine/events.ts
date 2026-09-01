@@ -5,7 +5,9 @@ export type GameEventName =
   | 'JudgePhase' | 'DrawPhase' | 'PlayPhase' | 'DiscardPhase'
   | 'BeforeCardUse' | 'CardUsed' | 'TargetSpecified' | 'TargetConfirmed' | 'CardResolved' | 'AfterCardUse'
   | 'CardResponded' | 'BeforeDamage' | 'DamageCaused' | 'DamageInflicted' | 'Damaged' | 'AfterDamage'
-  | 'Recover' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'
+  | 'Recover'
+  | 'LoseHp'
+  | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'
   | 'CardMove' | 'LoseCard' | 'GainCard' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
 
 export interface GameEvent<TPayload = Record<string, unknown>> {

@@ -368,6 +368,12 @@ function askRespondCard(
 
 function askPickCard(host: CardEngineHost, resolution: TrickResolutionState, targetId: PlayerId, mode: 'discard' | 'steal'): void {
   const { visible, hidden } = stealableSlots(host.state, targetId)
+  // 生成动作时目标身上是有牌的，但问无懈那一轮里他可能把最后一张牌当【无懈可击】打了出去。
+  // 这时效果自然落空，不能发一个「从零张牌里选一张」的请求——那是个必然非法的 Request。
+  if (visible.length + hidden.length === 0) {
+    advanceToNextTarget(host)
+    return
+  }
   const target = playerOf(host.state, targetId)
   const request: ChooseCardsRequest = {
     id: `request-pick-${host.state.seq}-${host.state.decisions.length}`,

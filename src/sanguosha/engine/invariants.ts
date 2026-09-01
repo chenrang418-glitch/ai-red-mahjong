@@ -52,13 +52,23 @@ export function assertGameInvariants(state: SanguoshaState): void {
   if (state.turnUsage.slashUses < 0 || state.turnUsage.wineUses < 0 || state.turnUsage.wineDamageBonus < 0) throw new Error('回合用牌计数非法')
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')
-    if (state.cardResolution.stage === 'awaiting-dodge' || state.cardResolution.stage === 'awaiting-nullification') {
+    const stage = state.cardResolution.stage
+    if (stage === 'awaiting-dodge' || stage === 'awaiting-nullification') {
       if (!state.cardResolution.requestId || !state.pendingRequests.some((request) => request.id === state.cardResolution!.requestId && request.kind === 'respond-card')) {
         throw new Error('卡牌结算缺少响应 Request')
       }
-    } else if (state.cardResolution.requestId) throw new Error('等待濒死结算时不应保留卡牌响应 Request')
-  } else if (state.pendingRequests.some((request) => request.kind === 'respond-card')) {
-    throw new Error('存在卡牌响应 Request 但没有结算状态')
+    } else if (stage === 'awaiting-dying' && state.cardResolution.requestId) {
+      throw new Error('等待濒死结算时不应保留卡牌响应 Request')
+    }
+    // awaiting-effect 期间可以挂着请求（南蛮要杀、决斗轮流出杀、拆桥选牌），
+    // 也可以没有请求（伤害刚结算完、正等着推进下一个目标），两种都合法。
+  } else {
+    // 判定阶段的无懈请求挂在 state.judgment 上，不属于 cardResolution，要排除掉。
+    // JudgmentState 是联合类型，只有等待无懈那一支才有 requestId。
+    const judgmentRequestId = state.judgment?.stage === 'awaiting-nullification' ? state.judgment.requestId : null
+    if (state.pendingRequests.some((request) => request.kind === 'respond-card' && request.id !== judgmentRequestId)) {
+      throw new Error('存在卡牌响应 Request 但没有结算状态')
+    }
   }
 
   if (state.status === 'game-over' && (!state.result || state.pendingRequests.length > 0)) throw new Error('结束状态缺少结果或仍有 Request')

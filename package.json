@@ -23,6 +23,7 @@
     "test": "vitest --configLoader runner",
     "test:run": "vite build --config server/vite.config.ts --configLoader runner && vitest run --configLoader runner",
     "test:sanguosha": "vitest run sanguosha --configLoader runner",
+    "sanguosha:soak": "vite-node scripts/sanguosha-soak.mjs --",
     "test:e2e": "playwright test",
     "test:online": "npm run test:online:smoke",
     "test:online:smoke": "vite build --config server/vite.config.ts --configLoader runner && node scripts/online-smoke.mjs",

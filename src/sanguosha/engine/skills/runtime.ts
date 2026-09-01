@@ -56,6 +56,13 @@ export interface SkillRuntime {
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
   /**
+   * 主动技：出牌阶段能发动的技能，直接产出 LegalAction。
+   * 和转化技一样，不能让前端自己猜「现在能不能发动」。
+   */
+  activeActions?(state: SanguoshaState, ownerId: PlayerId): Array<{ id: string; label: string }>
+  /** 主动技的执行。id 是 activeActions 给出的那一个。 */
+  invokeActive?(host: SkillHost, ownerId: PlayerId, actionId: string): void
+  /**
    * 转化技：把手牌当成别的牌用。
    * 返回这名玩家当前能做的所有转化，引擎据此生成 LegalAction。
    */

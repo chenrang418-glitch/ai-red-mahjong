@@ -34,8 +34,13 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
   if (state.status !== 'playing') throw new Error('牌局尚未进入进行状态')
   if (state.pendingRequests.length > 0) throw new Error('仍有待处理 Request，不能推进阶段')
   emit('PhaseEnd', { playerId: state.currentPlayerId, phase: state.phase })
+
+  // 回合角色在自己回合里死掉（自己的闪电劈到自己、决斗输了、被反伤……）时，
+  // 剩下的阶段不能继续跑——那会让摸牌、出牌、弃牌发生在一个死人身上。
+  // 直接收束这一回合，交给下一名存活角色。
+  const current = state.players.find((player) => player.id === state.currentPlayerId)
   const currentIndex = TURN_PHASES.indexOf(state.phase)
-  if (currentIndex < TURN_PHASES.length - 1) {
+  if (current?.alive && currentIndex < TURN_PHASES.length - 1) {
     let nextIndex = currentIndex + 1
     while (nextIndex < TURN_PHASES.length && state.skippedPhases.includes(TURN_PHASES[nextIndex])) nextIndex += 1
     if (nextIndex < TURN_PHASES.length) {

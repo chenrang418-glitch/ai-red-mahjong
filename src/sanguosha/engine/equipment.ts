@@ -108,6 +108,8 @@ export function hasUnlimitedSlash(state: SanguoshaState, playerId: PlayerId): bo
  * 必须在牌真正移出装备槽之后调用——被替换、被拆、被顺走都算「失去」。
  */
 export function handleEquipmentLost(host: EquipmentHost, playerId: PlayerId, cardId: string): void {
+  // 先广播「失去了一张装备」，孙尚香【枭姬】这类技能挂在这个时机上
+  host.dispatch('LoseEquipment', { playerId, cardId }, { targetId: playerId, cardIds: [cardId] })
   if (host.state.cards[cardId]?.name !== '白银狮子') return
   const owner = playerOf(host.state, playerId)
   if (!owner.alive || owner.hp >= owner.maxHp) return
