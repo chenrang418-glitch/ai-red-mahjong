@@ -144,3 +144,14 @@ test('战报由引擎事件生成，且不含别人的手牌牌名', async ({ pa
   expect(text).not.toMatch(/电脑\d 获得【/)
   await expectNoPageScroll(page)
 })
+
+test('带房间号的链接直接进联机界面，而不是回首页', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  // 刷新页面之后掉回首页曾经是个真 bug：房间号只存在 localStorage，没写进 URL，
+  // 于是后台还连着房间，用户却看到首页。这里守的是「链接自己就能定位到联机界面」。
+  await page.goto('/?game=sanguosha&room=ABC234')
+  await expect(page.getByText('联机身份局')).toBeVisible()
+  // 不该出现单机首页的入口
+  await expect(page.getByRole('button', { name: /单机游戏/ })).toHaveCount(0)
+  await expectNoPageScroll(page)
+})

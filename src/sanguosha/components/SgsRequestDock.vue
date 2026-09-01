@@ -254,13 +254,16 @@ function nicknameOf(playerId: string): string {
 
     <!-- 排列牌堆：观星类，上下两栏都要能放 -->
     <template v-else-if="request.kind === 'arrange-cards'">
+      <!-- 「点牌面换栏、←→ 同栏调序」不写出来没人猜得到：
+           界面上只有 ←→ 是看得见的按钮，玩家会以为那就是上下移动 -->
+      <p class="sgs-dock__hint">点牌面在牌堆顶 / 牌堆底之间移动，用 ← → 调整同一栏内的顺序</p>
       <div class="sgs-dock__arrange">
         <div>
           <small>牌堆顶（{{ topCards.length }} / {{ request.maxTop }}）</small>
           <div class="sgs-dock__cards">
             <div v-for="cardId in topCards" :key="cardId" class="sgs-dock__arrange-card">
-              <SgsCard :card="cardOf(cardId)" @click="moveArrange(cardId, 'bottom')" />
-              <span><button type="button" @click="shiftArrange('top', cardId, -1)">←</button><button type="button" @click="shiftArrange('top', cardId, 1)">→</button></span>
+              <SgsCard :card="cardOf(cardId)" title="移到牌堆底" @click="moveArrange(cardId, 'bottom')" />
+              <span><button type="button" aria-label="向前移" @click="shiftArrange('top', cardId, -1)">←</button><button type="button" aria-label="向后移" @click="shiftArrange('top', cardId, 1)">→</button></span>
             </div>
           </div>
         </div>
@@ -268,8 +271,8 @@ function nicknameOf(playerId: string): string {
           <small>{{ request.allowBottom ? '牌堆底' : '未选' }}</small>
           <div class="sgs-dock__cards">
             <div v-for="cardId in bottomCards" :key="cardId" class="sgs-dock__arrange-card">
-              <SgsCard :card="cardOf(cardId)" @click="moveArrange(cardId, 'top')" />
-              <span><button type="button" @click="shiftArrange('bottom', cardId, -1)">←</button><button type="button" @click="shiftArrange('bottom', cardId, 1)">→</button></span>
+              <SgsCard :card="cardOf(cardId)" title="移到牌堆顶" @click="moveArrange(cardId, 'top')" />
+              <span><button type="button" aria-label="向前移" @click="shiftArrange('bottom', cardId, -1)">←</button><button type="button" aria-label="向后移" @click="shiftArrange('bottom', cardId, 1)">→</button></span>
             </div>
           </div>
         </div>
@@ -326,6 +329,7 @@ function nicknameOf(playerId: string): string {
   background: linear-gradient(180deg, rgba(24, 34, 28, .97), rgba(12, 20, 16, .99));
 }
 .sgs-dock__prompt { margin: 0; color: #e9d9a6; font-size: 13px; font-weight: 700; }
+.sgs-dock__hint { margin: 0; color: #93a49b; font-size: 11px; line-height: 1.5; }
 .sgs-dock__cards { display: flex; flex-wrap: wrap; gap: 5px; max-height: 30vh; overflow-y: auto; }
 .sgs-dock__actions { display: flex; align-items: center; gap: 8px; }
 .sgs-dock__actions--wrap { flex-wrap: wrap; }

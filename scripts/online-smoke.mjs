@@ -1,14 +1,14 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare'
 
 const script = await readFile(new URL('../server/dist/worker.js', import.meta.url), 'utf8')
-const migrations = await Promise.all([
-  readFile(new URL('../server/migrations/0001_online.sql', import.meta.url), 'utf8'),
-  readFile(new URL('../server/migrations/0002_room_directory.sql', import.meta.url), 'utf8'),
-  readFile(new URL('../server/migrations/0003_room_phase.sql', import.meta.url), 'utf8'),
-  readFile(new URL('../server/migrations/0004_admin_audit.sql', import.meta.url), 'utf8'),
-  readFile(new URL('../server/migrations/0005_remove_player_stats.sql', import.meta.url), 'utf8'),
-])
+// 迁移列表从目录读，不写死：写死的话新增迁移会被静默漏掉，
+// smoke 跑通了也说明不了什么。
+const migrationsDirectory = new URL('../server/migrations/', import.meta.url)
+const migrationFiles = (await readdir(migrationsDirectory)).filter((name) => name.endsWith('.sql')).sort()
+const migrations = await Promise.all(
+  migrationFiles.map((name) => readFile(new URL(name, migrationsDirectory), 'utf8')),
+)
 
 const miniflare = new Miniflare(convertV4MiniflareOptions({
   workers: [{

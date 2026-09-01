@@ -24,6 +24,24 @@ function storageSet(key: string, value: string): void {
   } catch { /* 当前会话仍可继续 */ }
 }
 
+/**
+ * 把当前房间号同步进地址栏。
+ *
+ * 不这么做的话刷新页面就掉回首页：`SanguoshaApp` 是看 `?room=` 决定显示哪个界面的，
+ * 而房间号只存在 localStorage 里——于是后台其实还连着房间，用户却看到首页。
+ * 顺带让地址栏本身就是一条可分享的邀请链接。
+ */
+function syncRoomUrl(code: string): void {
+  try {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('room') === code) return
+    url.searchParams.set('game', 'sanguosha')
+    if (code) url.searchParams.set('room', code)
+    else url.searchParams.delete('room')
+    window.history.replaceState(window.history.state, '', url.toString())
+  } catch { /* 地址栏同步失败不该影响牌局 */ }
+}
+
 export function useOnlineSanguosha() {
   const apiBase = resolveApiBase()
   const session = ref<OnlineSession | null>(null)
@@ -107,6 +125,7 @@ export function useOnlineSanguosha() {
     cleanupSocket()
     roomCode = code
     storageSet(ROOM_KEY, code)
+    syncRoomUrl(code)
     manualClose = false
     connecting.value = true
     const url = new URL(`${apiBase}/api/sanguosha/rooms/${code}/socket`)
@@ -136,6 +155,7 @@ export function useOnlineSanguosha() {
         room.value = null
         roomCode = ''
         storageSet(ROOM_KEY, '')
+        syncRoomUrl('')
         error.value = event.reason || '无法进入房间'
         if (event.code === SESSION_SUPERSEDED_CODE) session.value = null
         return
@@ -166,6 +186,7 @@ export function useOnlineSanguosha() {
     room.value = null
     roomCode = ''
     storageSet(ROOM_KEY, '')
+    syncRoomUrl('')
     cleanupSocket()
     void refreshRooms()
   }
