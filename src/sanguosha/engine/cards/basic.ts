@@ -12,6 +12,7 @@ import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../
 import { effectiveCardName, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
@@ -342,6 +343,10 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     const runtime = skillsOf(host.state, playerId, skillIdsOf).find((candidate) => candidate.id === action.skillId)
       ?? (action.skillId.startsWith('equip:') ? getSkillRuntime(action.skillId) : undefined)
     if (!runtime?.invokeActive) throw new Error('技能不可发动')
+    // 确认技能真的能发动之后再广播，界面才不会为一次失败的点击闪一下技能名
+    host.dispatch('SkillActivated', {
+      skillId: action.skillId, skillName: skillDisplayName(action.skillId), targetIds: action.targetIds,
+    }, { sourceId: playerId })
     runtime.invokeActive(host, playerId, action.id)
     return
   }

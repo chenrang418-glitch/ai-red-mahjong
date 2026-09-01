@@ -12,17 +12,14 @@ import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
 import { validateResponse } from './requests'
-import { allCharacterIds, getCharacter, skillIdsOf, STANDARD_CHARACTERS } from '../data/characters/standard'
+import { allCharacterIds, getCharacter, skillIdsOf } from '../data/characters/standard'
 import { getSkillRuntime, registerSkillTriggers } from './skills/runtime'
 import { buildPlayerView } from './view'
+import { skillDisplayName } from './presentation'
 
 export interface SanguoshaGameOptions {
   seed: string
   setup: GameSetup
-}
-
-function skillDisplayName(skillId: string): string {
-  return STANDARD_CHARACTERS.flatMap((character) => character.skills).find((skill) => skill.id === skillId)?.name ?? skillId
 }
 
 function skillResponseWasInvoked(request: GameRequest, response: GameResponse): boolean {
@@ -281,11 +278,6 @@ export class SanguoshaGame {
   }
 
   act(playerId: string, actionId: string): void {
-    const action = legalPlayActions(this.state, playerId).find((candidate) => candidate.id === actionId)
-    if (action?.kind === 'invoke-skill') {
-      const skillName = skillDisplayName(action.skillId)
-      this.dispatch('SkillActivated', { skillId: action.skillId, skillName, targetIds: action.targetIds }, { sourceId: playerId })
-    }
     performPlayAction(this, playerId, actionId)
     this.settle()
   }

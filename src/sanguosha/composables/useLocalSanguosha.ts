@@ -183,7 +183,7 @@ export function useLocalSanguosha() {
       created.events.on(name, (context) => {
         const text = describeEvent(created.state, context.event, HUMAN_ID)
         if (text) pushLog(text)
-        const presentation = buildPresentationEvent(created.state, context.event, HUMAN_ID)
+        const presentation = buildPresentationEvent(created.state, context.event)
         if (presentation) pushPresentation(presentation)
       })
     }

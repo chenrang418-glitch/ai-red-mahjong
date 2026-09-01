@@ -74,8 +74,13 @@ export interface StoredSgsRoomState {
   suspicion: SuspicionMap
   /** 按玩家过滤后的战报。存的是已经翻译好的文本，重连时能直接补上 */
   log: Record<string, string[]>
-  /** 按观看者过滤后的结构化表现事件，供重连后恢复当前行动舞台。 */
-  presentationEvents?: Record<string, PresentationEvent[]>
+  /**
+   * 结构化表现事件，供重连后恢复当前行动舞台。
+   *
+   * 只存一份：`buildPresentationEvent` 只读公开字段，结果对所有座位相同，
+   * 按座位各存一份等于把同样的内容复制 8 遍进 DO 存储。
+   */
+  presentationEvents?: PresentationEvent[]
   deleteRequested: boolean
   /** 最近成功处理的客户端动作。用于在 DO 休眠恢复后继续拒绝重复 actionId。 */
   processedActionIds?: string[]
@@ -93,6 +98,8 @@ const DISCONNECT_TRUSTEE_MS = 20_000
 const NEXT_ROUND_TIMEOUT_MS = 40_000
 const CHAT_MAX = 40
 const LOG_MAX = 200
+/** 舞台只回放最近这些条，重连时够还原「刚才发生了什么」，又不至于把 DO 存储撑大 */
+const PRESENTATION_MAX = 30
 
 function emptySeat(seatId: number): SgsSeat {
   return { seatId, kind: 'empty', userId: null, name: '', connected: false, ready: false, trustee: false, leftRoom: false, nextRoundReady: false }
@@ -121,6 +128,11 @@ export class SanguoshaRoomCoordinator {
 
   constructor(stored: StoredSgsRoomState) {
     this.state = stored
+    // 上一版按座位分组存这份数据，休眠中的房间恢复回来仍是旧形状，取任意一份即可
+    const legacy = this.state.presentationEvents as unknown
+    if (legacy && !Array.isArray(legacy)) {
+      this.state.presentationEvents = Object.values(legacy as Record<string, PresentationEvent[]>)[0] ?? []
+    }
     this.state.processedActionIds ??= []
   }
 
@@ -144,7 +156,7 @@ export class SanguoshaRoomCoordinator {
       aiRngState: 0,
       suspicion: {},
       log: {},
-      presentationEvents: {},
+      presentationEvents: [],
       deleteRequested: false,
       processedActionIds: [],
     })
@@ -417,7 +429,7 @@ export class SanguoshaRoomCoordinator {
     this.state.aiRngState = 0
     this.state.suspicion = emptySuspicion(game.viewFor(playerIdOf(occupied[0].seatId)))
     this.state.log = {}
-    this.state.presentationEvents = {}
+    this.state.presentationEvents = []
     this.state.jobs = []
     for (const seat of this.state.seats) {
       seat.ready = false
@@ -443,23 +455,21 @@ export class SanguoshaRoomCoordinator {
     const observed = [...logged, ...presentationOnly] as const
     for (const name of observed) {
       game.events.on(name, (context) => {
+        // 战报按人过滤（同一件事对不同人措辞不同），表现事件全公开，算一次就够
         for (const seat of this.state.seats) {
           if (seat.kind === 'empty') continue
           const viewerId = playerIdOf(seat.seatId)
           const text = describeEvent(game.state, context.event, viewerId)
-          if (text) {
-            const bucket = this.state.log[viewerId] ?? (this.state.log[viewerId] = [])
-            bucket.push(text)
-            if (bucket.length > LOG_MAX) bucket.splice(0, bucket.length - LOG_MAX)
-          }
-          const presentation = buildPresentationEvent(game.state, context.event, viewerId)
-          if (presentation) {
-            const presentationStore = this.state.presentationEvents ?? (this.state.presentationEvents = {})
-            const events = presentationStore[viewerId] ?? (presentationStore[viewerId] = [])
-            events.push(presentation)
-            if (events.length > 30) events.splice(0, events.length - 30)
-          }
+          if (!text) continue
+          const bucket = this.state.log[viewerId] ?? (this.state.log[viewerId] = [])
+          bucket.push(text)
+          if (bucket.length > LOG_MAX) bucket.splice(0, bucket.length - LOG_MAX)
         }
+        const presentation = buildPresentationEvent(game.state, context.event)
+        if (!presentation) return
+        const events = this.state.presentationEvents ?? (this.state.presentationEvents = [])
+        events.push(presentation)
+        if (events.length > PRESENTATION_MAX) events.splice(0, events.length - PRESENTATION_MAX)
       })
     }
     for (const name of ['Damaged', 'Recover'] as const) {
@@ -642,7 +652,7 @@ export class SanguoshaRoomCoordinator {
       playerView,
       chat: this.state.chat,
       log: seat ? (this.state.log[playerIdOf(seat.seatId)] ?? []) : [],
-      presentationEvents: seat ? (this.state.presentationEvents?.[playerIdOf(seat.seatId)] ?? []) : [],
+      presentationEvents: seat ? (this.state.presentationEvents ?? []) : [],
       deadlineAt: waitingJob ? waitingJob.dueAt : null,
       aiThinking: phase === 'playing' && !!actorSeat && (actorSeat.kind === 'ai' || actorSeat.trustee),
     }

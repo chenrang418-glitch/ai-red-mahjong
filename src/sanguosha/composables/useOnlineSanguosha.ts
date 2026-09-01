@@ -201,6 +201,20 @@ export function useOnlineSanguosha() {
     void refreshRooms()
   }
 
+  /**
+   * 退出登录。和麻将同一套动作：先请服务端作废会话，再断开房间、清掉本地痕迹。
+   * 会话删除失败也照样退到输昵称那一步——留在界面上只会一路失败。
+   */
+  function logout(): void {
+    void request('/api/session', { method: 'DELETE' }).catch(() => undefined)
+    // 先清会话再离开房间：leaveRoom 末尾会去刷房间列表，会话还在的话
+    // 那个请求会在退出之后才返回，把列表又填回来
+    session.value = null
+    leaveRoom()
+    rooms.value = []
+    error.value = ''
+  }
+
   function cleanupSocket(): void {
     if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
     if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer)
@@ -218,5 +232,5 @@ export function useOnlineSanguosha() {
     cleanupSocket()
   })
 
-  return { session, lastNickname, room, rooms, connected, connecting, busy, error, login, restoreSession, refreshRooms, createRoom, joinRoom, send, respond, act, leaveRoom }
+  return { session, lastNickname, room, rooms, connected, connecting, busy, error, login, restoreSession, refreshRooms, createRoom, joinRoom, send, respond, act, leaveRoom, logout }
 }

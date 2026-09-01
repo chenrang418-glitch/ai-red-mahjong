@@ -1,6 +1,6 @@
 import type { GameEvent } from './events'
 import type { DamageNature, PlayerId, SanguoshaState } from './types'
-import { getCharacter } from '../data/characters/standard'
+import { getCharacter, STANDARD_CHARACTERS } from '../data/characters/standard'
 
 export type PresentationEventKind =
   | 'turn-start' | 'card-use' | 'card-response' | 'skill' | 'damage' | 'recover'
@@ -22,6 +22,31 @@ export interface PresentationEvent {
   text: string
 }
 
+/**
+ * 装备的主动效果不在武将技能表里，查不到名字就会把 `equip:zhangba`
+ * 这样的内部 id 直接甩到界面上，所以单独登记一份。
+ */
+const EQUIPMENT_SKILL_NAMES: Record<string, string> = {
+  'equip:zhangba': '丈八蛇矛',
+  'equip:fangtian': '方天画戟',
+  'equip:cixiongjian': '雌雄双股剑',
+  'equip:guanshifu': '贯石斧',
+  'equip:hanbingjian': '寒冰剑',
+  'equip:qilingong': '麒麟弓',
+  'equip:qinglongdao': '青龙偃月刀',
+}
+
+/**
+ * 技能的展示名。引擎内部只有 skillId，战报和舞台要的是中文名。
+ * 放在这里而不是 game.ts，是因为出牌流程（cards/basic.ts）也要用同一份翻译。
+ */
+export function skillDisplayName(skillId: string): string {
+  return EQUIPMENT_SKILL_NAMES[skillId]
+    ?? STANDARD_CHARACTERS.flatMap((character) => character.skills)
+      .find((skill) => skill.id === skillId)?.name
+    ?? skillId
+}
+
 function playerName(state: SanguoshaState, playerId?: PlayerId): string {
   if (!playerId) return '某角色'
   const player = state.players.find((candidate) => candidate.id === playerId)
@@ -32,11 +57,16 @@ function cardName(state: SanguoshaState, cardId?: string): string {
   return cardId ? state.cards[cardId]?.name ?? '' : ''
 }
 
-/** 将引擎公开事件翻译为单机、联机共用的结构化表现事件。 */
+/**
+ * 将引擎公开事件翻译为单机、联机共用的结构化表现事件。
+ *
+ * 这里只读公开字段（谁对谁、牌名、技能名、数值），不看观察者：
+ * 摸牌只给张数不给牌名，身份和他人手牌一概不进来。
+ * 所以结果对所有人相同，联机侧存一份即可，不必按人复制。
+ */
 export function buildPresentationEvent(
   state: SanguoshaState,
   event: GameEvent,
-  _viewerId: PlayerId,
 ): PresentationEvent | null {
   const payload = event.payload as Record<string, unknown>
   const sourceId = event.sourceId ?? payload.sourceId as PlayerId | undefined
