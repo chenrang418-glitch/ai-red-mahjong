@@ -5,7 +5,7 @@ import type { GameRequest, GameResponse } from '../engine/requests'
 import type { GameSetup } from '../engine/types'
 import type { PlayerView } from '../engine/view'
 import { decidePlayAction, decideResponse, type AIContext, type AIDifficulty } from '../ai'
-import { emptySuspicion, type SuspicionMap } from '../ai/belief'
+import { emptySuspicion, observeEvent, type SuspicionMap } from '../ai/belief'
 import { describeEvent } from '../engine/log'
 import type { GameEventName } from '../engine/events'
 
@@ -176,6 +176,10 @@ export function useLocalSanguosha() {
     }
     game.value = created
     suspicion = emptySuspicion(created.viewFor(HUMAN_ID))
+    // 身份推断同样要接事件流，单机 AI 才会随着局势改变目标
+    for (const name of ['Damaged', 'Recover'] as const) {
+      created.events.on(name, (context) => { observeEvent(suspicion, created.viewFor(HUMAN_ID), context.event) })
+    }
     created.dealGenerals()
     refresh()
     pushLog(`牌局开始，${options.playerCount} 人身份局`)

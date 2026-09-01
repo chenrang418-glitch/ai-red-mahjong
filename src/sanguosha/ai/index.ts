@@ -4,7 +4,7 @@ import { assertNever } from '../engine/requests'
 import type { GameRng } from '../engine/rng'
 import type { PlayerId } from '../engine/types'
 import type { PlayerView } from '../engine/view'
-import { isLikelyEnemy, type SuspicionMap } from './belief'
+import { hostility, PROTECTED, type SuspicionMap } from './belief'
 
 /**
  * 单机 AI。
@@ -39,12 +39,14 @@ export function cardValue(name: string): number {
   }
 }
 
-/** 目标价值：血少、手牌少的更好打。 */
+/** 目标价值：先看阵营敌意，再看血少、手牌少好不好打。 */
 function targetScore(context: AIContext, targetId: PlayerId): number {
   const target = context.view.players.find((player) => player.id === targetId)
   if (!target?.alive) return -Infinity
-  let score = 10 - target.hp * 2 - Math.min(target.handCount, 6)
-  if (isLikelyEnemy(context.view, context.suspicion, targetId)) score += 12
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  // 自己人和主公绝不能被选中，哪怕血最少最好打
+  if (attitude <= PROTECTED) return -Infinity
+  let score = 10 - target.hp * 2 - Math.min(target.handCount, 6) + attitude
   // 简单档带一点随机，别每局都一模一样
   if (context.difficulty === 'easy') score += context.rng.nextInt(7)
   else if (context.difficulty === 'normal') score += context.rng.nextInt(4)
@@ -88,8 +90,12 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
       case '南蛮入侵':
       case '万箭齐发': {
         // 群体伤害：自己血少时别乱放，敌人多才划算
-        const enemies = action.targetIds.filter((targetId) => isLikelyEnemy(context.view, context.suspicion, targetId)).length
-        score = enemies * 6 - (action.targetIds.length - enemies) * 2
+        // 打到自己人是要扣分的，所以直接把每个目标的敌意加起来，
+        // 被保护的目标（主公、确认的自己人）给一个明确的重罚
+        score = action.targetIds.reduce((sum, targetId) => {
+          const attitude = hostility(context.view, context.suspicion, targetId)
+          return sum + (attitude <= PROTECTED ? -15 : attitude)
+        }, 0)
         break
       }
       case '决斗':
@@ -143,8 +149,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
 
     case 'choose-targets': {
       const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
-      const count = Math.min(Math.max(request.min, 1), request.max, ranked.length)
-      return { ...base, payload: { targetIds: ranked.slice(0, count) } }
+      // 能不打自己人就不打；但请求要求最少选几个的时候只能硬选
+      const safe = ranked.filter((targetId) => targetScore(context, targetId) > -Infinity)
+      const pool = safe.length >= request.min ? safe : ranked
+      const count = Math.min(Math.max(request.min, 1), request.max, pool.length)
+      return { ...base, payload: { targetIds: pool.slice(0, count) } }
     }
 
     case 'choose-option':
@@ -176,7 +185,8 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       const playable = request.actionIds.filter((id) => id !== 'rescue-pass')
       if (playable.length === 0) return { ...base, payload: { actionId: 'rescue-pass' } }
       const savingSelf = request.dyingPlayerId === request.playerId
-      const worthSaving = savingSelf || !isLikelyEnemy(context.view, context.suspicion, request.dyingPlayerId)
+      // 敌意为负说明是自己人（尤其是主公），一定要救
+      const worthSaving = savingSelf || hostility(context.view, context.suspicion, request.dyingPlayerId) <= 0
       return { ...base, payload: { actionId: worthSaving ? playable[0] : 'rescue-pass' } }
     }
 
@@ -201,19 +211,28 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
   }
 }
 
-/** 无懈可击值不值得出：救自己人、拦敌人的锦囊才出。 */
+/**
+ * 无懈可击值不值得出。
+ *
+ * 判断标准是「这张锦囊会不会害到我这边」，而不是「谁放的」——
+ * 保护主公比拦截敌人重要得多，所以目标是被保护对象时一定出。
+ */
 function nullificationChoice(context: AIContext, actionIds: readonly string[]): string | null {
   const playable = actionIds.filter((id) => id.startsWith('respond-nullification:'))
   if (playable.length === 0) return null
   const resolution = context.view.cardResolution
   if (!resolution) return null
-  const targetId = resolution.targetIds[0]
-  const sourceIsEnemy = isLikelyEnemy(context.view, context.suspicion, resolution.sourceId)
-  const targetIsFriend = targetId === context.view.viewerId
-    || !isLikelyEnemy(context.view, context.suspicion, targetId)
   // 简单档不做这层判断，随手用
   if (context.difficulty === 'easy') return context.rng.nextInt(2) === 0 ? playable[0] : null
-  return sourceIsEnemy && targetIsFriend ? playable[0] : null
+
+  const targetId = resolution.targetIds[0]
+  const targetAttitude = hostility(context.view, context.suspicion, targetId)
+  // 目标是自己或需要保护的人 → 一定拦
+  if (targetId === context.view.viewerId || targetAttitude <= PROTECTED) return playable[0]
+  // 目标是敌人 → 不拦，让它生效
+  if (targetAttitude > 0) return null
+  // 说不准的情况下，看放牌的人是不是敌人
+  return hostility(context.view, context.suspicion, resolution.sourceId) > 0 ? playable[0] : null
 }
 
 function cardName(context: AIContext, cardId: string): string {

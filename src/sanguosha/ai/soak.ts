@@ -3,7 +3,7 @@ import { assertGameInvariants } from '../engine/invariants'
 import { GameRng } from '../engine/rng'
 import { assertCardConservation } from '../engine/zones'
 import type { GameSetup } from '../engine/types'
-import { emptySuspicion } from './belief'
+import { emptySuspicion, observeEvent } from './belief'
 import { decidePlayAction, decideResponse, type AIContext, type AIDifficulty } from './index'
 
 /**
@@ -53,6 +53,10 @@ export function runSoakGame(options: SoakOptions): SoakResult {
   // AI 自己的随机源和牌局随机源分开，避免 AI 的选择反过来影响洗牌序列
   const aiRng = new GameRng(`ai:${seed}`)
   const suspicion = emptySuspicion(game.viewFor('p0'))
+  // 身份推断必须真的接上事件流，否则 suspicion 永远是全零
+  for (const name of ['Damaged', 'Recover'] as const) {
+    game.events.on(name, (context) => { observeEvent(suspicion, game.viewFor('p0'), context.event) })
+  }
 
   const contextFor = (playerId: string): AIContext => ({
     view: game.viewFor(playerId),
