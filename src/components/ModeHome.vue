@@ -1,48 +1,90 @@
 <script setup lang="ts">
-defineEmits<{ local: []; online: []; portal: [] }>()
+defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
 </script>
 
+<!--
+  首页结构和三国杀 1:1 对齐：顶栏（返回 + 站点标注）、居中 hero（印章 / 小标注 /
+  标题 / 一句说明）、底部三个入口。两个游戏只有主色和文案不同。
+  改动之前请对照 src/sanguosha/SanguoshaApp.vue 里的 .sgs-home 部分。
+-->
 <template>
   <main class="mode-home">
-    <section>
-      <div class="seal" aria-hidden="true">中</div>
-      <h1>红中麻将</h1>
+    <section class="home">
+      <header>
+        <button type="button" @click="$emit('portal')">← 返回游戏中心</button>
+        <span>CRPLAY · 红中麻将</span>
+      </header>
+
+      <div class="home__hero">
+        <div class="home__seal" aria-hidden="true">中</div>
+        <p>四人红中麻将</p>
+        <h1>红中麻将</h1>
+        <small>红中作癞子、自摸与点炮分开算番，支持单机与好友联机。</small>
+      </div>
+
       <nav aria-label="游戏模式">
-        <button type="button" @click="$emit('local')">单机模式</button>
-        <button class="online" type="button" @click="$emit('online')">联机模式</button>
+        <button type="button" class="home__main" @click="$emit('local')"><b>单机游戏</b><span>与电脑对战</span></button>
+        <button type="button" class="home__online" @click="$emit('online')"><b>联机游戏</b><span>创建或加入房间</span></button>
+        <button type="button" class="home__rules" @click="$emit('rules')"><b>规则</b><span>玩法与算番</span></button>
       </nav>
-      <button class="portal-back" type="button" @click="$emit('portal')">← 返回游戏中心</button>
     </section>
   </main>
 </template>
 
 <style scoped>
-.mode-home { width: 100%; height: 100dvh; display: grid; place-items: center; overflow: hidden; padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); color: #f8f0dc; background: radial-gradient(circle at 50% 15%, #24493c 0, transparent 42%), #07130f; }
-section { width: min(580px, 100%); text-align: center; }
-.seal { width: 74px; height: 74px; margin: 0 auto 24px; display: grid; place-items: center; border: 2px solid #c64e45; border-radius: 20px; color: #dc5b50; font: 900 42px/1 serif; transform: rotate(-5deg); box-shadow: 0 0 32px rgba(198,78,69,.13); }
-h1 { margin: 0 0 clamp(34px, 7vh, 64px); font-size: clamp(44px, 8vw, 78px); line-height: 1; letter-spacing: -.08em; }
-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-button { min-height: 68px; border: 1px solid rgba(226,195,105,.45); border-radius: 18px; background: linear-gradient(145deg, #ead082, #c9a64f); color: #162019; font-size: 20px; font-weight: 900; cursor: pointer; box-shadow: 0 16px 42px rgba(201,166,79,.15); transition: transform .16s ease, filter .16s ease, box-shadow .16s ease; }
-button.online { border-color: rgba(206,83,73,.55); background: linear-gradient(145deg, #c8564c, #94352f); color: #fff3ed; box-shadow: 0 16px 42px rgba(148,53,47,.18); }
-button:hover { filter: brightness(1.07); }
-button:active { transform: scale(.96); filter: brightness(.92); box-shadow: 0 5px 16px rgba(0,0,0,.28); }
-button:focus-visible { outline: 3px solid #f3d67c; outline-offset: 4px; }
-.portal-back { min-height: 40px; margin-top: 18px; padding: 7px 14px; border-color: transparent; color: #9cacA5; background: transparent; box-shadow: none; font-size: 12px; }
-.portal-back:hover { color: #f3d67c; }
-@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
-  section { width: min(430px, 100%); }
-  .seal { width: 62px; height: 62px; margin-bottom: 20px; font-size: 35px; }
-  h1 { margin-bottom: clamp(32px, 8vh, 62px); font-size: clamp(42px, 14vw, 62px); }
-  nav { grid-template-columns: 1fr; gap: 14px; }
-  nav button { min-height: 64px; font-size: 19px; }
+.mode-home {
+  width: 100%; height: 100dvh; overflow: hidden; color: #f4ead6;
+  background: radial-gradient(circle at 75% 20%, rgba(132, 42, 32, .28), transparent 35%), linear-gradient(150deg, #141a16, #070f0c);
 }
-@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
-  section { width: min(680px, 82vw); display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; align-items: center; gap: 12px 28px; }
-  .seal { grid-row: 1 / 3; width: 66px; height: 66px; margin: 0; font-size: 37px; }
-  h1 { margin: 0; font-size: clamp(34px, 9vh, 52px); text-align: left; }
-  nav { gap: 12px; }
-  nav button { min-height: 52px; font-size: 17px; }
-  .portal-back { grid-column: 2; margin-top: 0; justify-self: start; }
+.home {
+  width: min(980px, 100%); height: 100%; margin: auto; display: flex; flex-direction: column;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
 }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+.home header { display: flex; justify-content: space-between; align-items: center; color: #887d69; font-size: 11px; letter-spacing: .15em; }
+.home header button {
+  min-height: 38px; padding: 0 13px; border: 1px solid #4a453a; border-radius: 9px;
+  /* 麻将站有全局按钮样式，这里显式写死字号，才和三国杀的顶栏按钮一致 */
+  color: #d7c8aa; background: #171c18; cursor: pointer; font-size: 13.3333px;
+}
+.home header button:hover { border-color: #7d7259; color: #f3e6c8; }
+
+.home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
+.home__seal {
+  width: 88px; height: 88px; display: grid; place-items: center;
+  border: 2px solid #af4437; border-radius: 23px; color: #cc5546;
+  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(175, 68, 55, .13);
+}
+.home__hero p { margin: 24px 0 8px; color: #b19d79; font-size: 12px; letter-spacing: .18em; }
+.home__hero h1 { margin: 0; font-size: clamp(55px, 10vw, 92px); line-height: 1; letter-spacing: -.08em; }
+.home__hero small { max-width: 560px; margin-top: 22px; color: #7f8a84; line-height: 1.7; }
+
+.home nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.home nav button {
+  min-height: 74px; display: grid; align-content: center; gap: 4px;
+  border: 1px solid #3b443f; border-radius: 15px; color: #b9c3ba; background: rgba(18, 26, 22, .85);
+  cursor: pointer; font: inherit; transition: filter .16s ease, transform .16s ease;
+}
+/* 三个入口的配色和三国杀一致：金 / 红 / 绿。暗底上底色压暗、字色提亮保对比度 */
+.home nav .home__main { border-color: #9e7f3c; color: #ffe6a8; background: linear-gradient(180deg, #6d5527, #4c3b1a); }
+.home nav .home__online { border-color: #9c4038; color: #ffcfc7; background: linear-gradient(180deg, #6e2a24, #4a1c18); }
+.home nav .home__rules { border-color: #3f7f4e; color: #c4eccd; background: linear-gradient(180deg, #245c33, #173e22); }
+.home nav button:hover { filter: brightness(1.08); }
+.home nav button:active { transform: scale(.97); filter: brightness(.92); }
+.home nav button:focus-visible { outline: 3px solid #f3d67c; outline-offset: 3px; }
+.home nav b { font-size: 16px; }
+.home nav span { font-size: 10px; }
+
+/* 断点和三国杀逐条对齐，改一边就要改另一边 */
+@media (max-width: 620px) and (orientation: portrait) {
+  .home nav { grid-template-columns: 1fr; }
+  .home nav button { min-height: 58px; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .home__seal { width: 58px; height: 58px; font-size: 32px; }
+  .home__hero p { margin-top: 12px; }
+  .home__hero h1 { font-size: 48px; }
+  .home__hero small { margin-top: 8px; }
+  .home nav button { min-height: 54px; }
+}
+@media (prefers-reduced-motion: reduce) { .home nav button { transition: none; } }
 </style>

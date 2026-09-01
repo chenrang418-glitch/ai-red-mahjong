@@ -84,7 +84,7 @@ async function settleAnimations(page: Page) {
 
 async function startLocalMatch(page: Page) {
   await page.goto('/?game=mahjong')
-  await page.getByRole('button', { name: '单机模式' }).click()
+  await page.getByRole('button', { name: /单机游戏/ }).click()
   await page.getByRole('button', { name: '开始', exact: true }).click()
   await expect(page.locator('.human-hand')).toBeVisible()
 }
@@ -206,7 +206,7 @@ test('手机竖屏联机大厅显示当前昵称，并按创建→加入→公�
   await page.setViewportSize(PORTRAIT)
   await installMockSockets(page, ROOM_VIEW)
   await page.goto('/?game=mahjong')
-  await page.getByRole('button', { name: '联机模式' }).click()
+  await page.getByRole('button', { name: /联机游戏/ }).click()
 
   const identity = page.locator('.identity-bar')
   await expect(identity).toBeVisible()
@@ -233,7 +233,7 @@ test('手机横屏联机大厅三列并排，公开房间最宽', async ({ page 
   await page.setViewportSize(LANDSCAPE)
   await installMockSockets(page, ROOM_VIEW)
   await page.goto('/?game=mahjong')
-  await page.getByRole('button', { name: '联机模式' }).click()
+  await page.getByRole('button', { name: /联机游戏/ }).click()
 
   await expect(page.locator('.identity-bar')).toContainText('测试玩家')
   const create = (await page.locator('.create-card').boundingBox())!

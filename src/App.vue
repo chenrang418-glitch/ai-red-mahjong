@@ -210,7 +210,13 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
 <template>
   <AdminPanel v-if="adminMode" />
 
-  <ModeHome v-else-if="appMode === 'home'" @local="appMode = 'local'" @online="appMode = 'online'" @portal="emit('backToPortal')" />
+  <ModeHome
+    v-else-if="appMode === 'home'"
+    @local="appMode = 'local'"
+    @online="appMode = 'online'"
+    @rules="rulesOpen = true"
+    @portal="emit('backToPortal')"
+  />
 
   <OnlineHub
     v-else-if="appMode === 'online'"
@@ -395,6 +401,8 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
     <AISettingsDrawer :open="settingsOpen" :players="game.state.value.players" @close="settingsOpen = false" @change="game.updateAI" />
   </div>
 
+  </template>
+
   <div v-if="rulesOpen" class="rules-backdrop" @click.self="rulesOpen = false">
     <section class="rules-card">
       <header><button class="rules-back" aria-label="返回" @click="rulesOpen = false">‹</button><h2>玩法规则</h2></header>
@@ -409,5 +417,4 @@ const difficultyLabel = { beginner: '菜鸡', standard: '凡人', expert: '猿�
       </div>
     </section>
   </div>
-  </template>
 </template>
