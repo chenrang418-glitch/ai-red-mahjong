@@ -179,7 +179,6 @@ export type TrickEffectState =
   /** 借刀杀人：目标要对第三人出杀，否则把武器交给使用者 */
   | { kind: 'borrowed-knife'; targetId: PlayerId; victimId: PlayerId; weaponCardId: CardId; requestId: string }
   /** 借刀杀人：目标真的出了杀，轮到受害者出闪 */
-  | { kind: 'knife-dodge'; attackerId: PlayerId; victimId: PlayerId; requestId: string }
 
 export interface TrickResolutionState {
   kind: 'trick'

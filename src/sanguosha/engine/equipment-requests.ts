@@ -132,12 +132,22 @@ export interface EngineCallbacks {
    * `cardOwnerId` 是牌现在在谁手上——发动技能的人，通常不是「使用者」。
    */
   startVirtualTrick(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId, asName: string, cardOwnerId: PlayerId): void
+  /**
+   * 借刀杀人：目标打出的那张【杀】要走完整的杀结算，
+   * 否则仁王盾挡不住、无双不生效、流离转不走。牌已经在弃牌堆里。
+   */
+  beginBorrowedSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): void
 }
 
 let callbacks: EngineCallbacks | null = null
 
 export function provideEquipmentCallbacks(next: EngineCallbacks): void {
   callbacks = next
+}
+
+/** 给 tricks.ts 用：它不能直接 import basic.ts（会成环）。 */
+export function getEngineCallbacks(): EngineCallbacks | null {
+  return callbacks
 }
 
 // —— 贯石斧 ——

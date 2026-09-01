@@ -397,6 +397,18 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
   const hand = player(host.state, playerId).zones.hand
   if (!card || action.cardIds.some((id) => !hand.includes(id))) throw new Error('卡牌不属于出牌玩家')
 
+  // 重铸：弃掉这张牌摸一张，不算「使用」，所以不进处理区、没有无懈窗口
+  if (action.id.startsWith('play:recast:')) {
+    moveCard(host.state, cardId, { kind: 'hand', playerId }, { kind: 'discardPile' })
+    host.dispatch('LoseCard', { playerId, cardIds: [cardId], reason: 'recast' }, { sourceId: playerId, cardIds: [cardId] })
+    const drawn = host.state.zones.drawPile.shift()
+    if (drawn) {
+      player(host.state, playerId).zones.hand.push(drawn)
+      host.dispatch('GainCard', { playerId, cardIds: [drawn], reason: 'recast' }, { targetId: playerId, cardIds: [drawn] })
+    }
+    return
+  }
+
   // 转化出的动作一律以 asCardName 为准：武圣打出的红桃按【杀】结算，
   // 甘宁打出的黑牌按【过河拆桥】结算，后续判定不再看牌面上印的名字。
   const effectiveName = action.asCardName || card.name
@@ -636,6 +648,33 @@ provideEquipmentCallbacks({
   },
   continueSlash(host) {
     continueSlash(host as CardEngineHost)
+  },
+  beginBorrowedSlash(host, sourceId, targetId, cardId) {
+    const engineHost = host as CardEngineHost
+    // 借刀本身的结算可能已经把人打死、把牌局打完了，前提不成立就别再起一次【杀】
+    if (engineHost.state.status !== 'playing') return
+    const attacker = engineHost.state.players.find((candidate) => candidate.id === sourceId)
+    const victim = engineHost.state.players.find((candidate) => candidate.id === targetId)
+    if (!attacker?.alive || !victim?.alive) return
+    // 打出时这张【杀】已经进了弃牌堆，挪回处理区当作这次结算的实体牌
+    if (engineHost.state.zones.discardPile.includes(cardId)) {
+      moveCard(engineHost.state, cardId, { kind: 'discardPile' }, { kind: 'processingArea' })
+    }
+    const card = engineHost.state.cards[cardId]
+    const metadata = { sourceId, targetId, cardIds: [cardId] }
+    engineHost.dispatch('CardUsed', { cardId, cardName: '杀', targetIds: [targetId] }, metadata)
+    engineHost.dispatch('TargetSpecified', { cardId, cardName: '杀', targetIds: [targetId] }, metadata)
+    engineHost.dispatch('TargetConfirmed', { cardId, cardName: '杀', targetId }, metadata)
+    engineHost.state.cardResolution = {
+      kind: 'slash', cardId, sourceId, targetId,
+      damageNature: card.damageNature ?? 'normal',
+      // 借刀的【杀】不吃使用者的酒，也不占他的出杀次数——那不是他的出牌阶段
+      damageAmount: 1,
+      stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [],
+      extraCardIds: [], remainingTargetIds: [],
+      dodgeRemaining: slashDodgeRequirement(engineHost, sourceId),
+    }
+    enterSlashTarget(engineHost)
   },
   transferSlashTarget(host, newTargetId) {
     const engineHost = host as CardEngineHost

@@ -3,6 +3,7 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import { drawCards } from '../draw'
 import { handleEquipmentLost, isCardIneffective } from '../equipment'
+import { getEngineCallbacks } from '../equipment-requests'
 import { ignoresTrickDistance } from '../../data/characters/standard'
 import { recover } from '../recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
@@ -139,7 +140,13 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       }
       return actions
     case '铁索连环': {
-      // 可以横置/重置一到两名角色，也可以直接当两张牌摸——这里先做横置用法
+      // 重铸：不当锦囊用，直接弃掉换一张新牌。这是【铁索连环】独有的用法，
+      // 不受目标限制，也不算「使用」，所以没有无懈窗口。
+      actions.push({
+        ...useAction(cardId, playerId, card.name, [playerId], '重铸【铁索连环】：弃掉它，摸一张牌'),
+        id: `play:recast:${cardId}`,
+      })
+      // 横置/重置一到两名角色
       for (const target of state.players.filter((candidate) => candidate.alive && allowed(candidate.id))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【铁索连环】`))
       }
@@ -339,6 +346,12 @@ export function askNullification(host: CardEngineHost): void {
 export function advanceToNextTarget(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
+  // 中途有人死掉、胜负已分时不能再往下问：牌局结束时 pendingRequests 已经被清空，
+  // 这时候再发一个请求会永远挂在那里
+  if (host.state.status !== 'playing') {
+    finishTrick(host)
+    return
+  }
   resolution.targetIndex += 1
   resolution.responderIndex = 0
   resolution.nullificationCount = 0
@@ -584,20 +597,14 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
       advanceToNextTarget(host)
       return
     }
-    // 出了杀就由受害者响应闪
-    const dodgeRequestId = askRespondCard(host, resolution, effect.victimId, '闪', `${playerOf(host.state, effect.targetId).nickname}对你使用【杀】，请响应【闪】`)
-    resolution.effect = { kind: 'knife-dodge', attackerId: effect.targetId, victimId: effect.victimId, requestId: dodgeRequestId }
-    return
-  }
-
-  if (effect.kind === 'knife-dodge') {
+    // 出了杀就走**完整的**杀结算：仁王盾要挡得住、无双要生效、流离要转得走。
+    // 借刀杀人是单目标锦囊，所以先把它自己收掉，再开始那张【杀】——
+    // 结算状态只有一份，不先收掉会被覆盖。
+    const attackerId = effect.targetId
+    const victimId = effect.victimId
     resolution.effect = null
-    if (!playedCardId) {
-      resolveDamage(host, { sourceId: effect.attackerId, targetId: effect.victimId, amount: 1, nature: 'normal', cardName: '杀' })
-      if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
-      return
-    }
     advanceToNextTarget(host)
+    getEngineCallbacks()?.beginBorrowedSlash(host, attackerId, victimId, playedCardId)
     return
   }
 
