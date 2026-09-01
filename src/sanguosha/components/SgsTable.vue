@@ -4,6 +4,7 @@ import SgsCard from './SgsCard.vue'
 import SgsSeatLayout from './SgsSeatLayout.vue'
 import SgsRequestDock from './SgsRequestDock.vue'
 import SgsCountdown from './SgsCountdown.vue'
+import { useSgsEventStage } from '../composables/useSgsEventStage'
 import type { LegalAction } from '../engine/actions'
 import type { GameRequest, GameResponse } from '../engine/requests'
 import type { PresentationEvent } from '../engine/presentation'
@@ -26,7 +27,9 @@ const selectedMode = ref<string | null>(null)
 const selectedTargetIds = ref<string[]>([])
 const logOpen = ref(false)
 const me = computed(() => props.view.players.find((player) => player.id === props.view.viewerId)!)
-const latestEvent = computed(() => props.presentationEvents.at(-1) ?? null)
+// 表现事件按到达顺序逐条播放并自带寿命；旧实现直接取最后一条，
+// 结果近半数推进不产生事件时箭头会一直挂着，成批到达时首条又被吞掉
+const stage = useSgsEventStage(() => props.presentationEvents)
 const usableCardIds = computed(() => new Set(props.legalActions.flatMap((action) => action.kind === 'use-card' ? action.cardIds : [])))
 const selectedActions = computed(() => props.legalActions.filter((action): action is Extract<LegalAction, { kind: 'use-card' }> => action.kind === 'use-card' && !!selectedCardId.value && action.cardIds.includes(selectedCardId.value)))
 const modes = computed(() => [...new Map(selectedActions.value.map((action) => [action.asCardName, action])).values()].map((action) => ({ id: action.asCardName, label: action.asCardName })))
@@ -41,7 +44,11 @@ const standaloneActions = computed(() => props.legalActions.filter((action) => a
 watch(() => props.view.seq, () => {
   if (selectedCardId.value && !me.value.hand?.some((card) => card.id === selectedCardId.value)) resetSelection()
 })
-watch(() => props.request?.id, () => { selectedTargetIds.value = [] })
+watch(() => props.request?.id, (id) => {
+  selectedTargetIds.value = []
+  // 轮到自己响应时把积压的动画快进掉，只留最后一条（通常正是要响应的那张牌）
+  if (id) stage.skip()
+})
 
 function resetSelection(): void { selectedCardId.value = null; selectedMode.value = null; selectedTargetIds.value = [] }
 function toggleCard(cardId: string): void {
@@ -76,7 +83,7 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
     </header>
 
     <main class="sgs-table__arena">
-      <SgsSeatLayout :view="view" :request="request" :event="latestEvent" :busy="busy" :selectable-ids="selectableTargetIds" :selected-ids="selectedTargetIds" :statuses="connectionStatuses" @select="toggleTarget" />
+      <SgsSeatLayout :view="view" :request="request" :staged="stage.staged.value" :busy="busy" :selectable-ids="selectableTargetIds" :selected-ids="selectedTargetIds" :statuses="connectionStatuses" @select="toggleTarget" />
       <div v-if="view.processingArea.length" class="sgs-table__processing"><SgsCard v-for="card in view.processingArea" :key="card.id" :card="card" compact disabled /></div>
     </main>
 

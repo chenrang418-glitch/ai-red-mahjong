@@ -5,19 +5,21 @@ import SgsEffectLayer from './SgsEffectLayer.vue'
 import SgsActionStage from './SgsActionStage.vue'
 import { seatSlotsForPlayerCount } from '../composables/useSgsSeatLayout'
 import type { GameRequest } from '../engine/requests'
-import type { PresentationEvent } from '../engine/presentation'
+import type { StagedEvent } from '../composables/useSgsEventStage'
 import type { PlayerView } from '../engine/view'
 
 const props = defineProps<{
   view: PlayerView
   request: GameRequest | null
-  event: PresentationEvent | null
+  staged: StagedEvent | null
   busy: boolean
   selectableIds: ReadonlySet<string>
   selectedIds: readonly string[]
   statuses?: Readonly<Record<string, 'online' | 'offline' | 'trustee' | 'connecting'>>
 }>()
 const emit = defineEmits<{ select: [playerId: string] }>()
+
+const event = computed(() => props.staged?.event ?? null)
 
 const ordered = computed(() => {
   const players = props.view.players
@@ -26,7 +28,7 @@ const ordered = computed(() => {
 })
 const slots = computed(() => seatSlotsForPlayerCount(props.view.players.length))
 const effectFor = (playerId: string) => {
-  const event = props.event
+  const event = props.staged?.event
   if (!event) return null
   if (!event.targetIds?.includes(playerId) && event.sourceId !== playerId) return null
   if (event.kind === 'damage' || event.kind === 'lose-hp') return 'damage'
@@ -47,8 +49,8 @@ const effectFor = (playerId: string) => {
         :effect="effectFor(player.id)" :status="statuses?.[player.id] ?? null" @select="emit('select', $event)"
       />
     </div>
-    <SgsActionStage :view="view" :event="event" :request="request" :busy="busy" />
-    <SgsEffectLayer :event="event" />
+    <SgsActionStage :view="view" :staged="staged" :request="request" :busy="busy" />
+    <SgsEffectLayer :staged="staged" />
   </section>
 </template>
 
