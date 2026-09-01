@@ -91,8 +91,13 @@ export class InvalidSgsCommandError extends Error {}
 const MIN_PLAYERS = 5
 const MAX_PLAYERS = 8
 const DEFAULT_TURN_SECONDS = 30
-/** AI 之间的间隔。太快人看不清，太慢又拖节奏 */
-const AI_STEP_MS = 700
+/**
+ * AI 之间的间隔。和单机的「标准」档对齐。
+ *
+ * 700ms 比表现事件本身还短——一次伤害要播 900ms，AI 已经走下一步了，
+ * 动画永远在被追着跑，观感就是「太快，看不清发生了什么」。
+ */
+const AI_STEP_MS = 950
 /** 掉线后多久自动转托管。留一点时间给刷新页面 */
 const DISCONNECT_TRUSTEE_MS = 20_000
 const NEXT_ROUND_TIMEOUT_MS = 40_000
@@ -294,7 +299,7 @@ export class SanguoshaRoomCoordinator {
       case 'chat': {
         const text = command.text.trim().slice(0, 200)
         if (!text) throw new InvalidSgsCommandError('消息不能为空')
-        const message: SgsChatMessage = { id: ++this.state.chatSeq, userId, nickname: seat.name, text, at: now }
+        const message: SgsChatMessage = { id: ++this.state.chatSeq, userId, seatId: seat.seatId, nickname: seat.name, text, at: now }
         this.state.chat.push(message)
         if (this.state.chat.length > CHAT_MAX) this.state.chat.splice(0, this.state.chat.length - CHAT_MAX)
         this.touch(now)

@@ -61,7 +61,7 @@ export function useLocalSanguosha() {
 
   let aiRng = new GameRng('ai')
   let suspicion: SuspicionMap = {}
-  let delayMs = 700
+  let delayMs = 950
   let timer: number | null = null
   let generation = 0
 
@@ -160,7 +160,8 @@ export function useLocalSanguosha() {
         error.value = cause instanceof Error ? cause.message : String(cause)
       }
     }
-    const visualDelay = delayMs <= 0 ? 0 : automatic ? Math.min(delayMs, 240) : delayMs
+    // 没有实质操作的自动阶段（判定、弃牌、阶段流转）走短间隔，跟着整体慢一档
+    const visualDelay = delayMs <= 0 ? 0 : automatic ? Math.min(delayMs, 320) : delayMs
     if (visualDelay <= 0) run()
     else timer = window.setTimeout(run, visualDelay)
   }
@@ -171,7 +172,7 @@ export function useLocalSanguosha() {
     error.value = ''
     log.value = []
     presentationEvents.value = []
-    delayMs = options.aiDelayMs ?? 700
+    delayMs = options.aiDelayMs ?? 950
     currentDifficulty = options.difficulty
     const seed = options.seed ?? `local-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
     aiRng = new GameRng(`ai:${seed}`)

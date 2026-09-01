@@ -11,10 +11,28 @@ export interface SgsRoomSettings {
 export interface SgsChatMessage {
   id: number
   userId: string
+  /**
+   * 说话人的座位号。
+   *
+   * 房间视图里的座位是按观看者脱敏过的，不带 userId，客户端没法自己反查是谁说的。
+   * 靠昵称匹配不严谨，所以由服务端直接带上——牌桌上的气泡要挂到具体座位。
+   * 旧的持久化消息没有这个字段，但气泡只在实时帧上冒，取不到就不冒。
+   */
+  seatId?: number
   nickname: string
   text: string
   at: number
 }
+
+/**
+ * 快捷短语。和麻将同一套思路：牌局中打字来不及，常用的几句直接一点就发。
+ * 表情单独一行，按钮做得方一点，手机上才点得准。
+ */
+export const SGS_QUICK_CHAT_MESSAGES = [
+  '快点快点', '你会不会玩？', '666', '乐乐', '我是良民', '相信我',
+] as const
+
+export const SGS_QUICK_CHAT_EMOJIS = ['😂', '👍', '😅', '😎', '😡', '😭', '⚔️', '🎉'] as const
 
 export interface SgsActionMetadata {
   actionId?: string

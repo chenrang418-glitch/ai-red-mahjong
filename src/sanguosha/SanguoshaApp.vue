@@ -20,7 +20,13 @@ const game = useLocalSanguosha()
 const glossary = provideSgsGlossary()
 type AIPace = 'fast' | 'normal' | 'relaxed'
 const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty, aiPace: 'normal' as AIPace })
-const AI_PACE_MS: Record<AIPace, number> = { fast: 450, normal: 700, relaxed: 950 }
+/**
+ * 电脑节奏，整体比原来慢一档（450/700/950 → 700/950/1300）。
+ *
+ * 原来的「标准」700ms 比表现事件本身还短：一次伤害要播 900ms，
+ * AI 已经走下一步了，动画一直在被追着跑。放慢之后两边才对得上。
+ */
+const AI_PACE_MS: Record<AIPace, number> = { fast: 700, normal: 950, relaxed: 1300 }
 const AI_PACE_LABEL: Record<AIPace, string> = { fast: '较快', normal: '标准', relaxed: '悠闲' }
 
 const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }
@@ -126,7 +132,12 @@ function handleRespond(response: GameResponse): void {
         <button type="button" @click="screen = 'home'">‹</button>
         <h1>单机设置</h1>
       </header>
-      <label>
+      <!--
+        这三行是「带标题的选项组」，不是表单 label。
+        原来用 <label> 包着一组 button，会让每个按钮的可访问名都变成整行文字
+        （「电脑节奏较快标准悠闲」），读屏用户分不出哪个是哪个。
+      -->
+      <div role="group" aria-label="人数">
         <span>人数</span>
         <div class="sgs-panel__choices">
           <button
@@ -137,14 +148,14 @@ function handleRespond(response: GameResponse): void {
             @click="config.playerCount = count"
           >{{ count }} 人</button>
         </div>
-      </label>
-      <label>
+      </div>
+      <div role="group" aria-label="电脑节奏">
         <span>电脑节奏</span>
         <div class="sgs-panel__choices">
           <button v-for="(label, value) in AI_PACE_LABEL" :key="value" type="button" :class="{ active: config.aiPace === value }" @click="config.aiPace = value as AIPace">{{ label }}</button>
         </div>
-      </label>
-      <label>
+      </div>
+      <div role="group" aria-label="电脑难度">
         <span>电脑难度</span>
         <div class="sgs-panel__choices">
           <button
@@ -155,7 +166,7 @@ function handleRespond(response: GameResponse): void {
             @click="config.difficulty = value as AIDifficulty"
           >{{ label }}</button>
         </div>
-      </label>
+      </div>
       <p class="sgs-panel__note">当前已实现 {{ STANDARD_CHARACTERS.length }} 名武将，每人随机分配候选。</p>
       <button type="button" class="primary sgs-panel__start" @click="startMatch">开始</button>
     </section>
@@ -280,8 +291,8 @@ function handleRespond(response: GameResponse): void {
 .sgs-panel { gap: 16px; }
 .sgs-panel header { display: flex; align-items: center; gap: 12px; }
 .sgs-panel h1 { margin: 0; color: #f0d68d; font-size: 22px; }
-.sgs-panel label { display: grid; gap: 7px; }
-.sgs-panel label > span { color: #8f9b90; font-size: 12px; }
+.sgs-panel [role="group"] { display: grid; gap: 7px; }
+.sgs-panel [role="group"] > span { color: #8f9b90; font-size: 12px; }
 .sgs-panel__choices { display: flex; flex-wrap: wrap; gap: 8px; }
 .sgs-panel__choices button {
   min-height: 46px; padding: 0 18px; border: 1px solid #3f4d45; border-radius: 10px;

@@ -32,6 +32,8 @@ async function enterTable(page: Page, playerCount?: number) {
   await page.getByRole('button', { name: /单机游戏/ }).click()
   await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
   if (playerCount) await page.getByRole('button', { name: `${playerCount} 人`, exact: true }).click()
+  // 明确选最快的一档：默认节奏调慢过一次，测试不该跟着默认值一起变慢
+  await page.getByRole('button', { name: '较快', exact: true }).click()
   await page.getByRole('button', { name: '开始', exact: true }).click()
 
   // 选将：候选一定要真的能点

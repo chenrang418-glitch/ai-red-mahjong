@@ -3,6 +3,7 @@ import { resolveApiBase } from '@/composables/useOnlineGame'
 import { ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE, type OnlineSession } from '@/online/types'
 import type { GameResponse } from '../engine/requests'
 import type {
+  SgsChatMessage,
   SgsCommandDraft,
   SgsRoomDirectoryEntry,
   SgsRoomServerMessage,
@@ -12,6 +13,10 @@ import type {
 
 const ROOM_KEY = 'crplay.sanguosha.online-room'
 const NICKNAME_KEY = 'red-mahjong.nickname'
+/** 和服务端 CHAT_MAX 对齐，本地补进来的那条也不该让列表无限长 */
+const CHAT_KEEP = 40
+/** 气泡停留时长，和麻将一致 */
+const CHAT_BUBBLE_MS = 4000
 
 function storageGet(key: string): string {
   try {
@@ -62,6 +67,8 @@ export function useOnlineSanguosha() {
   const connecting = ref(false)
   const busy = ref(false)
   const error = ref('')
+  /** 按 playerId（seat-N）存的临时气泡，牌桌上不点开聊天也知道谁说了话 */
+  const chatBubbles = ref<Record<string, { id: number; text: string }>>({})
   let socket: WebSocket | null = null
   let roomCode = ''
   let manualClose = false
@@ -156,6 +163,7 @@ export function useOnlineSanguosha() {
         const message = JSON.parse(String(event.data)) as SgsRoomServerMessage
         if (message.type === 'room-state') room.value = message.room
         else if (message.type === 'error') error.value = message.message
+        else if (message.type === 'chat') { appendChat(message.message); showChatBubble(message.message) }
       } catch { error.value = '服务器返回了无法识别的数据' }
     })
     current.addEventListener('close', (event) => {
@@ -172,6 +180,37 @@ export function useOnlineSanguosha() {
       }
       if (!manualClose && session.value && roomCode) reconnectTimer = window.setTimeout(() => connectRoom(roomCode), 1200)
     })
+  }
+
+  /**
+   * 聊天是单独一帧，不跟着房间状态走。
+   *
+   * 服务端为一行字发全量快照太贵，所以 `broadcast({type:'chat'})` 是**代替**
+   * 状态广播的——客户端不自己接上，消息就永远到不了界面。
+   * 下一次房间状态到达时会用服务端那份权威列表整体覆盖，所以这里不会积累重复。
+   */
+  function appendChat(entry: SgsChatMessage): void {
+    const current = room.value
+    if (!current || current.chat.some((existing) => existing.id === entry.id)) return
+    const chat = [...current.chat, entry]
+    room.value = { ...current, chat: chat.length > CHAT_KEEP ? chat.slice(-CHAT_KEEP) : chat }
+  }
+
+  /**
+   * 在说话那家的座位上冒一个气泡，几秒后自己消失。
+   * 只在收到聊天帧时触发——房间状态里的历史消息不该在重连时集体炸出来。
+   */
+  function showChatBubble(entry: SgsChatMessage): void {
+    if (entry.seatId === undefined) return
+    const playerId = `seat-${entry.seatId}`
+    chatBubbles.value = { ...chatBubbles.value, [playerId]: { id: entry.id, text: entry.text } }
+    window.setTimeout(() => {
+      // 这几秒里又说了新的一句就别把新的擦掉
+      if (chatBubbles.value[playerId]?.id !== entry.id) return
+      const next = { ...chatBubbles.value }
+      delete next[playerId]
+      chatBubbles.value = next
+    }, CHAT_BUBBLE_MS)
   }
 
   function send(command: SgsCommandDraft): void {
@@ -232,5 +271,5 @@ export function useOnlineSanguosha() {
     cleanupSocket()
   })
 
-  return { session, lastNickname, room, rooms, connected, connecting, busy, error, login, restoreSession, refreshRooms, createRoom, joinRoom, send, respond, act, leaveRoom, logout }
+  return { session, lastNickname, room, rooms, connected, connecting, busy, error, chatBubbles, login, restoreSession, refreshRooms, createRoom, joinRoom, send, respond, act, leaveRoom, logout }
 }

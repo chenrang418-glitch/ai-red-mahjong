@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import SgsRequestDock from './SgsRequestDock.vue'
 import SgsTable from './SgsTable.vue'
+import SgsChatDock from './SgsChatDock.vue'
 import { useOnlineSanguosha } from '../composables/useOnlineSanguosha'
 import { DEFAULT_SGS_ROOM_SETTINGS } from '../online/protocol'
 
@@ -19,6 +20,11 @@ const allHumansReady = computed(() => online.room.value?.seats.every((seat) => s
 const connectionStatuses = computed(() => Object.fromEntries((online.room.value?.seats ?? [])
   .filter((seat) => seat.kind !== 'empty')
   .map((seat) => [`seat-${seat.seatId}`, seat.trustee ? 'trustee' : seat.connected ? 'online' : 'offline'] as const)))
+
+// 气泡在牌桌上按 playerId 取用，这里把带 id 的记录压成纯文本
+const bubbleTexts = computed(() => Object.fromEntries(
+  Object.entries(online.chatBubbles.value).map(([playerId, bubble]) => [playerId, bubble.text]),
+))
 
 onMounted(() => { void online.restoreSession() })
 
@@ -79,9 +85,13 @@ onBeforeUnmount(() => {
     :presentation-events="online.room.value.presentationEvents"
     :deadline-at="online.room.value.deadlineAt"
     :connection-statuses="connectionStatuses"
+    :chat="online.room.value.chat"
+    :self-user-id="online.session.value?.userId ?? ''"
+    :bubbles="bubbleTexts"
     @act="online.act"
     @respond="online.respond"
     @quit="confirmLeave = true"
+    @chat="(text) => online.send({ type: 'chat', text })"
   />
 
   <main v-else class="sgs-online">
@@ -171,6 +181,14 @@ onBeforeUnmount(() => {
       <p>{{ online.room.value.playerView?.result?.reason ?? '等待下一局' }}</p>
       <button type="button" class="primary" :disabled="me?.nextRoundReady" @click="online.send({ type: 'next-round' })">{{ me?.nextRoundReady ? '等待其他玩家' : '再来一局' }}</button>
     </section>
+
+    <!-- 等人、选将、结算这几屏也要能说话——「快点快点」最该用的就是这几屏 -->
+    <SgsChatDock
+      v-if="online.room.value"
+      :messages="online.room.value.chat"
+      :self-user-id="online.session.value?.userId ?? ''"
+      @send="(text) => online.send({ type: 'chat', text })"
+    />
 
     <p v-if="online.error.value" class="sgs-online__error" role="alert">{{ online.error.value }}</p>
   </main>
