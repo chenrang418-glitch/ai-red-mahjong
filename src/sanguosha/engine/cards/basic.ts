@@ -4,14 +4,14 @@ import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
-import { isTargetProhibited, skillsOf } from '../skills/runtime'
+import { getSkillRuntime, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, moveCard, setCardAlias } from '../zones'
-import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, hasWeapon, isCardIneffective } from '../equipment'
-import { provideSkillLookup, askCixiongSword, askSlashTransfer, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
+import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
@@ -94,42 +94,11 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     }
   }
 
-  // 方天画戟：最后一张手牌当【杀】用时，可以指定至多三名角色。
-  // 一个人只能装一把武器，所以它和青龙偃月刀 / 贯石斧 / 寒冰剑 / 麒麟弓
-  // 不会同时出现——多目标结算因此不必和那些特效纠缠。
-  if (hasWeapon(state, playerId, '方天画戟')
-    && source.zones.hand.length === 1
-    && state.cards[source.zones.hand[0]]?.name === '杀'
-    && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
-    const lastCard = source.zones.hand[0]
-    const reachable = state.players
-      .filter((target) => canTarget(state, playerId, target.id) && !isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf))
-      .map((target) => target.id)
-    for (const combination of pickCombinations(reachable, 2, 3)) {
-      const names = combination.map((id) => playerOf(state, id).nickname).join('、')
-      const base = useAction(lastCard, playerId, '杀', combination, `【方天画戟】对 ${names} 使用【杀】`)
-      if (base.kind !== 'use-card') continue
-      actions.push({ ...base, id: `play:fangtian:${combination.join(',')}` })
-    }
-  }
-
-  // 丈八蛇矛：任意两张手牌当一张【杀】。两张牌一起进处理区、一起进弃牌堆，
-  // 和真实规则的唯一差别是「造成伤害的牌」只记主牌那一张（奸雄只拿得走一张）。
-  if (hasWeapon(state, playerId, '丈八蛇矛')
-    && source.zones.hand.length >= 2
-    && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
-    for (let first = 0; first < source.zones.hand.length; first += 1) {
-      for (let second = first + 1; second < source.zones.hand.length; second += 1) {
-        const pair = [source.zones.hand[first], source.zones.hand[second]]
-        const names = pair.map((id) => state.cards[id]?.name ?? '?')
-        for (const target of state.players) {
-          if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
-          const base = useAction(pair[0], playerId, '杀', [target.id], `将【${names[0]}】【${names[1]}】当【杀】使用，目标${target.nickname}`)
-          if (base.kind !== 'use-card') continue
-          actions.push({ ...base, id: `play:zhangba:${pair.join('+')}:${target.id}`, cardIds: pair })
-        }
-      }
-    }
+  // 丈八蛇矛和方天画戟都会产生大量组合（6 张手牌 × 4 个目标就是 60 条动作，
+  // 界面上选中一张牌会冒出 20 个按钮，手机上根本没法用）。
+  // 改成和主动技一样的两步交互：一个按钮，然后选牌、选目标。
+  for (const option of equipmentPlayActions(state, playerId)) {
+    actions.push({ id: option.id, kind: 'invoke-skill', playerId, label: option.label, skillId: option.skillId, cardIds: [], targetIds: [] })
   }
 
   for (const cardId of source.zones.hand) {
@@ -237,22 +206,6 @@ function continueSlash(host: CardEngineHost): void {
   resolution.stage = 'awaiting-dodge'
   resolution.dodgeRemaining = slashDodgeRequirement(host, resolution.sourceId)
   enterSlashTarget(host)
-}
-
-/** 从候选里取出所有大小在 [min, max] 之间的组合。方天画戟最多三个目标，规模很小。 */
-function pickCombinations(candidates: readonly PlayerId[], min: number, max: number): PlayerId[][] {
-  const result: PlayerId[][] = []
-  const walk = (start: number, current: PlayerId[]) => {
-    if (current.length >= min) result.push([...current])
-    if (current.length >= max) return
-    for (let index = start; index < candidates.length; index += 1) {
-      current.push(candidates[index])
-      walk(index + 1, current)
-      current.pop()
-    }
-  }
-  walk(0, [])
-  return result
 }
 
 /** 结束一次【杀】的结算：主牌和一起打出的额外牌都进弃牌堆。 */
@@ -385,7 +338,9 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     return
   }
   if (action.kind === 'invoke-skill') {
+    // 装备的主动效果（丈八蛇矛、方天画戟）不在武将技能表里，按 id 全局查
     const runtime = skillsOf(host.state, playerId, skillIdsOf).find((candidate) => candidate.id === action.skillId)
+      ?? (action.skillId.startsWith('equip:') ? getSkillRuntime(action.skillId) : undefined)
     if (!runtime?.invokeActive) throw new Error('技能不可发动')
     runtime.invokeActive(host, playerId, action.id)
     return
@@ -649,6 +604,15 @@ provideEquipmentCallbacks({
   continueSlash(host) {
     continueSlash(host as CardEngineHost)
   },
+  beginSlashFromAction(host, sourceId, cardIds, targetIds) {
+    const engineHost = host as CardEngineHost
+    const [first] = targetIds
+    const target = engineHost.state.players.find((candidate) => candidate.id === first)
+    if (!target) return
+    const base = useAction(cardIds[0], sourceId, '杀', targetIds, `对${target.nickname}使用【杀】`)
+    if (base.kind !== 'use-card') return
+    beginSlash(engineHost, { ...base, cardIds, targetIds })
+  },
   beginBorrowedSlash(host, sourceId, targetId, cardId) {
     const engineHost = host as CardEngineHost
     // 借刀本身的结算可能已经把人打死、把牌局打完了，前提不成立就别再起一次【杀】
@@ -711,3 +675,12 @@ provideGenderLookup((characterId) => getCharacter(characterId)?.gender)
 
 // 流离要按攻击范围找可转移的目标，技能表和距离计算都在别处，运行时回注
 provideSkillLookup(skillIdsOf, canTarget)
+
+
+// 装备的主动效果要按出杀次数和距离筛目标，这些计算在这里，运行时回注
+provideSlashLookup(
+  (state: SanguoshaState, playerId: PlayerId) => state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId),
+  (state: SanguoshaState, playerId: PlayerId) => state.players
+    .filter((target) => canTarget(state, playerId, target.id) && !isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf))
+    .map((target) => target.id),
+)

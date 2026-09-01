@@ -446,7 +446,7 @@ describe('雌雄双股剑', () => {
 })
 
 describe('丈八蛇矛', () => {
-  it('任意两张手牌可以当一张【杀】用，两张都进弃牌堆', () => {
+  it('两步交互：选两张牌 → 选目标，两张都进弃牌堆', () => {
     const game = gameWith('zhangba')
     equipWeapon(game, 'p0', '丈八蛇矛')
     const owner = game.state.players[0]
@@ -455,16 +455,23 @@ describe('丈八蛇矛', () => {
     game.state.zones.discardPile.push(...owner.zones.hand.filter((id) => !kept.includes(id)))
     owner.zones.hand = [...kept]
 
-    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
-      && candidate.id.startsWith('play:zhangba:') && candidate.targetIds.includes('p1'))
-    expect(action, '丈八蛇矛必须真的产生一条合法动作').toBeTruthy()
-    expect((action as { cardIds: string[] }).cardIds).toHaveLength(2)
+    // 按组合枚举的话 6 张手牌配 4 个目标就是 60 条动作，界面没法用，
+    // 所以这里只该有一条主动动作
+    expect(game.legalActions('p0').filter((action) => action.id === 'skill:zhangba')).toHaveLength(1)
+    game.act('p0', 'skill:zhangba')
 
-    game.act('p0', action!.id)
+    const cardsRequest = pending(game)
+    expect(cardsRequest.kind).toBe('choose-cards')
+    expect((cardsRequest as { min: number; max: number }).min).toBe(2)
+    game.respond({ requestId: cardsRequest.id, playerId: 'p0', payload: { cardIds: kept } })
+
+    const targetRequest = pending(game)
+    expect(targetRequest.kind).toBe('choose-targets')
+    game.respond({ requestId: targetRequest.id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+
     expect(game.state.cardResolution?.kind).toBe('slash')
     expect(owner.zones.hand).toHaveLength(0)
 
-    // 目标不闪，伤害照常，两张牌都进弃牌堆
     const victim = game.state.players[1]
     const hpBefore = victim.hp
     game.respond({ requestId: pending(game).id, playerId: 'p1', payload: { actionId: 'respond-pass' } })
@@ -479,38 +486,41 @@ describe('丈八蛇矛', () => {
     const owner = game.state.players[0]
     game.state.zones.discardPile.push(...owner.zones.hand.slice(1))
     owner.zones.hand = owner.zones.hand.slice(0, 1)
-    expect(game.legalActions('p0').some((action) => action.id.startsWith('play:zhangba:'))).toBe(false)
+    expect(game.legalActions('p0').some((action) => action.id === 'skill:zhangba')).toBe(false)
   })
 
   it('没装丈八蛇矛的人没有这条动作', () => {
     const game = gameWith('zhangba-none')
     equipWeapon(game, 'p0', '古锭刀')
-    expect(game.legalActions('p0').some((action) => action.id.startsWith('play:zhangba:'))).toBe(false)
+    expect(game.legalActions('p0').some((action) => action.id === 'skill:zhangba')).toBe(false)
   })
 })
 
 describe('方天画戟', () => {
-  it('最后一张手牌当【杀】时可以指定多名角色，逐个结算', () => {
-    const game = gameWith('fangtian')
+  /** 起一局并让 p0 只剩一张【杀】。 */
+  function lastSlashGame(seed: string): { game: SanguoshaGame; slash: string } {
+    const game = gameWith(seed)
     equipWeapon(game, 'p0', '方天画戟')
     const owner = game.state.players[0]
-    // 手上只留一张杀
     const slash = giveCard(game, 'p0', '杀')
     game.state.zones.discardPile.push(...owner.zones.hand.filter((id) => id !== slash))
     owner.zones.hand = [slash]
-    // 目标都拿不出闪，保证一路命中
+    return { game, slash }
+  }
+
+  it('两步交互：一条动作 → 选至多三名角色，逐个结算', () => {
+    const { game, slash } = lastSlashGame('fangtian')
     for (const id of ['p1', 'p2']) stripDodges(game, id)
 
-    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
-      && candidate.id.startsWith('play:fangtian:')
-      && candidate.targetIds.includes('p1') && candidate.targetIds.includes('p2')
-      && candidate.targetIds.length === 2)
-    expect(action, '方天画戟必须真的产生多目标动作').toBeTruthy()
+    expect(game.legalActions('p0').filter((action) => action.id === 'skill:fangtian')).toHaveLength(1)
+    game.act('p0', 'skill:fangtian')
 
+    const targets = pending(game)
+    expect(targets.kind).toBe('choose-targets')
+    expect((targets as { max: number }).max).toBe(3)
     const before = ['p1', 'p2'].map((id) => game.state.players.find((p) => p.id === id)!.hp)
-    game.act('p0', action!.id)
+    game.respond({ requestId: targets.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
 
-    // 逐个目标求闪
     let guard = 0
     while (game.state.pendingRequests.length > 0) {
       if (guard++ > 10) throw new Error('多目标结算没有收敛')
@@ -520,32 +530,24 @@ describe('方天画戟', () => {
 
     const after = ['p1', 'p2'].map((id) => game.state.players.find((p) => p.id === id)!.hp)
     expect(after, '两个目标都要挨这一刀').toEqual(before.map((hp) => hp - 1))
-    // 全部结算完之后这张牌才进弃牌堆
     expect(game.state.cardResolution).toBeNull()
     expect(game.state.zones.discardPile).toContain(slash)
     assertGameInvariants(game.state)
   })
 
   it('中途有目标闪掉，其余目标照常结算', () => {
-    const game = gameWith('fangtian-dodge')
-    equipWeapon(game, 'p0', '方天画戟')
-    const owner = game.state.players[0]
-    const slash = giveCard(game, 'p0', '杀')
-    game.state.zones.discardPile.push(...owner.zones.hand.filter((id) => id !== slash))
-    owner.zones.hand = [slash]
+    const { game } = lastSlashGame('fangtian-dodge')
     stripDodges(game, 'p2')
     const dodge = giveCard(game, 'p1', '闪')
-
-    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
-      && candidate.id === 'play:fangtian:p1,p2')!
+    // giveCard 会把闪塞进 p1 手里，不影响 p0 的「最后一张手牌」前提
     const p1Before = game.state.players[1].hp
     const p2Before = game.state.players[2].hp
-    game.act('p0', action.id)
 
-    // p1 闪掉
+    game.act('p0', 'skill:fangtian')
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
+
     expect(pending(game).playerId).toBe('p1')
     game.respond({ requestId: pending(game).id, playerId: 'p1', payload: { actionId: `respond-dodge:${dodge}` } })
-    // 接着轮到 p2
     expect(pending(game).playerId).toBe('p2')
     game.respond({ requestId: pending(game).id, playerId: 'p2', payload: { actionId: 'respond-pass' } })
 
@@ -560,6 +562,6 @@ describe('方天画戟', () => {
     equipWeapon(game, 'p0', '方天画戟')
     giveCard(game, 'p0', '杀')
     expect(game.state.players[0].zones.hand.length).toBeGreaterThan(1)
-    expect(game.legalActions('p0').some((action) => action.id.startsWith('play:fangtian:'))).toBe(false)
+    expect(game.legalActions('p0').some((action) => action.id === 'skill:fangtian')).toBe(false)
   })
 })

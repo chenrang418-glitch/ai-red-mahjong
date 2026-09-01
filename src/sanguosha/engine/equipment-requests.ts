@@ -137,6 +137,8 @@ export interface EngineCallbacks {
    * 否则仁王盾挡不住、无双不生效、流离转不走。牌已经在弃牌堆里。
    */
   beginBorrowedSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): void
+  /** 装备的主动效果选完牌和目标之后，用它开一次正常的【杀】结算。 */
+  beginSlashFromAction(host: SkillHost, sourceId: PlayerId, cardIds: CardId[], targetIds: PlayerId[]): void
 }
 
 let callbacks: EngineCallbacks | null = null
@@ -742,3 +744,133 @@ function maleTargets(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
     .filter((player) => genderOf(player.characterId) === 'male')
     .map((player) => player.id)
 }
+
+export const ZHANGBA_SKILL = 'equip:zhangba'
+export const FANGTIAN_SKILL = 'equip:fangtian'
+
+/**
+ * 装备在出牌阶段能主动发动的效果。
+ *
+ * 丈八蛇矛（两张手牌当一张【杀】）和方天画戟（最后一张手牌指定多名角色）
+ * 如果按组合枚举成动作，6 张手牌配 4 个目标就是 60 条，界面上选中一张牌
+ * 会冒出 20 个按钮，手机上根本没法用。所以做成和主动技一样的两步交互。
+ */
+export function equipmentPlayActions(
+  state: SanguoshaState,
+  playerId: PlayerId,
+): Array<{ id: string; label: string; skillId: string }> {
+  if (!slashAvailable?.(state, playerId)) return []
+  const owner = state.players.find((player) => player.id === playerId)
+  if (!owner?.alive) return []
+  const options: Array<{ id: string; label: string; skillId: string }> = []
+
+  if (hasWeapon(state, playerId, '丈八蛇矛') && owner.zones.hand.length >= 2) {
+    options.push({ id: 'skill:zhangba', label: '发动【丈八蛇矛】：两张手牌当一张【杀】使用', skillId: ZHANGBA_SKILL })
+  }
+  if (hasWeapon(state, playerId, '方天画戟')
+    && owner.zones.hand.length === 1
+    && state.cards[owner.zones.hand[0]]?.name === '杀') {
+    options.push({ id: 'skill:fangtian', label: '发动【方天画戟】：最后一张【杀】可以指定至多三名角色', skillId: FANGTIAN_SKILL })
+  }
+  return options
+}
+
+/** 出杀次数和目标合法性都在别处算，运行时回注。 */
+let slashAvailable: ((state: SanguoshaState, playerId: PlayerId) => boolean) | null = null
+let slashTargets: ((state: SanguoshaState, playerId: PlayerId) => PlayerId[]) | null = null
+
+export function provideSlashLookup(
+  available: (state: SanguoshaState, playerId: PlayerId) => boolean,
+  targets: (state: SanguoshaState, playerId: PlayerId) => PlayerId[],
+): void {
+  slashAvailable = available
+  slashTargets = targets
+}
+
+registerSkillRuntime({
+  id: ZHANGBA_SKILL,
+  invokeActive(host, ownerId) {
+    const owner = playerOf(host.state, ownerId)
+    host.askSkill({
+      skillId: ZHANGBA_SKILL,
+      ownerId,
+      step: 'cards',
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId,
+        kind: 'choose-cards',
+        playerId: ownerId,
+        prompt: '【丈八蛇矛】：选择两张手牌当作一张【杀】',
+        timeoutMs: 25_000,
+        optional: false,
+        purpose: 'skill',
+        cardIds: [...owner.zones.hand],
+        hiddenCardSlots: [],
+        min: 2,
+        max: 2,
+      }),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step === 'cards') {
+      const cardIds = (response.payload as { cardIds: CardId[] }).cardIds
+      const candidateIds = slashTargets?.(host.state, ownerId) ?? []
+      if (candidateIds.length === 0) return
+      host.askSkill({
+        skillId: ZHANGBA_SKILL,
+        ownerId,
+        step: 'target',
+        data: { cardIds },
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId,
+          kind: 'choose-targets',
+          playerId: ownerId,
+          prompt: '【丈八蛇矛】：选择【杀】的目标',
+          timeoutMs: 20_000,
+          optional: false,
+          candidateIds,
+          min: 1,
+          max: 1,
+        }),
+      })
+      return
+    }
+    const cardIds = resolution.data.cardIds as CardId[]
+    const targetIds = (response.payload as { targetIds: PlayerId[] }).targetIds
+    const owner = playerOf(host.state, ownerId)
+    // 发问期间牌可能已经没了，这里必须重新确认
+    if (cardIds.some((cardId) => !owner.zones.hand.includes(cardId))) return
+    callbacks?.beginSlashFromAction(host, ownerId, cardIds, targetIds)
+  },
+})
+
+registerSkillRuntime({
+  id: FANGTIAN_SKILL,
+  invokeActive(host, ownerId) {
+    const candidateIds = slashTargets?.(host.state, ownerId) ?? []
+    if (candidateIds.length === 0) return
+    host.askSkill({
+      skillId: FANGTIAN_SKILL,
+      ownerId,
+      step: 'targets',
+      build: (requestId): ChooseTargetsRequest => ({
+        id: requestId,
+        kind: 'choose-targets',
+        playerId: ownerId,
+        prompt: '【方天画戟】：选择至多三名角色',
+        timeoutMs: 25_000,
+        optional: false,
+        candidateIds,
+        min: 1,
+        max: Math.min(3, candidateIds.length),
+      }),
+    })
+  },
+  resume(host, ownerId, _resolution, response) {
+    const targetIds = (response.payload as { targetIds: PlayerId[] }).targetIds
+    const owner = playerOf(host.state, ownerId)
+    const [lastCard] = owner.zones.hand
+    // 前提是「最后一张手牌」，发问期间手牌变了就作废
+    if (owner.zones.hand.length !== 1 || host.state.cards[lastCard]?.name !== '杀') return
+    callbacks?.beginSlashFromAction(host, ownerId, [lastCard], targetIds)
+  },
+})

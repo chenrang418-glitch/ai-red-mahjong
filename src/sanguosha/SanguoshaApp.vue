@@ -71,8 +71,8 @@ function handleRespond(response: GameResponse): void {
       </div>
       <nav aria-label="三国杀模式">
         <button type="button" class="sgs-home__main" @click="screen = 'setup'"><b>单机游戏</b><span>与电脑对战</span></button>
-        <button type="button" @click="screen = 'online'"><b>联机游戏</b><span>创建或加入房间</span></button>
-        <button type="button" @click="screen = 'rules'"><b>规则</b><span>玩法与武将</span></button>
+        <button type="button" class="sgs-home__online" @click="screen = 'online'"><b>联机游戏</b><span>创建或加入房间</span></button>
+        <button type="button" class="sgs-home__rules" @click="screen = 'rules'"><b>规则</b><span>玩法与武将</span></button>
       </nav>
     </section>
 
@@ -191,6 +191,9 @@ function handleRespond(response: GameResponse): void {
 }
 .sgs-home nav button:disabled { color: #767f7a; cursor: default; }
 .sgs-home nav .sgs-home__main { border-color: #9e7f3c; color: #ffe6a8; background: linear-gradient(180deg, #6d5527, #4c3b1a); }
+/* 三个入口各用一种颜色，暗底上要保证文字对比度，所以底色压暗、字色提亮 */
+.sgs-home nav .sgs-home__online { border-color: #9c4038; color: #ffcfc7; background: linear-gradient(180deg, #6e2a24, #4a1c18); }
+.sgs-home nav .sgs-home__rules { border-color: #3f7f4e; color: #c4eccd; background: linear-gradient(180deg, #245c33, #173e22); }
 .sgs-home nav b { font-size: 16px; }
 .sgs-home nav span { font-size: 10px; }
 

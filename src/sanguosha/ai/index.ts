@@ -70,10 +70,17 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
   for (const action of useActions) {
     let score = 0
     switch (action.asCardName) {
-      case '杀':
-        // 没有目标价值就别硬打
-        score = 6 + Math.max(...action.targetIds.map((targetId) => targetScore(context, targetId)), -Infinity)
+      case '杀': {
+        // 没有目标价值就别硬打。方天画戟能打多人，多打一个就多算一份——
+        // 只按最好的那个目标算的话，多目标永远不会被选中。
+        const perTarget = action.targetIds.map((targetId) => targetScore(context, targetId))
+        const best = Math.max(...perTarget, -Infinity)
+        const extras = perTarget.filter((value) => value > 0 && value !== best)
+        score = 6 + best + extras.reduce((sum, value) => sum + value * 0.6, 0)
+        // 丈八蛇矛拿两张牌换一张【杀】，只有手上没有真【杀】时才划算
+        if (action.cardIds.length > 1) score -= 8
         break
+      }
       case '桃':
         score = me.hp < me.maxHp ? 30 : -100
         break
@@ -106,8 +113,11 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
         score = -50
         break
       default:
-        // 装备一律先穿上；其余锦囊给个中性分
-        score = action.label.startsWith('装备') ? 20 : 8
+        // 装备一律先穿上；重铸是把废牌换成新牌，稳赚但优先级低于真正的进攻；
+        // 其余锦囊给个中性分
+        if (action.label.startsWith('装备')) score = 20
+        else if (action.id.startsWith('play:recast:')) score = 5
+        else score = 8
     }
     if (context.difficulty !== 'hard') score += context.rng.nextInt(5)
     if (!best || score > best.score) best = { action, score }
