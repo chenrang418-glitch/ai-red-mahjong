@@ -155,3 +155,18 @@ test('带房间号的链接直接进联机界面，而不是回首页', async ({
   await expect(page.getByRole('button', { name: /单机游戏/ })).toHaveCount(0)
   await expectNoPageScroll(page)
 })
+
+test('规则页同时给出牌面说明和武将技能', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: /规则/ }).click()
+  const rules = page.locator('.sgs-rules')
+  // 牌面说明：装备的特效以前完全没写在界面上，玩家无从知晓
+  await expect(rules).toContainText('麒麟弓')
+  await expect(rules).toContainText('方天画戟')
+  await expect(rules).toContainText('无懈可击')
+  // 武将技能仍然直接来自武将数据
+  await expect(rules).toContainText('武圣')
+  await expect(rules).toContainText('离间')
+  await expectNoPageScroll(page)
+})

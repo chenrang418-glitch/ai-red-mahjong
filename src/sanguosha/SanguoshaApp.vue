@@ -5,6 +5,7 @@ import SgsRequestDock from './components/SgsRequestDock.vue'
 import SgsOnlineHub from './components/SgsOnlineHub.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
 import { STANDARD_CHARACTERS } from './data/characters/standard'
+import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
 import type { AIDifficulty } from './ai'
 
@@ -141,6 +142,10 @@ function handleRespond(response: GameResponse): void {
         <article>
           <b>濒死</b>
           <p>体力降到零进入濒死，依次询问是否使用【桃】；无人相救则阵亡。</p>
+        </article>
+        <article v-for="section in CARD_INFO_SECTIONS" :key="section.title">
+          <b>{{ section.title }}</b>
+          <p v-for="card in section.cards" :key="card.name">【{{ card.name }}】{{ card.description }}</p>
         </article>
         <article v-for="character in STANDARD_CHARACTERS" :key="character.id">
           <b>{{ character.name }}（体力 {{ character.maxHp }}）</b>
