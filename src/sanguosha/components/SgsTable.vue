@@ -198,6 +198,8 @@ const seatColumns = computed(() => {
 
 .sgs-table__dock {
   display: flex; flex-direction: column; gap: 6px;
+  /* 同 SgsRequestDock：一张牌可能有很多用途，动作区不能无限长高把牌桌顶出去 */
+  max-height: 46dvh; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   padding: 8px 11px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid #46402c;
   background: linear-gradient(180deg, rgba(24, 34, 28, .97), rgba(12, 20, 16, .99));

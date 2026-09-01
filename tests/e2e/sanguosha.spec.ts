@@ -170,3 +170,37 @@ test('规则页同时给出牌面说明和武将技能', async ({ page }) => {
   await expect(rules).toContainText('离间')
   await expectNoPageScroll(page)
 })
+
+test('牌桌返回键先确认，误点不会丢掉整局', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await enterTable(page)
+
+  await page.locator('.sgs-table__back').click()
+  const confirm = page.locator('.sgs-confirm')
+  await expect(confirm).toBeVisible()
+  await expect(confirm).toContainText('进度不会保存')
+
+  // 选「继续游戏」要回到原来那局，而不是退出
+  await confirm.getByRole('button', { name: '继续游戏' }).click()
+  await expect(page.locator('.sgs-confirm')).toHaveCount(0)
+  await expect(page.locator('.sgs-seat')).toHaveCount(5)
+  await expectNoPageScroll(page)
+})
+
+test('底部面板有高度上限，选项再多也不会顶出屏幕', async ({ page }) => {
+  // 选将三个长技能、五谷丰登八张牌、遗计的分配表都会把面板撑很高，
+  // 没有上限的话整张牌桌会被顶到屏幕下方。
+  await page.setViewportSize({ width: 360, height: 640 })
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: /单机游戏/ }).click()
+  await page.getByRole('button', { name: '开始', exact: true }).click()
+
+  const dock = page.locator('.sgs-dock')
+  await expect(dock).toBeVisible()
+  const box = await dock.evaluate((node) => {
+    const rect = node.getBoundingClientRect()
+    return { bottom: rect.bottom, viewport: window.innerHeight, canScroll: node.scrollHeight > node.clientHeight || node.scrollHeight === node.clientHeight }
+  })
+  expect(box.bottom, '面板底边不能超出屏幕').toBeLessThanOrEqual(box.viewport + 1)
+  await expectNoPageScroll(page)
+})

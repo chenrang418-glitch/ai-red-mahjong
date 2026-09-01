@@ -324,14 +324,30 @@ function nicknameOf(playerId: string): string {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  /*
+   * 高度必须封顶。选项一多（选将三个长技能、五谷丰登八张牌、遗计的分配表）
+   * 面板就会把牌桌整个顶出屏幕下方——报过好几次。
+   * 封顶之后内容自己滚，确认按钮用 sticky 贴在底部，永远点得到。
+   */
+  max-height: 56dvh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 9px 11px calc(9px + env(safe-area-inset-bottom));
   border-top: 1px solid #46402c;
   background: linear-gradient(180deg, rgba(24, 34, 28, .97), rgba(12, 20, 16, .99));
 }
+
 .sgs-dock__prompt { margin: 0; color: #e9d9a6; font-size: 13px; font-weight: 700; }
 .sgs-dock__hint { margin: 0; color: #93a49b; font-size: 11px; line-height: 1.5; }
 .sgs-dock__cards { display: flex; flex-wrap: wrap; gap: 5px; max-height: 30vh; overflow-y: auto; }
-.sgs-dock__actions { display: flex; align-items: center; gap: 8px; }
+/* 确认/放弃这一行不能被滚出去：面板封顶之后内容会滚，这行 sticky 贴底 */
+.sgs-dock__actions {
+  display: flex; align-items: center; gap: 8px;
+  position: sticky; bottom: calc(-9px - env(safe-area-inset-bottom)); z-index: 1;
+  padding-bottom: 2px;
+  background: linear-gradient(180deg, rgba(18, 27, 22, 0), rgba(14, 22, 18, .96) 34%);
+}
 .sgs-dock__actions--wrap { flex-wrap: wrap; }
 .sgs-dock__count { margin-right: auto; color: #8fa199; font-size: 11px; }
 

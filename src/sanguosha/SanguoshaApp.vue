@@ -4,7 +4,7 @@ import SgsTable from './components/SgsTable.vue'
 import SgsRequestDock from './components/SgsRequestDock.vue'
 import SgsOnlineHub from './components/SgsOnlineHub.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
-import { STANDARD_CHARACTERS } from './data/characters/standard'
+import { getCharacter, STANDARD_CHARACTERS } from './data/characters/standard'
 import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
 import type { AIDifficulty } from './ai'
@@ -26,14 +26,51 @@ const result = computed(() => game.view.value?.result ?? null)
 const CAMP_LABEL: Record<string, string> = { lord: '主公与忠臣', rebel: '反贼', renegade: '内奸' }
 const choosingGeneral = computed(() => game.view.value?.status === 'choosing-general')
 
+const IDENTITY_LABEL: Record<string, string> = { lord: '主公', loyalist: '忠臣', rebel: '反贼', renegade: '内奸' }
+const WINNING_IDENTITIES: Record<string, string[]> = {
+  lord: ['lord', 'loyalist'], rebel: ['rebel'], renegade: ['renegade'],
+}
+
+/** 结算名单：身份全部公开，标出谁赢了。 */
+const finalRoster = computed(() => {
+  const view = game.view.value
+  if (!view || !result.value) return []
+  const winners = WINNING_IDENTITIES[result.value.winningCamp] ?? []
+  return view.players.map((player) => ({
+    id: player.id,
+    nickname: player.nickname,
+    identity: player.identity ?? 'unknown',
+    characterName: player.characterId ? getCharacter(player.characterId)?.name ?? '未知' : '未选将',
+    alive: player.alive,
+    hp: player.hp,
+    maxHp: player.maxHp,
+    won: winners.includes(player.identity ?? ''),
+  }))
+})
+
 function startMatch(): void {
   game.start({ playerCount: config.playerCount, difficulty: config.difficulty })
   screen.value = 'playing'
 }
 
+const exitConfirmOpen = ref(false)
+
+/** 牌桌上的返回键先问一次——误点一下就把整局丢掉太亏。 */
+function requestExit(): void {
+  if (game.view.value && !result.value) { exitConfirmOpen.value = true; return }
+  quit()
+}
+
 function quit(): void {
+  exitConfirmOpen.value = false
   game.abandon()
   screen.value = 'home'
+}
+
+/** 结算界面直接再开一局，不用退回首页重设一遍。 */
+function playAgain(): void {
+  game.abandon()
+  startMatch()
 }
 
 function handleRespond(response: GameResponse): void {
@@ -53,7 +90,7 @@ function handleRespond(response: GameResponse): void {
     :log="game.log.value"
     @act="game.act"
     @respond="handleRespond"
-    @quit="quit"
+    @quit="requestExit"
   />
 
   <SgsOnlineHub v-else-if="screen === 'online'" @back="screen = 'home'" />
@@ -161,7 +198,30 @@ function handleRespond(response: GameResponse): void {
     <section class="sgs-result" role="dialog" aria-modal="true">
       <h2>{{ CAMP_LABEL[result.winningCamp] ?? result.winningCamp }}获胜</h2>
       <p>{{ result.reason }}</p>
-      <button type="button" class="primary" @click="quit">返回</button>
+      <!-- 牌局结束才公开全部身份，这是玩家最想看的一屏 -->
+      <ol class="sgs-result__roster">
+        <li v-for="player in finalRoster" :key="player.id" :class="{ won: player.won, dead: !player.alive }">
+          <span class="sgs-result__identity" :class="`sgs-result__identity--${player.identity}`">{{ IDENTITY_LABEL[player.identity] ?? '？' }}</span>
+          <strong>{{ player.nickname }}</strong>
+          <small>{{ player.characterName }}</small>
+          <em>{{ player.alive ? `存活 ${player.hp}/${player.maxHp}` : '阵亡' }}</em>
+        </li>
+      </ol>
+      <div class="sgs-result__actions">
+        <button type="button" class="primary" @click="playAgain">再来一局</button>
+        <button type="button" @click="quit">返回首页</button>
+      </div>
+    </section>
+  </div>
+
+  <div v-if="exitConfirmOpen" class="sgs-confirm-backdrop" @click.self="exitConfirmOpen = false">
+    <section class="sgs-confirm" role="dialog" aria-modal="true">
+      <h2>退出牌局</h2>
+      <p>这一局的进度不会保存，确定要退出吗？</p>
+      <div class="sgs-confirm__actions">
+        <button type="button" @click="exitConfirmOpen = false">继续游戏</button>
+        <button type="button" class="danger" @click="quit">退出</button>
+      </div>
     </section>
   </div>
 </template>
@@ -240,6 +300,35 @@ function handleRespond(response: GameResponse): void {
   background: linear-gradient(160deg, var(--ink-panel), var(--ink-panel-deep)); box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
 }
 .sgs-result h2 { margin: 0 0 8px; color: #f3d67c; font-size: 21px; }
+.sgs-result__roster { margin: 0 0 16px; padding: 0; list-style: none; display: grid; gap: 5px; max-height: 44dvh; overflow-y: auto; }
+.sgs-result__roster li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  padding: 7px 9px; border: 1px solid var(--ink-line); border-radius: 9px; background: rgba(34, 50, 42, .7);
+}
+.sgs-result__roster li.won { border-color: var(--accent-gold); background: rgba(155, 122, 55, .22); }
+.sgs-result__roster li.dead { opacity: .55; }
+.sgs-result__roster strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sgs-result__roster small { grid-column: 2; color: var(--ink-text-muted); font-size: 11px; }
+.sgs-result__roster em { grid-row: 1 / 3; color: var(--ink-text-soft); font-size: 11px; font-style: normal; }
+.sgs-result__identity { grid-row: 1 / 3; padding: 2px 6px; border-radius: 5px; background: #2b3831; color: #93a49b; font-size: 10px; }
+.sgs-result__identity--lord { background: #6a4a1c; color: #ffd98a; }
+.sgs-result__identity--rebel { background: #5c2622; color: #ffb3aa; }
+.sgs-result__identity--loyalist { background: #21432f; color: #a6e0bb; }
+.sgs-result__identity--renegade { background: #3d3151; color: #cbb6ee; }
+.sgs-result__actions { display: flex; gap: 8px; }
+.sgs-result__actions button { flex: 1; }
+
+/* 退出确认：居中弹层，和麻将那边同一套观感 */
+.sgs-confirm-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(3, 10, 8, .74); }
+.sgs-confirm {
+  width: min(340px, 100%); padding: 20px; border: 1px solid var(--ink-line); border-radius: 16px;
+  background: linear-gradient(160deg, var(--ink-panel), var(--ink-panel-deep)); box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
+}
+.sgs-confirm h2 { margin: 0 0 8px; color: #f3d67c; font-size: 17px; }
+.sgs-confirm p { margin: 0 0 18px; color: var(--ink-text-soft); font-size: 13px; line-height: 1.6; }
+.sgs-confirm__actions { display: flex; gap: 8px; }
+.sgs-confirm__actions button { flex: 1; min-height: 42px; border-radius: 10px; border: 1px solid var(--ink-line); background: var(--ink-panel-deep); color: var(--ink-text-soft); cursor: pointer; font: inherit; font-weight: 700; }
+.sgs-confirm__actions .danger { border-color: var(--accent-red); color: #ffd9d2; background: linear-gradient(180deg, var(--accent-red-fill-top), var(--accent-red-fill-bottom)); }
 .sgs-result p { margin: 0 0 18px; color: #a3aea5; font-size: 13px; }
 
 @media (max-width: 620px) and (orientation: portrait) {
