@@ -78,6 +78,10 @@ export function assertGameInvariants(state: SanguoshaState): void {
     if (!state.players.some((player) => player.id === ownerId)) throw new Error('技能等待状态的拥有者不存在')
   }
 
+  for (const prompt of state.skillQueue) {
+    if (!state.players.some((player) => player.id === prompt.ownerId)) throw new Error('排队技能的拥有者不存在')
+  }
+
   if (state.status === 'game-over' && (!state.result || state.pendingRequests.length > 0)) throw new Error('结束状态缺少结果或仍有 Request')
   if (state.status !== 'game-over' && state.result) throw new Error('未结束牌局不应存在胜负结果')
   assertCardConservation(state)

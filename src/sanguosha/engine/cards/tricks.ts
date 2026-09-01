@@ -499,7 +499,7 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   if (effect.kind === 'ask-slash' || effect.kind === 'ask-dodge') {
     if (!playedCardId) {
       resolution.effect = null
-      resolveDamage(host, { sourceId: resolution.sourceId, targetId: effect.targetId, amount: 1, nature: 'normal' })
+      resolveDamage(host, { sourceId: resolution.sourceId, targetId: effect.targetId, amount: 1, nature: 'normal', cardName: resolution.cardName, cardId: resolution.cardId })
       // 濒死时暂停，等救援结束后由 resumeTrickResolution 继续下一个目标
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
       return
@@ -529,7 +529,7 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   if (effect.kind === 'knife-dodge') {
     resolution.effect = null
     if (!playedCardId) {
-      resolveDamage(host, { sourceId: effect.attackerId, targetId: effect.victimId, amount: 1, nature: 'normal' })
+      resolveDamage(host, { sourceId: effect.attackerId, targetId: effect.victimId, amount: 1, nature: 'normal', cardName: '杀' })
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
       return
     }
@@ -541,7 +541,7 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
     if (!playedCardId) {
       // 这一方出不出杀，由对方造成一点伤害
       resolution.effect = null
-      resolveDamage(host, { sourceId: effect.otherId, targetId: effect.responderId, amount: 1, nature: 'normal' })
+      resolveDamage(host, { sourceId: effect.otherId, targetId: effect.responderId, amount: 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
       return
     }
@@ -720,7 +720,7 @@ function resolveFireDiscard(
   for (const cardId of picked) {
     moveCard(host.state, cardId, { kind: 'hand', playerId: resolution.sourceId }, { kind: 'discardPile' })
   }
-  resolveDamage(host, { sourceId: resolution.sourceId, targetId: effect.targetId, amount: 1, nature: 'fire' })
+  resolveDamage(host, { sourceId: resolution.sourceId, targetId: effect.targetId, amount: 1, nature: 'fire', cardName: '火攻', cardId: resolution.cardId })
   if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
 }
 

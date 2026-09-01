@@ -2,6 +2,7 @@ import { registerSkillRuntime, type ViewAsOption } from '../../engine/skills/run
 import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 import { WEI_CHARACTERS } from './wei'
+import { WEI_DAMAGE_CHARACTERS } from './wei-damage'
 
 /**
  * 标准包武将。
@@ -252,6 +253,8 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
   },
   // 需要向玩家发问的技能单独放一个文件，那里的注释解释了哪些时机还不能安全挂起
   ...WEI_CHARACTERS,
+  // 「受到伤害后」触发的技能走延后发问队列，原因见 wei-damage.ts 顶部
+  ...WEI_DAMAGE_CHARACTERS,
 ] as const
 
 const BY_ID = new Map(STANDARD_CHARACTERS.map((character) => [character.id, character]))

@@ -6,7 +6,7 @@ import { validateResponse } from './requests'
 import { recover } from './recover'
 import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
-import type { DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
+import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 import { moveCard } from './zones'
 
 export interface DamageOptions {
@@ -16,6 +16,8 @@ export interface DamageOptions {
   nature?: DamageNature
   /** 造成这次伤害的牌名。装备特效要靠它区分「【杀】造成的伤害」和别的伤害。 */
   cardName?: string | null
+  /** 造成这次伤害的实体牌。奸雄这类「获得造成伤害的牌」的技能要靠它定位。 */
+  cardId?: CardId | null
 }
 
 interface InternalDamageOptions extends DamageOptions {
@@ -53,8 +55,13 @@ function dispatchDamageTiming(
   targetId: PlayerId,
   amount: number,
   nature: DamageNature,
+  cardId: CardId | null = null,
 ): EventContext {
-  return host.dispatch(name, { amount }, { sourceId: sourceId ?? undefined, targetId, damageNature: nature })
+  return host.dispatch(
+    name,
+    { amount, cardId },
+    { sourceId: sourceId ?? undefined, targetId, damageNature: nature, cardIds: cardId ? [cardId] : undefined },
+  )
 }
 
 function rescueOrder(state: SanguoshaState): PlayerId[] {
@@ -199,8 +206,9 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null)
   if (amount <= 0) return
 
+  const cardId = options.cardId ?? null
   for (const timing of ['BeforeDamage', 'DamageCaused', 'DamageInflicted'] as const) {
-    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature)
+    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId)
     if (context.cancelled) return
     amount = amountAfter(context)
     if (amount === 0) return
@@ -213,19 +221,32 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   }
 
   target.hp -= amount
-  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature)
-  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature)
+  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId)
+  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId)
   if (target.hp > 0) return
 
+  enterDying(host, target.id, sourceId, nature)
+}
+
+/**
+ * 进入濒死并开始求桃。
+ *
+ * 伤害之外也会用到——技能造成的「失去体力」同样可能把人打到 0 体力，
+ * 那时候必须走同一条路，不能让技能自己判死。
+ */
+export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId: PlayerId | null = null, nature: DamageNature = 'normal'): void {
+  const target = player(host.state, playerId)
+  if (!target.alive || target.hp > 0) return
+  if (host.state.dying) throw new Error('已有濒死流程正在进行')
   host.state.dying = {
-    playerId: target.id,
+    playerId,
     sourceId,
     damageNature: nature,
     responderOrder: rescueOrder(host.state),
     responderIndex: 0,
     requestId: null,
   }
-  host.dispatch('EnterDying', { playerId: target.id, hp: target.hp }, { sourceId: sourceId ?? undefined, targetId: target.id, damageNature: nature })
+  host.dispatch('EnterDying', { playerId, hp: target.hp }, { sourceId: sourceId ?? undefined, targetId: playerId, damageNature: nature })
   requestCurrentRescuer(host)
 }
 

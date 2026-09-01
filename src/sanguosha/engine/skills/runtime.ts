@@ -2,7 +2,7 @@
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
-import type { CardId, PlayerId, SanguoshaState, SkillResolutionState } from '../types'
+import type { CardId, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState } from '../types'
 
 /**
  * 技能运行时。
@@ -45,6 +45,16 @@ export interface SkillHost {
     data?: Record<string, unknown>
     build(requestId: string): GameRequest
   }): void
+  /**
+   * 把发问推迟到牌局回到干净状态。
+   *
+   * 「受到伤害后」这类时机必须走这里：当场发问会让玩家的回答
+   * 和还没走完的伤害/濒死结算错位。触发时把需要的事实抓进 `data`，
+   * 引擎稍后回调这个技能的 `startQueued`。
+   */
+  queueSkill(prompt: QueuedSkillPrompt): void
+  /** 技能造成的「失去体力」把人打到 0 时走这里，不允许技能自己判死。 */
+  enterDying(playerId: PlayerId): void
 }
 
 export interface SkillTrigger {
@@ -88,6 +98,13 @@ export interface SkillRuntime {
    * 想继续问下一步就再调用一次 `host.askSkill`。
    */
   resume?(host: SkillHost, ownerId: PlayerId, resolution: SkillResolutionState, response: GameResponse): void
+  /**
+   * 排队的发问轮到了。
+   *
+   * 队列里的事实是触发当时抓下来的，牌局已经往前走了一段，
+   * 所以这里必须重新确认前提还成立（人还活着、牌还在原处），不成立就安静地放弃。
+   */
+  startQueued?(host: SkillHost, ownerId: PlayerId, prompt: QueuedSkillPrompt): void
   /**
    * 转化技：把手牌当成别的牌用。
    * 返回这名玩家当前能做的所有转化，引擎据此生成 LegalAction。

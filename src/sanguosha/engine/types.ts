@@ -216,6 +216,21 @@ export interface SkillResolutionState {
   data: Record<string, unknown>
 }
 
+/**
+ * 排队等待发问的技能。
+ *
+ * 「受到伤害后」这类时机不能当场发问：伤害结算还没走完，
+ * 等玩家回答时牌可能已经移动，濒死救援也可能正插在中间。
+ * 所以技能在触发时先把需要的事实抓下来放进队列，
+ * 等牌局回到干净的状态再问。整条都是可序列化的。
+ */
+export interface QueuedSkillPrompt {
+  skillId: string
+  ownerId: PlayerId
+  step: string
+  data: Record<string, unknown>
+}
+
 export interface SanguoshaState {
   rulesetVersion: RulesetVersion
   seed: string
@@ -236,6 +251,7 @@ export interface SanguoshaState {
   judgment: JudgmentState | null
   cardResolution: CardResolutionState | null
   skillResolution: SkillResolutionState | null
+  skillQueue: QueuedSkillPrompt[]
   decisions: GameDecision[]
   result: GameResult | null
 }

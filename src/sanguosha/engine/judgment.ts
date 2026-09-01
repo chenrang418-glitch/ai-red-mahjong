@@ -103,7 +103,7 @@ function applyDelayedEffect(host: JudgmentEngineHost, ownerId: PlayerId, delayed
   } else if (delayed.name === '闪电') {
     if (judgeCard.suit === 'spade' && judgeCard.rank >= 2 && judgeCard.rank <= 9) {
       host.state.judgment = { playerId: ownerId, delayedCardId, stage: 'awaiting-damage' }
-      resolveDamage(host, { targetId: ownerId, amount: 3, nature: 'thunder' })
+      resolveDamage(host, { targetId: ownerId, amount: 3, nature: 'thunder', cardName: '闪电', cardId: delayedCardId })
       if (!host.state.dying && !host.state.damageChain) finishLightningDamage(host)
     } else {
       moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: nextLightningTarget(host.state, ownerId) })

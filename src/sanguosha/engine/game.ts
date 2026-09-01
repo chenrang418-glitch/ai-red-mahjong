@@ -1,5 +1,5 @@
 import { createRulesetV1Deck } from '../data/ruleset-v1/deck'
-import { resolveDamage, resolveRescueResponse, resumeDamageChain, type DamageOptions } from './damage'
+import { enterDying, resolveDamage, resolveRescueResponse, resumeDamageChain, type DamageOptions } from './damage'
 import { GameEventBus, type EventContext, type GameEvent, type GameEventName } from './events'
 import { identitiesFor } from './modes/identity'
 import { GameRng } from './rng'
@@ -10,6 +10,7 @@ import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resumeJudgment } from './judgment'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
+import type { QueuedSkillPrompt } from './types'
 import { validateResponse } from './requests'
 import { allCharacterIds, getCharacter, skillIdsOf } from '../data/characters/standard'
 import { getSkillRuntime, registerSkillTriggers } from './skills/runtime'
@@ -74,6 +75,7 @@ export class SanguoshaGame {
       judgment: null,
       cardResolution: null,
       skillResolution: null,
+      skillQueue: [],
       decisions: [],
       result: null,
     }
@@ -128,7 +130,51 @@ export class SanguoshaGame {
     this.state.pendingRequests.push(request)
   }
 
+  enterDying(playerId: string): void {
+    enterDying(this, playerId)
+  }
+
+  queueSkill(prompt: QueuedSkillPrompt): void {
+    this.state.skillQueue.push(structuredClone(prompt))
+  }
+
+  /**
+   * 牌局回到干净状态时，把排队的技能发问放出去。
+   *
+   * 「干净」= 没有待处理 Request、没有濒死、没有属性传导、没有牌在结算中。
+   * 这时候发问才不会和别的结算抢同一个玩家的注意力。
+   */
+  private drainSkillQueue(): void {
+    while (
+      this.state.skillQueue.length > 0
+      && this.state.status === 'playing'
+      && !this.state.skillResolution
+      && this.state.pendingRequests.length === 0
+      && !this.state.dying
+      && !this.state.damageChain
+      && !this.state.cardResolution
+      && !this.state.judgment
+    ) {
+      const prompt = this.state.skillQueue.shift()!
+      const runtime = getSkillRuntime(prompt.skillId)
+      const owner = this.state.players.find((candidate) => candidate.id === prompt.ownerId)
+      // 触发之后武将可能已经死了或者被换掉，前提不成立就安静地丢弃
+      if (!runtime?.startQueued || !owner?.alive) continue
+      runtime.startQueued(this, prompt.ownerId, prompt)
+    }
+  }
+
+  /** 牌局往前走一步之后统一收尾：把排队的技能发问放出去。 */
+  private settle(): void {
+    this.drainSkillQueue()
+  }
+
   respond(response: GameResponse): void {
+    this.respondInner(response)
+    this.settle()
+  }
+
+  private respondInner(response: GameResponse): void {
     const request = this.state.pendingRequests.find((candidate) => candidate.id === response.requestId)
     if (!request) throw new Error('Request 不存在或已经处理')
 
@@ -209,6 +255,7 @@ export class SanguoshaGame {
 
   advancePhase(): void {
     advanceGamePhase(this)
+    this.settle()
   }
 
   legalActions(playerId: string) {
@@ -217,6 +264,7 @@ export class SanguoshaGame {
 
   act(playerId: string, actionId: string): void {
     performPlayAction(this, playerId, actionId)
+    this.settle()
   }
 
   /**

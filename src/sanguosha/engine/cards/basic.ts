@@ -255,6 +255,7 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
       amount: resolution.damageAmount,
       nature: resolution.damageNature,
       cardName: '杀',
+      cardId: resolution.cardId,
     })
     if (!host.state.dying && !host.state.damageChain) resumeCardResolution(host)
     return
@@ -312,6 +313,7 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     amount: resolution.damageAmount,
     nature: resolution.damageNature,
     cardName: '杀',
+    cardId: resolution.cardId,
   })
   if (!host.state.dying && !host.state.damageChain) resumeCardResolution(host)
 }
