@@ -106,6 +106,18 @@ export interface SkillRuntime {
    */
   startQueued?(host: SkillHost, ownerId: PlayerId, prompt: QueuedSkillPrompt): void
   /**
+   * 主公技代打：拥有者作为主公需要打出某张牌时，哪些角色可以替他打。
+   *
+   * 返回的顺序就是询问顺序。技能自己负责确认「我确实是主公」——
+   * 主公技只在坐主公位时生效，这是规则，不是引擎该猜的事。
+   */
+  surrogateResponders?(state: SanguoshaState, ownerId: PlayerId, requiredCardName: string): PlayerId[]
+  /**
+   * 主公技救援：别人用【桃】救拥有者时，额外多回复几点。
+   * 返回 0 表示这次不生效。
+   */
+  rescueRecoverBonus?(state: SanguoshaState, ownerId: PlayerId, responderId: PlayerId): number
+  /**
    * 转化技：把手牌当成别的牌用。
    * 返回这名玩家当前能做的所有转化，引擎据此生成 LegalAction。
    */

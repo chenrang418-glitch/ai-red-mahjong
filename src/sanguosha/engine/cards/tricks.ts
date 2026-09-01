@@ -11,6 +11,8 @@ import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutio
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
+import { skillsOf } from '../skills/runtime'
+import { skillIdsOf } from '../../data/characters/standard'
 
 /**
  * 即时锦囊。
@@ -339,6 +341,41 @@ function finishTrick(host: CardEngineHost): void {
   host.state.cardResolution = null
 }
 
+/**
+ * 主公技代打：锦囊要求打出牌而目标放弃时，转问同势力角色。
+ *
+ * 和【杀】的护驾走同一套形状：进度记在 effect 上，完全可序列化。
+ * 返回 true 表示已经问出去了，调用方必须直接返回。
+ */
+function askTrickSurrogate(
+  host: CardEngineHost,
+  resolution: TrickResolutionState,
+  effect: { targetId: PlayerId; requestId: string | null; surrogate?: { skillId: string; order: PlayerId[]; index: number } | null },
+  requiredCardName: '杀' | '闪',
+): boolean {
+  if (!effect.surrogate) {
+    const runtime = skillsOf(host.state, effect.targetId, skillIdsOf).find((candidate) => candidate.surrogateResponders)
+    if (!runtime) return false
+    const order = runtime.surrogateResponders!(host.state, effect.targetId, requiredCardName)
+    if (order.length === 0) return false
+    effect.surrogate = { skillId: runtime.id, order, index: 0 }
+  } else {
+    effect.surrogate.index += 1
+  }
+
+  const surrogate = effect.surrogate
+  while (surrogate.index < surrogate.order.length) {
+    const responderId = surrogate.order[surrogate.index]
+    const responder = host.state.players.find((candidate) => candidate.id === responderId)
+    if (responder?.alive) {
+      effect.requestId = askRespondCard(host, resolution, responderId, requiredCardName, `主公需要【${requiredCardName}】，你可以代他打出`)
+      return true
+    }
+    surrogate.index += 1
+  }
+  return false
+}
+
 function askRespondCard(
   host: CardEngineHost,
   resolution: TrickResolutionState,
@@ -498,6 +535,10 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
 
   if (effect.kind === 'ask-slash' || effect.kind === 'ask-dodge') {
     if (!playedCardId) {
+      // 主公技：目标自己打不出时，同势力角色还有机会代打（激将 / 护驾）
+      // requiredCardName 在这个分支只可能是杀或闪，收窄一下类型
+      const needed = effect.kind === 'ask-slash' ? '杀' : '闪'
+      if (askTrickSurrogate(host, resolution, effect, needed)) return
       resolution.effect = null
       resolveDamage(host, { sourceId: resolution.sourceId, targetId: effect.targetId, amount: 1, nature: 'normal', cardName: resolution.cardName, cardId: resolution.cardId })
       // 濒死时暂停，等救援结束后由 resumeTrickResolution 继续下一个目标

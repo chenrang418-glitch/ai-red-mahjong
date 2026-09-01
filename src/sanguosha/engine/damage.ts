@@ -4,6 +4,8 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
+import { skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
@@ -305,6 +307,11 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
   host.dispatch('CardResponded', { playerId: responder.id, cardId, cardName: card.name }, { sourceId: responder.id, targetId: dying.playerId, cardIds: [cardId] })
   moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   const target = player(host.state, dying.playerId)
-  recover(host, target.id, 1, responder.id)
+  // 主公技救援：同势力角色的【桃】对主公多回复一点
+  const bonus = card.name === '桃' && responder.id !== target.id
+    ? skillsOf(host.state, target.id, skillIdsOf)
+      .reduce((sum, runtime) => sum + (runtime.rescueRecoverBonus?.(host.state, target.id, responder.id) ?? 0), 0)
+    : 0
+  recover(host, target.id, 1 + bonus, responder.id)
   requestCurrentRescuer(host)
 }

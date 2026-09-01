@@ -318,7 +318,10 @@ export const WEI_DAMAGE_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'jianxiong', name: '奸雄', description: '每当你受到伤害后，你可以获得造成伤害的牌。' }],
+    skills: [
+      { id: 'jianxiong', name: '奸雄', description: '每当你受到伤害后，你可以获得造成伤害的牌。' },
+      { id: 'hujia', name: '护驾', description: '主公技。你需要打出【闪】时，其他魏势力角色可以代你打出。' },
+    ],
   },
   {
     id: 'simayi',

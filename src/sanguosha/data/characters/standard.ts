@@ -3,6 +3,7 @@ import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 import { WEI_CHARACTERS } from './wei'
 import { WEI_DAMAGE_CHARACTERS } from './wei-damage'
+import { LORD_CHARACTERS, provideKingdomLookup } from './lords'
 
 /**
  * 标准包武将。
@@ -255,9 +256,14 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
   ...WEI_CHARACTERS,
   // 「受到伤害后」触发的技能走延后发问队列，原因见 wei-damage.ts 顶部
   ...WEI_DAMAGE_CHARACTERS,
+  // 带主公技的武将；主公技只在坐主公位时生效
+  ...LORD_CHARACTERS,
 ] as const
 
 const BY_ID = new Map(STANDARD_CHARACTERS.map((character) => [character.id, character]))
+
+// 主公技要按势力找同伴，但势力表在这里才拼齐，所以运行时回注一个查询函数
+provideKingdomLookup((characterId) => BY_ID.get(characterId)?.kingdom)
 
 export function getCharacter(characterId: string): CharacterDefinition | undefined {
   return BY_ID.get(characterId)

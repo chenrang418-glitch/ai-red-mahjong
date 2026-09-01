@@ -106,6 +106,13 @@ export interface DyingState {
   requestId: string | null
 }
 
+/** 主公技代打的询问进度。完全可序列化。 */
+export interface SurrogateProgress {
+  skillId: string
+  order: PlayerId[]
+  index: number
+}
+
 export interface SlashResolutionState {
   kind: 'slash'
   cardId: CardId
@@ -115,6 +122,11 @@ export interface SlashResolutionState {
   damageAmount: number
   stage: 'awaiting-dodge' | 'awaiting-dying'
   requestId: string | null
+  /**
+   * 主公技代打（护驾）的询问进度。
+   * 目标自己放弃之后才开始，`null` 表示还没开始或这局用不到。
+   */
+  surrogate: SurrogateProgress | null
 }
 
 /**

@@ -8,7 +8,7 @@ import { skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
-import type { PlayerId, SanguoshaState } from '../types'
+import type { PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { moveCard } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import type { CardEngineHost } from './host'
@@ -122,32 +122,75 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
-    stage: 'awaiting-dodge', requestId: null,
+    stage: 'awaiting-dodge', requestId: null, surrogate: null,
   }
-  const target = player(host.state, targetId)
-  const actionIds = target.zones.hand
+  askDodge(host, targetId, `${player(host.state, action.playerId).nickname}对你使用【杀】，请响应【闪】`, true)
+}
+
+/**
+ * 请某人打出【闪】。
+ *
+ * 目标自己和主公技代打者共用这条路径，区别只有两点：
+ * 代打者没有八卦阵可用（那是目标装备区里的牌），提示词也不一样。
+ */
+function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, allowBagua: boolean): void {
+  const responder = player(host.state, responderId)
+  const actionIds = responder.zones.hand
     .filter((candidateId) => host.state.cards[candidateId]?.name === '闪')
     .map((candidateId) => `respond-dodge:${candidateId}`)
   // 龙胆把【杀】当【闪】打出，同样要作为独立动作发出去
-  for (const option of dodgeViewAsOptions(host.state, targetId)) {
+  for (const option of dodgeViewAsOptions(host.state, responderId)) {
     actionIds.push(`respond-dodge:${option.cardId}`)
   }
   // 八卦阵不是手牌，但同样是「打出闪」的一种途径，必须出现在合法动作里，
   // 否则前端永远点不到它——服务端支持不等于前端能用。
-  if (canInvokeBagua(host.state, targetId)) actionIds.push(BAGUA_ACTION_ID)
+  if (allowBagua && canInvokeBagua(host.state, responderId)) actionIds.push(BAGUA_ACTION_ID)
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
-    id: `request-${host.state.seq}`,
+    // id 必须唯一：主公技代打会在同一个 seq 里连着问好几个人，
+    // 复用 id 会让「响应后没有推进」的死锁守卫误报，也会让回放对不上
+    id: `request-${host.state.seq}-${host.state.decisions.length}`,
     kind: 'respond-card',
-    playerId: targetId,
-    prompt: `${player(host.state, action.playerId).nickname}对你使用【杀】，请响应【闪】`,
+    playerId: responderId,
+    prompt,
     timeoutMs: 30_000,
     optional: true,
     actionIds,
     requiredCardName: '闪',
   }
   host.state.pendingRequests.push(request)
-  host.state.cardResolution.requestId = request.id
+  if (host.state.cardResolution) host.state.cardResolution.requestId = request.id
+}
+
+/**
+ * 主公技代打（护驾）：目标放弃之后，转问同势力角色有没有人替他打。
+ *
+ * 返回 true 表示已经问出去了，调用方必须直接返回，不要继续结算伤害。
+ */
+function askLordSurrogate(host: CardEngineHost, resolution: SlashResolutionState): boolean {
+  if (resolution.surrogate === null) {
+    const runtime = skillsOf(host.state, resolution.targetId, skillIdsOf)
+      .find((candidate) => candidate.surrogateResponders)
+    if (!runtime) return false
+    const order = runtime.surrogateResponders!(host.state, resolution.targetId, '闪')
+    if (order.length === 0) return false
+    resolution.surrogate = { skillId: runtime.id, order, index: 0 }
+  } else {
+    resolution.surrogate.index += 1
+  }
+
+  const { order, skillId } = resolution.surrogate
+  // 问的过程中有人可能已经死了，跳过
+  while (resolution.surrogate.index < order.length) {
+    const responderId = order[resolution.surrogate.index]
+    const responder = host.state.players.find((candidate) => candidate.id === responderId)
+    if (responder?.alive) {
+      askDodge(host, responderId, `主公需要【闪】，你可以发动【${skillId === 'hujia' ? '护驾' : '代打'}】替他打出`, false)
+      return true
+    }
+    resolution.surrogate.index += 1
+  }
+  return false
 }
 
 function placeDelayedTrick(host: CardEngineHost, action: Extract<LegalAction, { kind: 'use-card' }>): void {
@@ -305,6 +348,9 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     host.state.cardResolution = null
     return
   }
+
+  // 主公技：目标自己不出闪时，同势力角色还有机会代打
+  if (askLordSurrogate(host, resolution)) return
 
   resolution.stage = 'awaiting-dying'
   resolveDamage(host, {
