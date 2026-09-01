@@ -720,3 +720,29 @@ codex 新增的 0006 被静默漏掉了。改成读目录——写死的话 smok
 - `npx vitest run` → 44 文件 / 428 用例
 - `npx playwright test` → 39 通过
 - `npm run sanguosha:soak 200` → 5 人局与 8 人局各 200 局全部完成
+
+## 2026-09-01（第十批）修甘宁【奇袭】——注册了却永远用不出来
+
+生成合法动作的地方只处理 `asCardName === '杀'`，其余转化一律跳过。
+于是甘宁的【奇袭】（黑牌当【过河拆桥】）虽然注册了、`viewAs` 也返回了选项，
+却**永远产生不出一条动作**。这比「服务端支持但前端点不到」更糟——连服务端都没支持。
+
+- `instantTrickActions` 和 `beginInstantTrick` 增加 `asName` 参数：
+  目标合法性和后续结算都按转化后的牌名算，不看牌面上印的名字。
+- `performPlayAction` 一律以 `action.asCardName || card.name` 派发。
+- `legalPlayActions` 里的转化技循环补上普通锦囊分支。
+
+### 新增的守护
+`tests/sanguosha-viewas.test.ts` 守的不是「每个武将出牌阶段都得有动作」
+（急救只在回合外、倾国只在响应时），而是真正的 bug 形态：
+**每一种被 viewAs 产出的牌名，都必须有地方消费它**。
+新增转化技时如果产出一个没人接的牌名，这条会直接失败。
+
+延时锦囊的转化（大乔【国色】把红桃当【乐不思蜀】）还做不了：
+判定区里的牌只记牌 id，没有「当作什么用」的标记，判定时会按牌面名字结算。
+要做得先给判定区加这个标记。
+
+### 验证
+- `npx vitest run` → 45 文件 / 433 用例
+- `npx playwright test` → 39 通过
+- `npm run sanguosha:soak 200` / `npm run test:online:smoke` → 通过

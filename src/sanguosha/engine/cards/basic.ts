@@ -55,13 +55,27 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   // 不能让前端自己猜牌的用途——同一张红牌既可以原样用，也可以当杀，
   // 必须两条动作都在，玩家才选得到用途。
   for (const option of viewAsPlayOptions(state, playerId)) {
-    if (option.asCardName !== '杀') continue
-    if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) continue
-    for (const target of state.players) {
-      if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
+    if (option.asCardName === '杀') {
+      if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) continue
+      for (const target of state.players) {
+        if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
+        actions.push({
+          ...useAction(option.cardId, playerId, '杀', [target.id], `${option.label}，目标${target.nickname}`),
+          id: `play:viewas:${option.cardId}:${target.id}`,
+        })
+      }
+      continue
+    }
+    // 转化成普通锦囊（甘宁【奇袭】）：目标合法性按转化后的牌名算。
+    // 之前这里只处理【杀】，于是奇袭虽然注册了却永远产生不出动作——
+    // 「服务端支持不等于前端点得到」，这种情况下连服务端都没支持。
+    if (!INSTANT_TRICKS.has(option.asCardName)) continue
+    for (const trick of instantTrickActions(state, playerId, option.cardId, option.asCardName)) {
+      if (trick.kind !== 'use-card') continue
       actions.push({
-        ...useAction(option.cardId, playerId, '杀', [target.id], `${option.label}，目标${target.nickname}`),
-        id: `play:viewas:${option.cardId}:${target.id}`,
+        ...trick,
+        id: `play:viewas:${option.cardId}:${trick.targetIds.join(',') || 'self'}`,
+        label: `${option.label}，${trick.label}`,
       })
     }
   }
@@ -234,22 +248,20 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
   const card = host.state.cards[cardId]
   if (!card || !player(host.state, playerId).zones.hand.includes(cardId)) throw new Error('卡牌不属于出牌玩家')
 
-  // 转化出的动作以 asCardName 为准：武圣打出的红桃仍然按【杀】结算
-  if (action.asCardName === '杀') {
+  // 转化出的动作一律以 asCardName 为准：武圣打出的红桃按【杀】结算，
+  // 甘宁打出的黑牌按【过河拆桥】结算，后续判定不再看牌面上印的名字。
+  const effectiveName = action.asCardName || card.name
+  if (effectiveName === '杀') {
     beginSlash(host, action)
     return
   }
-  if (card.name === '杀') {
-    beginSlash(host, action)
-    return
-  }
-  if (DELAYED_TRICKS.has(card.name)) {
+  if (DELAYED_TRICKS.has(effectiveName)) {
     placeDelayedTrick(host, action)
     return
   }
-  if (INSTANT_TRICKS.has(card.name)) {
+  if (INSTANT_TRICKS.has(effectiveName)) {
     if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return
-    beginInstantTrick(host, playerId, cardId, action.targetIds)
+    beginInstantTrick(host, playerId, cardId, action.targetIds, effectiveName)
     return
   }
   if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return

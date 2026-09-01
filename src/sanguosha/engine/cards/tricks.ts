@@ -65,9 +65,16 @@ function hasAnyStealable(state: SanguoshaState, targetId: PlayerId): boolean {
 }
 
 /** 出牌阶段能用哪些即时锦囊。 */
-export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, cardId: CardId): LegalAction[] {
-  const card = state.cards[cardId]
-  if (!card) return []
+/**
+ * 一张牌能当作某个普通锦囊使用时，有哪些合法动作。
+ *
+ * `asName` 用于转化技（甘宁【奇袭】把黑牌当【过河拆桥】）：
+ * 目标合法性要按转化后的牌名算，不是按牌面上印的名字。
+ */
+export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, cardId: CardId, asName?: string): LegalAction[] {
+  const physical = state.cards[cardId]
+  if (!physical) return []
+  const card = asName ? { ...physical, name: asName } : physical
   const others = state.players.filter((candidate) => candidate.alive && candidate.id !== playerId)
   const actions: LegalAction[] = []
   const allowed = (targetId: PlayerId) => !isTargetProhibited(state, playerId, targetId, card.name, skillIdsOf)
@@ -251,12 +258,13 @@ function askBorrowedKnife(host: CardEngineHost, resolution: TrickResolutionState
 }
 
 /** 把一张即时锦囊推入结算：先给第一个目标问无懈。 */
-export function beginInstantTrick(host: CardEngineHost, sourceId: PlayerId, cardId: CardId, targetIds: PlayerId[]): void {
+export function beginInstantTrick(host: CardEngineHost, sourceId: PlayerId, cardId: CardId, targetIds: PlayerId[], asName?: string): void {
   const card = host.state.cards[cardId]
   host.state.cardResolution = {
     kind: 'trick',
     cardId,
-    cardName: card.name,
+    // 转化技用的是转化后的牌名，后续结算全部以它为准
+    cardName: asName ?? card.name,
     sourceId,
     targetIds: [...targetIds],
     targetIndex: 0,
