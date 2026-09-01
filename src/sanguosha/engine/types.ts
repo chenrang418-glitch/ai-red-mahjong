@@ -134,6 +134,11 @@ export interface SlashResolutionState {
    * 流离换目标时清空：新目标该重新过一遍。
    */
   interceptsDone: string[]
+  /**
+   * 一起打出来的额外实体牌（丈八蛇矛把两张手牌当一张【杀】）。
+   * 它们和主牌同进同出，结算结束时一起进弃牌堆。
+   */
+  extraCardIds: CardId[]
   requestId: string | null
   /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
   dodgeRemaining: number

@@ -8,7 +8,7 @@ import { isTargetProhibited, skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
-import type { PlayerId, SanguoshaState, SlashResolutionState } from '../types'
+import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, hasWeapon, isCardIneffective } from '../equipment'
 import { provideSkillLookup, askCixiongSword, askSlashTransfer, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
@@ -94,6 +94,25 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     }
   }
 
+  // 丈八蛇矛：任意两张手牌当一张【杀】。两张牌一起进处理区、一起进弃牌堆，
+  // 和真实规则的唯一差别是「造成伤害的牌」只记主牌那一张（奸雄只拿得走一张）。
+  if (hasWeapon(state, playerId, '丈八蛇矛')
+    && source.zones.hand.length >= 2
+    && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
+    for (let first = 0; first < source.zones.hand.length; first += 1) {
+      for (let second = first + 1; second < source.zones.hand.length; second += 1) {
+        const pair = [source.zones.hand[first], source.zones.hand[second]]
+        const names = pair.map((id) => state.cards[id]?.name ?? '?')
+        for (const target of state.players) {
+          if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
+          const base = useAction(pair[0], playerId, '杀', [target.id], `将【${names[0]}】【${names[1]}】当【杀】使用，目标${target.nickname}`)
+          if (base.kind !== 'use-card') continue
+          actions.push({ ...base, id: `play:zhangba:${pair.join('+')}:${target.id}`, cardIds: pair })
+        }
+      }
+    }
+  }
+
   for (const cardId of source.zones.hand) {
     const card = state.cards[cardId]
     if (!card) continue
@@ -136,25 +155,43 @@ function recordPlayDecision(host: CardEngineHost, playerId: PlayerId, actionId: 
 }
 
 function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: 'use-card' }>): void {
-  const [cardId] = action.cardIds
+  const [cardId, ...extraCardIds] = action.cardIds
   const [targetId] = action.targetIds
   const card = host.state.cards[cardId]
   if (!beginPhysicalCard(host, action.playerId, cardId, [targetId])) return
+  // 丈八蛇矛：第二张牌和主牌一起进处理区，结算结束时一起弃掉
+  for (const extra of extraCardIds) {
+    moveCard(host.state, extra, { kind: 'hand', playerId: action.playerId }, { kind: 'processingArea' })
+  }
   const damageAmount = 1 + host.state.turnUsage.wineDamageBonus
   host.state.turnUsage.slashUses += 1
   host.state.turnUsage.wineDamageBonus = 0
   // 仁王盾挡黑杀、藤甲挡普通杀：这张牌对目标完全无效，连闪都不用问
   if (isCardIneffective(host.state, targetId, '杀', card.color, card.damageNature ?? 'normal')) {
     finishPhysicalCard(host, action.playerId, cardId, [targetId], true)
+    discardExtras(host, extraCardIds)
     return
   }
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
-    stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [],
+    stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [], extraCardIds,
     dodgeRemaining: Math.max(1, ...skillsOf(host.state, action.playerId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1)),
   }
   if (!askSlashInterceptors(host)) askSlashDodge(host)
+}
+
+/** 结束一次【杀】的结算：主牌和一起打出的额外牌都进弃牌堆。 */
+function finishSlash(host: CardEngineHost, resolution: SlashResolutionState): void {
+  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+  discardExtras(host, resolution.extraCardIds)
+}
+
+function discardExtras(host: CardEngineHost, cardIds: readonly CardId[]): void {
+  for (const cardId of cardIds) {
+    if (!host.state.zones.processingArea.includes(cardId)) continue
+    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+  }
 }
 
 /**
@@ -282,7 +319,9 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
   if (action.kind !== 'use-card') throw new Error('当前不是可执行的出牌动作')
   const [cardId] = action.cardIds
   const card = host.state.cards[cardId]
-  if (!card || !player(host.state, playerId).zones.hand.includes(cardId)) throw new Error('卡牌不属于出牌玩家')
+  // 丈八蛇矛会带两张牌，每一张都要确认在自己手上
+  const hand = player(host.state, playerId).zones.hand
+  if (!card || action.cardIds.some((id) => !hand.includes(id))) throw new Error('卡牌不属于出牌玩家')
 
   // 转化出的动作一律以 asCardName 为准：武圣打出的红桃按【杀】结算，
   // 甘宁打出的黑牌按【过河拆桥】结算，后续判定不再看牌面上印的名字。
@@ -431,7 +470,7 @@ function landSlash(host: CardEngineHost, resolution: SlashResolutionState): void
     cardId: resolution.cardId,
   }
   if (hasWeapon(host.state, resolution.sourceId, '寒冰剑')) {
-    finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+    finishSlash(host, resolution)
     host.state.cardResolution = null
     if (askPreDamageWeapon(host, facts)) return
     // 问不出来（目标没牌之类）就照常结算伤害
@@ -468,7 +507,7 @@ function finishDodgedSlash(host: CardEngineHost, resolution: SlashResolutionStat
     nature: resolution.damageNature,
     cardId: resolution.cardId,
   }
-  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+  finishSlash(host, resolution)
   host.state.cardResolution = null
   askDodgedSlashWeapon(host, facts)
 }
@@ -487,7 +526,7 @@ export function resumeCardResolution(host: CardEngineHost): void {
     return
   }
   if (resolution.stage !== 'awaiting-dying' || host.state.dying) return
-  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+  finishSlash(host, resolution)
   host.state.cardResolution = null
 }
 

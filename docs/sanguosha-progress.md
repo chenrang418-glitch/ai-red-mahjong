@@ -781,3 +781,34 @@ codex 新增的 0006 被静默漏掉了。改成读目录——写死的话 smok
 - `npx vitest run` → 46 文件 / 447 用例
 - `npm run sanguosha:soak 300` → 5 人局与 8 人局各 300 局全部完成
 - `npx playwright test` → 39 通过；`npm run test:online:smoke` → 通过
+
+## 2026-09-01（第十二批）丈八蛇矛
+
+任意两张手牌当一张【杀】。两张牌一起进处理区、一起进弃牌堆
+（`SlashResolutionState.extraCardIds`），三条收尾路径统一走 `finishSlash`。
+
+**和真实规则的唯一差别**：`DamageOptions.cardId` 只记主牌那一张，
+所以曹操【奸雄】只拿得走其中一张。要完全对齐得让伤害携带多张牌，
+代价大于收益，已在代码里写明。
+
+### 方天画戟：为什么还没做
+
+它要「最后一张手牌当【杀】时可以指定至多三名角色」，而 `SlashResolutionState`
+是单目标的：`targetId` 一个字段，`interceptsDone` / `surrogate` / `dodgeRemaining`
+全部按单目标记账，护驾、流离、雌雄双股剑、贯石斧、寒冰剑、麒麟弓六处也都读它。
+
+**做法建议**（给下一个人）：
+1. 加 `remainingTargetIds: PlayerId[]`，`beginSlash` 把首个目标放 `targetId`、其余入队。
+2. 抽一个 `finishSlashTarget(host)`：当前目标结算完就换下一个，
+   同时重置 `interceptsDone` / `surrogate` / `dodgeRemaining`；队列空了才 `finishSlash`。
+3. 三条收尾路径（闪避成功、伤害后、仁王盾/藤甲免疫）改调它。
+4. 寒冰剑现在会提前 `finishPhysicalCard` 好让自己能挂起——多目标下不能这么做，
+   改成停在 `awaiting-intercept`（那个阶段的 invariants 已经允许挂技能 Request）。
+
+风险在于这条管线现在承载着 26 个武将和 6 件装备，改动前建议先把
+`tests/sanguosha-equipment-requests.test.ts` 和 `sanguosha-daqiao-diaochan.test.ts` 跑绿。
+
+### 验证
+- `npx vitest run` → 46 文件 / 450 用例
+- `npm run sanguosha:soak 250` → 5 人局与 8 人局各 250 局全部完成
+- `npx playwright test` → 39 通过

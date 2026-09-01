@@ -21,8 +21,8 @@ export interface EquipmentHost {
  *
  * 需要发问的那几件（贯石斧、青龙偃月刀、寒冰剑、麒麟弓）在 `equipment-requests.ts`，
  * 走的是和武将技能同一套 askSkill / resume。
- * 还没做的只剩方天画戟（要多目标【杀】）、丈八蛇矛（要多张牌转化）
- * 和雌雄双股剑（要性别比较），见 docs/sanguosha-progress.md。
+ * 还没做的只剩方天画戟：它要多目标【杀】，而 `SlashResolutionState` 目前是单目标。
+ * 设计笔记见 docs/sanguosha-progress.md。
  *
  * 装备只按**装备牌名**判断，不依赖武将数据，所以现在就能做完整测试。
  */

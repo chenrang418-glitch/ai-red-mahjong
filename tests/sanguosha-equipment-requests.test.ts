@@ -444,3 +444,47 @@ describe('雌雄双股剑', () => {
     expect(options.map((option) => option.id)).toEqual(['draw'])
   })
 })
+
+describe('丈八蛇矛', () => {
+  it('任意两张手牌可以当一张【杀】用，两张都进弃牌堆', () => {
+    const game = gameWith('zhangba')
+    equipWeapon(game, 'p0', '丈八蛇矛')
+    const owner = game.state.players[0]
+    // 手上留两张不是杀的牌，确认走的是转化而不是普通出杀
+    const kept = owner.zones.hand.filter((id) => game.state.cards[id].name !== '杀').slice(0, 2)
+    game.state.zones.discardPile.push(...owner.zones.hand.filter((id) => !kept.includes(id)))
+    owner.zones.hand = [...kept]
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.id.startsWith('play:zhangba:') && candidate.targetIds.includes('p1'))
+    expect(action, '丈八蛇矛必须真的产生一条合法动作').toBeTruthy()
+    expect((action as { cardIds: string[] }).cardIds).toHaveLength(2)
+
+    game.act('p0', action!.id)
+    expect(game.state.cardResolution?.kind).toBe('slash')
+    expect(owner.zones.hand).toHaveLength(0)
+
+    // 目标不闪，伤害照常，两张牌都进弃牌堆
+    const victim = game.state.players[1]
+    const hpBefore = victim.hp
+    game.respond({ requestId: pending(game).id, playerId: 'p1', payload: { actionId: 'respond-pass' } })
+    expect(victim.hp).toBe(hpBefore - 1)
+    for (const cardId of kept) expect(game.state.zones.discardPile).toContain(cardId)
+    assertGameInvariants(game.state)
+  })
+
+  it('手牌不足两张时没有这条动作', () => {
+    const game = gameWith('zhangba-one')
+    equipWeapon(game, 'p0', '丈八蛇矛')
+    const owner = game.state.players[0]
+    game.state.zones.discardPile.push(...owner.zones.hand.slice(1))
+    owner.zones.hand = owner.zones.hand.slice(0, 1)
+    expect(game.legalActions('p0').some((action) => action.id.startsWith('play:zhangba:'))).toBe(false)
+  })
+
+  it('没装丈八蛇矛的人没有这条动作', () => {
+    const game = gameWith('zhangba-none')
+    equipWeapon(game, 'p0', '古锭刀')
+    expect(game.legalActions('p0').some((action) => action.id.startsWith('play:zhangba:'))).toBe(false)
+  })
+})
