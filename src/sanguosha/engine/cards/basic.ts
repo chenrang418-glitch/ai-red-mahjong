@@ -94,6 +94,25 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     }
   }
 
+  // 方天画戟：最后一张手牌当【杀】用时，可以指定至多三名角色。
+  // 一个人只能装一把武器，所以它和青龙偃月刀 / 贯石斧 / 寒冰剑 / 麒麟弓
+  // 不会同时出现——多目标结算因此不必和那些特效纠缠。
+  if (hasWeapon(state, playerId, '方天画戟')
+    && source.zones.hand.length === 1
+    && state.cards[source.zones.hand[0]]?.name === '杀'
+    && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
+    const lastCard = source.zones.hand[0]
+    const reachable = state.players
+      .filter((target) => canTarget(state, playerId, target.id) && !isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf))
+      .map((target) => target.id)
+    for (const combination of pickCombinations(reachable, 2, 3)) {
+      const names = combination.map((id) => playerOf(state, id).nickname).join('、')
+      const base = useAction(lastCard, playerId, '杀', combination, `【方天画戟】对 ${names} 使用【杀】`)
+      if (base.kind !== 'use-card') continue
+      actions.push({ ...base, id: `play:fangtian:${combination.join(',')}` })
+    }
+  }
+
   // 丈八蛇矛：任意两张手牌当一张【杀】。两张牌一起进处理区、一起进弃牌堆，
   // 和真实规则的唯一差别是「造成伤害的牌」只记主牌那一张（奸雄只拿得走一张）。
   if (hasWeapon(state, playerId, '丈八蛇矛')
@@ -156,9 +175,9 @@ function recordPlayDecision(host: CardEngineHost, playerId: PlayerId, actionId: 
 
 function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: 'use-card' }>): void {
   const [cardId, ...extraCardIds] = action.cardIds
-  const [targetId] = action.targetIds
+  const [targetId, ...remainingTargetIds] = action.targetIds
   const card = host.state.cards[cardId]
-  if (!beginPhysicalCard(host, action.playerId, cardId, [targetId])) return
+  if (!beginPhysicalCard(host, action.playerId, cardId, action.targetIds)) return
   // 丈八蛇矛：第二张牌和主牌一起进处理区，结算结束时一起弃掉
   for (const extra of extraCardIds) {
     moveCard(host.state, extra, { kind: 'hand', playerId: action.playerId }, { kind: 'processingArea' })
@@ -166,19 +185,74 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   const damageAmount = 1 + host.state.turnUsage.wineDamageBonus
   host.state.turnUsage.slashUses += 1
   host.state.turnUsage.wineDamageBonus = 0
-  // 仁王盾挡黑杀、藤甲挡普通杀：这张牌对目标完全无效，连闪都不用问
-  if (isCardIneffective(host.state, targetId, '杀', card.color, card.damageNature ?? 'normal')) {
-    finishPhysicalCard(host, action.playerId, cardId, [targetId], true)
-    discardExtras(host, extraCardIds)
-    return
-  }
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
     stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [], extraCardIds,
-    dodgeRemaining: Math.max(1, ...skillsOf(host.state, action.playerId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1)),
+    remainingTargetIds: [...remainingTargetIds],
+    dodgeRemaining: slashDodgeRequirement(host, action.playerId),
+  }
+  enterSlashTarget(host)
+}
+
+function slashDodgeRequirement(host: CardEngineHost, sourceId: PlayerId): number {
+  return Math.max(1, ...skillsOf(host.state, sourceId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1))
+}
+
+/**
+ * 开始结算当前这个目标。
+ *
+ * 仁王盾 / 藤甲让这张牌对某个目标完全无效，那个目标直接跳过——
+ * 多目标时其余目标仍然照常结算。
+ */
+function enterSlashTarget(host: CardEngineHost): void {
+  const resolution = host.state.cardResolution
+  if (resolution?.kind !== 'slash') return
+  const card = host.state.cards[resolution.cardId]
+  if (isCardIneffective(host.state, resolution.targetId, '杀', card.color, card.damageNature ?? 'normal')) {
+    continueSlash(host)
+    return
   }
   if (!askSlashInterceptors(host)) askSlashDodge(host)
+}
+
+/**
+ * 当前目标结算完了：还有目标就换下一个，没有就把这张牌收掉。
+ *
+ * 每个目标都是一次全新的响应，所以插入点记账、代打进度、无双次数全部重置。
+ */
+function continueSlash(host: CardEngineHost): void {
+  const resolution = host.state.cardResolution
+  if (resolution?.kind !== 'slash') return
+  const next = resolution.remainingTargetIds.shift()
+  if (next === undefined) {
+    finishSlash(host, resolution)
+    host.state.cardResolution = null
+    return
+  }
+  resolution.targetId = next
+  resolution.interceptsDone = []
+  resolution.surrogate = null
+  resolution.requestId = null
+  resolution.stage = 'awaiting-dodge'
+  resolution.dodgeRemaining = slashDodgeRequirement(host, resolution.sourceId)
+  enterSlashTarget(host)
+}
+
+/** 从候选里取出所有大小在 [min, max] 之间的组合。方天画戟最多三个目标，规模很小。 */
+function pickCombinations(candidates: readonly PlayerId[], min: number, max: number): PlayerId[][] {
+  const result: PlayerId[][] = []
+  const walk = (start: number, current: PlayerId[]) => {
+    if (current.length >= min) result.push([...current])
+    if (current.length >= max) return
+    for (let index = start; index < candidates.length; index += 1) {
+      current.push(candidates[index])
+      walk(index + 1, current)
+      current.pop()
+    }
+  }
+  walk(0, [])
+  return result
 }
 
 /** 结束一次【杀】的结算：主牌和一起打出的额外牌都进弃牌堆。 */
@@ -458,8 +532,8 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
 /**
  * 【杀】命中之后的结算。
  *
- * 寒冰剑是**替代**伤害，只能问在伤害之前，所以这里先把实体牌收干净再发问——
- * 挂起时不能留下一个半结算的 cardResolution。伤害改由 resume 结算。
+ * 寒冰剑是**替代**伤害，只能问在伤害之前。发问期间结算停在 `awaiting-intercept`——
+ * 那个阶段的 invariants 允许挂技能 Request。伤害和收尾都交给它的 resume。
  */
 function landSlash(host: CardEngineHost, resolution: SlashResolutionState): void {
   const facts: DodgedSlashFacts = {
@@ -469,13 +543,8 @@ function landSlash(host: CardEngineHost, resolution: SlashResolutionState): void
     nature: resolution.damageNature,
     cardId: resolution.cardId,
   }
-  if (hasWeapon(host.state, resolution.sourceId, '寒冰剑')) {
-    finishSlash(host, resolution)
-    host.state.cardResolution = null
-    if (askPreDamageWeapon(host, facts)) return
-    // 问不出来（目标没牌之类）就照常结算伤害
-    resolveDamage(host, { ...facts, cardName: '杀' })
-    queueQilingong(host, facts)
+  if (askPreDamageWeapon(host, facts)) {
+    resolution.stage = 'awaiting-intercept'
     return
   }
 
@@ -489,9 +558,9 @@ function landSlash(host: CardEngineHost, resolution: SlashResolutionState): void
 /**
  * 一张【闪】打出来之后的收尾。
  *
- * 无双要两张闪，所以先看还差不差；不差了才真正结束这张【杀】。
- * 结算清干净之后再问武器特效——那时候 cardResolution 已经是 null，
- * 挂起不会和任何未完成的结算抢状态。
+ * 无双要两张闪，所以先看还差不差；不差了这个目标才算结算完。
+ * 武器特效（贯石斧、青龙偃月刀）发问期间结算停在 `awaiting-intercept`，
+ * 由它们的 resume 回调 `continueSlash` 接着走。
  */
 function finishDodgedSlash(host: CardEngineHost, resolution: SlashResolutionState): void {
   resolution.dodgeRemaining -= 1
@@ -500,16 +569,18 @@ function finishDodgedSlash(host: CardEngineHost, resolution: SlashResolutionStat
     askDodge(host, resolution.targetId, '【无双】仍需再打出一张【闪】', true)
     return
   }
-  const facts = {
+  const facts: DodgedSlashFacts = {
     sourceId: resolution.sourceId,
     targetId: resolution.targetId,
     amount: resolution.damageAmount,
     nature: resolution.damageNature,
     cardId: resolution.cardId,
   }
-  finishSlash(host, resolution)
-  host.state.cardResolution = null
-  askDodgedSlashWeapon(host, facts)
+  if (askDodgedSlashWeapon(host, facts)) {
+    resolution.stage = 'awaiting-intercept'
+    return
+  }
+  continueSlash(host)
 }
 
 /** 锦囊效果里的「挑一张牌」响应入口。 */
@@ -526,8 +597,7 @@ export function resumeCardResolution(host: CardEngineHost): void {
     return
   }
   if (resolution.stage !== 'awaiting-dying' || host.state.dying) return
-  finishSlash(host, resolution)
-  host.state.cardResolution = null
+  continueSlash(host)
 }
 
 
@@ -535,9 +605,18 @@ export function resumeCardResolution(host: CardEngineHost): void {
 // 直接互相 import 会成环，所以把能力交进去。
 provideEquipmentCallbacks({
   dealSlashDamage(host, facts: DodgedSlashFacts) {
-    resolveDamage(host as CardEngineHost, { ...facts, cardName: '杀' })
+    const engineHost = host as CardEngineHost
+    // 装备特效问完了，阶段要从 awaiting-intercept 拨回来再结算伤害——
+    // 那个阶段的 invariants 要求必须挂着技能 Request
+    const resolution = engineHost.state.cardResolution
+    if (resolution?.kind === 'slash') resolution.stage = 'awaiting-dying'
+    resolveDamage(engineHost, { ...facts, cardName: '杀' })
     // 不管伤害是正常命中还是贯石斧硬吃出来的，麒麟弓都该有机会
     queueQilingong(host, facts)
+    // 伤害之后立刻收尾，调用方不用再各自记得调一次——
+    // 忘掉的话结算会停在 awaiting-dying，整局卡死。
+    // 濒死或属性传导还没走完时先不动，那两条路结束后会回到 resumeCardResolution。
+    if (!engineHost.state.dying && !engineHost.state.damageChain) continueSlash(engineHost)
   },
   resumeSlashAfterEquipment(host) {
     const engineHost = host as CardEngineHost
@@ -555,6 +634,9 @@ provideEquipmentCallbacks({
     engineHost.dispatch('TargetConfirmed', { cardId, cardName: asName, targetId }, metadata)
     beginInstantTrick(engineHost, sourceId, cardId, [targetId], asName)
   },
+  continueSlash(host) {
+    continueSlash(host as CardEngineHost)
+  },
   transferSlashTarget(host, newTargetId) {
     const engineHost = host as CardEngineHost
     const resolution = engineHost.state.cardResolution
@@ -570,6 +652,8 @@ provideEquipmentCallbacks({
   },
   useExtraSlash(host, sourceId, targetId, cardId) {
     const engineHost = host as CardEngineHost
+    // 先把外层那张【杀】收完，否则 beginSlash 会把它的结算状态覆盖掉
+    continueSlash(engineHost)
     const target = playerOf(engineHost.state, targetId)
     // 青龙偃月刀的追杀不受距离和次数限制，所以不走 legalPlayActions，
     // 直接构造动作。用完把次数补回去，免得吃掉本回合正常的出杀机会。

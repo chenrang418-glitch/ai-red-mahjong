@@ -120,6 +120,11 @@ export interface EngineCallbacks {
   useExtraSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): void
   /** 「成为目标时」那一步结束之后，回到正常的求闪流程。 */
   resumeSlashAfterEquipment(host: SkillHost): void
+  /**
+   * 当前目标结算完了，接着走：还有目标就换下一个（方天画戟），没有就收牌。
+   * 每个会「结束一个目标」的装备特效都必须在最后调它，否则结算会停住。
+   */
+  continueSlash(host: SkillHost): void
   /** 流离：把这张【杀】改指向新目标，然后重新走一遍插入点。 */
   transferSlashTarget(host: SkillHost, newTargetId: PlayerId): void
   /**
@@ -141,10 +146,16 @@ registerSkillRuntime({
   resume(host, _ownerId, resolution, response) {
     const facts = resolution.data as unknown as DodgedSlashFacts
     if (resolution.step === 'ask') {
-      if ((response.payload as { optionId: string }).optionId !== 'yes') return
+      if ((response.payload as { optionId: string }).optionId !== 'yes') {
+        callbacks?.continueSlash(host)
+        return
+      }
       const pool = discardableCards(host.state, facts.sourceId)
       // 发问期间牌可能已经被别人拿走了，这里必须重新确认
-      if (pool.length < 2) return
+      if (pool.length < 2) {
+        callbacks?.continueSlash(host)
+        return
+      }
       host.askSkill({
         skillId: GUANSHIFU_SKILL,
         ownerId: facts.sourceId,
@@ -182,8 +193,9 @@ registerSkillRuntime({
     host.dispatch('LoseCard', { playerId: facts.sourceId, cardIds, reason: '贯石斧' }, { sourceId: facts.sourceId, cardIds })
 
     const target = host.state.players.find((player) => player.id === facts.targetId)
-    if (!target?.alive) return
-    callbacks?.dealSlashDamage(host, facts)
+    // dealSlashDamage 自己会收尾，这里不能再调一次 continueSlash
+    if (target?.alive) callbacks?.dealSlashDamage(host, facts)
+    else callbacks?.continueSlash(host)
   },
 })
 
@@ -193,13 +205,18 @@ registerSkillRuntime({
   resume(host, _ownerId, resolution, response) {
     const facts = resolution.data as unknown as DodgedSlashFacts
     const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds ?? []
-    // 空选就是放弃
-    if (!cardId) return
     const owner = playerOf(host.state, facts.sourceId)
-    if (!owner.alive || !owner.zones.hand.includes(cardId)) return
-    if (host.state.cards[cardId]?.name !== '杀') return
     const target = host.state.players.find((player) => player.id === facts.targetId)
-    if (!target?.alive) return
+    const usable = cardId
+      && owner.alive
+      && owner.zones.hand.includes(cardId)
+      && host.state.cards[cardId]?.name === '杀'
+      && target?.alive
+    // 空选或前提不成立就是放弃，但外层这张【杀】仍然要收尾
+    if (!usable) {
+      callbacks?.continueSlash(host)
+      return
+    }
     callbacks?.useExtraSlash(host, facts.sourceId, facts.targetId, cardId)
   },
 })
@@ -278,12 +295,15 @@ registerSkillRuntime({
 
     if (resolution.step === 'ask') {
       if ((response.payload as { optionId: string }).optionId !== 'yes') {
-        // 放弃发动：伤害照常
+        // 放弃发动：伤害照常。dealSlashDamage 会自己收尾
         if (target?.alive) callbacks?.dealSlashDamage(host, facts)
+        else callbacks?.continueSlash(host)
         return
       }
-      if (!target?.alive) return
-      askHanbingjianCard(host, facts, 1)
+      if (!target?.alive || !askHanbingjianCard(host, facts, 1)) {
+        // 目标已经没牌可弃：寒冰剑发动不了，这个目标到此结算完毕
+        callbacks?.continueSlash(host)
+      }
       return
     }
 
@@ -291,15 +311,16 @@ registerSkillRuntime({
     if (picked && target?.alive) discardForeignCard(host, facts.targetId, picked, '寒冰剑')
     const round = Number(resolution.data.round ?? 1)
     // 第二张：目标还有牌才继续问
-    if (round === 1 && target?.alive && discardableCards(host.state, facts.targetId).length > 0) {
-      askHanbingjianCard(host, facts, 2)
-    }
+    if (round === 1 && target?.alive && askHanbingjianCard(host, facts, 2)) return
+    // 寒冰剑替代了伤害，这个目标到此结算完毕
+    callbacks?.continueSlash(host)
   },
 })
 
-function askHanbingjianCard(host: SkillHost, facts: DodgedSlashFacts, round: number): void {
+/** 返回 false 表示没问出去（目标已经没牌了），调用方必须自己收尾。 */
+function askHanbingjianCard(host: SkillHost, facts: DodgedSlashFacts, round: number): boolean {
   const choices = foreignCardChoices(host.state, facts.targetId)
-  if (choices.cardIds.length + choices.hiddenCardSlots.length === 0) return
+  if (choices.cardIds.length + choices.hiddenCardSlots.length === 0) return false
   host.askSkill({
     skillId: HANBINGJIAN_SKILL,
     ownerId: facts.sourceId,
@@ -319,6 +340,7 @@ function askHanbingjianCard(host: SkillHost, facts: DodgedSlashFacts, round: num
       max: 1,
     }),
   })
+  return true
 }
 
 /**

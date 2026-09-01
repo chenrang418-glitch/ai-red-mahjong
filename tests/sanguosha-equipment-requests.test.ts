@@ -488,3 +488,78 @@ describe('丈八蛇矛', () => {
     expect(game.legalActions('p0').some((action) => action.id.startsWith('play:zhangba:'))).toBe(false)
   })
 })
+
+describe('方天画戟', () => {
+  it('最后一张手牌当【杀】时可以指定多名角色，逐个结算', () => {
+    const game = gameWith('fangtian')
+    equipWeapon(game, 'p0', '方天画戟')
+    const owner = game.state.players[0]
+    // 手上只留一张杀
+    const slash = giveCard(game, 'p0', '杀')
+    game.state.zones.discardPile.push(...owner.zones.hand.filter((id) => id !== slash))
+    owner.zones.hand = [slash]
+    // 目标都拿不出闪，保证一路命中
+    for (const id of ['p1', 'p2']) stripDodges(game, id)
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.id.startsWith('play:fangtian:')
+      && candidate.targetIds.includes('p1') && candidate.targetIds.includes('p2')
+      && candidate.targetIds.length === 2)
+    expect(action, '方天画戟必须真的产生多目标动作').toBeTruthy()
+
+    const before = ['p1', 'p2'].map((id) => game.state.players.find((p) => p.id === id)!.hp)
+    game.act('p0', action!.id)
+
+    // 逐个目标求闪
+    let guard = 0
+    while (game.state.pendingRequests.length > 0) {
+      if (guard++ > 10) throw new Error('多目标结算没有收敛')
+      const request = pending(game)
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'respond-pass' } })
+    }
+
+    const after = ['p1', 'p2'].map((id) => game.state.players.find((p) => p.id === id)!.hp)
+    expect(after, '两个目标都要挨这一刀').toEqual(before.map((hp) => hp - 1))
+    // 全部结算完之后这张牌才进弃牌堆
+    expect(game.state.cardResolution).toBeNull()
+    expect(game.state.zones.discardPile).toContain(slash)
+    assertGameInvariants(game.state)
+  })
+
+  it('中途有目标闪掉，其余目标照常结算', () => {
+    const game = gameWith('fangtian-dodge')
+    equipWeapon(game, 'p0', '方天画戟')
+    const owner = game.state.players[0]
+    const slash = giveCard(game, 'p0', '杀')
+    game.state.zones.discardPile.push(...owner.zones.hand.filter((id) => id !== slash))
+    owner.zones.hand = [slash]
+    stripDodges(game, 'p2')
+    const dodge = giveCard(game, 'p1', '闪')
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.id === 'play:fangtian:p1,p2')!
+    const p1Before = game.state.players[1].hp
+    const p2Before = game.state.players[2].hp
+    game.act('p0', action.id)
+
+    // p1 闪掉
+    expect(pending(game).playerId).toBe('p1')
+    game.respond({ requestId: pending(game).id, playerId: 'p1', payload: { actionId: `respond-dodge:${dodge}` } })
+    // 接着轮到 p2
+    expect(pending(game).playerId).toBe('p2')
+    game.respond({ requestId: pending(game).id, playerId: 'p2', payload: { actionId: 'respond-pass' } })
+
+    expect(game.state.players[1].hp).toBe(p1Before)
+    expect(game.state.players[2].hp).toBe(p2Before - 1)
+    expect(game.state.cardResolution).toBeNull()
+    assertGameInvariants(game.state)
+  })
+
+  it('手上不止一张牌时没有这条动作', () => {
+    const game = gameWith('fangtian-many')
+    equipWeapon(game, 'p0', '方天画戟')
+    giveCard(game, 'p0', '杀')
+    expect(game.state.players[0].zones.hand.length).toBeGreaterThan(1)
+    expect(game.legalActions('p0').some((action) => action.id.startsWith('play:fangtian:'))).toBe(false)
+  })
+})

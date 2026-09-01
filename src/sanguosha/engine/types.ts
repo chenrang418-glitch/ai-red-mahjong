@@ -139,6 +139,13 @@ export interface SlashResolutionState {
    * 它们和主牌同进同出，结算结束时一起进弃牌堆。
    */
   extraCardIds: CardId[]
+  /**
+   * 还没结算的其余目标（方天画戟可以指定至多三名角色）。
+   *
+   * 一个人只能装一把武器，所以多目标（方天画戟）和青龙偃月刀 / 贯石斧 /
+   * 寒冰剑 / 麒麟弓不会同时出现——这条互斥让多目标的实现不必和它们纠缠。
+   */
+  remainingTargetIds: PlayerId[]
   requestId: string | null
   /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
   dodgeRemaining: number
