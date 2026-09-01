@@ -128,6 +128,14 @@ AI 只接收 `PlayerView + LegalAction[]`，不接触完整 state。身份判断
 
 线上命令必须带 `actionId + baseSeq`，经运行时 parser 后才进入协调器；重复和陈旧动作会被拒绝。Worker 只广播按连接用户构造的 `PlayerView`。
 
+### Presentation 与牌桌 V2
+
+规则事件通过 `engine/presentation.ts` 转成公开的 `PresentationEvent`。单机直接订阅同一套 EventBus；联机房间按观看者过滤后把最近 30 条事件写入 Durable Object 状态，重连时随 `SgsRoomView.presentationEvents` 恢复。表现事件只包含公开的来源、目标、牌名、技能名、伤害性质与数值，不包含他人手牌、暗身份或牌堆顺序。动画只消费事件，不参与规则推进。
+
+`PlayerView.players[].distanceFromViewer` 和 `attackRange` 均由 `getDistance()` / `getAttackRange()` 生成，Vue 不重新实现距离。`SgsSeatLayout` 以观察者为底部，从下家起按顺时针映射至 5～8 人固定槽位；`SgsEffectLayer` 从座位 DOM 读取响应式坐标并绘制 SVG 指向。
+
+局内词条由 `ALL_CARD_INFO`、`STANDARD_CHARACTERS` 和身份/规则词条生成。`SgsCard` 使用并列的牌面按钮与 info 按钮，避免嵌套 button；因此 disabled 的装备、判定牌和处理区牌仍可查说明，同时不改变牌面主体的选择语义。
+
 Wrangler DO migration 已追加到 tag `v3`；D1 migration 已追加到 `0006_sanguosha_room_directory.sql`。历史 migration 未修改。
 
 ## 扩展武将包

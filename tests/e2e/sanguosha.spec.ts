@@ -73,10 +73,10 @@ test('别人的手牌和未公开身份不出现在 DOM 里', async ({ page }) =
   await enterTable(page)
 
   const leak = await page.evaluate(() => {
-    const others = [...document.querySelectorAll('.sgs-table__others .sgs-seat')]
+    const others = [...document.querySelectorAll('.sgs-seat-layout__slot:not(.sgs-seat-layout__slot--self) .sgs-seat')]
     return others.map((seat) => ({
       // 别人座位里只允许出现装备区和判定区的牌，这两处本来就是公开的
-      zoneCards: seat.querySelectorAll('.sgs-seat__zone .sgs-card').length,
+      zoneCards: seat.querySelectorAll('.sgs-seat__equipment button, .sgs-seat__judging button').length,
       totalCards: seat.querySelectorAll('.sgs-card').length,
       // 手牌只以数量呈现
       showsHandCount: /手牌\s*\d+/.test(seat.textContent ?? ''),
@@ -86,11 +86,38 @@ test('别人的手牌和未公开身份不出现在 DOM 里', async ({ page }) =
 
   for (const seat of leak) {
     // 座位里出现的牌一张不多不少都来自公开区域
-    expect(seat.totalCards).toBe(seat.zoneCards)
+    expect(seat.totalCards).toBe(0)
     expect(seat.showsHandCount).toBe(true)
   }
   // 至少有一个人的身份还没公开，显示为问号
   expect(leak.some((seat) => seat.identityText === '？')).toBe(true)
+})
+
+test('环形座位和词条入口在手机牌桌可用', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await enterTable(page, 8)
+  for (const slot of ['self', 'right-bottom', 'right-top', 'top-right', 'top-center', 'top-left', 'left-top', 'left-bottom']) {
+    await expect(page.locator(`.sgs-seat-layout__slot--${slot}`)).toHaveCount(1)
+  }
+  const self = page.locator('.sgs-seat-layout__slot--self')
+  const right = page.locator('.sgs-seat-layout__slot--right-bottom')
+  const left = page.locator('.sgs-seat-layout__slot--left-bottom')
+  const positions = await Promise.all([self, right, left].map(async (locator) => locator.boundingBox()))
+  expect(positions[0]!.y).toBeGreaterThan(positions[1]!.y)
+  expect(positions[1]!.x).toBeGreaterThan(positions[0]!.x)
+  expect(positions[2]!.x).toBeLessThan(positions[0]!.x)
+
+  const info = page.getByRole('button', { name: /查看.*说明/ }).first()
+  const cardMain = info.locator('..').locator('.sgs-card')
+  await info.click()
+  await expect(page.locator('.sgs-glossary-sheet')).toBeVisible()
+  await page.getByRole('button', { name: '关闭说明' }).click()
+  await expect(cardMain).toBeVisible()
+
+  await page.locator('.sgs-seat-layout__slot:not(.sgs-seat-layout__slot--self) .sgs-seat__identity').filter({ hasText: '？' }).first().click()
+  await expect(page.locator('.sgs-glossary-sheet')).toContainText('身份尚未公开')
+  await expect(page.locator('.sgs-glossary-sheet')).not.toContainText(/主公|忠臣|反贼|内奸/)
+  await expectNoPageScroll(page)
 })
 
 test('真人最终一定拿得到可点的操作', async ({ page }) => {

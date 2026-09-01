@@ -1,118 +1,75 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import SgsCard from './SgsCard.vue'
 import { getCharacter } from '../data/characters/standard'
+import { cardGlossary, characterGlossary, identityGlossary, ruleGlossary, skillGlossary } from '../glossary'
+import { useSgsGlossary } from '../composables/useSgsGlossary'
 import type { PlayerPublicView } from '../engine/view'
+import { characterPortrait } from '../assets/characters/manifest'
 
 const props = withDefaults(defineProps<{
   player: PlayerPublicView
+  viewerId: string
   active?: boolean
   selectable?: boolean
   selected?: boolean
-  /** 只在结算或自己回合等需要提示时高亮 */
+  threatened?: boolean
+  effect?: 'damage' | 'recover' | 'dodge' | 'skill' | null
+  status?: 'online' | 'offline' | 'trustee' | 'connecting' | null
   hint?: string
-}>(), { active: false, selectable: false, selected: false, hint: '' })
+}>(), { active: false, selectable: false, selected: false, threatened: false, effect: null, status: null, hint: '' })
 
-defineEmits<{ select: [playerId: string] }>()
-
+const emit = defineEmits<{ select: [playerId: string] }>()
+const glossary = useSgsGlossary()
 const IDENTITY_TEXT: Record<string, string> = { lord: '主公', loyalist: '忠臣', rebel: '反贼', renegade: '内奸' }
+const SLOT_TEXT: Record<string, string> = { weapon: '武器', armor: '防具', offensiveHorse: '-1马', defensiveHorse: '+1马' }
 
 const character = computed(() => (props.player.characterId ? getCharacter(props.player.characterId) : undefined))
-// 未公开身份在 PlayerView 里就是 null，这里没有任何办法把它显示出来
 const identityText = computed(() => (props.player.identity ? IDENTITY_TEXT[props.player.identity] : '？'))
-const hpDots = computed(() => Array.from({ length: props.player.maxHp }, (_, index) => index < props.player.hp))
+const hpHearts = computed(() => Array.from({ length: props.player.maxHp }, (_, index) => index < props.player.hp))
+const initials = computed(() => character.value?.name.slice(-1) ?? props.player.nickname.slice(0, 1))
+const portrait = computed(() => characterPortrait(props.player.characterId))
 </script>
 
 <template>
-  <component
-    :is="selectable ? 'button' : 'div'"
+  <article
     class="sgs-seat"
     :class="{
-      'sgs-seat--active': active,
-      'sgs-seat--selected': selected,
-      'sgs-seat--selectable': selectable,
-      'sgs-seat--dead': !player.alive,
-      'sgs-seat--chained': player.chained,
+      'sgs-seat--active': active, 'sgs-seat--selected': selected, 'sgs-seat--selectable': selectable,
+      'sgs-seat--dead': !player.alive, 'sgs-seat--chained': player.chained, 'sgs-seat--threatened': threatened,
+      [`sgs-seat--effect-${effect}`]: !!effect,
     }"
-    :type="selectable ? 'button' : undefined"
-    @click="selectable && $emit('select', player.id)"
+    :data-seat-id="player.id"
   >
-    <header>
-      <span class="sgs-seat__identity" :class="`sgs-seat__identity--${player.identity ?? 'hidden'}`">{{ identityText }}</span>
-      <strong>{{ player.nickname }}</strong>
-      <span v-if="character" class="sgs-seat__general">{{ character.name }}</span>
+    <button v-if="selectable" type="button" class="sgs-seat__target-hitbox" :aria-label="`选择${player.nickname}为目标`" @click="emit('select', player.id)"></button>
+    <div class="sgs-seat__portrait" :class="`sgs-seat__portrait--${character?.kingdom ?? 'unknown'}`" :style="portrait ? { backgroundImage: `url(${portrait})` } : undefined" aria-hidden="true"><span v-if="!portrait">{{ initials }}</span></div>
+    <div class="sgs-seat__shade" aria-hidden="true"></div>
+    <header class="sgs-seat__header">
+      <button type="button" class="sgs-seat__identity" :class="`sgs-seat__identity--${player.identity ?? 'hidden'}`" @click.stop="glossary?.open(identityGlossary(player.identity))">{{ identityText }}</button>
+      <strong>{{ player.nickname }}</strong><span v-if="active" class="sgs-seat__turn">行动中</span>
     </header>
-
-    <div class="sgs-seat__hp" :aria-label="`体力 ${player.hp} / ${player.maxHp}`">
-      <i v-for="(filled, index) in hpDots" :key="index" :class="{ filled }"></i>
+    <div class="sgs-seat__body">
+      <button v-if="character" type="button" class="sgs-seat__general" @click.stop="glossary?.open(characterGlossary(player.characterId!))">{{ character.name }}</button>
+      <span v-else class="sgs-seat__general">未选将</span>
+      <div class="sgs-seat__hp" :aria-label="`体力 ${player.hp} / ${player.maxHp}`"><span v-for="(filled, index) in hpHearts" :key="index" :class="{ empty: !filled }">♥</span><small>{{ player.hp }}/{{ player.maxHp }}</small></div>
+      <div class="sgs-seat__meta">
+        <span>手牌 {{ player.handCount }}</span>
+        <button v-if="player.id === viewerId" type="button" @click.stop="glossary?.open(ruleGlossary('range'))">范围 {{ player.attackRange }}</button>
+        <button v-else-if="player.distanceFromViewer !== null" type="button" @click.stop="glossary?.open(ruleGlossary('distance'))">距 {{ player.distanceFromViewer }}</button>
+      </div>
     </div>
-
-    <div class="sgs-seat__meta">
-      <span class="sgs-seat__hand">手牌 {{ player.handCount }}</span>
-      <span v-if="player.chained" class="sgs-seat__tag">横置</span>
-      <span v-if="!player.alive" class="sgs-seat__tag sgs-seat__tag--dead">阵亡</span>
+    <div v-if="player.equipment.length" class="sgs-seat__equipment">
+      <button v-for="card in player.equipment" :key="card.id" type="button" @click.stop="glossary?.open(cardGlossary(card.name))"><small>{{ SLOT_TEXT[card.equipmentSlot ?? ''] ?? '装备' }}</small><span>{{ card.name }}</span></button>
     </div>
-
-    <div v-if="player.equipment.length" class="sgs-seat__zone">
-      <SgsCard v-for="card in player.equipment" :key="card.id" :card="card" compact disabled />
+    <div v-if="player.judgingArea.length" class="sgs-seat__judging"><small>判定</small><button v-for="card in player.judgingArea" :key="card.id" type="button" @click.stop="glossary?.open(cardGlossary(card.name))">{{ card.name }}</button></div>
+    <div class="sgs-seat__states">
+      <button v-if="player.chained" type="button" @click.stop="glossary?.open(ruleGlossary('chained'))">横置</button><span v-if="player.faceDown">翻面</span><span v-if="!player.alive">阵亡</span><span v-if="status === 'offline'">离线</span><span v-if="status === 'trustee'">托管</span><span v-if="status === 'connecting'">连接中</span>
     </div>
-    <div v-if="player.judgingArea.length" class="sgs-seat__zone sgs-seat__zone--judge">
-      <SgsCard v-for="card in player.judgingArea" :key="card.id" :card="card" compact disabled />
-    </div>
-
-    <p v-if="hint" class="sgs-seat__hint">{{ hint }}</p>
-  </component>
+    <div v-if="character?.skills.length" class="sgs-seat__skills"><button v-for="skill in character.skills" :key="skill.id" type="button" @click.stop="glossary?.open(skillGlossary(skill.id))">{{ skill.name }}</button></div>
+    <p v-if="hint" class="sgs-seat__hint">{{ hint }}</p><span v-if="selected" class="sgs-seat__target-mark">目标</span>
+  </article>
 </template>
 
 <style scoped>
-.sgs-seat {
-  position: relative;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 7px 8px;
-  border: 1px solid #3a4a41;
-  border-radius: 11px;
-  background: rgba(14, 28, 23, .88);
-  color: #e6e0cd;
-  font: inherit;
-  text-align: left;
-}
-.sgs-seat--selectable { cursor: pointer; }
-.sgs-seat--selectable:hover { border-color: #d3b463; }
-.sgs-seat--active { border-color: #e0b95c; box-shadow: 0 0 0 1px rgba(224, 185, 92, .35), 0 0 18px rgba(224, 185, 92, .22); }
-.sgs-seat--selected { border-color: #cf5a4c; box-shadow: 0 0 0 2px rgba(207, 90, 76, .5); }
-.sgs-seat--dead { opacity: .5; }
-.sgs-seat--chained { background: rgba(30, 30, 20, .9); }
-
-header { display: flex; align-items: center; gap: 5px; min-width: 0; }
-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.sgs-seat__general { color: #d9c68d; font-size: 11px; white-space: nowrap; }
-.sgs-seat__identity {
-  flex: 0 0 auto; padding: 1px 5px; border-radius: 4px;
-  background: #2b3831; color: #93a49b; font-size: 9px;
-}
-.sgs-seat__identity--lord { background: #6a4a1c; color: #ffd98a; }
-.sgs-seat__identity--rebel { background: #5c2622; color: #ffb3aa; }
-.sgs-seat__identity--loyalist { background: #21432f; color: #a6e0bb; }
-.sgs-seat__identity--renegade { background: #3d3151; color: #cbb6ee; }
-
-.sgs-seat__hp { display: flex; gap: 3px; }
-.sgs-seat__hp i { width: 8px; height: 8px; border: 1px solid #6c5f3c; border-radius: 50%; }
-.sgs-seat__hp i.filled { background: #d7643f; border-color: #d7643f; }
-
-.sgs-seat__meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: #8fa199; font-size: 10px; }
-.sgs-seat__tag { padding: 0 4px; border-radius: 3px; background: #2f3a2e; color: #cbbf8d; }
-.sgs-seat__tag--dead { background: #402221; color: #e8a79f; }
-
-.sgs-seat__zone { display: flex; flex-wrap: wrap; gap: 2px; }
-.sgs-seat__zone--judge { padding-top: 2px; border-top: 1px dashed #3d4b43; }
-.sgs-seat__hint { margin: 0; color: #e0b95c; font-size: 10px; }
-
-@media (pointer: coarse), (max-width: 820px) {
-  .sgs-seat { padding: 5px 6px; gap: 3px; border-radius: 9px; }
-  header strong { font-size: 11px; }
-  .sgs-seat__general { font-size: 10px; }
-}
+.sgs-seat{position:relative;min-width:0;height:100%;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;padding:7px 8px;border:1px solid #415249;border-radius:12px;background:#14241d;color:#eee6d2;box-shadow:0 6px 18px rgba(0,0,0,.28);transition:opacity .18s,border-color .18s,transform .18s}.sgs-seat__target-hitbox{position:absolute;inset:0;z-index:1;border:0;border-radius:inherit;background:transparent;cursor:crosshair}.sgs-seat__portrait{position:absolute;inset:0;display:grid;place-items:center;opacity:.8;background:radial-gradient(circle at 60% 30%,rgba(181,148,79,.22),transparent 45%),linear-gradient(145deg,#344b3e,#14231d)}.sgs-seat__portrait span{color:rgba(235,217,166,.2);font:900 clamp(38px,5vw,76px)/1 KaiTi,serif;transform:rotate(-7deg)}.sgs-seat__portrait--wei{background-color:#26384c}.sgs-seat__portrait--shu{background-color:#31472d}.sgs-seat__portrait--wu{background-color:#4c2f2c}.sgs-seat__portrait--qun{background-color:#40374b}.sgs-seat__shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(8,16,12,.94),rgba(8,16,12,.7) 58%,rgba(8,16,12,.28))}.sgs-seat>:not(.sgs-seat__portrait,.sgs-seat__shade,.sgs-seat__target-hitbox){position:relative;z-index:2}.sgs-seat--selectable{border-color:#d6bd69;box-shadow:0 0 0 2px rgba(214,189,105,.28),0 0 18px rgba(214,189,105,.25)}.sgs-seat--selectable:not(.sgs-seat--selected){animation:seat-candidate 1.4s ease-in-out infinite}.sgs-seat--active{border-color:#e8c66d;box-shadow:0 0 0 1px rgba(232,198,109,.45),0 0 22px rgba(232,198,109,.32);animation:seat-active 1.8s ease-in-out infinite}.sgs-seat--selected{border-color:#f06f5c;box-shadow:0 0 0 3px rgba(240,111,92,.55),0 0 24px rgba(240,85,70,.3)}.sgs-seat--threatened,.sgs-seat--effect-damage{border-color:#ef6559;animation:seat-hit .48s ease}.sgs-seat--effect-recover{border-color:#68d191;animation:seat-recover .65s ease}.sgs-seat--effect-dodge{border-color:#dce8d4}.sgs-seat--effect-skill{border-color:#b89bf0}.sgs-seat--dead{filter:grayscale(1);opacity:.58}.sgs-seat--chained:after{content:'⛓';position:absolute;right:5px;bottom:4px;z-index:2;color:#d0b865;font-size:14px}.sgs-seat__header{display:flex;align-items:center;gap:4px;min-width:0}.sgs-seat__header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}button{font:inherit}.sgs-seat__identity,.sgs-seat__general,.sgs-seat__meta button,.sgs-seat__equipment button,.sgs-seat__judging button,.sgs-seat__states button,.sgs-seat__skills button{border:0;padding:0;background:transparent;color:inherit;cursor:help}.sgs-seat__identity{flex:none;padding:1px 5px;border-radius:4px;background:#2b3831;color:#9cac9f;font-size:9px}.sgs-seat__identity--lord{background:#6a4a1c;color:#ffd98a}.sgs-seat__identity--rebel{background:#5c2622;color:#ffb3aa}.sgs-seat__identity--loyalist{background:#21432f;color:#a6e0bb}.sgs-seat__identity--renegade{background:#3d3151;color:#cbb6ee}.sgs-seat__turn{margin-left:auto;padding:1px 4px;border-radius:4px;background:#806226;color:#ffe39a;font-size:8px;white-space:nowrap}.sgs-seat__body{display:grid;gap:2px}.sgs-seat__general{justify-self:start;color:#ead28b;font-weight:800;font-size:13px}.sgs-seat__hp{display:flex;align-items:center;gap:1px;color:#e76054;font-size:12px;line-height:1}.sgs-seat__hp .empty{color:#665d51}.sgs-seat__hp small{margin-left:3px;color:#d8cfc0;font-size:8px}.sgs-seat__meta{display:flex;gap:7px;color:#a5b3aa;font-size:9px}.sgs-seat__meta button{text-decoration:underline dotted;text-underline-offset:2px}.sgs-seat__equipment,.sgs-seat__judging{display:flex;gap:3px;min-width:0;overflow:hidden}.sgs-seat__equipment button{min-width:0;display:flex;gap:3px;padding:1px 3px;border:1px solid rgba(157,141,96,.3);border-radius:4px;background:rgba(8,14,11,.6);font-size:8px}.sgs-seat__equipment small{color:#8e9b92}.sgs-seat__equipment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d7c795}.sgs-seat__judging{align-items:center;color:#d18b80;font-size:8px}.sgs-seat__judging button{color:#efb2a8}.sgs-seat__states,.sgs-seat__skills{display:flex;gap:3px;flex-wrap:wrap;font-size:8px}.sgs-seat__states span,.sgs-seat__states button{padding:1px 3px;border-radius:3px;background:#3a2926;color:#f1afa5}.sgs-seat__skills button{padding:1px 3px;border:1px solid rgba(210,183,106,.25);border-radius:3px;color:#cdbd8e}.sgs-seat__hint{margin:0;color:#f2d47e;font-size:8px}.sgs-seat__target-mark{position:absolute!important;right:5px;top:24px;padding:2px 5px;border-radius:8px;background:#a83e35;color:white;font-size:8px;font-weight:800}@keyframes seat-active{50%{box-shadow:0 0 0 2px rgba(232,198,109,.55),0 0 28px rgba(232,198,109,.4)}}@keyframes seat-candidate{50%{border-color:#ffe39a}}@keyframes seat-hit{30%{transform:translateX(-4px)}60%{transform:translateX(4px)}}@keyframes seat-recover{50%{box-shadow:0 0 28px rgba(81,210,132,.62)}}@media(max-width:820px){.sgs-seat{padding:5px 6px;border-radius:9px}.sgs-seat__equipment{display:none}.sgs-seat__skills{max-height:14px;overflow:hidden}.sgs-seat__general{font-size:11px}.sgs-seat__hp{font-size:10px}.sgs-seat__header strong{font-size:9px}}@media(prefers-reduced-motion:reduce){.sgs-seat{animation:none!important;transition:none!important}}
+.sgs-seat__target-hitbox{z-index:3}.sgs-seat button:not(.sgs-seat__target-hitbox){position:relative;z-index:4}
 </style>

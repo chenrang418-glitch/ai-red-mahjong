@@ -12,13 +12,26 @@ import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
 import { validateResponse } from './requests'
-import { allCharacterIds, getCharacter, skillIdsOf } from '../data/characters/standard'
+import { allCharacterIds, getCharacter, skillIdsOf, STANDARD_CHARACTERS } from '../data/characters/standard'
 import { getSkillRuntime, registerSkillTriggers } from './skills/runtime'
 import { buildPlayerView } from './view'
 
 export interface SanguoshaGameOptions {
   seed: string
   setup: GameSetup
+}
+
+function skillDisplayName(skillId: string): string {
+  return STANDARD_CHARACTERS.flatMap((character) => character.skills).find((skill) => skill.id === skillId)?.name ?? skillId
+}
+
+function skillResponseWasInvoked(request: GameRequest, response: GameResponse): boolean {
+  const payload = response.payload as Record<string, unknown>
+  if ('actionId' in payload) return !String(payload.actionId).endsWith('-pass')
+  if ('optionId' in payload) return !['no', 'pass', 'skip', 'cancel'].includes(String(payload.optionId))
+  if (request.optional && 'cardIds' in payload) return Array.isArray(payload.cardIds) && payload.cardIds.length > 0
+  if (request.optional && 'targetIds' in payload) return Array.isArray(payload.targetIds) && payload.targetIds.length > 0
+  return true
 }
 
 export class SanguoshaGame {
@@ -187,6 +200,9 @@ export class SanguoshaGame {
       if (validationError) throw new Error(validationError)
       const runtime = getSkillRuntime(skillResolution.skillId)
       if (!runtime?.resume) throw new Error(`技能缺少续接实现：${skillResolution.skillId}`)
+      if (skillResponseWasInvoked(request, response)) {
+        this.dispatch('SkillActivated', { skillId: skillResolution.skillId, skillName: skillDisplayName(skillResolution.skillId) }, { sourceId: skillResolution.ownerId })
+      }
       this.state.pendingRequests = this.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
       // 先清空再回调，技能才能在 resume 里接着问下一步
       this.state.skillResolution = null
@@ -265,6 +281,11 @@ export class SanguoshaGame {
   }
 
   act(playerId: string, actionId: string): void {
+    const action = legalPlayActions(this.state, playerId).find((candidate) => candidate.id === actionId)
+    if (action?.kind === 'invoke-skill') {
+      const skillName = skillDisplayName(action.skillId)
+      this.dispatch('SkillActivated', { skillId: action.skillId, skillName, targetIds: action.targetIds }, { sourceId: playerId })
+    }
     performPlayAction(this, playerId, actionId)
     this.settle()
   }

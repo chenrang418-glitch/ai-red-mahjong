@@ -8,11 +8,14 @@ import { decidePlayAction, decideResponse, type AIContext, type AIDifficulty } f
 import { emptySuspicion, observeEvent, type SuspicionMap } from '../ai/belief'
 import { describeEvent } from '../engine/log'
 import type { GameEventName } from '../engine/events'
+import { buildPresentationEvent, type PresentationEvent } from '../engine/presentation'
 
 /** 会写进战报的事件。只挑对玩家有意义的，避免把每一次内部时机都刷上去。 */
 const LOGGED_EVENTS: readonly GameEventName[] = [
   'TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
   'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard',
+  'LoseEquipment',
+  'SkillActivated',
 ]
 
 /**
@@ -54,10 +57,11 @@ export function useLocalSanguosha() {
   const busy = ref(false)
   const error = ref('')
   const log = ref<string[]>([])
+  const presentationEvents = ref<PresentationEvent[]>([])
 
   let aiRng = new GameRng('ai')
   let suspicion: SuspicionMap = {}
-  let delayMs = 400
+  let delayMs = 700
   let timer: number | null = null
   let generation = 0
 
@@ -85,6 +89,11 @@ export function useLocalSanguosha() {
     if (log.value.length > 60) log.value.splice(0, log.value.length - 60)
   }
 
+  function pushPresentation(event: PresentationEvent): void {
+    presentationEvents.value.push(event)
+    if (presentationEvents.value.length > 30) presentationEvents.value.splice(0, presentationEvents.value.length - 30)
+  }
+
   function contextFor(playerId: string): AIContext {
     return { view: game.value!.viewFor(playerId), difficulty: currentDifficulty, rng: aiRng, suspicion }
   }
@@ -101,7 +110,7 @@ export function useLocalSanguosha() {
     if (current.state.status === 'choosing-general') {
       const pending = current.state.pendingRequests[0]
       if (!pending) {
-        step(revision, () => { current.start() })
+        step(revision, () => { current.start() }, true)
         return
       }
       if (pending.playerId === HUMAN_ID) { busy.value = false; refresh(); return }
@@ -134,11 +143,11 @@ export function useLocalSanguosha() {
     }
 
     // 当前角色可能已经死了（苦肉、决斗、自己的闪电），回合要收束
-    step(revision, () => { current.advancePhase() })
+    step(revision, () => { current.advancePhase() }, true)
   }
 
   /** 执行一步，带视觉停顿；出错时把牌局停在原地并报出来，不静默吞掉。 */
-  function step(revision: number, action: () => void): void {
+  function step(revision: number, action: () => void, automatic = false): void {
     busy.value = true
     const run = () => {
       if (revision !== generation) return
@@ -151,8 +160,9 @@ export function useLocalSanguosha() {
         error.value = cause instanceof Error ? cause.message : String(cause)
       }
     }
-    if (delayMs <= 0) run()
-    else timer = window.setTimeout(run, delayMs)
+    const visualDelay = delayMs <= 0 ? 0 : automatic ? Math.min(delayMs, 240) : delayMs
+    if (visualDelay <= 0) run()
+    else timer = window.setTimeout(run, visualDelay)
   }
 
   function start(options: LocalMatchOptions): void {
@@ -160,7 +170,8 @@ export function useLocalSanguosha() {
     if (timer !== null) window.clearTimeout(timer)
     error.value = ''
     log.value = []
-    delayMs = options.aiDelayMs ?? 400
+    presentationEvents.value = []
+    delayMs = options.aiDelayMs ?? 700
     currentDifficulty = options.difficulty
     const seed = options.seed ?? `local-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
     aiRng = new GameRng(`ai:${seed}`)
@@ -172,6 +183,8 @@ export function useLocalSanguosha() {
       created.events.on(name, (context) => {
         const text = describeEvent(created.state, context.event, HUMAN_ID)
         if (text) pushLog(text)
+        const presentation = buildPresentationEvent(created.state, context.event, HUMAN_ID)
+        if (presentation) pushPresentation(presentation)
       })
     }
     game.value = created
@@ -232,11 +245,12 @@ export function useLocalSanguosha() {
     if (timer !== null) window.clearTimeout(timer)
     game.value = null
     view.value = null
+    presentationEvents.value = []
     busy.value = false
     error.value = ''
   }
 
   const legalActions = computed(() => (isMyTurn.value ? view.value?.legalActions ?? [] : []))
 
-  return { view, busy, error, log, myRequest, isMyTurn, finished, legalActions, start, respond, act, beginPlaying, abandon }
+  return { view, busy, error, log, presentationEvents, myRequest, isMyTurn, finished, legalActions, start, respond, act, beginPlaying, abandon }
 }

@@ -16,6 +16,9 @@ const me = computed(() => online.room.value?.seats.find((seat) => seat.isSelf) ?
 const isHost = computed(() => online.session.value?.userId === online.room.value?.hostUserId)
 const allSeatsFilled = computed(() => online.room.value?.seats.every((seat) => seat.kind !== 'empty') ?? false)
 const allHumansReady = computed(() => online.room.value?.seats.every((seat) => seat.kind !== 'human' || seat.ready) ?? false)
+const connectionStatuses = computed(() => Object.fromEntries((online.room.value?.seats ?? [])
+  .filter((seat) => seat.kind !== 'empty')
+  .map((seat) => [`seat-${seat.seatId}`, seat.trustee ? 'trustee' : seat.connected ? 'online' : 'offline'] as const)))
 
 onMounted(() => { void online.restoreSession() })
 
@@ -38,6 +41,9 @@ function shareRoom(): void {
     :legal-actions="online.room.value.playerView?.legalActions ?? []"
     :busy="online.room.value.aiThinking || !online.connected.value"
     :log="online.room.value.log"
+    :presentation-events="online.room.value.presentationEvents"
+    :deadline-at="online.room.value.deadlineAt"
+    :connection-statuses="connectionStatuses"
     @act="online.act"
     @respond="online.respond"
     @quit="confirmLeave = true"

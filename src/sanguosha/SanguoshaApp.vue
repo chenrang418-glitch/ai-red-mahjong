@@ -3,7 +3,9 @@ import { computed, reactive, ref } from 'vue'
 import SgsTable from './components/SgsTable.vue'
 import SgsRequestDock from './components/SgsRequestDock.vue'
 import SgsOnlineHub from './components/SgsOnlineHub.vue'
+import SgsGlossarySheet from './components/SgsGlossarySheet.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
+import { provideSgsGlossary } from './composables/useSgsGlossary'
 import { getCharacter, STANDARD_CHARACTERS } from './data/characters/standard'
 import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
@@ -15,7 +17,11 @@ type Screen = 'home' | 'setup' | 'online' | 'playing' | 'rules'
 
 const screen = ref<Screen>(new URLSearchParams(window.location.search).has('room') ? 'online' : 'home')
 const game = useLocalSanguosha()
-const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty })
+const glossary = provideSgsGlossary()
+type AIPace = 'fast' | 'normal' | 'relaxed'
+const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty, aiPace: 'normal' as AIPace })
+const AI_PACE_MS: Record<AIPace, number> = { fast: 450, normal: 700, relaxed: 950 }
+const AI_PACE_LABEL: Record<AIPace, string> = { fast: '较快', normal: '标准', relaxed: '悠闲' }
 
 const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }
 // 每人的候选互不重叠，所以人数不能超过已实现的武将数
@@ -49,7 +55,7 @@ const finalRoster = computed(() => {
 })
 
 function startMatch(): void {
-  game.start({ playerCount: config.playerCount, difficulty: config.difficulty })
+  game.start({ playerCount: config.playerCount, difficulty: config.difficulty, aiDelayMs: AI_PACE_MS[config.aiPace] })
   screen.value = 'playing'
 }
 
@@ -88,6 +94,7 @@ function handleRespond(response: GameResponse): void {
     :legal-actions="game.legalActions.value"
     :busy="game.busy.value"
     :log="game.log.value"
+    :presentation-events="game.presentationEvents.value"
     @act="game.act"
     @respond="handleRespond"
     @quit="requestExit"
@@ -129,6 +136,12 @@ function handleRespond(response: GameResponse): void {
             :class="{ active: config.playerCount === count }"
             @click="config.playerCount = count"
           >{{ count }} 人</button>
+        </div>
+      </label>
+      <label>
+        <span>电脑节奏</span>
+        <div class="sgs-panel__choices">
+          <button v-for="(label, value) in AI_PACE_LABEL" :key="value" type="button" :class="{ active: config.aiPace === value }" @click="config.aiPace = value as AIPace">{{ label }}</button>
         </div>
       </label>
       <label>
@@ -224,6 +237,7 @@ function handleRespond(response: GameResponse): void {
       </div>
     </section>
   </div>
+  <SgsGlossarySheet :entry="glossary.entry.value" @close="glossary.close" />
 </template>
 
 <style scoped>

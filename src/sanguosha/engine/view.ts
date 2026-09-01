@@ -2,6 +2,7 @@ import type { CardId, GameResult, Identity, PhysicalCard, PlayerId, SanguoshaSta
 import type { GameRequest } from './requests'
 import type { LegalAction } from './actions'
 import { legalPlayActions } from './cards/basic'
+import { getAttackRange, getDistance } from './distance'
 
 export interface PlayerPublicView {
   id: PlayerId
@@ -20,6 +21,10 @@ export interface PlayerPublicView {
   equipment: Array<PhysicalCard>
   judgingArea: Array<PhysicalCard>
   marks: Record<string, number>
+  /** 从当前观察者到该角色的实际距离；自己或阵亡角色为 null。 */
+  distanceFromViewer: number | null
+  /** 公开的攻击范围，供座位卡展示；数值仍由 Engine 统一计算。 */
+  attackRange: number
 }
 
 export interface PlayerView {
@@ -85,6 +90,10 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         equipment: cards(state, Object.values(player.zones.equipment).filter((id): id is CardId => Boolean(id))),
         judgingArea: cards(state, player.zones.judgingArea),
         marks: { ...player.marks },
+        distanceFromViewer: player.id !== viewerId && player.alive && state.players.find((candidate) => candidate.id === viewerId)?.alive
+          ? getDistance(state, viewerId, player.id)
+          : null,
+        attackRange: player.alive ? getAttackRange(state, player.id) : 0,
       }
     }),
     drawPileCount: state.zones.drawPile.length,

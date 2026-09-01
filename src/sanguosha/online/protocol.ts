@@ -1,5 +1,6 @@
 import type { AIDifficulty } from '../ai'
 import type { PlayerView } from '../engine/view'
+import type { PresentationEvent } from '../engine/presentation'
 
 export interface SgsRoomSettings {
   playerCount: number
@@ -56,6 +57,7 @@ export interface SgsRoomView {
   playerView: PlayerView | null
   chat: SgsChatMessage[]
   log: string[]
+  presentationEvents: PresentationEvent[]
   deadlineAt: number | null
   aiThinking: boolean
 }

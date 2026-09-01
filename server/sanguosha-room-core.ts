@@ -3,6 +3,7 @@ import { GameRng } from '../src/sanguosha/engine/rng'
 import { decideResponse, decidePlayAction, type AIContext, type AIDifficulty } from '../src/sanguosha/ai'
 import { emptySuspicion, observeEvent, type SuspicionMap } from '../src/sanguosha/ai/belief'
 import { describeEvent } from '../src/sanguosha/engine/log'
+import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha/engine/presentation'
 import type { GameResponse } from '../src/sanguosha/engine/requests'
 import type { PlayerId, SanguoshaState } from '../src/sanguosha/engine/types'
 import type { PlayerView } from '../src/sanguosha/engine/view'
@@ -73,6 +74,8 @@ export interface StoredSgsRoomState {
   suspicion: SuspicionMap
   /** 按玩家过滤后的战报。存的是已经翻译好的文本，重连时能直接补上 */
   log: Record<string, string[]>
+  /** 按观看者过滤后的结构化表现事件，供重连后恢复当前行动舞台。 */
+  presentationEvents?: Record<string, PresentationEvent[]>
   deleteRequested: boolean
   /** 最近成功处理的客户端动作。用于在 DO 休眠恢复后继续拒绝重复 actionId。 */
   processedActionIds?: string[]
@@ -141,6 +144,7 @@ export class SanguoshaRoomCoordinator {
       aiRngState: 0,
       suspicion: {},
       log: {},
+      presentationEvents: {},
       deleteRequested: false,
       processedActionIds: [],
     })
@@ -156,7 +160,10 @@ export class SanguoshaRoomCoordinator {
 
   private game(): SanguoshaGame {
     if (!this.state.game) throw new InvalidSgsCommandError('牌局还没有开始')
-    if (!this.engine) this.engine = SanguoshaGame.restore(this.state.game)
+    if (!this.engine) {
+      this.engine = SanguoshaGame.restore(this.state.game)
+      this.attachObservers(this.engine)
+    }
     return this.engine
   }
 
@@ -410,6 +417,7 @@ export class SanguoshaRoomCoordinator {
     this.state.aiRngState = 0
     this.state.suspicion = emptySuspicion(game.viewFor(playerIdOf(occupied[0].seatId)))
     this.state.log = {}
+    this.state.presentationEvents = {}
     this.state.jobs = []
     for (const seat of this.state.seats) {
       seat.ready = false
@@ -430,17 +438,27 @@ export class SanguoshaRoomCoordinator {
    */
   private attachObservers(game: SanguoshaGame): void {
     const logged = ['TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
-      'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard'] as const
-    for (const name of logged) {
+      'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard', 'LoseEquipment'] as const
+    const presentationOnly = ['SkillActivated'] as const
+    const observed = [...logged, ...presentationOnly] as const
+    for (const name of observed) {
       game.events.on(name, (context) => {
         for (const seat of this.state.seats) {
           if (seat.kind === 'empty') continue
           const viewerId = playerIdOf(seat.seatId)
           const text = describeEvent(game.state, context.event, viewerId)
-          if (!text) continue
-          const bucket = this.state.log[viewerId] ?? (this.state.log[viewerId] = [])
-          bucket.push(text)
-          if (bucket.length > LOG_MAX) bucket.splice(0, bucket.length - LOG_MAX)
+          if (text) {
+            const bucket = this.state.log[viewerId] ?? (this.state.log[viewerId] = [])
+            bucket.push(text)
+            if (bucket.length > LOG_MAX) bucket.splice(0, bucket.length - LOG_MAX)
+          }
+          const presentation = buildPresentationEvent(game.state, context.event, viewerId)
+          if (presentation) {
+            const presentationStore = this.state.presentationEvents ?? (this.state.presentationEvents = {})
+            const events = presentationStore[viewerId] ?? (presentationStore[viewerId] = [])
+            events.push(presentation)
+            if (events.length > 30) events.splice(0, events.length - 30)
+          }
         }
       })
     }
@@ -624,6 +642,7 @@ export class SanguoshaRoomCoordinator {
       playerView,
       chat: this.state.chat,
       log: seat ? (this.state.log[playerIdOf(seat.seatId)] ?? []) : [],
+      presentationEvents: seat ? (this.state.presentationEvents?.[playerIdOf(seat.seatId)] ?? []) : [],
       deadlineAt: waitingJob ? waitingJob.dueAt : null,
       aiThinking: phase === 'playing' && !!actorSeat && (actorSeat.kind === 'ai' || actorSeat.trustee),
     }
