@@ -215,6 +215,92 @@ describe('联机房间：牌局能打完', () => {
   })
 })
 
+describe('联机房间：超时', () => {
+  it('真人不响应时，到点由 AI 代做一步', () => {
+    const now = 1_000
+    const room = started(now)
+    // 找到当前该行动的真人，并确认他既没托管也没掉线
+    const state = room.snapshot().game!
+    const request = state.pendingRequests[0]
+    expect(request).toBeTruthy()
+    const seatId = Number(request.playerId.slice('seat-'.length))
+    const seat = room.snapshot().seats[seatId]
+    if (seat.kind !== 'human') return
+    expect(seat.trustee).toBe(false)
+    expect(seat.connected).toBe(true)
+
+    // 真人的等待时限比 AI 的间隔长得多，两者不会混淆
+    const deadline = room.view(HOST.userId, now).deadlineAt
+    expect(deadline, '真人回合应当有一个可见的倒计时').toBeGreaterThan(now)
+
+    // 用 decisions 而不是 seq 判断推进：选将这类响应不会 bump seq
+    const decisionsBefore = state.decisions.length
+    room.runDueJobs(deadline!)
+    const after = room.snapshot().game!
+    expect(after.decisions.length, '超时之后应当由 AI 代做一步').toBeGreaterThan(decisionsBefore)
+    expect(after.pendingRequests[0]?.id, '原来那个请求应当已经被消费').not.toBe(request.id)
+  })
+
+  it('AI 座位不给真人倒计时', () => {
+    const room = started()
+    // 全部托管之后，视图里不该再有真人倒计时
+    room.handle(HOST.userId, { type: 'trustee', enabled: true })
+    room.handle(GUEST.userId, { type: 'trustee', enabled: true })
+    expect(room.view(HOST.userId).deadlineAt).toBeNull()
+    expect(room.view(HOST.userId).aiThinking).toBe(true)
+  })
+})
+
+describe('联机房间：再来一局', () => {
+  it('所有真人都点了才开下一局，且局面是全新的', () => {
+    const room = playToEnd(started())
+    const firstSeed = room.snapshot().game!.seed
+
+    room.handle(HOST.userId, { type: 'next-round' })
+    // 只有一个人点，不该直接开
+    expect(room.snapshot().game!.status).toBe('game-over')
+
+    room.handle(GUEST.userId, { type: 'next-round' })
+    const next = room.snapshot().game!
+    expect(next.status).not.toBe('game-over')
+    expect(next.seed, '新一局必须换 seed，否则会打出一模一样的牌').not.toBe(firstSeed)
+    expect(next.turnNumber).toBeLessThanOrEqual(1)
+    // 上一局的准备状态不能带进新局
+    for (const seat of room.snapshot().seats) expect(seat.nextRoundReady).toBe(false)
+  })
+
+  it('有人一直不点也不会把整桌锁死', () => {
+    const room = playToEnd(started())
+    const now = room.snapshot().updatedAt + 1_000
+    room.handle(HOST.userId, { type: 'next-round' }, now)
+    expect(room.snapshot().game!.status).toBe('game-over')
+
+    // 超时之后自动开下一局
+    room.runDueJobs(now + 120_000)
+    expect(room.snapshot().game!.status).not.toBe('game-over')
+  })
+
+  it('牌局没结束时不能点再来一局', () => {
+    const room = started()
+    expect(() => room.handle(HOST.userId, { type: 'next-round' })).toThrow(/还没结束/)
+  })
+})
+
+/** 全托管跑到牌局结束。 */
+function playToEnd(room: SanguoshaRoomCoordinator): SanguoshaRoomCoordinator {
+  room.handle(HOST.userId, { type: 'trustee', enabled: true })
+  room.handle(GUEST.userId, { type: 'trustee', enabled: true })
+  let now = 10_000
+  for (let step = 0; step < 4_000; step += 1) {
+    if (room.snapshot().game!.status === 'game-over') return room
+    const alarm = room.nextAlarmAt()
+    if (alarm === null) throw new Error('牌局停住了，但没有安排任何任务')
+    now = Math.max(now, alarm)
+    room.runDueJobs(now)
+  }
+  throw new Error('牌局没能在步数上限内结束')
+}
+
 /** 把选将阶段走完，进入正式对局。 */
 function runToPlaying(room: SanguoshaRoomCoordinator): void {
   let now = 5_000
