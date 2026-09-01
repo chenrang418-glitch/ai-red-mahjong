@@ -244,8 +244,19 @@ export class SanguoshaRoomCoordinator {
     const hasBaseSeq = command.baseSeq !== undefined
     if (hasActionId !== hasBaseSeq) throw new InvalidSgsCommandError('操作元数据不完整')
     if (command.actionId) {
+      // 重放保护：同一个 actionId 只执行一次。这条是必须的。
       if (this.state.processedActionIds!.includes(command.actionId)) throw new InvalidSgsCommandError('这个操作已经处理过了')
-      if (command.baseSeq !== this.state.version) throw new InvalidSgsCommandError('局面已经变化，请同步后重试')
+      // 陈旧检查**不能**用 `baseSeq !== version`：version 在 AI 每走一步、
+      // 每条聊天、每次断连时都会变，玩家点一下几乎必然「陈旧」，指令会被无故拒绝。
+      // 真正的陈旧由引擎自己挡住，而且挡得更准：
+      //   respond 带 requestId，请求处理过就不存在了；
+      //   act 带 legalActionId，不在当前合法动作里就会被拒；
+      //   出牌还要过「还没轮到你」。
+      // 所以这里只在**局面明显倒退**时拒绝——客户端报出来的版本比服务端还新，
+      // 那说明连的不是同一个房间状态。
+      if (command.baseSeq !== undefined && command.baseSeq > this.state.version) {
+        throw new InvalidSgsCommandError('客户端状态与房间不一致，请重新连接')
+      }
     }
 
     const result = this.handleCommand(userId, command, now)

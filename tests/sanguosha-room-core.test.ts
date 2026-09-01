@@ -100,14 +100,29 @@ describe('联机房间：服务端权威', () => {
     expect(() => room.handle('u-stranger', { type: 'chat', text: 'hi' })).toThrow(/不在这个房间/)
   })
 
-  it('拒绝陈旧 baseSeq，并且重复 actionId 不会执行两次', () => {
+  it('重复 actionId 不会执行两次', () => {
     const room = lobby()
     const baseSeq = room.snapshot().version
     room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'ready-once', baseSeq })
     expect(room.snapshot().seats[0].ready).toBe(true)
-    expect(() => room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'stale', baseSeq })).toThrow(/局面已经变化/)
     expect(() => room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'ready-once', baseSeq: room.snapshot().version })).toThrow(/已经处理/)
     expect(room.snapshot().seats[0].ready).toBe(true)
+  })
+
+  it('稍旧的 baseSeq 仍然接受，但比服务端还新的要拒绝', () => {
+    // version 在 AI 走子、聊天、别人准备时都会变。一律拒绝陈旧 baseSeq 的话，
+    // 联机实战中玩家点一下几乎必然被驳回——真正的陈旧由引擎按 requestId /
+    // legalActionId 挡住，挡得更准。
+    const room = lobby()
+    const stale = room.snapshot().version
+    room.connect(GUEST)
+    expect(room.snapshot().version).toBeGreaterThan(stale)
+
+    room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'older-base', baseSeq: stale })
+    expect(room.snapshot().seats[0].ready).toBe(true)
+
+    expect(() => room.handle(HOST.userId, { type: 'toggle-ready', actionId: 'from-future', baseSeq: 9_999 }))
+      .toThrow(/不一致/)
   })
 })
 
