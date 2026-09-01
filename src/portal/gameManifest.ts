@@ -28,8 +28,8 @@ export const gameManifest: readonly GameDefinition[] = [
   {
     id: 'sanguosha',
     name: '三国杀',
-    subtitle: '经典身份局 · 规则底座建设中',
-    status: '开发中',
+    subtitle: '经典身份局 · 单机可玩',
+    status: '可游玩',
     cover: '杀',
     accent: '#d6aa55',
     enabled: true,

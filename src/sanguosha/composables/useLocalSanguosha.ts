@@ -1,0 +1,222 @@
+import { computed, ref, shallowRef } from 'vue'
+import { SanguoshaGame } from '../engine/game'
+import { GameRng } from '../engine/rng'
+import type { GameRequest, GameResponse } from '../engine/requests'
+import type { GameSetup } from '../engine/types'
+import type { PlayerView } from '../engine/view'
+import { decidePlayAction, decideResponse, type AIContext, type AIDifficulty } from '../ai'
+import { emptySuspicion, type SuspicionMap } from '../ai/belief'
+
+/**
+ * 单机牌局驱动。
+ *
+ * **和联机共用同一个 Engine**，区别只在于「谁来提交决策」：
+ * 这里由本地 AI 代替其他座位，联机那边由 Durable Object 收各家的操作。
+ * 规则一份都不复制。
+ *
+ * AI 的节奏是纯视觉的：`aiDelayMs` 只控制 setTimeout，
+ * 计算本身是同步的，不靠等待来假装思考。
+ */
+
+export interface LocalMatchOptions {
+  playerCount: number
+  difficulty: AIDifficulty
+  /** AI 每步之间的视觉停顿；测试里设成 0 */
+  aiDelayMs?: number
+  seed?: string
+}
+
+const HUMAN_ID = 'p0'
+
+function buildSetup(playerCount: number): GameSetup {
+  return {
+    mode: 'identity',
+    generalChoices: 3,
+    players: Array.from({ length: playerCount }, (_, index) => ({
+      id: `p${index}`,
+      nickname: index === 0 ? '你' : `电脑${index}`,
+      isHuman: index === 0,
+    })),
+  }
+}
+
+export function useLocalSanguosha() {
+  const game = shallowRef<SanguoshaGame | null>(null)
+  const view = shallowRef<PlayerView | null>(null)
+  const busy = ref(false)
+  const error = ref('')
+  const log = ref<string[]>([])
+
+  let aiRng = new GameRng('ai')
+  let suspicion: SuspicionMap = {}
+  let delayMs = 400
+  let timer: number | null = null
+  let generation = 0
+
+  const myRequest = computed<GameRequest | null>(() => {
+    const request = view.value?.pendingRequest
+    return request && request.playerId === HUMAN_ID ? request : null
+  })
+
+  const isMyTurn = computed(() => (
+    view.value?.currentPlayerId === HUMAN_ID
+    && view.value?.phase === 'play'
+    && !view.value?.pendingRequest
+  ))
+
+  const finished = computed(() => view.value?.status === 'game-over')
+
+  function refresh(): void {
+    if (!game.value) return
+    view.value = game.value.viewFor(HUMAN_ID)
+  }
+
+  function pushLog(text: string): void {
+    log.value.push(text)
+    // 战报只留最近的一段，长局不会无限增长
+    if (log.value.length > 60) log.value.splice(0, log.value.length - 60)
+  }
+
+  function contextFor(playerId: string): AIContext {
+    return { view: game.value!.viewFor(playerId), difficulty: currentDifficulty, rng: aiRng, suspicion }
+  }
+
+  let currentDifficulty: AIDifficulty = 'normal'
+
+  /** 把牌局推进到「轮到真人做决定」为止。 */
+  function advanceUntilHuman(revision: number): void {
+    const current = game.value
+    if (!current || revision !== generation) return
+
+    // 选将阶段也要驱动：这里原来直接 return，结果 AI 永远轮不到选将，
+    // 界面就停在「其他角色选将中…」不动。
+    if (current.state.status === 'choosing-general') {
+      const pending = current.state.pendingRequests[0]
+      if (!pending) {
+        step(revision, () => { current.start() })
+        return
+      }
+      if (pending.playerId === HUMAN_ID) { busy.value = false; refresh(); return }
+      step(revision, () => { current.respond(decideResponse(contextFor(pending.playerId), pending)) })
+      return
+    }
+
+    if (current.state.status !== 'playing') { refresh(); return }
+
+    const request = current.state.pendingRequests[0]
+    if (request) {
+      if (request.playerId === HUMAN_ID) { busy.value = false; refresh(); return }
+      step(revision, () => { current.respond(decideResponse(contextFor(request.playerId), request)) })
+      return
+    }
+
+    const currentPlayer = current.state.players.find((player) => player.id === current.state.currentPlayerId)
+    if (current.state.phase === 'play' && currentPlayer?.alive) {
+      if (current.state.currentPlayerId === HUMAN_ID) { busy.value = false; refresh(); return }
+      step(revision, () => {
+        const playerId = current.state.currentPlayerId
+        const action = decidePlayAction(contextFor(playerId), current.legalActions(playerId))
+        if (action) current.act(playerId, action.id)
+        else {
+          const pass = current.legalActions(playerId).find((candidate) => candidate.kind === 'pass')
+          if (pass) current.act(playerId, pass.id)
+        }
+      })
+      return
+    }
+
+    // 当前角色可能已经死了（苦肉、决斗、自己的闪电），回合要收束
+    step(revision, () => { current.advancePhase() })
+  }
+
+  /** 执行一步，带视觉停顿；出错时把牌局停在原地并报出来，不静默吞掉。 */
+  function step(revision: number, action: () => void): void {
+    busy.value = true
+    const run = () => {
+      if (revision !== generation) return
+      try {
+        action()
+        refresh()
+        advanceUntilHuman(revision)
+      } catch (cause) {
+        busy.value = false
+        error.value = cause instanceof Error ? cause.message : String(cause)
+      }
+    }
+    if (delayMs <= 0) run()
+    else timer = window.setTimeout(run, delayMs)
+  }
+
+  function start(options: LocalMatchOptions): void {
+    generation += 1
+    if (timer !== null) window.clearTimeout(timer)
+    error.value = ''
+    log.value = []
+    delayMs = options.aiDelayMs ?? 400
+    currentDifficulty = options.difficulty
+    const seed = options.seed ?? `local-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
+    aiRng = new GameRng(`ai:${seed}`)
+
+    const created = new SanguoshaGame({ seed, setup: buildSetup(options.playerCount) })
+    game.value = created
+    suspicion = emptySuspicion(created.viewFor(HUMAN_ID))
+    created.dealGenerals()
+    refresh()
+    pushLog(`牌局开始，${options.playerCount} 人身份局`)
+    advanceUntilHuman(generation)
+  }
+
+  /** 真人提交一次响应。 */
+  function respond(response: GameResponse): void {
+    const current = game.value
+    if (!current) return
+    try {
+      current.respond(response)
+      error.value = ''
+      refresh()
+      advanceUntilHuman(generation)
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause)
+    }
+  }
+
+  /** 真人出牌阶段执行一个动作。 */
+  function act(actionId: string): void {
+    const current = game.value
+    if (!current) return
+    try {
+      current.act(HUMAN_ID, actionId)
+      error.value = ''
+      refresh()
+      advanceUntilHuman(generation)
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause)
+    }
+  }
+
+  /** 选将全部完成后开局。 */
+  function beginPlaying(): void {
+    const current = game.value
+    if (!current) return
+    try {
+      current.start()
+      refresh()
+      advanceUntilHuman(generation)
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause)
+    }
+  }
+
+  function abandon(): void {
+    generation += 1
+    if (timer !== null) window.clearTimeout(timer)
+    game.value = null
+    view.value = null
+    busy.value = false
+    error.value = ''
+  }
+
+  const legalActions = computed(() => (isMyTurn.value ? view.value?.legalActions ?? [] : []))
+
+  return { view, busy, error, log, myRequest, isMyTurn, finished, legalActions, start, respond, act, beginPlaying, abandon }
+}

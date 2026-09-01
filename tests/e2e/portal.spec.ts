@@ -17,7 +17,8 @@ for (const viewport of viewports) {
 
     await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toBeVisible()
     await expect(page.getByRole('button', { name: /红中麻将/ })).toContainText('可游玩')
-    await expect(page.getByRole('button', { name: /三国杀/ })).toContainText('开发中')
+    // 单机可玩之后状态从「开发中」改成「可游玩」；联机仍未开放，见三国杀首页内的标注
+    await expect(page.getByRole('button', { name: /三国杀/ })).toContainText('可游玩')
     await expect(page.getByRole('button', { name: /更多游戏/ })).toBeDisabled()
 
     const dimensions = await page.evaluate(() => ({

@@ -1,43 +1,247 @@
 <script setup lang="ts">
+import { computed, reactive, ref } from 'vue'
+import SgsTable from './components/SgsTable.vue'
+import SgsRequestDock from './components/SgsRequestDock.vue'
+import { useLocalSanguosha } from './composables/useLocalSanguosha'
+import { STANDARD_CHARACTERS } from './data/characters/standard'
+import type { GameResponse } from './engine/requests'
+import type { AIDifficulty } from './ai'
+
 defineEmits<{ backToPortal: [] }>()
+
+type Screen = 'home' | 'setup' | 'playing' | 'rules'
+
+const screen = ref<Screen>('home')
+const game = useLocalSanguosha()
+const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty })
+
+const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }
+// 每人的候选互不重叠，所以人数不能超过已实现的武将数
+const maxPlayers = computed(() => Math.min(8, STANDARD_CHARACTERS.length))
+const playerCounts = computed(() => [5, 6, 7, 8].filter((count) => count <= maxPlayers.value))
+
+const result = computed(() => game.view.value?.result ?? null)
+const CAMP_LABEL: Record<string, string> = { lord: '主公与忠臣', rebel: '反贼', renegade: '内奸' }
+const choosingGeneral = computed(() => game.view.value?.status === 'choosing-general')
+
+function startMatch(): void {
+  game.start({ playerCount: config.playerCount, difficulty: config.difficulty })
+  screen.value = 'playing'
+}
+
+function quit(): void {
+  game.abandon()
+  screen.value = 'home'
+}
+
+function handleRespond(response: GameResponse): void {
+  // 选将结束后的开局由 useLocalSanguosha 驱动，组件不插手——
+  // 之前在这里抢着调 beginPlaying，AI 还没选完就触发了「还有玩家没有选将」。
+  game.respond(response)
+}
 </script>
 
 <template>
-  <main class="sgs-app">
-    <section class="sgs-home">
+  <SgsTable
+    v-if="screen === 'playing' && game.view.value && !choosingGeneral"
+    :view="game.view.value"
+    :request="game.myRequest.value"
+    :legal-actions="game.legalActions.value"
+    :busy="game.busy.value"
+    :log="game.log.value"
+    @act="game.act"
+    @respond="handleRespond"
+    @quit="quit"
+  />
+
+  <main v-else class="sgs-app">
+    <section v-if="screen === 'home'" class="sgs-home">
       <header>
         <button type="button" @click="$emit('backToPortal')">← 返回游戏中心</button>
         <span>CRPLAY · 三国杀</span>
       </header>
       <div class="sgs-home__hero">
         <div class="sgs-home__seal" aria-hidden="true">杀</div>
-        <p>经典身份局 · 规则引擎优先</p>
+        <p>经典身份局</p>
         <h1>三国杀</h1>
-        <small>Phase A 平台接入已完成，规则引擎正在建设。本页不会伪装成已可游玩的版本。</small>
+        <small>规则引擎已完成，单机可玩。武将持续补充中，联机尚未开放。</small>
       </div>
       <nav aria-label="三国杀模式">
-        <button type="button" disabled><b>单机游戏</b><span>开发中</span></button>
+        <button type="button" class="sgs-home__main" @click="screen = 'setup'"><b>单机游戏</b><span>与电脑对战</span></button>
         <button type="button" disabled><b>联机游戏</b><span>开发中</span></button>
-        <button type="button" disabled><b>规则</b><span>待 ruleset-v1 完成</span></button>
+        <button type="button" @click="screen = 'rules'"><b>规则</b><span>玩法与武将</span></button>
       </nav>
     </section>
+
+    <section v-else-if="screen === 'setup'" class="sgs-panel">
+      <header>
+        <button type="button" @click="screen = 'home'">‹</button>
+        <h1>单机设置</h1>
+      </header>
+      <label>
+        <span>人数</span>
+        <div class="sgs-panel__choices">
+          <button
+            v-for="count in playerCounts"
+            :key="count"
+            type="button"
+            :class="{ active: config.playerCount === count }"
+            @click="config.playerCount = count"
+          >{{ count }} 人</button>
+        </div>
+      </label>
+      <label>
+        <span>电脑难度</span>
+        <div class="sgs-panel__choices">
+          <button
+            v-for="(label, value) in DIFFICULTY_LABEL"
+            :key="value"
+            type="button"
+            :class="{ active: config.difficulty === value }"
+            @click="config.difficulty = value as AIDifficulty"
+          >{{ label }}</button>
+        </div>
+      </label>
+      <p class="sgs-panel__note">当前已实现 {{ STANDARD_CHARACTERS.length }} 名武将，每人随机分配候选。</p>
+      <button type="button" class="primary sgs-panel__start" @click="startMatch">开始</button>
+    </section>
+
+    <section v-else-if="screen === 'playing'" class="sgs-panel sgs-panel--choose">
+      <h1>选择武将</h1>
+      <SgsRequestDock
+        v-if="game.myRequest.value && game.view.value"
+        :request="game.myRequest.value"
+        :view="game.view.value"
+        @submit="handleRespond"
+      />
+      <p v-else class="sgs-panel__note">其他角色选将中…</p>
+    </section>
+
+    <section v-else class="sgs-panel">
+      <header>
+        <button type="button" @click="screen = 'home'">‹</button>
+        <h1>规则</h1>
+      </header>
+      <div class="sgs-rules">
+        <article>
+          <b>身份</b>
+          <p>主公开局公开身份。忠臣保护主公，反贼击杀主公，内奸最后与主公单挑取胜。</p>
+        </article>
+        <article>
+          <b>回合</b>
+          <p>准备 → 判定 → 摸牌 → 出牌 → 弃牌 → 结束。出牌阶段默认只能使用一张【杀】。</p>
+        </article>
+        <article>
+          <b>距离</b>
+          <p>座次距离减进攻马、加防御马；武器决定攻击范围。【杀】只能指定攻击范围内的角色。</p>
+        </article>
+        <article>
+          <b>濒死</b>
+          <p>体力降到零进入濒死，依次询问是否使用【桃】；无人相救则阵亡。</p>
+        </article>
+        <article v-for="character in STANDARD_CHARACTERS" :key="character.id">
+          <b>{{ character.name }}（体力 {{ character.maxHp }}）</b>
+          <p v-for="skill in character.skills" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</p>
+        </article>
+      </div>
+    </section>
+
+    <p v-if="game.error.value" class="sgs-app__error" role="alert">{{ game.error.value }}</p>
   </main>
+
+  <div v-if="result" class="sgs-result-backdrop">
+    <section class="sgs-result" role="dialog" aria-modal="true">
+      <h2>{{ CAMP_LABEL[result.winningCamp] ?? result.winningCamp }}获胜</h2>
+      <p>{{ result.reason }}</p>
+      <button type="button" class="primary" @click="quit">返回</button>
+    </section>
+  </div>
 </template>
 
 <style scoped>
-.sgs-app { width: 100%; height: 100dvh; overflow: hidden; color: #f4ead6; background: radial-gradient(circle at 75% 20%, rgba(132,42,32,.28), transparent 35%), linear-gradient(150deg, #171713, #090d0b); }
-.sgs-home { width: min(980px, 100%); height: 100%; margin: auto; display: flex; flex-direction: column; padding: max(22px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left)); }
+.sgs-app {
+  width: 100%; height: 100dvh; overflow: hidden; color: #f4ead6;
+  background: radial-gradient(circle at 75% 20%, rgba(132, 42, 32, .28), transparent 35%), linear-gradient(150deg, #171713, #090d0b);
+}
+.sgs-home, .sgs-panel {
+  width: min(980px, 100%); height: 100%; margin: auto; display: flex; flex-direction: column;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+}
 .sgs-home header { display: flex; justify-content: space-between; align-items: center; color: #887d69; font-size: 11px; letter-spacing: .15em; }
-.sgs-home header button { min-height: 38px; padding: 0 13px; border: 1px solid #4a453a; border-radius: 9px; color: #d7c8aa; background: #171c18; cursor: pointer; }
+.sgs-home header button, .sgs-panel header button {
+  min-height: 38px; padding: 0 13px; border: 1px solid #4a453a; border-radius: 9px;
+  color: #d7c8aa; background: #171c18; cursor: pointer;
+}
 .sgs-home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
-.sgs-home__seal { width: 88px; height: 88px; display: grid; place-items: center; border: 2px solid #af4437; border-radius: 23px; color: #cc5546; font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(175,68,55,.13); }
+.sgs-home__seal {
+  width: 88px; height: 88px; display: grid; place-items: center;
+  border: 2px solid #af4437; border-radius: 23px; color: #cc5546;
+  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(175, 68, 55, .13);
+}
 .sgs-home__hero p { margin: 24px 0 8px; color: #b19d79; font-size: 12px; letter-spacing: .18em; }
 .sgs-home__hero h1 { margin: 0; font-size: clamp(55px, 10vw, 92px); line-height: 1; letter-spacing: -.08em; }
 .sgs-home__hero small { max-width: 560px; margin-top: 22px; color: #7f8a84; line-height: 1.7; }
 .sgs-home nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.sgs-home nav button { min-height: 74px; display: grid; align-content: center; gap: 4px; border: 1px solid #3b443f; border-radius: 15px; color: #767f7a; background: rgba(18,26,22,.85); }
+.sgs-home nav button {
+  min-height: 74px; display: grid; align-content: center; gap: 4px;
+  border: 1px solid #3b443f; border-radius: 15px; color: #b9c3ba; background: rgba(18, 26, 22, .85); cursor: pointer;
+}
+.sgs-home nav button:disabled { color: #767f7a; cursor: default; }
+.sgs-home nav .sgs-home__main { border-color: #9e7f3c; color: #ffe6a8; background: linear-gradient(180deg, #6d5527, #4c3b1a); }
 .sgs-home nav b { font-size: 16px; }
 .sgs-home nav span { font-size: 10px; }
-@media (max-width: 620px) and (orientation: portrait) { .sgs-home nav { grid-template-columns: 1fr; } .sgs-home nav button { min-height: 58px; } }
-@media (max-height: 500px) and (orientation: landscape) { .sgs-home__seal { width: 58px; height: 58px; font-size: 32px; } .sgs-home__hero p { margin-top: 12px; } .sgs-home__hero h1 { font-size: 48px; } .sgs-home__hero small { margin-top: 8px; } .sgs-home nav button { min-height: 54px; } }
+
+.sgs-panel { gap: 16px; }
+.sgs-panel header { display: flex; align-items: center; gap: 12px; }
+.sgs-panel h1 { margin: 0; color: #f0d68d; font-size: 22px; }
+.sgs-panel label { display: grid; gap: 7px; }
+.sgs-panel label > span { color: #8f9b90; font-size: 12px; }
+.sgs-panel__choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.sgs-panel__choices button {
+  min-height: 46px; padding: 0 18px; border: 1px solid #3f4d45; border-radius: 10px;
+  background: #16241e; color: #cbd6cd; cursor: pointer; font: inherit;
+}
+.sgs-panel__choices button.active { border-color: #d3b463; background: #2c2718; color: #f0d68d; }
+.sgs-panel__note { margin: 0; color: #7f8a84; font-size: 12px; }
+.sgs-panel__start { margin-top: auto; }
+.sgs-panel--choose { justify-content: center; }
+.primary {
+  min-height: 52px; padding: 0 18px; border: 1px solid #9e7f3c; border-radius: 11px;
+  background: linear-gradient(180deg, #6d5527, #4c3b1a); color: #ffe6a8; cursor: pointer; font: inherit; font-weight: 800;
+}
+
+.sgs-rules { flex: 1; min-height: 0; overflow-y: auto; display: grid; gap: 12px; }
+.sgs-rules article { padding: 11px 13px; border: 1px solid #333c35; border-radius: 11px; background: rgba(18, 26, 22, .75); }
+.sgs-rules b { display: block; margin-bottom: 4px; color: #e6d29a; font-size: 13px; }
+.sgs-rules p { margin: 0 0 3px; color: #a3aea5; font-size: 12px; line-height: 1.65; }
+
+.sgs-app__error {
+  position: fixed; z-index: 40; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%);
+  width: min(520px, calc(100vw - 24px)); margin: 0; padding: 10px 14px;
+  border: 1px solid #a5544a; border-radius: 11px; background: rgba(88, 40, 35, .96); color: #ffd8d2; font-size: 13px; text-align: center;
+}
+
+.sgs-result-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: rgba(3, 10, 8, .74); }
+.sgs-result {
+  width: min(380px, 100%); padding: 24px; text-align: center;
+  border: 1px solid rgba(226, 191, 98, .38); border-radius: 20px;
+  background: linear-gradient(160deg, #1d2a20, #10190f); box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
+}
+.sgs-result h2 { margin: 0 0 8px; color: #f3d67c; font-size: 21px; }
+.sgs-result p { margin: 0 0 18px; color: #a3aea5; font-size: 13px; }
+
+@media (max-width: 620px) and (orientation: portrait) {
+  .sgs-home nav { grid-template-columns: 1fr; }
+  .sgs-home nav button { min-height: 58px; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .sgs-home__seal { width: 58px; height: 58px; font-size: 32px; }
+  .sgs-home__hero p { margin-top: 12px; }
+  .sgs-home__hero h1 { font-size: 48px; }
+  .sgs-home__hero small { margin-top: 8px; }
+  .sgs-home nav button { min-height: 54px; }
+  .sgs-panel { gap: 10px; }
+  .sgs-panel__choices button { min-height: 38px; }
+  .primary { min-height: 42px; }
+}
 </style>

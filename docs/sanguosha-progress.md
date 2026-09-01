@@ -328,6 +328,33 @@ Phase B 当前新增 9 个测试文件、61 项规则底座与卡牌结算测试
 这是 AI 策略问题不是引擎问题——AI 不会保护主公，也不会针对性集火。
 需要在目标估值里加入「主忠方要优先保主公」的权重，属于 AI 调优，留待后续。
 
+### 2026-09-01：Vue 牌桌，单机真正可玩
+
+三国杀在门户里的状态已经从「开发中」改成「可游玩」——**单机能从头打到尾了**。
+
+新增
+- `composables/useLocalSanguosha.ts`：单机驱动。**和联机共用同一个 Engine**，
+  区别只在于「谁来提交决策」：这里本地 AI 替其他座位，联机那边由 DO 收各家操作。
+- `components/SgsCard.vue`：牌。`card` 为空即牌背，
+  **牌背路径下 DOM 里不出现任何牌面信息**（牌名、花色、点数、aria-label 都没有）。
+- `components/SgsSeat.vue`：座位。别人只显示手牌张数、装备区、判定区，
+  未公开身份显示「？」——PlayerView 里本来就是 null，界面想显示也没有。
+- `components/SgsRequestDock.vue`：**12 种 Request 每一种都有真正能点的入口**，
+  最后还有一个兜底分支：将来新增 Request 却忘了做界面时会显式报出来，而不是静默卡住。
+- `components/SgsTable.vue`：牌桌。5～8 人只改 grid 列数，不为每种人数复制结构。
+- 单机配置页、选将页、规则页、结算弹窗。规则页的技能说明直接读武将数据，不维护第二份。
+
+浏览器里实测抓到的两个 bug
+1. **选将阶段驱动器直接退出**：`advanceUntilHuman` 开头是 `if (status !== 'playing') return`，
+   于是 AI 永远轮不到选将，界面停在「其他角色选将中…」；组件又抢先调 `beginPlaying`，
+   报「还有玩家没有选将」。现在选将阶段也由驱动器接管，组件不插手。
+2. **响应按钮显示成「使用」而不是「打出【闪】」**：卡牌 id 本身含冒号
+   （`ruleset-v1:standard:57`），按 `split(':')` 取第二段只拿到 `ruleset-v1`。改成按第一个冒号切。
+
+**已知缺口（没有掩盖）**：战报面板是空的。结构化战报必须由引擎事件生成，
+而 PlayerView 目前不下发事件流；按任务书「不要让 UI 自己猜发生了什么」，
+我没有用界面推断去伪造日志，而是在面板里如实写明还没接上。
+
 ## 下一步
 
 1. 实现**剩余需要 Request 的装备特效**：麒麟弓（弃马）、
@@ -369,7 +396,7 @@ Phase B 当前新增 9 个测试文件、61 项规则底座与卡牌结算测试
 | `npm run build` | 通过，产物已按游戏分包（门户 88KB / 麻将 App 122KB） |
 | `npm run build:online` | 通过（Wrangler dry-run） |
 | `npm run test:online:smoke` | 通过，麻将联机冒烟正常 |
-| `npx playwright test` | **30 通过**（Chromium 26 + WebKit 4），麻将原有用例全绿 |
+| `npx playwright test` | **36 通过**（Chromium 32 + WebKit 4），麻将原有用例全绿 |
 
 本轮全部验收命令都实际执行过。**没有 commit、没有 push、没有部署**——
 工作仍然全部留在 `feature/sanguosha` 的工作区里，等人工验收。
