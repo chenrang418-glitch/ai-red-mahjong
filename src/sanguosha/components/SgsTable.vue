@@ -148,9 +148,7 @@ const seatColumns = computed(() => {
     <aside v-if="logOpen" class="sgs-table__log" aria-label="战报">
       <header><strong>战报</strong><button type="button" @click="logOpen = false">×</button></header>
       <ol v-if="log.length"><li v-for="(entry, index) in log" :key="index">{{ entry }}</li></ol>
-      <!-- 战报要由引擎事件生成，不能让界面自己猜发生了什么。
-           PlayerView 目前还没有下发事件流，所以这里如实说明，而不是编一段假日志。 -->
-      <p v-else class="sgs-table__logempty">结构化战报还没接上：需要 PlayerView 下发按玩家过滤后的事件流。</p>
+      <p v-else class="sgs-table__logempty">还没有可显示的记录。</p>
     </aside>
   </div>
 </template>

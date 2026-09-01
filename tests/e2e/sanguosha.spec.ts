@@ -115,3 +115,22 @@ test('规则页的技能说明来自武将数据', async ({ page }) => {
   await expect(page.locator('.sgs-rules')).toContainText('咆哮')
   await expectNoPageScroll(page)
 })
+
+test('战报由引擎事件生成，且不含别人的手牌牌名', async ({ page }) => {
+  await page.setViewportSize(LANDSCAPE)
+  await enterTable(page)
+
+  // 等牌局推进出几条记录再看，否则只会看到「牌局开始」
+  await page.waitForTimeout(6000)
+  await page.getByRole('button', { name: '战报' }).click()
+  const log = page.locator('.sgs-table__log')
+  await expect(log).toBeVisible()
+  // 占位文案不能再出现
+  await expect(log).not.toContainText('还没接上')
+
+  const text = (await log.innerText()).trim()
+  expect(text.length).toBeGreaterThan(20)
+  // 别人摸牌只报数量，不报牌名
+  expect(text).not.toMatch(/电脑\d 获得【/)
+  await expectNoPageScroll(page)
+})

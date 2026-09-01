@@ -6,6 +6,14 @@ import type { GameSetup } from '../engine/types'
 import type { PlayerView } from '../engine/view'
 import { decidePlayAction, decideResponse, type AIContext, type AIDifficulty } from '../ai'
 import { emptySuspicion, type SuspicionMap } from '../ai/belief'
+import { describeEvent } from '../engine/log'
+import type { GameEventName } from '../engine/events'
+
+/** 会写进战报的事件。只挑对玩家有意义的，避免把每一次内部时机都刷上去。 */
+const LOGGED_EVENTS: readonly GameEventName[] = [
+  'TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
+  'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard',
+]
 
 /**
  * 单机牌局驱动。
@@ -158,6 +166,14 @@ export function useLocalSanguosha() {
     aiRng = new GameRng(`ai:${seed}`)
 
     const created = new SanguoshaGame({ seed, setup: buildSetup(options.playerCount) })
+    // 战报订阅引擎事件，界面不自己推断发生了什么。
+    // describeEvent 已经按观看者过滤：别人摸到什么牌不会写进来。
+    for (const name of LOGGED_EVENTS) {
+      created.events.on(name, (context) => {
+        const text = describeEvent(created.state, context.event, HUMAN_ID)
+        if (text) pushLog(text)
+      })
+    }
     game.value = created
     suspicion = emptySuspicion(created.viewFor(HUMAN_ID))
     created.dealGenerals()
