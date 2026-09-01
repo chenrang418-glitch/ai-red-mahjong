@@ -14,9 +14,10 @@ function setup(): GameSetup {
 function startedGame(seed = 'log-test'): SanguoshaGame {
   const game = new SanguoshaGame({ seed, setup: setup() })
   const identities: Identity[] = ['lord', 'rebel', 'loyalist', 'rebel', 'renegade']
+  const characters = ['liubei', 'guanyu', 'zhangfei', 'caocao', 'sunquan'] as const
   game.state.players.forEach((player, index) => {
     player.identity = identities[index]
-    player.characterId = 'guanyu'
+    player.characterId = characters[index]
   })
   game.start()
   return game
@@ -33,7 +34,7 @@ describe('战报只描述公开信息', () => {
     const name = game.state.cards[cardId].name
 
     const forOther = describeEvent(game.state, event('GainCard', { playerId: 'p1', cardIds: [cardId], reason: 'draw' }), 'p0')
-    expect(forOther).toBe('玩家1 获得 1 张牌（摸牌）')
+    expect(forOther).toBe('关羽 获得 1 张牌（摸牌）')
     expect(forOther).not.toContain(name)
     expect(forOther).not.toContain(cardId)
 
@@ -43,9 +44,9 @@ describe('战报只描述公开信息', () => {
 
   it('回合、伤害、回复、濒死都有可读描述', () => {
     const game = startedGame()
-    expect(describeEvent(game.state, event('TurnStart', { playerId: 'p2' }), 'p0')).toContain('玩家2')
+    expect(describeEvent(game.state, event('TurnStart', { playerId: 'p2' }), 'p0')).toContain('张飞')
     expect(describeEvent(game.state, event('Damaged', { amount: 2 }, { sourceId: 'p1', targetId: 'p3', damageNature: 'fire' }), 'p0'))
-      .toBe('玩家1 对 玩家3 造成 2 点火焰伤害')
+      .toBe('关羽 对 曹操 造成 2 点火焰伤害')
     expect(describeEvent(game.state, event('Recover', { playerId: 'p0', amount: 1 }), 'p0')).toContain('回复 1 点体力')
     expect(describeEvent(game.state, event('EnterDying', { playerId: 'p4' }), 'p0')).toContain('濒死')
   })
@@ -53,7 +54,7 @@ describe('战报只描述公开信息', () => {
   it('死亡时公开身份是规则允许的', () => {
     const game = startedGame()
     const text = describeEvent(game.state, event('Death', { playerId: 'p1', identity: 'rebel' }), 'p0')
-    expect(text).toBe('玩家1 阵亡（反贼）')
+    expect(text).toBe('关羽 阵亡（反贼）')
   })
 
   it('判定牌是翻开的公开信息，可以写出来', () => {

@@ -1,5 +1,6 @@
 import type { GameEvent } from './events'
 import type { CardId, PlayerId, SanguoshaState } from './types'
+import { getCharacter } from '../data/characters/standard'
 
 /**
  * 战报。
@@ -17,8 +18,9 @@ export interface LogEntry {
 }
 
 function nameOf(state: SanguoshaState, playerId: PlayerId | undefined): string {
-  if (!playerId) return '某人'
-  return state.players.find((player) => player.id === playerId)?.nickname ?? playerId
+  if (!playerId) return '某角色'
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  return player?.characterId ? getCharacter(player.characterId)?.name ?? '某角色' : '某角色'
 }
 
 function cardName(state: SanguoshaState, cardId: string | undefined): string {
@@ -96,7 +98,7 @@ export function describeEvent(state: SanguoshaState, event: GameEvent, viewerId:
       const suffix = reason ? `（${reason}）` : ''
       if (gainer !== viewerId) return `${nameOf(state, gainer)} 获得 ${ids.length} 张牌${suffix}`
       const names = ids.map((id) => cardName(state, id)).filter(Boolean)
-      return names.length ? `你获得【${names.join('】【')}】${suffix}` : null
+      return names.length ? `${nameOf(state, gainer)} 获得【${names.join('】【')}】${suffix}` : null
     }
 
     default:

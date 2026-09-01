@@ -36,9 +36,14 @@ async function enterTable(page: Page, playerCount?: number) {
 
   // 选将：候选一定要真的能点
   const general = page.locator('.sgs-dock__general').first()
+  const confirmGeneral = page.getByRole('button', { name: '开始游戏', exact: true })
   await expect(general).toBeVisible()
   await expect(general).toContainText('【')
+  await expect(confirmGeneral).toBeDisabled()
   await general.click()
+  await expect(page.locator('.sgs-table')).toHaveCount(0)
+  await expect(confirmGeneral).toBeEnabled()
+  await confirmGeneral.click()
 
   await expect(page.locator('.sgs-table')).toBeVisible({ timeout: 15_000 })
 }
@@ -153,10 +158,11 @@ test('规则页的技能说明来自武将数据', async ({ page }) => {
 
 test('联机大厅入口在手机上一屏可操作', async ({ page }) => {
   await page.setViewportSize(PORTRAIT)
+  await page.addInitScript(() => localStorage.setItem('red-mahjong.nickname', JSON.stringify('测试昵称')))
   await page.goto('/?game=sanguosha')
   await page.getByRole('button', { name: /联机游戏/ }).click()
-  await expect(page.getByRole('heading', { name: '先取一个昵称' })).toBeVisible()
-  await expect(page.getByRole('textbox', { name: '昵称' })).toBeVisible()
+  await expect(page.getByText('输入昵称', { exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '昵称' })).toHaveValue('测试昵称')
   await expect(page.getByRole('button', { name: '进入大厅' })).toBeVisible()
   await expectNoPageScroll(page)
 })

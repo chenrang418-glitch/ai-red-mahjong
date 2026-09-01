@@ -5,17 +5,25 @@ import type { PresentationEvent } from '../engine/presentation'
 import type { PlayerView } from '../engine/view'
 import { cardGlossary, skillGlossary } from '../glossary'
 import { useSgsGlossary } from '../composables/useSgsGlossary'
+import { getCharacter } from '../data/characters/standard'
 
 const props = defineProps<{ view: PlayerView; event: PresentationEvent | null; request: GameRequest | null; busy: boolean }>()
 const glossary = useSgsGlossary()
 const PHASE: Record<string, string> = { prepare: '准备阶段', judge: '判定阶段', draw: '摸牌阶段', play: '出牌阶段', discard: '弃牌阶段', finish: '结束阶段' }
 const current = computed(() => props.view.players.find((player) => player.id === props.view.currentPlayerId))
-const phaseText = computed(() => `${current.value?.id === props.view.viewerId ? '你的' : `${current.value?.nickname ?? '当前角色'} · ${current.value?.characterId ? '' : ''}`}${PHASE[props.view.phase] ?? props.view.phase}`)
+const characterName = (playerId?: string) => {
+  const player = props.view.players.find((candidate) => candidate.id === playerId)
+  return player?.characterId ? getCharacter(player.characterId)?.name ?? '当前角色' : '当前角色'
+}
+const phaseText = computed(() => `${characterName(current.value?.id)} · ${PHASE[props.view.phase] ?? props.view.phase}`)
 const waitingText = computed(() => {
   const request = props.view.pendingRequest
   if (!request) return ''
   const actor = props.view.players.find((player) => player.id === request.playerId)
-  return actor?.id === props.view.viewerId ? request.prompt : `正在等待${actor?.nickname ?? '当前角色'}响应`
+  if (actor?.id === props.view.viewerId) {
+    return props.view.players.reduce((text, player) => text.replaceAll(player.nickname, characterName(player.id)), request.prompt)
+  }
+  return `正在等待${characterName(actor?.id)}响应`
 })
 </script>
 

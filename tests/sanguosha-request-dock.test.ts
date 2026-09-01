@@ -76,9 +76,19 @@ describe('请求界面能渲染出可操作的控件', () => {
   it('遗计的分配界面：每张牌都给出全部收牌人', async () => {
     const request = REQUESTS.find((candidate) => candidate.kind === 'distribute-cards')!
     const html = await render(request, view)
-    for (const nickname of ['玩家1', '玩家2']) expect(html).toContain(nickname)
+    expect(html).toContain('马超')
+    expect(html).not.toContain('玩家1')
     // 两张牌 × 两个收牌人 + 一个确定
     expect((html.match(/<button/g) ?? []).length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('选将先选中，必须再点开始游戏才提交', async () => {
+    const request = REQUESTS.find((candidate) => candidate.kind === 'choose-general')!
+    const html = await render(request, view)
+    expect(html).toContain('sgs-dock__generals')
+    expect(html).toContain('开始游戏')
+    expect(html).toMatch(/开始游戏<\/button>/)
+    expect(html).toContain('disabled')
   })
 
   it('别人的手牌牌名不会出现在请求界面里', async () => {

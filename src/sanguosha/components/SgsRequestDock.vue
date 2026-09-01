@@ -20,6 +20,7 @@ const emit = defineEmits<{ submit: [response: GameResponse] }>()
 
 const selectedCards = ref<string[]>([])
 const selectedTargets = ref<string[]>([])
+const selectedGeneral = ref<string | null>(null)
 const topCards = ref<string[]>([])
 const bottomCards = ref<string[]>([])
 
@@ -27,6 +28,7 @@ const bottomCards = ref<string[]>([])
 watch(() => props.request.id, () => {
   selectedCards.value = []
   selectedTargets.value = []
+  selectedGeneral.value = null
   topCards.value = []
   bottomCards.value = props.request.kind === 'arrange-cards' ? [...props.request.cardIds] : []
 }, { immediate: true })
@@ -136,13 +138,21 @@ function submit(payload: Record<string, unknown>): void {
 function nicknameOf(playerId: string): string {
   const player = props.view.players.find((candidate) => candidate.id === playerId)
   const character = player?.characterId ? getCharacter(player.characterId) : undefined
-  return character ? `${player!.nickname}（${character.name}）` : player?.nickname ?? playerId
+  return character?.name ?? '未选将角色'
+}
+
+/** 对局操作区只用武将名描述角色，避免“电脑1/昵称”抢占牌桌语义。 */
+function withCharacterNames(text: string): string {
+  return props.view.players.reduce((result, player) => {
+    const character = player.characterId ? getCharacter(player.characterId) : undefined
+    return character ? result.replaceAll(player.nickname, character.name) : result
+  }, text)
 }
 </script>
 
 <template>
-  <section class="sgs-dock" role="group" :aria-label="request.prompt">
-    <p class="sgs-dock__prompt">{{ request.prompt }}</p>
+  <section class="sgs-dock" role="group" :aria-label="withCharacterNames(request.prompt)">
+    <p class="sgs-dock__prompt">{{ withCharacterNames(request.prompt) }}</p>
 
     <!-- 选将 -->
     <template v-if="request.kind === 'choose-general'">
@@ -152,7 +162,9 @@ function nicknameOf(playerId: string): string {
           :key="candidate"
           type="button"
           class="sgs-dock__general"
-          @click="submit({ characterId: candidate })"
+          :class="{ selected: selectedGeneral === candidate }"
+          :aria-pressed="selectedGeneral === candidate"
+          @click="selectedGeneral = candidate"
         >
           <strong>{{ getCharacter(candidate)?.name ?? candidate }}</strong>
           <small>体力 {{ getCharacter(candidate)?.maxHp }}</small>
@@ -160,6 +172,10 @@ function nicknameOf(playerId: string): string {
             【{{ skill.name }}】{{ skill.description }}
           </span>
         </button>
+      </div>
+      <div class="sgs-dock__actions sgs-dock__general-actions">
+        <span class="sgs-dock__count">{{ selectedGeneral ? `已选择：${getCharacter(selectedGeneral)?.name ?? selectedGeneral}` : '请选择一名武将' }}</span>
+        <button type="button" class="primary" :disabled="!selectedGeneral" @click="submit({ characterId: selectedGeneral })">开始游戏</button>
       </div>
     </template>
 
@@ -208,7 +224,7 @@ function nicknameOf(playerId: string): string {
           type="button"
           class="primary"
           @click="submit({ optionId: option.id })"
-        >{{ option.label }}</button>
+        >{{ withCharacterNames(option.label) }}</button>
       </div>
     </template>
 
@@ -357,16 +373,18 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
 .primary.red { color: #ffb9ae; border-color: #9c4a41; background: linear-gradient(180deg, #6d2f29, #4a1f1b); }
 .ghost { border: 1px solid #3f4d45; background: #16241e; color: #b9c5bd; }
 
-.sgs-dock__generals { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 3px; }
+.sgs-dock__generals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .sgs-dock__general {
-  flex: 0 0 auto; width: 176px; min-height: 0; padding: 9px 10px;
+  width: 100%; min-height: 0; padding: 9px 10px;
   display: flex; flex-direction: column; gap: 3px; text-align: left;
   border: 1px solid #55492e; border-radius: 11px; background: #1b241d; color: #ded4b8;
 }
 .sgs-dock__general:hover { border-color: #d3b463; }
+.sgs-dock__general.selected { border-color: #e7c763; background: #342b17; box-shadow: inset 0 0 0 1px rgba(231,199,99,.35); }
 .sgs-dock__general strong { color: #f0d68d; font-size: 15px; }
 .sgs-dock__general small { color: #8f9b90; font-size: 10px; }
 .sgs-dock__general span { color: #a9b5a9; font-size: 10px; line-height: 1.5; }
+.sgs-dock__general-actions { margin-top: 2px; }
 
 .sgs-dock__targets, .sgs-dock__distribute { display: flex; flex-wrap: wrap; gap: 6px; }
 .sgs-dock__row { display: flex; align-items: center; gap: 5px; width: 100%; }
@@ -390,6 +408,6 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
   .sgs-dock { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); gap: 5px; }
   .sgs-dock__cards { max-height: 22vh; }
   button { min-height: 34px; }
-  .sgs-dock__general { width: 150px; padding: 6px 8px; }
+  .sgs-dock__general { padding: 6px 8px; }
 }
 </style>

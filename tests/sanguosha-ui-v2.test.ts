@@ -47,6 +47,8 @@ describe('三国杀牌桌 V2 座位', () => {
 describe('三国杀公开表现事件', () => {
   it('杀、闪、伤害与回复保留来源目标和结果', () => {
     const game = new SanguoshaGame({ seed: 'ui-events', setup: setup(5) })
+    const characters = ['caocao', 'guanyu', 'zhangfei', 'zhaoyun', 'machao'] as const
+    game.state.players.forEach((player, index) => { player.characterId = characters[index] })
     const events: GameEvent[] = [
       { id: 'e1', seq: 1, name: 'CardUsed', sourceId: 'p1', payload: { cardName: '杀', targetIds: ['p0'] } },
       { id: 'e2', seq: 2, name: 'CardResponded', payload: { playerId: 'p0', cardName: '闪' } },
@@ -58,6 +60,8 @@ describe('三国杀公开表现事件', () => {
     expect(output[1]).toMatchObject({ kind: 'card-response', sourceId: 'p0', cardName: '闪' })
     expect(output[2]).toMatchObject({ kind: 'damage', targetIds: ['p0'], amount: 2, nature: 'fire' })
     expect(output[3]).toMatchObject({ kind: 'recover', sourceId: 'p2', targetIds: ['p0'], amount: 1 })
+    expect(output[0]?.text).toBe('关羽对曹操使用【杀】')
+    expect(output[0]?.text).not.toContain('电脑')
   })
 
   it('他人摸牌事件只含张数，不含牌名或 cardId', () => {

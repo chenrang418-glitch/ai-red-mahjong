@@ -14,12 +14,22 @@ const ROOM_KEY = 'crplay.sanguosha.online-room'
 const NICKNAME_KEY = 'red-mahjong.nickname'
 
 function storageGet(key: string): string {
-  try { return window.localStorage.getItem(key) ?? '' } catch { return '' }
+  try {
+    const raw = window.localStorage.getItem(key) ?? ''
+    if (!raw) return ''
+    // 麻将和三国杀共用昵称。麻将按 JSON 保存字符串，旧实现直接读取会把双引号也显示出来。
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      return typeof parsed === 'string' ? parsed : ''
+    } catch {
+      return raw
+    }
+  } catch { return '' }
 }
 
 function storageSet(key: string, value: string): void {
   try {
-    if (value) window.localStorage.setItem(key, value)
+    if (value) window.localStorage.setItem(key, JSON.stringify(value))
     else window.localStorage.removeItem(key)
   } catch { /* 当前会话仍可继续 */ }
 }
