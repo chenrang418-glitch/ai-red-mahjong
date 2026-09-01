@@ -337,7 +337,7 @@ async function adminDeleteUser(env: Env, userId: string): Promise<Response> {
 // 房间目录表里已经存了每个房间的阶段、玩家和座位数，玩家接口只是做了截断和排序；
 // 管理端要的是全量，外加创建时间。
 async function adminRooms(env: Env): Promise<Response> {
-  const result = await env.DB.prepare(`
+  const mahjongResult = await env.DB.prepare(`
     SELECT code, phase, host_nickname, players_json, occupied_seats, mode, initial_points, claim_window_ms, updated_at
     FROM room_directory
     ORDER BY updated_at DESC
@@ -352,26 +352,59 @@ async function adminRooms(env: Env): Promise<Response> {
     claim_window_ms: number
     updated_at: number
   }>()
-  return json({
-    rooms: result.results.map((row) => {
+  const mahjongRooms = mahjongResult.results.map((row) => {
       let players: unknown[] = []
       try {
         const parsed = JSON.parse(row.players_json)
         if (Array.isArray(parsed)) players = parsed
       } catch { players = [] }
       return {
+        game: 'mahjong' as const,
         code: row.code,
         phase: row.phase,
         hostNickname: row.host_nickname,
         players,
         occupiedSeats: row.occupied_seats,
+        capacity: 4,
         mode: row.mode,
         initialPoints: row.initial_points,
         claimWindowMs: row.claim_window_ms,
         updatedAt: row.updated_at,
       }
-    }),
+    })
+
+  const sanguoshaResult = await env.DB.prepare(`
+    SELECT code, phase, host_nickname, players_json, occupied_seats, player_count, updated_at
+    FROM sanguosha_room_directory
+    ORDER BY updated_at DESC
+  `).all<{
+    code: string
+    phase: 'lobby' | 'playing' | 'finished'
+    host_nickname: string
+    players_json: string
+    occupied_seats: number
+    player_count: number
+    updated_at: number
+  }>()
+  const sanguoshaRooms = sanguoshaResult.results.map((row) => {
+    let players: unknown[] = []
+    try {
+      const parsed = JSON.parse(row.players_json)
+      if (Array.isArray(parsed)) players = parsed
+    } catch { players = [] }
+    return {
+      game: 'sanguosha' as const,
+      code: row.code,
+      phase: row.phase,
+      hostNickname: row.host_nickname,
+      players,
+      occupiedSeats: row.occupied_seats,
+      capacity: row.player_count,
+      updatedAt: row.updated_at,
+    }
   })
+
+  return json({ rooms: [...mahjongRooms, ...sanguoshaRooms].sort((left, right) => right.updatedAt - left.updatedAt) })
 }
 
 async function adminDestroyRoom(env: Env, code: string): Promise<Response> {
@@ -383,6 +416,17 @@ async function adminDestroyRoom(env: Env, code: string): Promise<Response> {
     return json({ ok: true, code, note: '房间已不存在，已清理目录记录' })
   }
   await recordAudit(env, 'destroy-room', code, '强制解散房间')
+  return json({ ok: true, code })
+}
+
+async function adminDestroySgsRoom(env: Env, code: string): Promise<Response> {
+  const stub = env.SGS_ROOMS.get(env.SGS_ROOMS.idFromName(code))
+  const response = await stub.fetch('https://sgs-room.internal/admin/destroy', { method: 'POST' })
+  if (!response.ok) {
+    await env.DB.prepare('DELETE FROM sanguosha_room_directory WHERE code = ?').bind(code).run()
+    return json({ ok: true, code, note: '房间已不存在，已清理目录记录' })
+  }
+  await recordAudit(env, 'destroy-sanguosha-room', code, '强制解散三国杀房间')
   return json({ ok: true, code })
 }
 
@@ -415,6 +459,8 @@ async function adminRoute(request: Request, env: Env, url: URL): Promise<Respons
   }
   const roomMatch = url.pathname.match(/^\/api\/admin\/rooms\/([A-Z0-9]{6})$/)
   if (request.method === 'DELETE' && roomMatch) return adminDestroyRoom(env, roomMatch[1])
+  const sgsRoomMatch = url.pathname.match(/^\/api\/admin\/sanguosha\/rooms\/([A-Z0-9]{6})$/)
+  if (request.method === 'DELETE' && sgsRoomMatch) return adminDestroySgsRoom(env, sgsRoomMatch[1])
   const userMatch = url.pathname.match(/^\/api\/admin\/users\/([0-9a-fA-F-]{36})$/)
   if (request.method === 'DELETE' && userMatch) return adminDeleteUser(env, userMatch[1])
   return NOT_FOUND()
@@ -975,6 +1021,17 @@ export class SanguoshaRoom {
       await this.persist()
       await this.syncRoomDirectory()
       return json({ code: body.code }, 201)
+    }
+    if (url.pathname === '/admin/destroy' && request.method === 'POST') {
+      if (!this.coordinator) return json({ error: '房间不存在' }, 404)
+      const code = this.coordinator.state.code
+      for (const socket of this.state.getWebSockets()) {
+        if (socket.readyState !== WebSocket.OPEN) continue
+        this.send(socket, { type: 'error', message: '房间已被管理员关闭' })
+        socket.close(ROOM_CLOSED_BY_ADMIN_CODE, '房间已被管理员关闭')
+      }
+      await this.deleteRoom()
+      return json({ ok: true, code })
     }
     if (url.pathname === '/socket' && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const userId = request.headers.get('x-user-id') ?? ''

@@ -35,6 +35,8 @@ export interface PlayerView {
   turnNumber: number
   phase: TurnPhase
   pendingRequest: GameRequest | null
+  /** 仅当前请求玩家可见的牌面，例如观星看到的牌堆顶；不会发送给其他玩家。 */
+  requestCards: PhysicalCard[]
   dying: { playerId: PlayerId; requiredRecover: number } | null
   damageChain: { nature: 'fire' | 'thunder'; remainingTargetIds: PlayerId[] } | null
   judgment: { playerId: PlayerId; delayedCard: PhysicalCard; stage: 'awaiting-nullification' | 'awaiting-damage' } | null
@@ -56,6 +58,8 @@ function cards(state: SanguoshaState, ids: readonly CardId[]): PhysicalCard[] {
 
 export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): PlayerView {
   if (!state.players.some((player) => player.id === viewerId)) throw new Error('观察者不属于本局')
+  const pendingRequest = state.pendingRequests.find((request) => request.playerId === viewerId) ?? null
+  const requestCardIds = pendingRequest && 'cardIds' in pendingRequest ? pendingRequest.cardIds : []
   return {
     rulesetVersion: state.rulesetVersion,
     seq: state.seq,
@@ -89,7 +93,8 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
     currentPlayerId: state.currentPlayerId,
     turnNumber: state.turnNumber,
     phase: state.phase,
-    pendingRequest: structuredClone(state.pendingRequests.find((request) => request.playerId === viewerId) ?? null),
+    pendingRequest: structuredClone(pendingRequest),
+    requestCards: cards(state, requestCardIds),
     dying: state.dying
       ? { playerId: state.dying.playerId, requiredRecover: 1 - player(state, state.dying.playerId).hp }
       : null,

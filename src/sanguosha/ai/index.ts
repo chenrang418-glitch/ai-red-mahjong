@@ -238,5 +238,6 @@ function nullificationChoice(context: AIContext, actionIds: readonly string[]): 
 function cardName(context: AIContext, cardId: string): string {
   const me = myself(context.view)
   const found = me.hand?.find((card) => card.id === cardId)
+    ?? context.view.requestCards.find((card) => card.id === cardId)
   return found?.name ?? ''
 }

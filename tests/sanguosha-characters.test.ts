@@ -3,6 +3,7 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { STANDARD_CHARACTERS, allCharacterIds, getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import { getDistance } from '@/sanguosha/engine/distance'
+import { resolveDamage } from '@/sanguosha/engine/damage'
 import type { GameSetup, Identity, SanguoshaState } from '@/sanguosha/engine/types'
 import { assertCardConservation, moveCard, type ZoneRef } from '@/sanguosha/engine/zones'
 
@@ -12,6 +13,333 @@ function setup(): GameSetup {
     players: Array.from({ length: 5 }, (_, index) => ({ id: `p${index}`, nickname: `玩家${index}`, isHuman: index === 0 })),
   }
 }
+
+describe('吕蒙【克己】', () => {
+  function fillAboveLimit(game: SanguoshaGame): void {
+    while (game.state.players[0].zones.hand.length <= game.state.players[0].hp) {
+      const cardId = game.state.zones.drawPile[0]
+      moveCard(game.state, cardId, { kind: 'drawPile' }, { kind: 'hand', playerId: 'p0' })
+    }
+  }
+
+  it('本回合没有使用杀时可以跳过弃牌阶段', () => {
+    const game = gameWith('skill-keji-skip', { p0: 'lvmeng' })
+    fillAboveLimit(game)
+    const handBefore = game.state.players[0].zones.hand.length
+
+    game.advancePhase()
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'choose-option', playerId: 'p0' })
+    expect(request.prompt).toContain('克己')
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { optionId: 'yes' } })
+
+    expect(game.state.pendingRequests).toEqual([])
+    expect(game.state.players[0].zones.hand.length).toBe(handBefore)
+  })
+
+  it('放弃克己后仍生成严格数量的弃牌请求', () => {
+    const game = gameWith('skill-keji-decline', { p0: 'lvmeng' })
+    fillAboveLimit(game)
+    const excess = game.state.players[0].zones.hand.length - game.state.players[0].hp
+    game.advancePhase()
+    const ask = game.state.pendingRequests[0]
+    game.respond({ requestId: ask.id, playerId: 'p0', payload: { optionId: 'no' } })
+    expect(game.state.pendingRequests[0]).toMatchObject({ kind: 'choose-cards', purpose: 'discard-phase', min: excess, max: excess })
+  })
+
+  it('使用过杀后不能发动克己', () => {
+    const game = gameWith('skill-keji-used-slash', { p0: 'lvmeng' })
+    stripCard(game, '闪')
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(slash))!
+    game.act('p0', action.id)
+    passAll(game)
+    fillAboveLimit(game)
+
+    game.advancePhase()
+    expect(game.state.pendingRequests[0]).toMatchObject({ kind: 'choose-cards', purpose: 'discard-phase' })
+    expect(game.state.pendingRequests[0].prompt).not.toContain('克己')
+  })
+
+  it('出牌阶段打出过杀后不能发动克己', () => {
+    const game = gameWith('skill-keji-responded-slash', { p0: 'lvmeng' })
+    fillAboveLimit(game)
+    game.dispatch('CardResponded', { playerId: 'p0', cardName: '杀' }, { sourceId: 'p0' })
+
+    game.advancePhase()
+    expect(game.state.pendingRequests[0]).toMatchObject({ kind: 'choose-cards', purpose: 'discard-phase' })
+    expect(game.state.pendingRequests[0].prompt).not.toContain('克己')
+  })
+})
+
+describe('周瑜【英姿】【反间】', () => {
+  it('英姿发动时摸三张，放弃时仍正常摸两张', () => {
+    for (const [seed, optionId, expected] of [['skill-yingzi-yes', 'yes', 3], ['skill-yingzi-no', 'no', 2]] as const) {
+      const game = gameWith(seed, { p0: 'zhouyu' })
+      const before = game.state.players[0].zones.hand.length
+      const context = game.dispatch('DrawPhase', { playerId: 'p0', count: 2 }, { sourceId: 'p0', phase: 'draw' })
+      expect(context.cancelled).toBe(true)
+      const request = game.state.pendingRequests[0]
+      expect(request).toMatchObject({ kind: 'choose-option', playerId: 'p0' })
+      game.respond({ requestId: request.id, playerId: 'p0', payload: { optionId } })
+      expect(game.state.players[0].zones.hand.length).toBe(before + expected)
+    }
+  })
+
+  it('反间由目标选择花色，猜错时获得随机手牌并受到伤害', () => {
+    const game = gameWith('skill-fanjian-wrong-suit', { p0: 'zhouyu' })
+    for (const cardId of [...game.state.players[0].zones.hand]) {
+      moveCard(game.state, cardId, { kind: 'hand', playerId: 'p0' }, { kind: 'discardPile' })
+    }
+    const cardId = giveNamed(game, 'p0', (card) => card.color === 'red')
+    const card = game.state.cards[cardId]
+    const wrongSuit = (['spade', 'heart', 'club', 'diamond'] as const).find((suit) => suit !== card.suit)!
+    const targetHp = game.state.players[1].hp
+
+    game.act('p0', 'skill:fanjian')
+    let request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'choose-targets', playerId: 'p0' })
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+    request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'choose-suit', playerId: 'p1' })
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { suit: wrongSuit } })
+
+    expect(game.state.players[1].zones.hand).toContain(cardId)
+    expect(game.state.players[1].hp).toBe(targetHp - 1)
+    expect(game.legalActions('p0').some((action) => action.id === 'skill:fanjian')).toBe(false)
+  })
+
+  it('反间猜中花色时只获得牌，不造成伤害', () => {
+    const game = gameWith('skill-fanjian-correct-suit', { p0: 'zhouyu' })
+    for (const cardId of [...game.state.players[0].zones.hand].slice(1)) {
+      moveCard(game.state, cardId, { kind: 'hand', playerId: 'p0' }, { kind: 'discardPile' })
+    }
+    const cardId = game.state.players[0].zones.hand[0]
+    const targetHp = game.state.players[1].hp
+
+    game.act('p0', 'skill:fanjian')
+    let request = game.state.pendingRequests[0]
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+    request = game.state.pendingRequests[0]
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { suit: game.state.cards[cardId].suit } })
+
+    expect(game.state.players[1].zones.hand).toContain(cardId)
+    expect(game.state.players[1].hp).toBe(targetHp)
+  })
+})
+
+describe('陆逊【谦逊】【连营】', () => {
+  it('谦逊阻止顺手牵羊和乐不思蜀选择陆逊，但不影响其他合法目标', () => {
+    const game = gameWith('skill-qianxun', { p0: 'guanyu', p1: 'luxun' })
+    const snatch = giveNamed(game, 'p0', (card) => card.name === '顺手牵羊')
+    const indulgence = giveNamed(game, 'p0', (card) => card.name === '乐不思蜀')
+    const actions = game.legalActions('p0')
+
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(snatch) && action.targetIds.includes('p1'))).toBe(false)
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(snatch) && action.targetIds.includes('p4'))).toBe(true)
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(indulgence) && action.targetIds.includes('p1'))).toBe(false)
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(indulgence) && action.targetIds.includes('p2'))).toBe(true)
+  })
+
+  it('使用最后一张手牌后可发动连营摸一张', () => {
+    const game = gameWith('skill-lianying', { p0: 'luxun' })
+    for (const cardId of [...game.state.players[0].zones.hand]) {
+      moveCard(game.state, cardId, { kind: 'hand', playerId: 'p0' }, { kind: 'discardPile' })
+    }
+    const wine = giveNamed(game, 'p0', (card) => card.name === '酒')
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(wine))!
+    game.act('p0', action.id)
+
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'choose-option', playerId: 'p0' })
+    expect(request.prompt).toContain('连营')
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { optionId: 'yes' } })
+    expect(game.state.players[0].zones.hand).toHaveLength(1)
+  })
+
+  it('还有手牌时不触发连营', () => {
+    const game = gameWith('skill-lianying-not-empty', { p0: 'luxun' })
+    const wine = giveNamed(game, 'p0', (card) => card.name === '酒')
+    const before = game.state.players[0].zones.hand.length
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(wine))!
+    game.act('p0', action.id)
+    expect(game.state.players[0].zones.hand.length).toBe(before - 1)
+    expect(game.state.pendingRequests).toEqual([])
+  })
+})
+
+describe('诸葛亮【观星】【空城】', () => {
+  it('观星只向技能拥有者展示牌面，并按回答重排牌堆顶和牌堆底', () => {
+    const game = new SanguoshaGame({ seed: 'skill-guanxing', setup: setup() })
+    const identities: Identity[] = ['lord', 'rebel', 'loyalist', 'rebel', 'renegade']
+    game.state.players.forEach((player, index) => {
+      player.identity = identities[index]
+      player.characterId = index === 0 ? 'zhugeliang' : 'guanyu'
+    })
+    game.state.currentPlayerId = 'p0'
+    game.start()
+
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'arrange-cards', playerId: 'p0', minTop: 0, maxTop: 5, allowBottom: true })
+    if (request.kind !== 'arrange-cards') throw new Error('观星没有生成排列请求')
+    expect(game.viewFor('p0').requestCards.map((card) => card.id)).toEqual(request.cardIds)
+    expect(game.viewFor('p1').requestCards).toEqual([])
+    expect(game.viewFor('p1').pendingRequest).toBeNull()
+
+    const top = [request.cardIds[2], request.cardIds[0]]
+    const bottom = [request.cardIds[4], request.cardIds[1], request.cardIds[3]]
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { top, bottom } })
+    expect(game.state.zones.drawPile.slice(0, top.length)).toEqual(top)
+    expect(game.state.zones.drawPile.slice(-bottom.length)).toEqual(bottom)
+  })
+
+  it('空手时不能成为杀或决斗的目标', () => {
+    const game = gameWith('skill-kongcheng-empty', { p0: 'guanyu', p1: 'zhugeliang' })
+    for (const cardId of [...game.state.players[1].zones.hand]) {
+      moveCard(game.state, cardId, { kind: 'hand', playerId: 'p1' }, { kind: 'discardPile' })
+    }
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const duel = giveNamed(game, 'p0', (card) => card.name === '决斗')
+    const actions = game.legalActions('p0')
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(slash) && action.targetIds.includes('p1'))).toBe(false)
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(duel) && action.targetIds.includes('p1'))).toBe(false)
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(duel) && action.targetIds.includes('p2'))).toBe(true)
+  })
+
+  it('有手牌时空城不生效', () => {
+    const game = gameWith('skill-kongcheng-hand', { p0: 'guanyu', p1: 'zhugeliang' })
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const duel = giveNamed(game, 'p0', (card) => card.name === '决斗')
+    const actions = game.legalActions('p0')
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(slash) && action.targetIds.includes('p1'))).toBe(true)
+    expect(actions.some((action) => action.kind === 'use-card' && action.cardIds.includes(duel) && action.targetIds.includes('p1'))).toBe(true)
+  })
+})
+
+describe('吕布【无双】', () => {
+  function giveSeveral(game: SanguoshaGame, playerId: string, cardName: string, count: number): string[] {
+    const ids = Object.values(game.state.cards).filter((card) => card.name === cardName).slice(0, count).map((card) => card.id)
+    for (const cardId of ids) moveCard(game.state, cardId, locate(game.state, cardId), { kind: 'hand', playerId })
+    return ids
+  }
+
+  function passNullificationRound(game: SanguoshaGame): void {
+    for (let guard = 0; guard < 20; guard += 1) {
+      const request = game.state.pendingRequests[0]
+      if (!request || request.kind !== 'respond-card' || request.requiredCardName !== '无懈可击') return
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'respond-pass' } })
+    }
+    throw new Error('无懈询问没有收敛')
+  }
+
+  it('吕布的杀需要目标连续打出两张闪', () => {
+    const game = gameWith('skill-wushuang-slash', { p0: 'lvbu' })
+    stripCard(game, '闪')
+    const dodges = giveSeveral(game, 'p1', '闪', 2)
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    game.act('p0', action.id)
+
+    let request = game.state.pendingRequests[0]
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-dodge:${dodges[0]}` } })
+    request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '闪' })
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-dodge:${dodges[1]}` } })
+    expect(game.state.cardResolution).toBeNull()
+    expect(game.state.players[1].hp).toBe(game.state.players[1].maxHp)
+  })
+
+  it('无双的第二张闪未打出时正常造成伤害', () => {
+    const game = gameWith('skill-wushuang-one-dodge', { p0: 'lvbu' })
+    stripCard(game, '闪')
+    const [dodge] = giveSeveral(game, 'p1', '闪', 1)
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    const before = game.state.players[1].hp
+    game.act('p0', action.id)
+    let request = game.state.pendingRequests[0]
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-dodge:${dodge}` } })
+    request = game.state.pendingRequests[0]
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: 'respond-pass' } })
+    expect(game.state.players[1].hp).toBe(before - 1)
+  })
+
+  it('与吕布决斗的角色每轮需要连续打出两张杀', () => {
+    const game = gameWith('skill-wushuang-duel', { p0: 'lvbu' })
+    stripCard(game, '杀')
+    const slashes = giveSeveral(game, 'p1', '杀', 2)
+    const duel = giveNamed(game, 'p0', (card) => card.name === '决斗')
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(duel) && candidate.targetIds.includes('p1'))!
+    const before = game.state.players[0].hp
+    game.act('p0', action.id)
+    passNullificationRound(game)
+
+    let request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ playerId: 'p1', requiredCardName: '杀' })
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-trick:${slashes[0]}` } })
+    request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ playerId: 'p1', requiredCardName: '杀' })
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-trick:${slashes[1]}` } })
+    request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ playerId: 'p0', requiredCardName: '杀' })
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { actionId: 'respond-pass' } })
+    expect(game.state.players[0].hp).toBe(before - 1)
+  })
+})
+
+describe('已登记武将的缺失技能补齐', () => {
+  it('甄姬可用黑色手牌发动倾国响应闪', () => {
+    const game = gameWith('skill-qingguo', { p0: 'guanyu', p1: 'zhenji' })
+    stripCard(game, '闪')
+    const black = giveNamed(game, 'p1', (card) => card.color === 'black' && card.name !== '杀')
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    const before = game.state.players[1].hp
+    game.act('p0', action.id)
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '闪' })
+    if (request.kind !== 'respond-card') throw new Error('没有生成闪响应')
+    expect(request.actionIds).toContain(`respond-dodge:${black}`)
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-dodge:${black}` } })
+    expect(game.state.players[1].hp).toBe(before)
+  })
+
+  it('华佗回合外可将红色手牌当桃用于急救', () => {
+    const game = gameWith('skill-jijiu', { p0: 'guanyu', p1: 'huatuo' })
+    stripCard(game, '桃')
+    const red = giveNamed(game, 'p1', (card) => card.color === 'red' && card.name !== '桃')
+    const target = game.state.players[2]
+    resolveDamage(game, { sourceId: 'p0', targetId: target.id, amount: target.hp, nature: 'normal' })
+    let request = game.state.pendingRequests[0]
+    expect(request.playerId).toBe('p0')
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { actionId: 'rescue-pass' } })
+    request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'rescue', playerId: 'p1' })
+    if (request.kind !== 'rescue') throw new Error('没有生成急救请求')
+    expect(request.actionIds).toContain(`rescue-card:${red}`)
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `rescue-card:${red}` } })
+    expect(target.hp).toBe(1)
+    expect(game.state.zones.discardPile).toContain(red)
+  })
+
+  it('孙尚香结姻弃两张牌后与受伤男性角色各回复一点', () => {
+    const game = gameWith('skill-jieyin', { p0: 'sunshangxiang', p1: 'guanyu' })
+    game.state.players[0].hp -= 1
+    game.state.players[1].hp -= 1
+    const before = [game.state.players[0].hp, game.state.players[1].hp]
+    game.act('p0', 'skill:jieyin')
+    let request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'choose-cards', min: 2, max: 2 })
+    if (request.kind !== 'choose-cards') throw new Error('结姻没有生成弃牌请求')
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { cardIds: request.cardIds.slice(0, 2) } })
+    request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'choose-targets', candidateIds: expect.arrayContaining(['p1']) })
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+    expect(game.state.players[0].hp).toBe(before[0] + 1)
+    expect(game.state.players[1].hp).toBe(before[1] + 1)
+    expect(game.legalActions('p0').some((action) => action.id === 'skill:jieyin')).toBe(false)
+  })
+})
 
 function locate(state: SanguoshaState, cardId: string): ZoneRef {
   if (state.zones.drawPile.includes(cardId)) return { kind: 'drawPile' }
@@ -43,9 +371,13 @@ function gameWith(seed: string, assign: Record<string, string>): SanguoshaGame {
   })
   game.state.currentPlayerId = 'p0'
   game.start()
-  game.advancePhase()
-  game.advancePhase()
-  game.advancePhase()
+  for (let index = 0; index < 3; index += 1) {
+    game.advancePhase()
+    const request = game.state.pendingRequests[0]
+    if (request?.kind === 'choose-option' && request.prompt.includes('英姿')) {
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { optionId: 'no' } })
+    }
+  }
   expect(game.state.phase).toBe('play')
   return game
 }

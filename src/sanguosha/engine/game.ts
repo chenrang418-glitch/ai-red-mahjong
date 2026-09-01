@@ -335,6 +335,12 @@ export class SanguoshaGame {
     const game = Object.create(SanguoshaGame.prototype) as SanguoshaGame
     const mutable = game as { state: SanguoshaState; rng: GameRng; events: GameEventBus }
     mutable.state = structuredClone(stored)
+    // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
+    const resolution = mutable.state.cardResolution
+    if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1
+    if (resolution?.kind === 'trick' && resolution.effect?.kind === 'duel' && !Number.isInteger(resolution.effect.slashRemaining)) {
+      resolution.effect.slashRemaining = 1
+    }
     mutable.rng = new GameRng(`${stored.rulesetVersion}:${stored.seed}`, stored.rngState || undefined)
     mutable.events = new GameEventBus()
     registerSkillTriggers(game, (event, handler, priority) => { game.events.on(event, handler, priority) }, skillIdsOf)

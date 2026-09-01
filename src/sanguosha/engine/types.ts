@@ -122,6 +122,8 @@ export interface SlashResolutionState {
   damageAmount: number
   stage: 'awaiting-dodge' | 'awaiting-dying'
   requestId: string | null
+  /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
+  dodgeRemaining: number
   /**
    * 主公技代打（护驾）的询问进度。
    * 目标自己放弃之后才开始，`null` 表示还没开始或这局用不到。
@@ -140,7 +142,7 @@ export type TrickEffectState =
   /** 万箭齐发：当前目标要打出【闪】，否则受伤 */
   | { kind: 'ask-dodge'; targetId: PlayerId; requestId: string }
   /** 决斗：轮流出【杀】，先出不出来的一方受伤。responderId 是当前该出杀的人 */
-  | { kind: 'duel'; responderId: PlayerId; otherId: PlayerId; requestId: string }
+  | { kind: 'duel'; responderId: PlayerId; otherId: PlayerId; requestId: string; slashRemaining: number }
   /** 过河拆桥 / 顺手牵羊：由使用者从目标区域里挑一张 */
   | { kind: 'pick-card'; targetId: PlayerId; mode: 'discard' | 'steal'; requestId: string }
   /** 五谷丰登：亮出的牌摆在处理区，逐个目标挑走一张 */

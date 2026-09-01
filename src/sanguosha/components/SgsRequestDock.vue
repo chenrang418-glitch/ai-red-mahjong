@@ -21,12 +21,14 @@ const emit = defineEmits<{ submit: [response: GameResponse] }>()
 const selectedCards = ref<string[]>([])
 const selectedTargets = ref<string[]>([])
 const topCards = ref<string[]>([])
+const bottomCards = ref<string[]>([])
 
 // 换了一个请求就把上一次的选择清掉，避免把旧选择提交给新请求
 watch(() => props.request.id, () => {
   selectedCards.value = []
   selectedTargets.value = []
   topCards.value = []
+  bottomCards.value = props.request.kind === 'arrange-cards' ? [...props.request.cardIds] : []
 }, { immediate: true })
 
 const me = computed(() => props.view.players.find((player) => player.id === props.view.viewerId))
@@ -36,6 +38,7 @@ function cardOf(cardId: string): PhysicalCard | null {
   if (cardId.startsWith('hidden:')) return null
   const pool: PhysicalCard[] = [
     ...(me.value?.hand ?? []),
+    ...props.view.requestCards,
     ...props.view.processingArea,
     ...props.view.discardPile,
     ...props.view.players.flatMap((player) => [...player.equipment, ...player.judgingArea]),
@@ -53,7 +56,6 @@ function toggleIn(list: string[], value: string, max: number): string[] {
 
 function toggleCard(value: string, max: number): void { selectedCards.value = toggleIn(selectedCards.value, value, max) }
 function toggleTarget(value: string, max: number): void { selectedTargets.value = toggleIn(selectedTargets.value, value, max) }
-function toggleTop(value: string, max: number): void { topCards.value = toggleIn(topCards.value, value, max) }
 
 const cardRequest = computed(() => (props.request.kind === 'choose-cards' ? props.request : null))
 const cardChoices = computed(() => {
@@ -78,13 +80,30 @@ const arrangeRequest = computed(() => (props.request.kind === 'arrange-cards' ? 
 const arrangeOk = computed(() => {
   const request = arrangeRequest.value
   if (!request) return false
-  return topCards.value.length >= request.minTop && topCards.value.length <= request.maxTop
+  return topCards.value.length >= request.minTop
+    && topCards.value.length <= request.maxTop
+    && topCards.value.length + bottomCards.value.length === request.cardIds.length
 })
-const bottomCards = computed(() => {
-  const request = arrangeRequest.value
-  if (!request) return []
-  return request.cardIds.filter((cardId) => !topCards.value.includes(cardId))
-})
+
+function moveArrange(cardId: string, destination: 'top' | 'bottom'): void {
+  if (destination === 'top') {
+    const request = arrangeRequest.value
+    if (!request || topCards.value.length >= request.maxTop) return
+    bottomCards.value = bottomCards.value.filter((id) => id !== cardId)
+    if (!topCards.value.includes(cardId)) topCards.value.push(cardId)
+    return
+  }
+  topCards.value = topCards.value.filter((id) => id !== cardId)
+  if (!bottomCards.value.includes(cardId)) bottomCards.value.push(cardId)
+}
+
+function shiftArrange(list: 'top' | 'bottom', cardId: string, offset: -1 | 1): void {
+  const target = list === 'top' ? topCards.value : bottomCards.value
+  const index = target.indexOf(cardId)
+  const next = index + offset
+  if (index < 0 || next < 0 || next >= target.length) return
+  ;[target[index], target[next]] = [target[next], target[index]]
+}
 
 // v-for 表达式里的窄化不可靠，这些请求单独收成 computed
 const numberChoices = computed(() => {
@@ -239,13 +258,19 @@ function nicknameOf(playerId: string): string {
         <div>
           <small>牌堆顶（{{ topCards.length }} / {{ request.maxTop }}）</small>
           <div class="sgs-dock__cards">
-            <SgsCard v-for="cardId in topCards" :key="cardId" :card="cardOf(cardId)" @click="toggleTop(cardId, request.maxTop)" />
+            <div v-for="cardId in topCards" :key="cardId" class="sgs-dock__arrange-card">
+              <SgsCard :card="cardOf(cardId)" @click="moveArrange(cardId, 'bottom')" />
+              <span><button type="button" @click="shiftArrange('top', cardId, -1)">←</button><button type="button" @click="shiftArrange('top', cardId, 1)">→</button></span>
+            </div>
           </div>
         </div>
         <div>
           <small>{{ request.allowBottom ? '牌堆底' : '未选' }}</small>
           <div class="sgs-dock__cards">
-            <SgsCard v-for="cardId in bottomCards" :key="cardId" :card="cardOf(cardId)" @click="toggleTop(cardId, request.maxTop)" />
+            <div v-for="cardId in bottomCards" :key="cardId" class="sgs-dock__arrange-card">
+              <SgsCard :card="cardOf(cardId)" @click="moveArrange(cardId, 'top')" />
+              <span><button type="button" @click="shiftArrange('bottom', cardId, -1)">←</button><button type="button" @click="shiftArrange('bottom', cardId, 1)">→</button></span>
+            </div>
           </div>
         </div>
       </div>
@@ -333,6 +358,12 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
 
 .sgs-dock__arrange { display: grid; gap: 6px; }
 .sgs-dock__arrange small { color: #8fa199; font-size: 10px; }
+.sgs-dock__arrange-card { flex: 0 0 auto; display: grid; justify-items: center; gap: 2px; }
+.sgs-dock__arrange-card > span { display: flex; gap: 2px; }
+.sgs-dock__arrange-card > span button {
+  min-height: 24px; padding: 0 7px; border: 1px solid #3f4d45; border-radius: 6px;
+  background: #16241e; color: #cbd6cd; font-size: 11px;
+}
 .sgs-dock__missing { margin: 0; color: #e9948a; font-size: 12px; }
 
 @media (orientation: landscape) and (max-height: 500px) {

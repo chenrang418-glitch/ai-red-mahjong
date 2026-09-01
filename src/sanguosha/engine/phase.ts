@@ -46,7 +46,9 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       host.dispatch('PlayPhase', { playerId }, { sourceId: playerId, phase: 'play' })
       return
     case 'discard': {
-      host.dispatch('DiscardPhase', { playerId }, { sourceId: playerId, phase: 'discard' })
+      const context = host.dispatch('DiscardPhase', { playerId }, { sourceId: playerId, phase: 'discard' })
+      // 克己等技能可以在阶段入口生成自己的 Request 并接管默认弃牌。
+      if (context.cancelled || host.state.pendingRequests.length > 0) return
       const count = current.zones.hand.length - maxCards(host.state, playerId)
       if (count <= 0) return
       const request: ChooseCardsRequest = {

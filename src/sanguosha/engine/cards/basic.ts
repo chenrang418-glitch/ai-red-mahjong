@@ -4,7 +4,7 @@ import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
-import { skillsOf } from '../skills/runtime'
+import { isTargetProhibited, skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
@@ -57,7 +57,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     if (option.asCardName !== '杀') continue
     if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) continue
     for (const target of state.players) {
-      if (!canTarget(state, playerId, target.id)) continue
+      if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
       actions.push({
         ...useAction(option.cardId, playerId, '杀', [target.id], `${option.label}，目标${target.nickname}`),
         id: `play:viewas:${option.cardId}:${target.id}`,
@@ -70,7 +70,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     if (!card) continue
     if (card.name === '杀' && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
       for (const target of state.players) {
-        if (canTarget(state, playerId, target.id)) actions.push(useAction(cardId, playerId, '杀', [target.id], `对${target.nickname}使用【杀】`))
+        if (canTarget(state, playerId, target.id) && !isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) actions.push(useAction(cardId, playerId, '杀', [target.id], `对${target.nickname}使用【杀】`))
       }
     } else if (card.name === '桃' && source.hp < source.maxHp) {
       actions.push(useAction(cardId, playerId, '桃', [playerId], '使用【桃】回复体力'))
@@ -81,12 +81,12 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     } else if (INSTANT_TRICKS.has(card.name)) {
       actions.push(...instantTrickActions(state, playerId, cardId))
     } else if (card.name === '乐不思蜀') {
-      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && !hasDelayedTrick(state, candidate.id, card.name))) {
+      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && !isTargetProhibited(state, playerId, candidate.id, card.name, skillIdsOf) && !hasDelayedTrick(state, candidate.id, card.name))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【乐不思蜀】`))
       }
     } else if (card.name === '兵粮寸断') {
       const ignoreDistance = ignoresTrickDistance(state, playerId)
-      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && (ignoreDistance || getDistance(state, playerId, candidate.id) <= 1) && !hasDelayedTrick(state, candidate.id, card.name))) {
+      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && !isTargetProhibited(state, playerId, candidate.id, card.name, skillIdsOf) && (ignoreDistance || getDistance(state, playerId, candidate.id) <= 1) && !hasDelayedTrick(state, candidate.id, card.name))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【兵粮寸断】`))
       }
     } else if (card.name === '闪电' && !hasDelayedTrick(state, playerId, card.name)) {
@@ -123,6 +123,7 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
     stage: 'awaiting-dodge', requestId: null, surrogate: null,
+    dodgeRemaining: Math.max(1, ...skillsOf(host.state, action.playerId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1)),
   }
   askDodge(host, targetId, `${player(host.state, action.playerId).nickname}对你使用【杀】，请响应【闪】`, true)
 }
@@ -287,8 +288,14 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     recordResponse(host, request, response)
     const judged = performJudgment(host, response.playerId, '八卦阵')
     if (judged.color === 'red') {
-      finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
-      host.state.cardResolution = null
+      resolution.dodgeRemaining -= 1
+      if (resolution.dodgeRemaining > 0) {
+        resolution.surrogate = null
+        askDodge(host, resolution.targetId, '【无双】仍需再打出一张【闪】', true)
+      } else {
+        finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+        host.state.cardResolution = null
+      }
       return
     }
     resolution.stage = 'awaiting-dying'
@@ -344,8 +351,14 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     moveCard(host.state, cardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })
     host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId, cardName: '闪' }, { sourceId: responder.id, targetId: resolution.sourceId, cardIds: [cardId] })
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-    finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
-    host.state.cardResolution = null
+    resolution.dodgeRemaining -= 1
+    if (resolution.dodgeRemaining > 0) {
+      resolution.surrogate = null
+      askDodge(host, resolution.targetId, '【无双】仍需再打出一张【闪】', true)
+    } else {
+      finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+      host.state.cardResolution = null
+    }
     return
   }
 

@@ -84,6 +84,12 @@ export interface SkillRuntime {
   ignoresTrickDistance?: boolean
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
+  /** 禁止拥有者成为指定牌的目标；谦逊、空城等统一走这个入口。 */
+  prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string): boolean
+  /** 拥有者使用【杀】时，目标需要连续打出多少张【闪】。 */
+  slashDodgeResponses?: number
+  /** 对方在与拥有者【决斗】时，每轮需要连续打出多少张【杀】。 */
+  duelSlashResponses?: number
   /**
    * 主动技：出牌阶段能发动的技能，直接产出 LegalAction。
    * 和转化技一样，不能让前端自己猜「现在能不能发动」。
@@ -147,6 +153,18 @@ export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: 
   return skillIdsOf(player.characterId)
     .map((skillId) => registry.get(skillId))
     .filter((runtime): runtime is SkillRuntime => !!runtime)
+}
+
+/** 服务端生成合法操作时统一检查目标限制，客户端不自行推断。 */
+export function isTargetProhibited(
+  state: SanguoshaState,
+  sourceId: PlayerId,
+  targetId: PlayerId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[],
+): boolean {
+  return skillsOf(state, targetId, skillIdsOf)
+    .some((runtime) => runtime.prohibitsTarget?.(state, targetId, sourceId, cardName) ?? false)
 }
 
 /**

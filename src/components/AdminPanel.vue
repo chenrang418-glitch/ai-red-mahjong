@@ -13,11 +13,13 @@ interface AdminUser {
 }
 
 interface AdminRoom {
+  game: 'mahjong' | 'sanguosha'
   code: string
-  phase: 'lobby' | 'playing'
+  phase: 'lobby' | 'playing' | 'finished'
   hostNickname: string
   players: Array<{ nickname: string; kind: string; connected: boolean; trustee: boolean }>
   occupiedSeats: number
+  capacity: number
   updatedAt: number
 }
 
@@ -40,6 +42,7 @@ const DIFFICULTY_TEXT: Record<ServerSettings['trusteeDifficulty'], string> = {
 const ACTION_TEXT: Record<string, string> = {
   'delete-user': '删除用户',
   'destroy-room': '解散房间',
+  'destroy-sanguosha-room': '解散三国杀房间',
   'update-settings': '修改设置',
 }
 
@@ -136,13 +139,15 @@ async function saveSettings() {
 }
 
 async function destroyRoom(room: AdminRoom) {
+  const gameName = room.game === 'sanguosha' ? '三国杀' : '红中麻将'
   const warning = room.phase === 'playing'
-    ? `房间 ${room.code} 正在进行牌局，解散会把里面的人直接踢出去。`
-    : `解散房间 ${room.code}？`
+    ? `${gameName}房间 ${room.code} 正在进行牌局，解散会把里面的人直接踢出去。`
+    : `解散${gameName}房间 ${room.code}？`
   if (!window.confirm(`${warning}
 
 此操作不可撤销。`)) return
-  await run(`/api/admin/rooms/${room.code}`, { method: 'DELETE' }, `已解散房间 ${room.code}`)
+  const path = room.game === 'sanguosha' ? `/api/admin/sanguosha/rooms/${room.code}` : `/api/admin/rooms/${room.code}`
+  await run(path, { method: 'DELETE' }, `已解散${gameName}房间 ${room.code}`)
   await loadRooms()
 }
 
@@ -271,14 +276,15 @@ void restoreSession()
         </div>
         <table class="admin-table">
           <thead>
-            <tr><th>房间号</th><th>状态</th><th>房主</th><th>座位</th><th>玩家</th><th>最后活动</th><th>操作</th></tr>
+            <tr><th>游戏</th><th>房间号</th><th>状态</th><th>房主</th><th>座位</th><th>玩家</th><th>最后活动</th><th>操作</th></tr>
           </thead>
           <tbody>
-            <tr v-for="room in rooms" :key="room.code">
+            <tr v-for="room in rooms" :key="`${room.game}-${room.code}`">
+              <td>{{ room.game === 'sanguosha' ? '三国杀' : '红中麻将' }}</td>
               <td class="nickname">{{ room.code }}</td>
-              <td><span class="phase" :class="room.phase">{{ room.phase === 'playing' ? '牌局中' : '等待开局' }}</span></td>
+              <td><span class="phase" :class="room.phase">{{ room.phase === 'playing' ? '牌局中' : room.phase === 'finished' ? '已结束' : '等待开局' }}</span></td>
               <td>{{ room.hostNickname }}</td>
-              <td>{{ room.occupiedSeats }}/4</td>
+              <td>{{ room.occupiedSeats }}/{{ room.capacity }}</td>
               <td class="room-players">
                 <span v-for="player in room.players" :key="`${room.code}-${player.nickname}`" :class="{ ai: player.kind === 'ai' || player.trustee, offline: player.kind !== 'ai' && !player.connected }">
                   {{ player.nickname }}<i v-if="player.kind === 'ai'">AI</i><i v-else-if="player.trustee">托管</i><i v-else-if="!player.connected">离线</i>

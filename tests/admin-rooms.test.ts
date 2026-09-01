@@ -29,6 +29,7 @@ beforeAll(async () => {
   const script = readFileSync(resolve(root, 'server/dist/worker.js'), 'utf8')
   const migrations = [
     '0001_online.sql', '0002_room_directory.sql', '0003_room_phase.sql', '0004_admin_audit.sql', '0005_remove_player_stats.sql',
+    '0006_sanguosha_room_directory.sql',
   ].map((name) => readFileSync(resolve(root, 'server/migrations', name), 'utf8'))
   mf = new Miniflare(convertV4MiniflareOptions({
     workers: [{
@@ -39,6 +40,7 @@ beforeAll(async () => {
       durableObjects: {
         ROOMS: { className: 'MahjongRoom', useSQLite: true },
         LOBBY: { className: 'MahjongLobby', useSQLite: true },
+        SGS_ROOMS: { className: 'SanguoshaRoom', useSQLite: true },
       },
       d1Databases: { DB: 'admin-rooms-db' },
       bindings: { ADMIN_TOKEN },
@@ -88,6 +90,30 @@ describe('管理端房间与联机设置', () => {
     const audit = await api('/api/admin/audit', { headers: adminHeaders })
     const entries = (await audit.json() as { entries: Array<{ action: string; target: string | null }> }).entries
     expect(entries.some((entry) => entry.action === 'destroy-room' && entry.target === code)).toBe(true)
+  })
+
+  it('能区分并强制解散三国杀房间', async () => {
+    const cookie = await loginAs('三国管理房主')
+    const created = await api('/api/sanguosha/rooms', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ settings: { playerCount: 6 } }),
+    })
+    expect(created.status).toBe(201)
+    const { code } = await created.json() as { code: string }
+
+    const before = await (await api('/api/admin/rooms', { headers: adminHeaders })).json() as {
+      rooms: Array<{ code: string; game: string; capacity: number }>
+    }
+    expect(before.rooms.find((room) => room.code === code && room.game === 'sanguosha')).toMatchObject({ capacity: 6 })
+
+    expect((await api(`/api/admin/sanguosha/rooms/${code}`, { method: 'DELETE', headers: adminHeaders })).status).toBe(200)
+    const after = await (await api('/api/admin/rooms', { headers: adminHeaders })).json() as { rooms: Array<{ code: string; game: string }> }
+    expect(after.rooms.some((room) => room.code === code && room.game === 'sanguosha')).toBe(false)
+
+    const entries = (await (await api('/api/admin/audit', { headers: adminHeaders })).json() as {
+      entries: Array<{ action: string; target: string | null }>
+    }).entries
+    expect(entries.some((entry) => entry.action === 'destroy-sanguosha-room' && entry.target === code)).toBe(true)
   })
 
   it('房主能选空位 AI 档位，托管档位只认服务端设置', async () => {

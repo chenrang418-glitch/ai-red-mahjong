@@ -262,7 +262,10 @@ export const WEI_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'female',
     maxHp: 3,
     pack: 'standard',
-    skills: [{ id: 'luoshen', name: '洛神', description: '回合开始阶段，你可以进行判定：若判定结果为黑色，你获得此牌，并可以再次发动【洛神】。' }],
+    skills: [
+      { id: 'qingguo', name: '倾国', description: '你可以将一张黑色手牌当【闪】打出。' },
+      { id: 'luoshen', name: '洛神', description: '回合开始阶段，你可以进行判定：若判定结果为黑色，你获得此牌，并可以再次发动【洛神】。' },
+    ],
   },
   {
     id: 'xuchu',
@@ -289,6 +292,9 @@ export const WEI_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 3,
     pack: 'standard',
-    skills: [{ id: 'qingnang', name: '青囊', description: '出牌阶段限一次，你可以弃置一张手牌，令一名已受伤的角色回复一点体力。' }],
+    skills: [
+      { id: 'qingnang', name: '青囊', description: '出牌阶段限一次，你可以弃置一张手牌，令一名已受伤的角色回复一点体力。' },
+      { id: 'jijiu', name: '急救', description: '你的回合外，你可以将一张红色手牌当【桃】使用。' },
+    ],
   },
 ] as const

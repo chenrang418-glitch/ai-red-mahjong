@@ -88,9 +88,13 @@ function chainedTargetsAfter(state: SanguoshaState, targetId: PlayerId): PlayerI
 
 function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlayerId: PlayerId): string[] {
   const responder = player(state, responderId)
+  const viewAsPeach = new Set(skillsOf(state, responderId, skillIdsOf)
+    .flatMap((runtime) => runtime.viewAs?.(state, responderId) ?? [])
+    .filter((option) => option.asCardName === '桃')
+    .map((option) => option.cardId))
   const usable = responder.zones.hand.filter((cardId) => {
     const name = state.cards[cardId]?.name
-    return name === '桃' || (name === '酒' && responderId === dyingPlayerId)
+    return name === '桃' || viewAsPeach.has(cardId) || (name === '酒' && responderId === dyingPlayerId)
   })
   return [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
 }
@@ -302,13 +306,17 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
   const responder = player(host.state, response.playerId)
   if (!responder.zones.hand.includes(cardId) || !request.actionIds.includes(actionId)) throw new Error('救援牌不属于响应玩家')
   const card = host.state.cards[cardId]
-  if (!card || (card.name !== '桃' && !(card.name === '酒' && responder.id === dying.playerId))) throw new Error('该牌不能用于当前救援')
+  const asPeach = skillsOf(host.state, responder.id, skillIdsOf)
+    .flatMap((runtime) => runtime.viewAs?.(host.state, responder.id) ?? [])
+    .some((option) => option.asCardName === '桃' && option.cardId === cardId)
+  if (!card || (card.name !== '桃' && !asPeach && !(card.name === '酒' && responder.id === dying.playerId))) throw new Error('该牌不能用于当前救援')
+  const responseName = asPeach ? '桃' : card.name
   moveCard(host.state, cardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })
-  host.dispatch('CardResponded', { playerId: responder.id, cardId, cardName: card.name }, { sourceId: responder.id, targetId: dying.playerId, cardIds: [cardId] })
+  host.dispatch('CardResponded', { playerId: responder.id, cardId, cardName: responseName }, { sourceId: responder.id, targetId: dying.playerId, cardIds: [cardId] })
   moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   const target = player(host.state, dying.playerId)
   // 主公技救援：同势力角色的【桃】对主公多回复一点
-  const bonus = card.name === '桃' && responder.id !== target.id
+  const bonus = responseName === '桃' && responder.id !== target.id
     ? skillsOf(host.state, target.id, skillIdsOf)
       .reduce((sum, runtime) => sum + (runtime.rescueRecoverBonus?.(host.state, target.id, responder.id) ?? 0), 0)
     : 0

@@ -11,7 +11,7 @@ import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutio
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
-import { skillsOf } from '../skills/runtime'
+import { isTargetProhibited, skillsOf } from '../skills/runtime'
 import { skillIdsOf } from '../../data/characters/standard'
 
 /**
@@ -70,32 +70,36 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
   if (!card) return []
   const others = state.players.filter((candidate) => candidate.alive && candidate.id !== playerId)
   const actions: LegalAction[] = []
+  const allowed = (targetId: PlayerId) => !isTargetProhibited(state, playerId, targetId, card.name, skillIdsOf)
 
   switch (card.name) {
     case '无中生有':
       return [useAction(cardId, playerId, card.name, [playerId], '使用【无中生有】摸两张牌')]
     case '桃园结义':
       // 目标是所有存活角色（含自己），已满体力的人也算目标，只是回复无效
-      return [useAction(cardId, playerId, card.name, alive(state), '使用【桃园结义】，全场回复一点体力')]
+      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【桃园结义】，全场回复一点体力')]
     case '南蛮入侵':
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id), '使用【南蛮入侵】')]
+      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【南蛮入侵】')]
     case '万箭齐发':
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id), '使用【万箭齐发】')]
+      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【万箭齐发】')]
     case '决斗':
       for (const target of others) {
+        if (!allowed(target.id)) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【决斗】`))
       }
       return actions
     case '过河拆桥':
       for (const target of others) {
+        if (!allowed(target.id)) continue
         if (!hasAnyStealable(state, target.id)) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【过河拆桥】`))
       }
       return actions
     case '顺手牵羊':
       for (const target of others) {
+        if (!allowed(target.id)) continue
         // 顺手牵羊受距离限制，拆桥不受；奇才无视这个限制
         if (!ignoresTrickDistance(state, playerId) && getDistance(state, playerId, target.id) > 1) continue
         if (!hasAnyStealable(state, target.id)) continue
@@ -104,9 +108,10 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return actions
     case '五谷丰登':
       // 目标是所有存活角色，亮出等量的牌轮流挑
-      return [useAction(cardId, playerId, card.name, alive(state), '使用【五谷丰登】')]
+      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【五谷丰登】')]
     case '火攻':
       for (const target of others) {
+        if (!allowed(target.id)) continue
         // 目标必须有手牌才能展示
         if (playerOf(state, target.id).zones.hand.length === 0) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【火攻】`))
@@ -114,11 +119,13 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return actions
     case '借刀杀人':
       for (const target of others) {
+        if (!allowed(target.id)) continue
         // 目标必须装备着武器，而且这把武器够得到至少一个别人
         const weapon = playerOf(state, target.id).zones.equipment.weapon
         if (!weapon) continue
         const hasVictim = state.players.some((victim) => (
           victim.alive && victim.id !== target.id && canTarget(state, target.id, victim.id)
+          && !isTargetProhibited(state, target.id, victim.id, '杀', skillIdsOf)
         ))
         if (!hasVictim) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【借刀杀人】`))
@@ -126,11 +133,11 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return actions
     case '铁索连环': {
       // 可以横置/重置一到两名角色，也可以直接当两张牌摸——这里先做横置用法
-      for (const target of state.players.filter((candidate) => candidate.alive)) {
+      for (const target of state.players.filter((candidate) => candidate.alive && allowed(candidate.id))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【铁索连环】`))
       }
-      for (const first of state.players.filter((candidate) => candidate.alive)) {
-        for (const second of state.players.filter((candidate) => candidate.alive && candidate.seat > first.seat)) {
+      for (const first of state.players.filter((candidate) => candidate.alive && allowed(candidate.id))) {
+        for (const second of state.players.filter((candidate) => candidate.alive && allowed(candidate.id) && candidate.seat > first.seat)) {
           actions.push(useAction(cardId, playerId, card.name, [first.id, second.id], `对${first.nickname}和${second.nickname}使用【铁索连环】`))
         }
       }
@@ -220,6 +227,7 @@ function askBorrowedKnife(host: CardEngineHost, resolution: TrickResolutionState
   }
   const victims = host.state.players.filter((victim) => (
     victim.alive && victim.id !== targetId && canTarget(host.state, targetId, victim.id)
+    && !isTargetProhibited(host.state, targetId, victim.id, '杀', skillIdsOf)
   ))
   if (victims.length === 0) {
     advanceToNextTarget(host)
@@ -403,6 +411,10 @@ function askRespondCard(
   return request.id
 }
 
+function duelSlashCount(state: SanguoshaState, opponentId: PlayerId): number {
+  return Math.max(1, ...skillsOf(state, opponentId, skillIdsOf).map((runtime) => runtime.duelSlashResponses ?? 1))
+}
+
 function askPickCard(host: CardEngineHost, resolution: TrickResolutionState, targetId: PlayerId, mode: 'discard' | 'steal'): void {
   const { visible, hidden } = stealableSlots(host.state, targetId)
   // 生成动作时目标身上是有牌的，但问无懈那一轮里他可能把最后一张牌当【无懈可击】打了出去。
@@ -472,7 +484,10 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
     case '决斗': {
       // 决斗由目标先出杀，然后双方轮流；先出不出来的一方受伤
       const requestId = askRespondCard(host, resolution, targetId, '杀', `${playerOf(host.state, resolution.sourceId).nickname}对你使用【决斗】，请打出【杀】`)
-      resolution.effect = { kind: 'duel', responderId: targetId, otherId: resolution.sourceId, requestId }
+      resolution.effect = {
+        kind: 'duel', responderId: targetId, otherId: resolution.sourceId, requestId,
+        slashRemaining: duelSlashCount(host.state, resolution.sourceId),
+      }
       return
     }
     case '过河拆桥':
@@ -586,10 +601,18 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
       return
     }
-    // 出了杀就换对方出
+    if (effect.slashRemaining > 1) {
+      const requestId = askRespondCard(host, resolution, effect.responderId, '杀', '【无双】仍在生效，请再打出一张【杀】')
+      resolution.effect = { ...effect, requestId, slashRemaining: effect.slashRemaining - 1 }
+      return
+    }
+    // 本轮要求的杀全部打出后才换对方
     const nextResponderId = effect.otherId
     const requestId = askRespondCard(host, resolution, nextResponderId, '杀', '【决斗】仍在继续，请打出【杀】')
-    resolution.effect = { kind: 'duel', responderId: nextResponderId, otherId: effect.responderId, requestId }
+    resolution.effect = {
+      kind: 'duel', responderId: nextResponderId, otherId: effect.responderId, requestId,
+      slashRemaining: duelSlashCount(host.state, effect.responderId),
+    }
     return
   }
 

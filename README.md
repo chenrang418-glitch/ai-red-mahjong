@@ -32,7 +32,7 @@ npm run dev:online
 ## 当前游戏
 
 - 红中麻将：完整单机 AI、四人联机、断线重连和管理功能。
-- 三国杀：5～8 人经典身份局，单机 AI 与 Cloudflare Durable Object 联机共用同一套规则引擎。当前完整登记 18 名武将，其余标准将与少数装备机制仍在开发，详见 [`docs/sanguosha-ruleset-v1.md`](docs/sanguosha-ruleset-v1.md)。
+- 三国杀：5～8 人经典身份局，单机 AI 与 Cloudflare Durable Object 联机共用同一套规则引擎。当前完整登记 22 名武将，其余标准将与少数装备机制仍在开发，详见 [`docs/sanguosha-ruleset-v1.md`](docs/sanguosha-ruleset-v1.md)。
 
 ## 红中麻将规则
 

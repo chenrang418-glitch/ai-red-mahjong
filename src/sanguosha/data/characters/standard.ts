@@ -1,9 +1,15 @@
-import { registerSkillRuntime, type ViewAsOption } from '../../engine/skills/runtime'
-import type { PlayerId, SanguoshaState } from '../../engine/types'
+import { recover } from '../../engine/recover'
+import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
+import { registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
+import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
+import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 import { WEI_CHARACTERS } from './wei'
 import { WEI_DAMAGE_CHARACTERS } from './wei-damage'
 import { LORD_CHARACTERS, provideKingdomLookup } from './lords'
+import { QUN_CHARACTERS } from './qun'
+import { SHU_CHARACTERS } from './shu'
+import { WU_CHARACTERS } from './wu'
 
 /**
  * 标准包武将。
@@ -59,10 +65,34 @@ registerSkillRuntime({
     for (const cardId of owner.zones.hand) {
       const card = state.cards[cardId]
       if (!card) continue
-      // 出牌阶段只有「闪当杀」有意义；「杀当闪」是响应阶段的事，见 dodgeViewAsOptions
+      // 龙胆是双向的，两个方向都要报出来：
+      // 出牌阶段的动作生成只取 asCardName === '杀'，
+      // 求闪时 dodgeViewAsOptions 只取 asCardName === '闪'，各取所需。
       if (card.name === '闪') options.push({ asCardName: '杀', cardId, label: '将【闪】当【杀】使用' })
+      else if (card.name === '杀') options.push({ asCardName: '闪', cardId, label: '将【杀】当【闪】打出' })
     }
     return options
+  },
+})
+
+// —— 甄姬【倾国】——
+registerSkillRuntime({
+  id: 'qingguo',
+  viewAs(state, ownerId): ViewAsOption[] {
+    return playerOf(state, ownerId).zones.hand
+      .filter((cardId) => state.cards[cardId]?.color === 'black')
+      .map((cardId) => ({ asCardName: '闪', cardId, label: `将【${state.cards[cardId].name}】当【闪】打出` }))
+  },
+})
+
+// —— 华佗【急救】——
+registerSkillRuntime({
+  id: 'jijiu',
+  viewAs(state, ownerId): ViewAsOption[] {
+    if (state.currentPlayerId === ownerId) return []
+    return playerOf(state, ownerId).zones.hand
+      .filter((cardId) => state.cards[cardId]?.color === 'red')
+      .map((cardId) => ({ asCardName: '桃', cardId, label: `将【${state.cards[cardId].name}】当【桃】使用` }))
   },
 })
 
@@ -159,21 +189,71 @@ registerSkillRuntime({
   }],
 })
 
+// —— 孙尚香【结姻】——
+registerSkillRuntime({
+  id: 'jieyin',
+  activeActions(state, ownerId) {
+    const owner = playerOf(state, ownerId)
+    if (!owner.alive || owner.zones.hand.length < 2 || owner.usedLimitedSkills.includes('jieyin')) return []
+    const hasTarget = state.players.some((target) => (
+      target.alive && target.id !== ownerId && target.hp < target.maxHp
+      && target.characterId !== null && getCharacter(target.characterId)?.gender === 'male'
+    ))
+    return hasTarget ? [{ id: 'skill:jieyin', label: '发动【结姻】：弃置两张手牌，与一名受伤男性角色各回复一点体力' }] : []
+  },
+  invokeActive(host, ownerId, actionId) {
+    if (actionId !== 'skill:jieyin') throw new Error('结姻动作不匹配')
+    const owner = playerOf(host.state, ownerId)
+    host.askSkill({
+      skillId: 'jieyin', ownerId, step: 'discard',
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId, kind: 'choose-cards', playerId: ownerId, prompt: '【结姻】：弃置两张手牌',
+        timeoutMs: 20_000, optional: false, purpose: 'skill', cardIds: [...owner.zones.hand], hiddenCardSlots: [], min: 2, max: 2,
+      }),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step === 'discard') {
+      const cardIds = (response.payload as { cardIds: CardId[] }).cardIds
+      const owner = playerOf(host.state, ownerId)
+      if (cardIds.some((cardId) => !owner.zones.hand.includes(cardId))) throw new Error('结姻弃牌不属于技能拥有者')
+      for (const cardId of cardIds) moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
+      host.dispatch('LoseCard', { playerId: ownerId, cardIds, reason: '结姻' }, { sourceId: ownerId, cardIds })
+      const candidateIds = host.state.players.filter((target) => (
+        target.alive && target.id !== ownerId && target.hp < target.maxHp
+        && target.characterId !== null && getCharacter(target.characterId)?.gender === 'male'
+      )).map((target) => target.id)
+      host.askSkill({
+        skillId: 'jieyin', ownerId, step: 'target',
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId, kind: 'choose-targets', playerId: ownerId, prompt: '选择【结姻】的受伤男性角色',
+          timeoutMs: 20_000, optional: false, candidateIds, min: 1, max: 1,
+        }),
+      })
+      return
+    }
+    const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
+    const owner = playerOf(host.state, ownerId)
+    owner.usedLimitedSkills.push('jieyin')
+    recover(host, targetId, 1, ownerId)
+    recover(host, ownerId, 1, ownerId)
+  },
+  triggers: [{
+    event: 'TurnEnd',
+    handle(host, ownerId) {
+      const owner = host.state.players.find((player) => player.id === ownerId)
+      if (owner) owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'jieyin')
+    },
+  }],
+})
+
 /** 需要打出【闪】时，哪些手牌可以转化成【闪】。 */
 export function dodgeViewAsOptions(state: SanguoshaState, playerId: PlayerId): ViewAsOption[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player?.characterId) return []
-  const skillIds = skillIdsOf(player.characterId)
-  const options: ViewAsOption[] = []
-  if (skillIds.includes('longdan')) {
-    for (const cardId of player.zones.hand) {
-      if (state.cards[cardId]?.name === '杀') options.push({ asCardName: '闪', cardId, label: '将【杀】当【闪】打出' })
-    }
-  }
-  if (skillIds.includes('wusheng')) {
-    // 武圣只能把红牌当【杀】用，不能当【闪】——这里刻意不加，免得以后误改
-  }
-  return options
+  return skillsOf(state, playerId, skillIdsOf)
+    .flatMap((runtime) => runtime.viewAs?.(state, playerId) ?? [])
+    .filter((option) => option.asCardName === '闪')
 }
 
 export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
@@ -241,7 +321,10 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'female',
     maxHp: 3,
     pack: 'standard',
-    skills: [{ id: 'xiaoji', name: '枭姬', description: '每当你失去一张装备区里的牌时，你可以摸两张牌。' }],
+    skills: [
+      { id: 'jieyin', name: '结姻', description: '出牌阶段限一次，你可以弃置两张手牌并选择一名已受伤的男性角色，你与其各回复一点体力。' },
+      { id: 'xiaoji', name: '枭姬', description: '每当你失去一张装备区里的牌时，你可以摸两张牌。' },
+    ],
   },
   {
     id: 'zhaoyun',
@@ -258,6 +341,9 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
   ...WEI_DAMAGE_CHARACTERS,
   // 带主公技的武将；主公技只在坐主公位时生效
   ...LORD_CHARACTERS,
+  ...QUN_CHARACTERS,
+  ...SHU_CHARACTERS,
+  ...WU_CHARACTERS,
 ] as const
 
 const BY_ID = new Map(STANDARD_CHARACTERS.map((character) => [character.id, character]))
