@@ -22,7 +22,7 @@ export interface SanguoshaGameOptions {
 }
 
 export class SanguoshaGame {
-  readonly rng: GameRng
+  rng: GameRng
   readonly events = new GameEventBus()
   readonly state: SanguoshaState
 
@@ -76,6 +76,7 @@ export class SanguoshaGame {
       cardResolution: null,
       skillResolution: null,
       skillQueue: [],
+      rngState: 0,
       decisions: [],
       result: null,
     }
@@ -312,6 +313,32 @@ export class SanguoshaGame {
 
   viewFor(playerId: string) {
     return buildPlayerView(this.state, playerId)
+  }
+
+  /**
+   * 可持久化的完整状态。
+   *
+   * 必须带上随机源快照——只存 seed 的话，Durable Object 醒来后会从头推导随机序列，
+   * 和休眠前发散。
+   */
+  serialize(): SanguoshaState {
+    return structuredClone({ ...this.state, rngState: this.rng.snapshot() })
+  }
+
+  /**
+   * 从持久化状态恢复。
+   *
+   * 技能触发器是运行时代码，序列化不了，所以这里必须重新注册一遍——
+   * 这正是 `registerSkillTriggers` 文档里点名的那件事。
+   */
+  static restore(stored: SanguoshaState): SanguoshaGame {
+    const game = Object.create(SanguoshaGame.prototype) as SanguoshaGame
+    const mutable = game as { state: SanguoshaState; rng: GameRng; events: GameEventBus }
+    mutable.state = structuredClone(stored)
+    mutable.rng = new GameRng(`${stored.rulesetVersion}:${stored.seed}`, stored.rngState || undefined)
+    mutable.events = new GameEventBus()
+    registerSkillTriggers(game, (event, handler, priority) => { game.events.on(event, handler, priority) }, skillIdsOf)
+    return game
   }
 
   replayRecord() {

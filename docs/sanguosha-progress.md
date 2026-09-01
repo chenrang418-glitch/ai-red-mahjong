@@ -534,3 +534,37 @@ Phase B 当前新增 9 个测试文件、61 项规则底座与卡牌结算测试
 主公技上线后 8 人局反贼胜率 79% → 76%。改善有限是意料之中：
 主公技只有拿到曹操/刘备/孙权当主公时才生效，18 名武将里只占 3 个。
 真正拉平要等武将池补齐，靠调 AI 权重是拉不动的。
+
+## 2026-09-01（第五批，未部署）联机房间核心
+
+### 先补的前提：持久化
+`SanguoshaState` 之前没有保存随机源快照，只有 seed。Durable Object 醒来后会从头推导
+随机序列，和休眠前发散——这是联机之前必须堵上的洞。
+
+- `state.rngState` + `SanguoshaGame.serialize()` / `SanguoshaGame.restore(stored)`。
+- `restore` 里必须重新调用 `registerSkillTriggers`：处理器是运行时代码，序列化不了。
+- `tests/sanguosha-persistence.test.ts` 用「每一步都存盘重建」跑完整局，
+  和不中断的那一遍逐位对比。
+
+### 房间核心
+`server/sanguosha-room-core.ts`，纯逻辑，不依赖 Cloudflare，可以直接单测。
+
+座位管理、大厅准备/加电脑、开局、选将、指令处理、按玩家过滤的视图与战报、
+超时由 AI 代打、掉线转托管、重连取消托管、下一局。
+所有等待都是可序列化的定时任务，配局面指纹（`stageKey`）防止超时误伤新局面。
+
+### 单测抓到的死锁
+`scheduleNext` 只在 `status === 'playing'` 时安排任务，而选将阶段的 status 是
+`choosing-general`，于是 AI 永远不选将，房间停在选将界面。
+修好之后顺带让服务端在所有人选完将时自动 `start()`——起始手牌要等到那一刻才发。
+
+### 状态
+**这一批没有部署。** Worker、wrangler migration、路由、前端联机入口都还没接，
+`server/sanguosha-room-core.ts` 目前没有任何地方 import 它。
+下一步怎么接线写在 `docs/CLAUDE_HANDOFF.md`。
+
+### 验证
+- `npx vitest run` → 41 文件 / 383 用例
+- `npx playwright test` → 37 通过
+- `npm run sanguosha:soak 150` → 5 人局与 8 人局各 150 局全部完成
+- `typecheck` / `typecheck:online` / `build` / `build:online` 全部通过

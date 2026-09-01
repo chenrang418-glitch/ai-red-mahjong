@@ -264,6 +264,14 @@ export interface SanguoshaState {
   cardResolution: CardResolutionState | null
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
+  /**
+   * 随机源的当前状态。
+   *
+   * 只有 seed 是不够的：Durable Object 休眠再醒来时，如果从 seed 重新推导，
+   * 已经消耗掉的那些随机数就丢了，之后的洗牌和判定会和休眠前发散。
+   * 保存时由 `serialize()` 写入，恢复时由 `restore()` 读回。
+   */
+  rngState: number
   decisions: GameDecision[]
   result: GameResult | null
 }
