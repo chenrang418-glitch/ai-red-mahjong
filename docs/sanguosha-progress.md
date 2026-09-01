@@ -697,3 +697,26 @@ codex 新增的 0006 被静默漏掉了。改成读目录——写死的话 smok
 - `npm run sanguosha:soak 250` → 5 人局与 8 人局各 250 局全部完成
 - `npx playwright test` → 39 通过
 - `npm run test:online:smoke` → 通过
+
+## 2026-09-01（第九批）雌雄双股剑
+
+这张剑要在**指定目标之后、求闪之前**问目标一次，那正是它的意义所在。
+但那个时间点上 `cardResolution` 已经建好、求闪 Request 还没发出去，
+原来的 invariants 会认为「求闪阶段却没有求闪 Request」而报错。
+
+所以给杀的结算加了一个中间阶段 `awaiting-equipment`：
+这一步挂的是技能 Request 而不是求闪 Request，invariants 对它单独放行
+（但要求 `skillResolution` 必须存在，不能是个空挂状态）。
+剑的效果结束后由 `resumeSlashAfterEquipment` 回到 `askSlashDodge`。
+
+性别从 `CharacterDefinition.gender` 读，通过运行时回注的 `provideGenderLookup`——
+引擎不反向依赖 data 层。性别未知（武将还没定）时不触发，宁可不生效也不猜。
+
+### 装备进度
+已完成需要发问的 5 件：贯石斧、青龙偃月刀、寒冰剑、麒麟弓、雌雄双股剑。
+剩下方天画戟（要多目标【杀】）和丈八蛇矛（要多张牌转化）。
+
+### 验证
+- `npx vitest run` → 44 文件 / 428 用例
+- `npx playwright test` → 39 通过
+- `npm run sanguosha:soak 200` → 5 人局与 8 人局各 200 局全部完成

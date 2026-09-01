@@ -46,7 +46,7 @@ export interface PlayerView {
     sourceId: PlayerId
     /** 多目标锦囊会有多个；杀这类单目标牌也包成一个元素，客户端只处理一种形状 */
     targetIds: PlayerId[]
-    stage: 'awaiting-dodge' | 'awaiting-dying' | 'awaiting-nullification' | 'awaiting-effect'
+    stage: 'awaiting-dodge' | 'awaiting-equipment' | 'awaiting-dying' | 'awaiting-nullification' | 'awaiting-effect'
   } | null
   legalActions: LegalAction[]
   result: GameResult | null

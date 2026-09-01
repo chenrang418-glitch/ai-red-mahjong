@@ -120,7 +120,11 @@ export interface SlashResolutionState {
   targetId: PlayerId
   damageNature: DamageNature
   damageAmount: number
-  stage: 'awaiting-dodge' | 'awaiting-dying'
+  /**
+   * `awaiting-equipment` 是装备特效在求闪之前插进来的一步（雌雄双股剑）。
+   * 这一步挂的是技能 Request 而不是求闪 Request，所以 invariants 单独放行。
+   */
+  stage: 'awaiting-dodge' | 'awaiting-equipment' | 'awaiting-dying'
   requestId: string | null
   /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
   dodgeRemaining: number

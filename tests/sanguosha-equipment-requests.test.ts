@@ -351,3 +351,96 @@ describe('麒麟弓', () => {
     assertGameInvariants(game.state)
   })
 })
+
+/** 把某人的武将换掉，用来控制性别。 */
+function setCharacter(game: SanguoshaGame, playerId: PlayerId, characterId: string): void {
+  game.state.players.find((player) => player.id === playerId)!.characterId = characterId
+}
+
+describe('雌雄双股剑', () => {
+  it('对异性目标发问，目标可以选择弃一张手牌', () => {
+    const game = gameWith('cixiong')
+    equipWeapon(game, 'p0', '雌雄双股剑')
+    setCharacter(game, 'p0', 'guanyu')       // 男
+    setCharacter(game, 'p1', 'sunshangxiang') // 女
+    const victim = game.state.players[1]
+    const handBefore = victim.zones.hand.length
+
+    const slash = giveCard(game, 'p0', '杀')
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    game.act('p0', action.id)
+
+    // 求闪之前先问目标
+    const ask = pending(game)
+    expect(ask.playerId, '雌雄双股剑问的是目标，不是持剑的人').toBe('p1')
+    expect(ask.prompt).toContain('雌雄双股剑')
+    expect(game.state.cardResolution?.stage).toBe('awaiting-equipment')
+    assertGameInvariants(game.state)
+
+    game.respond({ requestId: ask.id, playerId: 'p1', payload: { optionId: 'discard' } })
+    const discard = pending(game)
+    expect(discard.kind).toBe('choose-cards')
+    game.respond({ requestId: discard.id, playerId: 'p1', payload: { cardIds: [victim.zones.hand[0]] } })
+
+    expect(victim.zones.hand.length).toBe(handBefore - 1)
+    // 剑结束之后回到正常求闪
+    const dodgeRequest = pending(game)
+    expect(dodgeRequest.kind).toBe('respond-card')
+    expect(dodgeRequest.playerId).toBe('p1')
+    expect(game.state.cardResolution?.stage).toBe('awaiting-dodge')
+    assertGameInvariants(game.state)
+  })
+
+  it('目标也可以选择让持剑者摸一张牌', () => {
+    const game = gameWith('cixiong-draw')
+    equipWeapon(game, 'p0', '雌雄双股剑')
+    setCharacter(game, 'p0', 'guanyu')
+    setCharacter(game, 'p1', 'sunshangxiang')
+    const slash = giveCard(game, 'p0', '杀')
+    // 拿到杀之后再记数：出掉这张杀、再摸回一张，净持平
+    const attackerHandBefore = game.state.players[0].zones.hand.length
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    game.act('p0', action.id)
+    game.respond({ requestId: pending(game).id, playerId: 'p1', payload: { optionId: 'draw' } })
+
+    expect(game.state.players[0].zones.hand.length).toBe(attackerHandBefore)
+    expect(pending(game).kind).toBe('respond-card')
+    assertGameInvariants(game.state)
+  })
+
+  it('同性目标完全不触发', () => {
+    const game = gameWith('cixiong-same')
+    equipWeapon(game, 'p0', '雌雄双股剑')
+    setCharacter(game, 'p0', 'guanyu')
+    setCharacter(game, 'p1', 'zhangfei') // 同为男性
+
+    const slash = giveCard(game, 'p0', '杀')
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    game.act('p0', action.id)
+    // 直接进求闪
+    expect(pending(game).kind).toBe('respond-card')
+    expect(game.state.cardResolution?.stage).toBe('awaiting-dodge')
+  })
+
+  it('目标没有手牌时只给「让对方摸牌」一个选项', () => {
+    const game = gameWith('cixiong-empty')
+    equipWeapon(game, 'p0', '雌雄双股剑')
+    setCharacter(game, 'p0', 'guanyu')
+    setCharacter(game, 'p1', 'sunshangxiang')
+    const victim = game.state.players[1]
+    game.state.zones.discardPile.push(...victim.zones.hand)
+    victim.zones.hand = []
+
+    const slash = giveCard(game, 'p0', '杀')
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    game.act('p0', action.id)
+
+    const ask = pending(game)
+    const options = (ask as { options: Array<{ id: string }> }).options
+    expect(options.map((option) => option.id)).toEqual(['draw'])
+  })
+})

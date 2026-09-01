@@ -3,7 +3,7 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
-import { dodgeViewAsOptions, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
+import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
 import { isTargetProhibited, skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
@@ -11,7 +11,7 @@ import { recover } from '../recover'
 import type { PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { moveCard } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, hasWeapon, isCardIneffective } from '../equipment'
-import { askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { askCixiongSword, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
@@ -126,7 +126,20 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
     stage: 'awaiting-dodge', requestId: null, surrogate: null,
     dodgeRemaining: Math.max(1, ...skillsOf(host.state, action.playerId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1)),
   }
-  askDodge(host, targetId, `${player(host.state, action.playerId).nickname}对你使用【杀】，请响应【闪】`, true)
+  // 雌雄双股剑要在求闪之前先问目标一次，问完再回到这条路
+  if (askCixiongSword(host, action.playerId, targetId)) {
+    host.state.cardResolution.stage = 'awaiting-equipment'
+    return
+  }
+  askSlashDodge(host)
+}
+
+/** 向【杀】的当前目标发出求闪。装备特效插完队之后也回到这里。 */
+function askSlashDodge(host: CardEngineHost): void {
+  const resolution = host.state.cardResolution
+  if (resolution?.kind !== 'slash') return
+  resolution.stage = 'awaiting-dodge'
+  askDodge(host, resolution.targetId, `${player(host.state, resolution.sourceId).nickname}对你使用【杀】，请响应【闪】`, true)
 }
 
 /**
@@ -439,6 +452,9 @@ provideEquipmentCallbacks({
     // 不管伤害是正常命中还是贯石斧硬吃出来的，麒麟弓都该有机会
     queueQilingong(host, facts)
   },
+  resumeSlashAfterEquipment(host) {
+    askSlashDodge(host as CardEngineHost)
+  },
   useExtraSlash(host, sourceId, targetId, cardId) {
     const engineHost = host as CardEngineHost
     const target = playerOf(engineHost.state, targetId)
@@ -451,3 +467,7 @@ provideEquipmentCallbacks({
     engineHost.state.turnUsage.slashUses = usesBefore
   },
 })
+
+
+// 性别表在武将数据那边，运行时回注，引擎不反向依赖 data 层
+provideGenderLookup((characterId) => getCharacter(characterId)?.gender)

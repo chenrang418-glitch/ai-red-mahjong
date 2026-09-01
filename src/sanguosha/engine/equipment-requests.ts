@@ -113,6 +113,8 @@ function discardableCards(state: SanguoshaState, playerId: PlayerId): CardId[] {
 export interface EquipmentCallbacks {
   dealSlashDamage(host: SkillHost, facts: DodgedSlashFacts): void
   useExtraSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): void
+  /** 雌雄双股剑那一步结束之后，回到正常的求闪流程。 */
+  resumeSlashAfterEquipment(host: SkillHost): void
 }
 
 let callbacks: EquipmentCallbacks | null = null
@@ -356,5 +358,112 @@ registerSkillRuntime({
     const target = host.state.players.find((player) => player.id === facts.targetId)
     if (!target?.alive) return
     discardForeignCard(host, facts.targetId, picked, '麒麟弓')
+  },
+})
+
+export const CIXIONG_SKILL = 'equip:cixiongjian'
+
+/**
+ * 雌雄双股剑：指定异性角色为【杀】的目标后，令其弃一张手牌，或你摸一张牌。
+ *
+ * 问的是**目标**，而且要问在求闪之前——那正是这张剑的意义所在。
+ * 这一步挂的是技能 Request 而不是求闪 Request，所以 `cardResolution.stage`
+ * 停在 `awaiting-equipment`，invariants 对这个阶段单独放行。
+ *
+ * 返回 true 表示已经问出去了，调用方不要再去求闪。
+ */
+export function askCixiongSword(host: SkillHost, sourceId: PlayerId, targetId: PlayerId): boolean {
+  if (host.state.skillResolution) return false
+  if (!hasWeapon(host.state, sourceId, '雌雄双股剑')) return false
+  const source = host.state.players.find((player) => player.id === sourceId)
+  const target = host.state.players.find((player) => player.id === targetId)
+  if (!source?.alive || !target?.alive) return false
+  const sourceGender = genderOf(source.characterId)
+  const targetGender = genderOf(target.characterId)
+  // 性别未知（武将还没定）时不触发，宁可不生效也不猜
+  if (!sourceGender || !targetGender || sourceGender === targetGender) return false
+
+  const options = [{ id: 'draw', label: `让 ${source.nickname} 摸一张牌` }]
+  // 没手牌就只能让对方摸牌，这时候不该给一个点不了的选项
+  if (target.zones.hand.length > 0) options.unshift({ id: 'discard', label: '弃置一张手牌' })
+
+  host.askSkill({
+    skillId: CIXIONG_SKILL,
+    ownerId: targetId,
+    step: 'choose',
+    data: { sourceId, targetId },
+    build: (requestId): ChooseOptionRequest => ({
+      id: requestId,
+      kind: 'choose-option',
+      // 问的是目标，不是持剑的人
+      playerId: targetId,
+      prompt: `${source.nickname}的【雌雄双股剑】：请选择`,
+      timeoutMs: 20_000,
+      optional: false,
+      options,
+    }),
+  })
+  return true
+}
+
+let genderLookup: ((characterId: string) => 'male' | 'female' | undefined) | null = null
+
+/** 性别表在武将数据那边，运行时回注，避免引擎反向依赖 data 层。 */
+export function provideGenderLookup(lookup: (characterId: string) => 'male' | 'female' | undefined): void {
+  genderLookup = lookup
+}
+
+function genderOf(characterId: string | null): 'male' | 'female' | undefined {
+  return characterId ? genderLookup?.(characterId) : undefined
+}
+
+registerSkillRuntime({
+  id: CIXIONG_SKILL,
+  resume(host, _ownerId, resolution, response) {
+    const sourceId = resolution.data.sourceId as PlayerId
+    const targetId = resolution.data.targetId as PlayerId
+    const target = host.state.players.find((player) => player.id === targetId)
+    const optionId = (response.payload as { optionId: string }).optionId
+
+    if (optionId === 'discard' && target?.alive && target.zones.hand.length > 0) {
+      host.askSkill({
+        skillId: CIXIONG_SKILL,
+        ownerId: targetId,
+        step: 'discard',
+        data: { sourceId, targetId },
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId,
+          kind: 'choose-cards',
+          playerId: targetId,
+          prompt: '【雌雄双股剑】：弃置一张手牌',
+          timeoutMs: 20_000,
+          optional: false,
+          purpose: 'skill',
+          cardIds: [...target.zones.hand],
+          hiddenCardSlots: [],
+          min: 1,
+          max: 1,
+        }),
+      })
+      return
+    }
+
+    if (resolution.step === 'discard') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      if (target?.zones.hand.includes(cardId)) {
+        moveCard(host.state, cardId, { kind: 'hand', playerId: targetId }, { kind: 'discardPile' })
+        host.dispatch('LoseCard', { playerId: targetId, cardIds: [cardId], reason: '雌雄双股剑' }, { targetId, cardIds: [cardId] })
+      }
+    } else {
+      const source = host.state.players.find((player) => player.id === sourceId)
+      const drawn = source?.alive ? host.state.zones.drawPile.shift() : undefined
+      if (source && drawn) {
+        source.zones.hand.push(drawn)
+        host.dispatch('GainCard', { playerId: sourceId, cardIds: [drawn], reason: '雌雄双股剑' }, { targetId: sourceId, cardIds: [drawn] })
+      }
+    }
+
+    // 剑的效果结束，回到正常的求闪流程
+    callbacks?.resumeSlashAfterEquipment(host)
   },
 })
