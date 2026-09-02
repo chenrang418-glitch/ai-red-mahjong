@@ -44,7 +44,7 @@ interface SgsSeat {
   nextRoundReady: boolean
 }
 
-type SgsJobKind = 'ai-step' | 'turn-timeout' | 'disconnect-trustee' | 'next-round-timeout'
+type SgsJobKind = 'ai-step' | 'turn-timeout' | 'disconnect-trustee' | 'next-round-timeout' | 'all-trustee-dissolve'
 
 interface SgsJob {
   id: string
@@ -108,6 +108,14 @@ const DEFAULT_TURN_SECONDS = 30
 /** 掉线后多久自动转托管。留一点时间给刷新页面 */
 const DISCONNECT_TRUSTEE_MS = 20_000
 const NEXT_ROUND_TIMEOUT_MS = 40_000
+/**
+ * 全员托管之后再等这么久才解散房间。
+ *
+ * 不立刻解散是因为「掉线 20 秒自动托管」这条路：两个人同时网络抖一下就会一起
+ * 变成托管，立刻拆房他们连回来时房间已经没了。留一段缓冲，期间任何人重连
+ * 或取消托管都会把解散取消掉。
+ */
+const ALL_TRUSTEE_DISSOLVE_MS = 30_000
 const CHAT_MAX = 40
 const LOG_MAX = 200
 /** 舞台只回放最近这些条，重连时够还原「刚才发生了什么」，又不至于把 DO 存储撑大 */
@@ -227,6 +235,8 @@ export class SanguoshaRoomCoordinator {
     this.state.jobs = this.state.jobs.filter((job) => !(job.kind === 'disconnect-trustee' && job.seatId === seatId))
     this.touch(now)
     this.scheduleNext(now)
+    // 有人回来了，之前排的解散要撤掉
+    this.reviewAllTrustee(now)
     return seatId
   }
 
@@ -245,6 +255,7 @@ export class SanguoshaRoomCoordinator {
     }
     this.touch(now)
     this.scheduleNext(now)
+    this.reviewAllTrustee(now)
   }
 
   leave(userId: string, now = Date.now()): void {
@@ -266,6 +277,7 @@ export class SanguoshaRoomCoordinator {
     }
     this.touch(now)
     this.scheduleNext(now)
+    this.reviewAllTrustee(now)
   }
 
   // —— 指令 ——
@@ -383,6 +395,8 @@ export class SanguoshaRoomCoordinator {
         seat.trustee = command.enabled
         this.touch(now)
         this.scheduleNext(now)
+        // 最后一个真人也挂机了就开始倒计时解散
+        this.reviewAllTrustee(now)
         return null
       }
 
@@ -550,6 +564,35 @@ export class SanguoshaRoomCoordinator {
     this.scheduleNext(now)
   }
 
+  /**
+   * 真人是不是全都在托管中。
+   *
+   * 「托管」包含手动挂机和掉线自动接管两种。全员托管意味着这局已经没有人在打了，
+   * 再留着房间只是让 AI 自己跟自己打完。没有真人座位时不算——那种情况由
+   * `leave()` 里的「人都走光了」负责。
+   */
+  private allHumansTrustee(): boolean {
+    const humans = this.state.seats.filter((seat) => seat.kind === 'human' && !seat.leftRoom)
+    if (humans.length === 0) return false
+    return humans.every((seat) => seat.trustee)
+  }
+
+  /**
+   * 全员托管就排一个解散任务；只要有人回来就把它撤掉。
+   *
+   * 每次托管状态或连接状态变化都要走一遍，所以必须是幂等的：
+   * 已经排过就不重复排，条件不再成立就删掉。
+   */
+  private reviewAllTrustee(now: number): void {
+    const pending = this.state.jobs.find((job) => job.kind === 'all-trustee-dissolve')
+    if (!this.state.game || !this.allHumansTrustee()) {
+      if (pending) this.state.jobs = this.state.jobs.filter((job) => job.kind !== 'all-trustee-dissolve')
+      return
+    }
+    if (pending) return
+    this.pushJob({ kind: 'all-trustee-dissolve', dueAt: now + ALL_TRUSTEE_DISSOLVE_MS })
+  }
+
   private pushJob(job: Omit<SgsJob, 'id' | 'stageKey'>): void {
     this.state.jobs.push({ ...job, id: `job-${this.state.version}-${this.state.jobs.length}`, stageKey: this.state.stageKey })
   }
@@ -561,7 +604,7 @@ export class SanguoshaRoomCoordinator {
    */
   private scheduleNext(now: number): void {
     if (!this.state.game) return
-    this.state.jobs = this.state.jobs.filter((job) => job.kind === 'disconnect-trustee' || job.kind === 'next-round-timeout')
+    this.state.jobs = this.state.jobs.filter((job) => job.kind === 'disconnect-trustee' || job.kind === 'next-round-timeout' || job.kind === 'all-trustee-dissolve')
     // 选将阶段同样要安排任务，否则 AI 永远不选，房间停在选将界面
     if (this.state.game.status !== 'playing' && this.state.game.status !== 'choosing-general') return
 
@@ -648,7 +691,7 @@ export class SanguoshaRoomCoordinator {
       this.state.jobs = this.state.jobs.filter((job) => job.id !== due.id)
 
       // 局面已经变了的超时任务直接作废，否则会误伤新局面
-      if (due.kind !== 'disconnect-trustee' && due.stageKey !== this.state.stageKey) continue
+      if (due.kind !== 'disconnect-trustee' && due.kind !== 'all-trustee-dissolve' && due.stageKey !== this.state.stageKey) continue
       changed = this.runJob(due, now) || changed
     }
     return changed
@@ -662,6 +705,15 @@ export class SanguoshaRoomCoordinator {
         seat.trustee = true
         this.touch(now)
         this.scheduleNext(now)
+        this.reviewAllTrustee(now)
+        return true
+      }
+
+      case 'all-trustee-dissolve': {
+        // 等待期间有人回来或取消了托管，就当没这回事
+        if (!this.allHumansTrustee()) return false
+        this.state.deleteRequested = true
+        this.touch(now)
         return true
       }
 

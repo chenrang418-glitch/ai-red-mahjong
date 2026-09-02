@@ -421,3 +421,65 @@ describe('联机的等待窗口', () => {
     expect(anyRoom.humanWindowMs(0)).toBe(1_000)
   })
 })
+
+describe('全员托管自动解散', () => {
+  /** 两名真人 + 三台电脑，牌局已经开始。 */
+  function twoHumans(now = 1_000): SanguoshaRoomCoordinator {
+    const room = lobby(now)
+    room.connect(GUEST, now)
+    room.handle(HOST.userId, { type: 'toggle-ready' }, now)
+    room.handle(GUEST.userId, { type: 'toggle-ready' }, now)
+    room.handle(HOST.userId, { type: 'start-game' }, now)
+    return room
+  }
+
+  it('只有一部分真人托管时不解散', () => {
+    const room = twoHumans()
+    room.handle(HOST.userId, { type: 'trustee', enabled: true }, 2_000)
+    room.runDueJobs(200_000)
+    expect(room.shouldDeleteRoom(), '还有人在打就不能拆房').toBe(false)
+  })
+
+  it('所有真人都托管后，等一段时间自动解散', () => {
+    const room = twoHumans()
+    room.handle(HOST.userId, { type: 'trustee', enabled: true }, 2_000)
+    room.handle(GUEST.userId, { type: 'trustee', enabled: true }, 2_100)
+
+    // 倒计时没到之前不解散
+    room.runDueJobs(2_200)
+    expect(room.shouldDeleteRoom(), '不能立刻拆').toBe(false)
+
+    room.runDueJobs(2_100 + 30_000 + 1)
+    expect(room.shouldDeleteRoom(), '没人打了就该解散').toBe(true)
+  })
+
+  it('倒计时期间有人取消托管就不解散了', () => {
+    const room = twoHumans()
+    room.handle(HOST.userId, { type: 'trustee', enabled: true }, 2_000)
+    room.handle(GUEST.userId, { type: 'trustee', enabled: true }, 2_100)
+    room.handle(GUEST.userId, { type: 'trustee', enabled: false }, 2_500)
+
+    room.runDueJobs(200_000)
+    expect(room.shouldDeleteRoom(), '有人回来打了就不拆').toBe(false)
+  })
+
+  it('掉线自动托管同样会触发，但重连能撤销', () => {
+    const room = twoHumans()
+    room.disconnect(HOST.userId, 2_000)
+    room.disconnect(GUEST.userId, 2_000)
+    // 掉线满 20 秒各自转托管，这时才开始算解散倒计时
+    room.runDueJobs(2_000 + 20_000 + 1)
+    expect(room.shouldDeleteRoom(), '刚托管还不能拆').toBe(false)
+
+    room.connect(GUEST, 2_000 + 21_000)
+    room.runDueJobs(200_000)
+    expect(room.shouldDeleteRoom(), '有人连回来就不拆').toBe(false)
+  })
+
+  it('大厅里没开局不会因为没人托管而误判', () => {
+    const room = lobby()
+    room.connect(GUEST)
+    room.runDueJobs(200_000)
+    expect(room.shouldDeleteRoom()).toBe(false)
+  })
+})
