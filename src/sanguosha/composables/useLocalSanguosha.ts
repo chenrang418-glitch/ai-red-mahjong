@@ -10,7 +10,7 @@ import { describeEvent } from '../engine/log'
 import type { GameEventName } from '../engine/events'
 import { buildPresentationEvent, type PresentationEvent } from '../engine/presentation'
 import { getCharacter } from '../data/characters/standard'
-import { AI_PACE_MS, AI_TRIVIAL_STEP_MS, phaseDelay } from '../shared/timing'
+import { AI_PACE_MS, AI_TRIVIAL_STEP_MS, phaseDelay, playActionDelay } from '../shared/timing'
 
 /** 会写进战报的事件。只挑对玩家有意义的，避免把每一次内部时机都刷上去。 */
 const LOGGED_EVENTS: readonly GameEventName[] = [
@@ -152,7 +152,7 @@ export function useLocalSanguosha() {
           const pass = actions.find((candidate) => candidate.kind === 'pass')
           if (pass) current.act(playerId, pass.id)
         }
-      }, onlyPass ? 'instant' : 'normal')
+      }, onlyPass ? 'instant' : 'play')
       return
     }
 
@@ -161,7 +161,7 @@ export function useLocalSanguosha() {
   }
 
   /** 执行一步，带视觉停顿；出错时把牌局停在原地并报出来，不静默吞掉。 */
-  function step(revision: number, action: () => void, pace: 'normal' | 'phase' | 'instant' = 'normal'): void {
+  function step(revision: number, action: () => void, pace: 'normal' | 'play' | 'phase' | 'instant' = 'normal'): void {
     busy.value = true
     const run = () => {
       if (revision !== generation) return
@@ -183,12 +183,16 @@ export function useLocalSanguosha() {
      * 又不会让纯粹的阶段流转拖沓。
      *
      * 选将、只能放弃的响应和没有牌可出的出牌阶段没有可观察决策，压到 60ms；
-     * 自动阶段推进只留 180～360ms，真实出牌仍使用玩家选择的 AI 节奏。
+     * 自动阶段推进只留 180～360ms。
+     *
+     * `play` 是 AI 主动出牌，比 `normal`（响应牌）明显慢——响应牌是被动接话，
+     * 放慢它只会让人干等；看不清的是主动出牌那一下。
      */
     const visualDelay = delayMs <= 0 ? 0
       : pace === 'instant' ? AI_TRIVIAL_STEP_MS
         : pace === 'phase' ? phaseDelay(delayMs)
-          : delayMs
+          : pace === 'play' ? playActionDelay(delayMs)
+            : delayMs
     if (visualDelay <= 0) run()
     else timer = window.setTimeout(run, visualDelay)
   }

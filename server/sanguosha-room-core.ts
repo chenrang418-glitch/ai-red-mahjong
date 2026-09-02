@@ -7,7 +7,7 @@ import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha
 import type { GameResponse } from '../src/sanguosha/engine/requests'
 import type { PlayerId, SanguoshaState } from '../src/sanguosha/engine/types'
 import type { PlayerView } from '../src/sanguosha/engine/view'
-import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS } from '../src/sanguosha/shared/timing'
+import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS, playActionDelay } from '../src/sanguosha/shared/timing'
 import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 
@@ -619,9 +619,13 @@ export class SanguoshaRoomCoordinator {
     const onlyPass = drivenByAI && !choosing && !pending && this.state.game.phase === 'play'
       ? this.game().legalActions(playerIdOf(actorSeatId)).every((action) => action.kind === 'pass')
       : false
+    // 没有待处理请求 + 出牌阶段 = AI 要主动出一张牌，这一步慢一点让人看清；
+    // 有请求的那条路是响应牌（无懈、桃、闪），节奏保持不动
+    const playingCard = drivenByAI && !choosing && !pending && this.state.game.phase === 'play' && !onlyPass
     const aiDelay = choosing ? AI_PICK_GENERAL_MS
       : ((pending && isTrivialAIRequest(pending)) || onlyPass) ? AI_TRIVIAL_STEP_MS
-        : AI_PACE_MS.normal
+        : playingCard ? playActionDelay(AI_PACE_MS.normal)
+          : AI_PACE_MS.normal
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
       dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs(actorSeatId)),

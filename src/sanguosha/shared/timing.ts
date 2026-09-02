@@ -18,3 +18,19 @@ export function presentationDuration(kind: PresentationEventKind, backlog: numbe
 export function phaseDelay(aiDelayMs: number): number {
   return aiDelayMs <= 0 ? 0 : Math.min(360, Math.max(180, Math.round(aiDelayMs / 2)))
 }
+
+/**
+ * AI **主动出牌**这一步的停顿。
+ *
+ * 和响应牌分开算，这是关键：无懈可击、桃、闪这些是被动接话，节奏快反而顺，
+ * 而且它们各自的询问窗口有规则约束，不能乱动。真正让人跟不上的是
+ * AI 主动出牌——谁对谁用了什么牌、触发了什么技能，是牌桌上信息量最大的一步，
+ * 700ms 里牌面刚飞出去就已经进入下一个人的操作了。
+ *
+ * 所以按整体节奏放慢一倍多，并压一个下限：即使玩家选了「明快」，
+ * 主动出牌也不会快到看不清。
+ */
+export function playActionDelay(aiDelayMs: number): number {
+  if (aiDelayMs <= 0) return 0
+  return Math.min(2_400, Math.max(900, Math.round(aiDelayMs * 2.2)))
+}
