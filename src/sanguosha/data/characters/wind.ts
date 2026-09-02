@@ -1,4 +1,6 @@
 import { flipCharacter } from '../../engine/character-state'
+// 不屈的运行时单独一个文件：它要动濒死流程和专属牌堆，和风包其他技能是两码事
+import { BUQU } from './wind-zhoutai'
 import { getDistance } from '../../engine/distance'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
@@ -475,6 +477,19 @@ export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
       id: JUSHOU,
       name: '据守',
       description: `结束阶段，你可以摸 ${JUSHOU_DRAW} 张牌，然后将你的武将牌翻面。背面朝上的角色轮到其回合时，将武将牌翻回正面并跳过该回合。`,
+    }],
+  },
+  {
+    id: 'zhoutai',
+    name: '周泰',
+    kingdom: 'wu',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'wind',
+    skills: [{
+      id: BUQU,
+      name: '不屈',
+      description: '锁定技，当你处于濒死状态时，你将牌堆顶的一张牌置于你的武将牌上，称为「创」；若此牌的点数与你武将牌上已有的「创」的点数均不同，则你不会死亡（体力值保持不变，可以为零或更低）。',
     }],
   },
   {

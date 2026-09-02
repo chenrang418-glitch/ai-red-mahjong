@@ -1,3 +1,5 @@
+import { skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import type { EquipmentSlot, SanguoshaState } from './types'
 import { assertCardConservation } from './zones'
 
@@ -16,7 +18,15 @@ export function assertGameInvariants(state: SanguoshaState): void {
       throw new Error(`玩家体力非法：${candidate.id}`)
     }
     if (!candidate.alive && !candidate.identityRevealed) throw new Error(`死亡角色身份未公开：${candidate.id}`)
-    if (candidate.alive && candidate.hp <= 0 && state.dying?.playerId !== candidate.id) throw new Error(`存活角色处于非濒死的非正体力：${candidate.id}`)
+    // 「存活 + 非正体力 + 不在濒死」正常情况下是坏状态，唯一的例外是
+    // 明确声明了自己撑得住的锁定技（周泰【不屈】）。例外走 survivesAtZeroHp
+    // 这个统一入口，**不在这里写武将 id 特判**。
+    const survivesAtZero = candidate.characterId
+      ? skillsOf(state, candidate.id, skillIdsOf).some((runtime) => runtime.survivesAtZeroHp?.(state, candidate.id))
+      : false
+    if (candidate.alive && candidate.hp <= 0 && state.dying?.playerId !== candidate.id && !survivesAtZero) {
+      throw new Error(`存活角色处于非濒死的非正体力：${candidate.id}`)
+    }
     for (const slot of EQUIPMENT_SLOTS) {
       const cardId = candidate.zones.equipment[slot]
       if (cardId && state.cards[cardId]?.equipmentSlot !== slot) throw new Error(`装备槽类型不匹配：${candidate.id}/${slot}`)

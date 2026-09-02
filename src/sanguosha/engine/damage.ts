@@ -4,7 +4,7 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { skillsOf } from './skills/runtime'
+import { skillsOf, type SkillHost } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
@@ -254,6 +254,16 @@ export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId:
     requestId: null,
   }
   host.dispatch('EnterDying', { playerId, hp: target.hp }, { sourceId: sourceId ?? undefined, targetId: playerId, damageNature: nature })
+
+  // 濒死介入（周泰【不屈】）：技能有机会在求桃之前直接把这次濒死解决掉。
+  // 处理成功就**不进入求桃**——不屈撑住的时候没人需要出桃。
+  for (const runtime of skillsOf(host.state, playerId, skillIdsOf)) {
+    if (!runtime.dyingIntercept?.(host as unknown as SkillHost, playerId)) continue
+    host.dispatch('QuitDying', { playerId, hp: target.hp, reason: runtime.id }, { targetId: playerId })
+    host.state.dying = null
+    return
+  }
+
   requestCurrentRescuer(host)
 }
 

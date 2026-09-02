@@ -104,6 +104,22 @@ export interface SkillRuntime {
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
   /**
+   * 濒死介入：拥有者刚进入濒死时先给技能一次机会（不屈）。
+   *
+   * 返回 true 表示「这次濒死已经由技能处理掉了」，引擎会直接结束濒死状态，
+   * **不再求桃**。返回 false 走正常的求桃流程。
+   *
+   * 只在拥有者自己濒死时调用，而且在 `EnterDying` 之后、第一次求桃之前。
+   */
+  dyingIntercept?(host: SkillHost, ownerId: PlayerId): boolean
+  /**
+   * 锁定技：允许拥有者在体力值 0 或更低时**不处于濒死状态地活着**（不屈）。
+   *
+   * 这是给不变量看的：正常规则下「存活 + 非正体力 + 不在濒死」是坏状态，
+   * 只有这个能力明确说了「我现在撑得住」才放行。
+   */
+  survivesAtZeroHp?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /**
    * 改判：判定牌翻开之后、生效之前，用一张牌代替它（鬼才、鬼道）。
    *
    * 返回现在能拿来改判的牌，空数组表示这次插不上手。

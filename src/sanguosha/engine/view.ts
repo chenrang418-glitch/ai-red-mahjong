@@ -16,6 +16,11 @@ export interface PlayerPublicView {
   maxHp: number
   chained: boolean
   faceDown: boolean
+  /**
+   * 武将专属牌堆。「创」这类牌是**亮出来**的，所以对所有人公开，
+   * 直接下发牌面；将来若出现暗置的专属牌堆，要在这里按观看者裁剪。
+   */
+  characterPiles: Record<string, PhysicalCard[]>
   handCount: number
   hand: PhysicalCard[] | null
   equipment: Array<PhysicalCard>
@@ -85,6 +90,9 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         maxHp: player.maxHp,
         chained: player.chained,
         faceDown: player.faceDown,
+        characterPiles: Object.fromEntries(
+          Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [pile, cards(state, ids)]),
+        ),
         handCount: player.zones.hand.length,
         hand: ownHand,
         equipment: cards(state, Object.values(player.zones.equipment).filter((id): id is CardId => Boolean(id))),
