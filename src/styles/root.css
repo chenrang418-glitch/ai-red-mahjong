@@ -49,6 +49,18 @@ html, body, #app {
 
 #app { display: flex; flex-direction: column; }
 
+/* Vue 尚未挂载或入口脚本失败时也有可见内容，避免整页只剩黑色背景。 */
+#app:empty::before {
+  content: 'CR  正在启动游戏…';
+  width: 100%;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  color: #d1ad60;
+  background: linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
+  font: 800 18px/1.5 Inter, "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
 .root-loading,
 .root-error {
   width: 100%;

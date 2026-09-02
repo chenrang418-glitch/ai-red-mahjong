@@ -10,6 +10,7 @@ const activeComponent = shallowRef<Component | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 let loadRevision = 0
+let loadTimer: number | null = null
 
 const activeGame = computed<GameDefinition | null>(() => {
   if (route.value.kind !== 'game') return null
@@ -36,12 +37,16 @@ function returnToPortal() {
 
 async function loadActiveGame(game: GameDefinition | null) {
   const revision = ++loadRevision
+  if (loadTimer !== null) window.clearTimeout(loadTimer)
   activeComponent.value = null
   loadError.value = ''
   if (!game?.loadApp) return
   loading.value = true
   try {
-    const module = await game.loadApp()
+    const timeout = new Promise<never>((_, reject) => {
+      loadTimer = window.setTimeout(() => reject(new Error('游戏资源加载超时')), 15_000)
+    })
+    const module = await Promise.race([game.loadApp(), timeout])
     if (revision === loadRevision) activeComponent.value = module.default
   } catch (cause) {
     if (revision === loadRevision) {
@@ -50,6 +55,8 @@ async function loadActiveGame(game: GameDefinition | null) {
         : '游戏加载失败，请重试。'
     }
   } finally {
+    if (loadTimer !== null) window.clearTimeout(loadTimer)
+    loadTimer = null
     if (revision === loadRevision) loading.value = false
   }
 }
@@ -61,6 +68,7 @@ function retryLoad() {
 window.addEventListener('popstate', syncRoute)
 window.addEventListener('hashchange', syncRoute)
 onBeforeUnmount(() => {
+  if (loadTimer !== null) window.clearTimeout(loadTimer)
   window.removeEventListener('popstate', syncRoute)
   window.removeEventListener('hashchange', syncRoute)
 })
