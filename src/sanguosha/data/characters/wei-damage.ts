@@ -1,4 +1,5 @@
 import { performJudgment } from '../../engine/judgment'
+import { loseHp } from '../../engine/hp'
 import { hiddenHandSlot } from '../../engine/cards/host'
 import type { ChooseCardsRequest, ChooseOptionRequest, DistributeCardsRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
@@ -223,7 +224,7 @@ registerSkillRuntime({
       if (judged.suit === 'heart') return
       // 手牌不足两张就没得选，直接失去体力
       if (source.zones.hand.length < 2) {
-        loseHp(host, sourceId, '刚烈')
+        loseHp(host, sourceId, 1, '刚烈')
         return
       }
       host.askSkill({
@@ -248,7 +249,7 @@ registerSkillRuntime({
     if (!source?.alive) return
     if (resolution.step === 'choose') {
       if (chose(response, 'lose-hp') || source.zones.hand.length < 2) {
-        loseHp(host, sourceId, '刚烈')
+        loseHp(host, sourceId, 1, '刚烈')
         return
       }
       host.askSkill({
@@ -279,14 +280,6 @@ registerSkillRuntime({
     host.dispatch('LoseCard', { playerId: sourceId, cardIds, reason: '刚烈' }, { targetId: sourceId, cardIds })
   },
 })
-
-function loseHp(host: SkillHost, playerId: PlayerId, reason: string): void {
-  const target = playerOf(host.state, playerId)
-  target.hp -= 1
-  host.dispatch('LoseHp', { playerId, amount: 1, reason }, { targetId: playerId })
-  // 失去体力可能导致濒死，交给统一入口处理，技能不自己判死
-  if (target.hp <= 0) host.enterDying(playerId)
-}
 
 // —— 郭嘉【遗计】——
 registerSkillRuntime({

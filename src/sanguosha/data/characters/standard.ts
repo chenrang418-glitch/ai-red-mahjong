@@ -1,5 +1,6 @@
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
+import { loseHp } from '../../engine/hp'
 import { registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
@@ -155,11 +156,11 @@ registerSkillRuntime({
   },
   invokeActive(host, ownerId, actionId) {
     if (actionId !== 'skill:kurou') throw new Error('苦肉动作不匹配')
-    // 走统一伤害入口的「失去体力」不同：苦肉是失去体力，不是受到伤害，
-    // 所以不触发伤害时机，但仍然可能进入濒死。
+    // 苦肉是失去体力不是受到伤害，所以不触发伤害时机，但仍然可能进入濒死。
+    // 这里以前是内联减血 + 派发事件，漏了濒死判断：1 点体力发动会卡在「0 血活着」。
     const owner = playerOf(host.state, ownerId)
-    owner.hp -= 1
-    host.dispatch('LoseHp', { playerId: ownerId, amount: 1, reason: '苦肉' }, { targetId: ownerId })
+    loseHp(host, ownerId, 1, '苦肉')
+    if (!owner.alive) return
     for (let index = 0; index < 2; index += 1) {
       const drawn = host.state.zones.drawPile.shift()
       if (!drawn) break
