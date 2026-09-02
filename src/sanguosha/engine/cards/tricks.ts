@@ -317,6 +317,15 @@ function enterTrickTarget(host: CardEngineHost): void {
     resolution.stage = 'awaiting-intercept'
     return
   }
+  /*
+   * 没有插入点要问了（或者插入点已经问完回到这里），阶段必须改回来。
+   *
+   * 漏掉这一行的后果：目标身上有【发呆】这类「成为目标后」的技能时，
+   * 它回答完之后落到无懈询问，`stage` 却还停在 'awaiting-intercept'，
+   * 于是「成为目标阶段必须挂着技能等待状态」这条不变量直接被违反，
+   * 客户端看到的阶段也是错的。
+   */
+  resolution.stage = 'awaiting-nullification'
   askNullification(host)
 }
 

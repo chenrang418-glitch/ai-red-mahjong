@@ -93,8 +93,17 @@ export function assertGameInvariants(state: SanguoshaState): void {
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')
     const stage = state.cardResolution.stage
+    /*
+     * 结算被**合法地停住**的几种情况，这时候它身上没有请求是正常的：
+     * 判定进行中（八卦阵、铁骑）、改判窗口开着（鬼才、鬼道）、
+     * 或者正在收多人决定（于吉【蛊惑】的质疑）。
+     * 不排除这几种，「八卦阵判定 + 有人能改判」就会误报成坏状态。
+     */
+    const parked = Boolean(state.judgment || state.retrial || state.groupDecision)
     // 「成为目标时」那一步挂的是技能 Request，不是求闪 Request
-    if (stage === 'awaiting-intercept') {
+    if (parked) {
+      // 停住期间不检查请求，等结算继续时再查
+    } else if (stage === 'awaiting-intercept') {
       if (!state.skillResolution) throw new Error('成为目标阶段缺少技能等待状态')
     } else if (stage === 'awaiting-dodge' || stage === 'awaiting-nullification') {
       if (!state.cardResolution.requestId || !state.pendingRequests.some((request) => request.id === state.cardResolution!.requestId && request.kind === 'respond-card')) {
