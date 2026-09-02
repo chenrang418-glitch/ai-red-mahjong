@@ -464,7 +464,7 @@ export class SanguoshaRoomCoordinator {
    */
   private attachObservers(game: SanguoshaGame): void {
     const logged = ['TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
-      'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard', 'LoseEquipment'] as const
+      'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard', 'LoseEquipment', 'CharacterFlip'] as const
     const presentationOnly = ['SkillActivated'] as const
     const observed = [...logged, ...presentationOnly] as const
     for (const name of observed) {

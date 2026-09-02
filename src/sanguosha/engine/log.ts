@@ -83,6 +83,13 @@ export function describeEvent(state: SanguoshaState, event: GameEvent, viewerId:
       return identity ? `${dead} 阵亡（${IDENTITY[identity] ?? identity}）` : `${dead} 阵亡`
     }
 
+    case 'CharacterFlip': {
+      const owner = nameOf(state, (payload.playerId as PlayerId) ?? event.targetId)
+      const faceDown = payload.faceDown === true
+      const reason = payload.reason ? `（${payload.reason}）` : ''
+      return `${owner} 将武将牌翻至${faceDown ? '背面' : '正面'}${reason}`
+    }
+
     case 'JudgeResult': {
       // 判定牌是翻开的公开信息
       const judged = cardName(state, payload.judgeCardId as string)

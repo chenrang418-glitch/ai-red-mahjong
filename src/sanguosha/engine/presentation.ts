@@ -132,6 +132,16 @@ export function buildPresentationEvent(
       const actorId = payload.playerId as PlayerId
       return { id: event.id, seq: event.seq, kind: 'death', targetIds: [actorId], text: `${playerName(state, actorId)}阵亡` }
     }
+    case 'CharacterFlip': {
+      const actorId = (payload.playerId as PlayerId) ?? event.targetId
+      if (!actorId) return null
+      const faceDown = payload.faceDown === true
+      return {
+        id: event.id, seq: event.seq, kind: 'status', targetIds: [actorId],
+        text: `${playerName(state, actorId)}武将牌翻至${faceDown ? '背面' : '正面'}`,
+      }
+    }
+
     case 'JudgeResult': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId
       const judged = cardName(state, payload.judgeCardId as string)

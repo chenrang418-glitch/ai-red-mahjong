@@ -30,6 +30,37 @@ export function skipPhase(state: SanguoshaState, phase: TurnPhase): void {
   if (!state.skippedPhases.includes(phase)) state.skippedPhases.push(phase)
 }
 
+/**
+ * 开始下一名存活角色的回合。
+ *
+ * 背面朝上的角色轮到自己时：先把武将牌翻回正面，然后**跳过整个回合**。
+ * 这里的做法是把六个阶段全部标记为跳过并停在 `finish`，
+ * 下一次 `advancePhase` 就会直接收束这一回合、交给再下一名角色。
+ *
+ * 之所以仍然发 `TurnStart`、仍然让 `turnNumber` 加一：按规则这个回合确实
+ * 发生了，只是每个阶段都被跳过。**不发 `PhaseStart`**，所以挂在阶段上的
+ * 技能（曹仁自己的据守也在内）不会在被跳过的回合里触发。
+ */
+function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): void {
+  state.currentPlayerId = nextAlivePlayerId(state)
+  state.turnNumber += 1
+  state.skippedPhases = []
+  state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
+  emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
+
+  const current = state.players.find((player) => player.id === state.currentPlayerId)
+  if (current?.faceDown) {
+    current.faceDown = false
+    emit('CharacterFlip', { playerId: current.id, faceDown: false, reason: '回合开始' })
+    state.skippedPhases = [...TURN_PHASES]
+    state.phase = 'finish'
+    return
+  }
+
+  state.phase = 'prepare'
+  emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
+}
+
 export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
   if (state.status !== 'playing') throw new Error('牌局尚未进入进行状态')
   if (state.pendingRequests.length > 0) throw new Error('仍有待处理 Request，不能推进阶段')
@@ -55,11 +86,5 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
   // 那样散着写漏过一个（青囊），「限一次」直接变成了「一局一次」。
   // 清全场而不只是当前回合角色：回合外也能发动的技能同样按回合计数。
   for (const player of state.players) player.turnUsedSkills = []
-  state.currentPlayerId = nextAlivePlayerId(state)
-  state.turnNumber += 1
-  state.phase = 'prepare'
-  state.skippedPhases = []
-  state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
-  emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
-  emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
+  beginTurn(state, emit)
 }

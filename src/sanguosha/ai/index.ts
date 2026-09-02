@@ -261,6 +261,9 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id === 'tianxiang-invoke')) {
         return { ...base, payload: { optionId: 'tianxiang-invoke' } }
       }
+      if (request.prompt.includes('据守')) {
+        return { ...base, payload: { optionId: decideJushou(context) ? 'yes' : 'no' } }
+      }
       if (options.some((option) => option.id === 'shensu-judge')) {
         return { ...base, payload: { optionId: 'shensu-judge' } }
       }
@@ -393,6 +396,25 @@ function decideRetrial(context: AIContext, request: ChooseCardsRequest): string[
     // 换牌时优先丢价值低的：一样能翻盘就别拿桃去改判
     .sort((left, right) => cardValue(left.name) - cardValue(right.name))[0]
   return replacement ? [replacement.id] : []
+}
+
+/**
+ * 曹仁【据守】的取舍。
+ *
+ * 据守是「拿下一个回合换三张牌」，所以不能每回合无脑发动——那样曹仁永远在翻面，
+ * 一个回合都不出。判断的是「这三张牌现在值不值一个回合」：
+ * 手牌越少越值，快死了越值（多三张牌意味着多三次响应机会），
+ * 手上已经很宽裕、或者血线安全时就把回合留着打人。
+ */
+function decideJushou(context: AIContext): boolean {
+  const me = myself(context.view)
+  const handCount = me.hand?.length ?? 0
+  // 手里已经没什么牌：一个回合本来也打不出什么，换三张牌是纯赚
+  if (handCount <= 2) return true
+  // 血线危险：牌越多越活得下去，回合反而是次要的
+  if (me.hp <= 2 && handCount <= 4) return true
+  // 手牌宽裕又不缺血，就别把回合让出去
+  return false
 }
 
 function cardName(context: AIContext, cardId: string): string {

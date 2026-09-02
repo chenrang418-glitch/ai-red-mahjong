@@ -16,7 +16,7 @@ const LOGGED_EVENTS: readonly GameEventName[] = [
   'TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
   'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard',
   'LoseEquipment',
-  'SkillActivated',
+  'SkillActivated', 'CharacterFlip',
 ]
 
 /**

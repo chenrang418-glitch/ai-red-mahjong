@@ -182,6 +182,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     credit: '用户提供（GPT 生成）·夏侯渊',
   },
 
+  caoren: {
+    desktop: { position: '46% 20%', scale: 1.0 },
+    mobile: { position: '46% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹仁',
+  },
+
   // ── 火包 ──
   dianwei: {
     desktop: { position: '45% 20%', scale: 1.0 },

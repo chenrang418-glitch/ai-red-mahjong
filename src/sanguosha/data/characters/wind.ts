@@ -1,3 +1,4 @@
+import { flipCharacter } from '../../engine/character-state'
 import { getDistance } from '../../engine/distance'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
@@ -378,6 +379,56 @@ registerSkillRuntime({
   },
 })
 
+// —— 曹仁【据守】——
+//
+// 采用**经典风包版**：结束阶段，你可以摸三张牌，然后将你的武将牌翻面。
+// 界限突破版和 OL 版摸的张数不一样（四张、还带弃牌/装备的后续），这里不混进来；
+// 锁定的规则文本见 docs/sanguosha-ruleset-v1.md。
+//
+// 翻面本身走公共入口 `flipCharacter`，跳过回合的语义在 turn.ts 的 beginTurn 里，
+// **这里不写任何「曹仁下回合怎么办」的特判**——以后神曹操、放逐都用同一套。
+
+const JUSHOU = 'jushou'
+/** 据守摸牌数。锁定为经典风包的三张，改这里要连规则文档一起改。 */
+const JUSHOU_DRAW = 3
+
+registerSkillRuntime({
+  id: JUSHOU,
+  triggers: [{
+    event: 'PhaseStart',
+    handle(host, ownerId, context) {
+      const payload = context.event.payload as { playerId?: string; phase?: string }
+      if (payload.phase !== 'finish' || payload.playerId !== ownerId) return
+      // 已经挂着别的技能发问就不插队，等下一次时机（和闭月、洛神同样的处理）
+      if (host.state.skillResolution) return
+      const owner = host.state.players.find((player) => player.id === ownerId)
+      if (!owner?.alive) return
+      host.askSkill({
+        skillId: JUSHOU,
+        ownerId,
+        step: 'ask',
+        build: (requestId): ChooseOptionRequest => ({
+          id: requestId,
+          kind: 'choose-option',
+          playerId: ownerId,
+          prompt: `发动【据守】？摸 ${JUSHOU_DRAW} 张牌，然后将武将牌翻面（背面朝上时跳过你的下一个回合）`,
+          timeoutMs: 20_000,
+          optional: true,
+          options: [{ id: 'yes', label: '发动' }, { id: 'no', label: '放弃' }],
+        }),
+      })
+    },
+  }],
+  resume(host, ownerId, _resolution, response) {
+    if ((response.payload as { optionId?: string }).optionId !== 'yes') return
+    const owner = host.state.players.find((player) => player.id === ownerId)
+    if (!owner?.alive) return
+    // 摸牌和翻面是一个整体：摸完必须翻，不存在「摸了不翻」
+    drawCards(host.state, host.rng, ownerId, JUSHOU_DRAW, (name, payload) => { host.dispatch(name, payload) })
+    flipCharacter(host, ownerId, '据守', true)
+  },
+})
+
 export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
   {
     id: 'xiahouyuan',
@@ -411,6 +462,19 @@ export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
       id: 'kuanggu',
       name: '狂骨',
       description: '锁定技，当你对距离一以内的角色造成伤害后，你回复等同于伤害点数的体力。',
+    }],
+  },
+  {
+    id: 'caoren',
+    name: '曹仁',
+    kingdom: 'wei',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'wind',
+    skills: [{
+      id: JUSHOU,
+      name: '据守',
+      description: `结束阶段，你可以摸 ${JUSHOU_DRAW} 张牌，然后将你的武将牌翻面。背面朝上的角色轮到其回合时，将武将牌翻回正面并跳过该回合。`,
     }],
   },
   {
