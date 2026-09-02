@@ -143,6 +143,30 @@ export interface GroupDecisionState {
   data: Record<string, unknown>
 }
 
+/**
+ * 于吉【蛊惑】的「打出」模式。
+ *
+ * 求牌请求被临时收走、原样存在 `request` 里；质疑结束之后把它放回去
+ * 再重放一次回答，于是后续结算走的仍然是原来那条路。
+ *
+ * `stage` 为 'granted' 的那一瞬间，`cardId` 会被当作 `requiredCardName`
+ * 报进求牌路径原有的 viewAs 校验里——这样五条求牌路径一处都不用改。
+ */
+export interface GuhuoResponseState {
+  ownerId: PlayerId
+  requiredCardName: string
+  /** 扣置的实体牌；还没选牌时为 null。**其他人的视图里看不到它。** */
+  cardId: CardId | null
+  stage: 'declaring' | 'granted' | 'declined'
+  /**
+   * 存下来待重放的原请求。
+   *
+   * 类型故意用 unknown：`types.ts` 不能 import `requests.ts`（那会成环），
+   * 而这里只需要「原样存、原样放回去」，具体形状由消费方断言。
+   */
+  request: unknown
+}
+
 export interface GameResult {
   winningCamp: 'lord' | 'rebel' | 'renegade'
   winnerIds: PlayerId[]
@@ -418,6 +442,8 @@ export interface SanguoshaState {
   privateZones: PrivateCardZone[]
   /** 进行中的多人同时决定；同一时刻最多一个。 */
   groupDecision: GroupDecisionState | null
+  /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
+  guhuoResponse: GuhuoResponseState | null
   /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
   retrial: JudgmentRetrialState | null
   /**

@@ -9,6 +9,7 @@ import { recover } from '../recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { NULLIFICATION_TIMEOUT_MS, PASS_ROUND_ACTION, nullificationCardIds } from '../nullification'
+import { GUHUO_RESPOND_ACTION, canGuhuoRespond } from '../guhuo-response'
 import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
@@ -380,7 +381,9 @@ export function askNullification(host: CardEngineHost): void {
     return
   }
   const cardIds = nullificationCardIds(host.state, responderId)
-  if (cardIds.length === 0) {
+  // 于吉【蛊惑】可以凭任意手牌声明无懈，所以他即使没有无懈也要问
+  const canGuhuo = canGuhuoRespond(host.state, responderId, '无懈可击', skillIdsOf)
+  if (cardIds.length === 0 && !canGuhuo) {
     // 手上没有无懈就不必打扰这名玩家，直接问下一个
     resolution.responderIndex += 1
     askNullification(host)
@@ -390,6 +393,7 @@ export function askNullification(host: CardEngineHost): void {
   actionIds.push('respond-pass')
   // 多目标锦囊才需要「本轮均不使用」：单目标牌只问一轮，多一个按钮反而是噪音
   if (resolution.targetIds.length > 1) actionIds.push(PASS_ROUND_ACTION)
+  if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
   const targetName = playerOf(host.state, resolution.targetIds[resolution.targetIndex]).nickname
   const request: RespondCardRequest = {
     id: `request-trick-${host.state.seq}-${host.state.decisions.length}-${resolution.targetIndex}-${resolution.responderIndex}`,

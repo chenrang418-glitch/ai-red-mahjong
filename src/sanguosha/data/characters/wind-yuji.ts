@@ -10,6 +10,7 @@ import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } fr
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { LegalAction } from '../../engine/actions'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
+import { continueGuhuoRespond } from '../../engine/guhuo-response'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -116,6 +117,13 @@ registerSkillRuntime({
   },
 
   resume(host, ownerId, resolution, response) {
+    // 打出模式的选牌步骤：交给 wind-yuji-respond 那边接着走
+    if (resolution.step === 'respond-card') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      continueGuhuoRespond(host, ownerId, cardId)
+      return
+    }
+
     if (resolution.step === 'card') {
       const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
       const owner = playerOf(host.state, ownerId)
@@ -336,6 +344,6 @@ export const YUJI: CharacterDefinition = {
   skills: [{
     id: GUHUO,
     name: '蛊惑',
-    description: '你可以说出任何一种基本牌或非延时类锦囊牌，并正面朝下使用一张手牌。若无人质疑，则该牌按你所述之牌结算；若有人质疑则亮出验明：若为真，质疑者各失去一点体力；若为假，质疑者各摸一张牌。无论真假均弃置该牌，仅当被质疑的牌为红桃且为真时，该牌仍然可以被使用。',
+    description: '你可以说出任何一种基本牌或非延时类锦囊牌，并正面朝下使用或打出一张手牌。若无人质疑，则该牌按你所述之牌结算；若有人质疑则亮出验明：若为真，质疑者各失去一点体力；若为假，质疑者各摸一张牌。无论真假均弃置该牌，仅当被质疑的牌为红桃且为真时，该牌仍然可以被使用或打出。',
   }],
 }

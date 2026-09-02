@@ -5,6 +5,7 @@ import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
 import { skillsOf, type SkillHost } from './skills/runtime'
+import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
@@ -106,7 +107,10 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
     const name = state.cards[cardId]?.name
     return name === '桃' || viewAsPeach.has(cardId) || (name === '酒' && responderId === dyingPlayerId)
   })
-  return [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
+  const actionIds = [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
+  // 于吉【蛊惑】：声明打出一张【桃】救人（含救自己）
+  if (canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  return actionIds
 }
 
 function removePendingRescue(state: SanguoshaState): void {
@@ -326,9 +330,10 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
   const responder = player(host.state, response.playerId)
   if (!responder.zones.hand.includes(cardId) || !request.actionIds.includes(actionId)) throw new Error('救援牌不属于响应玩家')
   const card = host.state.cards[cardId]
-  const asPeach = skillsOf(host.state, responder.id, skillIdsOf)
-    .flatMap((runtime) => runtime.viewAs?.(host.state, responder.id) ?? [])
-    .some((option) => option.asCardName === '桃' && option.cardId === cardId)
+  const asPeach = guhuoGrantedAs(host.state, responder.id, cardId) === '桃'
+    || skillsOf(host.state, responder.id, skillIdsOf)
+      .flatMap((runtime) => runtime.viewAs?.(host.state, responder.id) ?? [])
+      .some((option) => option.asCardName === '桃' && option.cardId === cardId)
   if (!card || (card.name !== '桃' && !asPeach && !(card.name === '酒' && responder.id === dying.playerId))) throw new Error('该牌不能用于当前救援')
   const responseName = asPeach ? '桃' : card.name
   moveCard(host.state, cardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })

@@ -9,6 +9,7 @@ import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAc
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
+import { GUHUO_RESPOND_ACTION, beginGuhuoRespond } from './guhuo-response'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
@@ -89,6 +90,7 @@ export class SanguoshaGame {
       retrial: null,
       privateZones: [],
       groupDecision: null,
+      guhuoResponse: null,
       judgedDelayedCards: [],
       cardResolution: null,
       skillResolution: null,
@@ -204,6 +206,21 @@ export class SanguoshaGame {
   private respondInner(response: GameResponse): void {
     const request = this.state.pendingRequests.find((candidate) => candidate.id === response.requestId)
     if (!request) throw new Error('Request 不存在或已经处理')
+
+    /*
+     * 于吉【蛊惑】的「打出」模式只有这一个入口。
+     *
+     * 所有求牌请求都是「给一串 actionId、挑一个」，所以在请求里多加一条
+     * `guhuo-respond`、再在这里集中认领，就不用在求闪 / 求桃 / 无懈 /
+     * 锦囊效果这五条路径里各写一遍挂起和恢复。
+     */
+    if ((response.payload as { actionId?: string })?.actionId === GUHUO_RESPOND_ACTION) {
+      if (!('actionIds' in request) || !request.actionIds.includes(GUHUO_RESPOND_ACTION)) {
+        throw new Error('当前请求不能用蛊惑打出')
+      }
+      beginGuhuoRespond(this, request as unknown as GameRequest)
+      return
+    }
 
     // 多人同时决定的一环：每个人各有一个请求，收齐之后统一处理
     if (isGroupDecisionRequest(this.state, request.id)) {
@@ -406,6 +423,7 @@ export class SanguoshaGame {
     mutable.state.judgedDelayedCards ??= []
     mutable.state.privateZones ??= []
     mutable.state.groupDecision ??= null
+    mutable.state.guhuoResponse ??= null
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1

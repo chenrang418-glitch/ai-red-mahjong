@@ -454,3 +454,194 @@ describe('蛊惑的界面', () => {
     expect(request.prompt).toContain('声明【桃】')
   })
 })
+
+/**
+ * 打出模式：求闪、求桃、无懈窗口。
+ *
+ * 和使用模式共用同一套质疑流程，所以这里不重复验证质疑本身，
+ * 只钉住打出模式独有的三件事：
+ * 1. 入口出现在**所有**求牌请求里，而不是只有求闪；
+ * 2. 成立之后走的是**原来那条结算路径**，不新造牌；
+ * 3. 不成立时等同于放弃，原请求该怎么继续还怎么继续。
+ */
+
+/** 让 p1 对 p0 出一张杀，停在向 p0 求闪的那一刻。 */
+function slashAtOwner(game: SanguoshaGame): void {
+  game.state.currentPlayerId = 'p1'
+  const slashId = give(game, 'p1', '杀')
+  game.act('p1', `play:${slashId}:p0`)
+}
+
+/** 于吉声明用蛊惑打出，扣 cardId。停在质疑那一步。 */
+function declareRespond(game: SanguoshaGame, cardId: string): void {
+  answer(game, { actionId: 'guhuo-respond' })
+  answer(game, { cardIds: [cardId] })
+}
+
+describe('打出模式：求闪', () => {
+  it('求闪的请求里有蛊惑入口，无人质疑则杀被闪掉', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    slashAtOwner(game)
+
+    const request = pending(game)
+    expect(request?.kind === 'respond-card' && request.actionIds, '求闪时应当能用蛊惑')
+      .toContain('guhuo-respond')
+
+    const hpBefore = game.state.players[0].hp
+    declareRespond(game, cardId)
+    respondChallenges(game, [])
+
+    expect(game.state.players[0].hp, '闪成立，不掉血').toBe(hpBefore)
+    expect(game.state.zones.discardPile, '那张牌被当作闪打出去了').toContain(cardId)
+    expect(game.state.guhuoResponse, '收尾之后不留状态').toBeNull()
+    assertGameInvariants(game.state)
+  })
+
+  it('假牌被质疑：闪不生效，于吉照常受伤', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    slashAtOwner(game)
+
+    const hpBefore = game.state.players[0].hp
+    const drawnBefore = game.state.players[1].zones.hand.length
+    declareRespond(game, cardId)
+    respondChallenges(game, ['p1'])
+
+    expect(game.state.players[0].hp, '闪没打出来，杀照常结算').toBe(hpBefore - 1)
+    expect(game.state.players[1].zones.hand.length, '质疑成功摸一张').toBe(drawnBefore + 1)
+    assertGameInvariants(game.state)
+  })
+
+  it('红桃真闪被质疑：惩罚照给，闪仍然生效', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '闪', 'heart')
+    slashAtOwner(game)
+
+    const ownerHp = game.state.players[0].hp
+    const challengerHp = game.state.players[1].hp
+    declareRespond(game, cardId)
+    respondChallenges(game, ['p1'])
+
+    expect(game.state.players[1].hp, '真牌，质疑者失去体力').toBe(challengerHp - 1)
+    expect(game.state.players[0].hp, '红桃真牌仍然结算').toBe(ownerHp)
+    assertGameInvariants(game.state)
+  })
+
+  it('扣置期间其他人看不到那张牌', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    slashAtOwner(game)
+    declareRespond(game, cardId)
+
+    expect(privateZoneCards(game.state, 'guhuo-respond'), '牌在私有区里').toEqual([cardId])
+    const view = JSON.stringify(game.viewFor('p1'))
+    expect(view, '别人的视图里不该出现这张牌的 id').not.toContain(cardId)
+    assertGameInvariants(game.state)
+  })
+})
+
+describe('打出模式：濒死求桃', () => {
+  it('可以声明打出桃救自己', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    game.state.players[0].hp = 1
+    slashAtOwner(game)
+    // 没有闪，杀直接命中，进入濒死求桃
+    answer(game, { actionId: 'respond-pass' })
+
+    // 求桃按座次问一圈，先走到于吉自己那一问
+    while (pending(game)?.playerId !== 'p0') answer(game, { actionId: 'rescue-pass' })
+    const rescue = pending(game)
+    expect(rescue?.kind, '应当在求桃').toBe('rescue')
+    expect(rescue?.kind === 'rescue' && rescue.actionIds, '求桃时也能用蛊惑')
+      .toContain('guhuo-respond')
+
+    declareRespond(game, cardId)
+    respondChallenges(game, [])
+
+    expect(game.state.players[0].alive, '桃成立，救回来了').toBe(true)
+    expect(game.state.players[0].hp).toBe(1)
+    assertGameInvariants(game.state)
+  })
+})
+
+describe('打出模式：无懈可击', () => {
+  it('无懈窗口里可以声明打出无懈，锦囊被抵消', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    game.state.currentPlayerId = 'p1'
+    const trickId = give(game, 'p1', '过河拆桥')
+    give(game, 'p2', '杀')
+    game.act('p1', `play:${trickId}:p2`)
+
+    const request = game.state.pendingRequests.find((candidate) => candidate.playerId === 'p0')
+    expect(request?.kind === 'respond-card' && request.actionIds, '无懈窗口里应当能用蛊惑')
+      .toContain('guhuo-respond')
+
+    const handBefore = game.state.players[2].zones.hand.length
+    game.respond({ requestId: request!.id, playerId: 'p0', payload: { actionId: 'guhuo-respond' } })
+    answer(game, { cardIds: [cardId] })
+    respondChallenges(game, [])
+
+    expect(game.state.players[2].zones.hand.length, '过河拆桥被无懈掉了').toBe(handBefore)
+    assertGameInvariants(game.state)
+  })
+})
+
+describe('打出模式的边界', () => {
+  it('同一时刻不会嵌套第二次蛊惑', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    give(game, 'p0', '桃')
+    slashAtOwner(game)
+    declareRespond(game, cardId)
+
+    // 质疑进行中，此时任何求牌请求都不该再给蛊惑入口
+    for (const request of game.state.pendingRequests) {
+      if ('actionIds' in request) {
+        expect(request.actionIds, '蛊惑不能套娃').not.toContain('guhuo-respond')
+      }
+    }
+    assertGameInvariants(game.state)
+  })
+
+  it('手里没牌就没有蛊惑入口', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    slashAtOwner(game)
+
+    const request = pending(game)
+    expect(request?.kind === 'respond-card' && request.actionIds, '没手牌就扣不出来')
+      .not.toContain('guhuo-respond')
+    assertGameInvariants(game.state)
+  })
+})
+
+describe('打出模式的界面', () => {
+  it('求闪面板上有一个「发动【蛊惑】」按钮，且不泄露手牌', async () => {
+    const { createSSRApp } = await import('vue')
+    const { renderToString } = await import('vue/server-renderer')
+    const SgsRequestDock = (await import('@/sanguosha/components/SgsRequestDock.vue')).default
+
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    give(game, 'p0', '无中生有')
+    slashAtOwner(game)
+
+    const view = game.viewFor('p0')
+    const request = view.pendingRequest!
+    const html = await renderToString(createSSRApp(SgsRequestDock, { request, view }))
+
+    expect(html).toContain('发动【蛊惑】')
+    expect(html, '按钮上不该写出扣的是什么牌').not.toContain('打出【无中生有】')
+    expect((html.match(/发动【蛊惑】/g) ?? []).length, '只有一个入口').toBe(1)
+  })
+})

@@ -12,6 +12,7 @@ import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../
 import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { PASS_ROUND_ACTION } from '../nullification'
+import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
 import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
@@ -424,6 +425,9 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   // 八卦阵不是手牌，但同样是「打出闪」的一种途径，必须出现在合法动作里，
   // 否则前端永远点不到它——服务端支持不等于前端能用。
   if (allowBagua && canInvokeBagua(host.state, responderId)) actionIds.push(BAGUA_ACTION_ID)
+  // 于吉【蛊惑】：声明打出一张【闪】。入口只是多一条动作 id，
+  // 挂起和恢复由 game.respondInner 统一处理
+  if (canGuhuoRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     // id 必须唯一：主公技代打会在同一个 seq 里连着问好几个人，
@@ -647,8 +651,10 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     responseCardId = actionId.slice(prefix.length)
     const responder = player(host.state, response.playerId)
     const heldName = host.state.cards[responseCardId]?.name
-    const convertible = resolution.kind === 'slash'
-      && dodgeViewAsOptions(host.state, response.playerId).some((option) => option.cardId === responseCardId)
+    // 蛊惑成立的那一瞬间，那张牌被临时报成声明的牌，沿用这里原有的校验
+    const granted = guhuoGrantedAs(host.state, response.playerId, responseCardId) === requiredName
+    const convertible = granted || (resolution.kind === 'slash'
+      && dodgeViewAsOptions(host.state, response.playerId).some((option) => option.cardId === responseCardId))
     if (!responder.zones.hand.includes(responseCardId) || (heldName !== requiredName && !convertible)) {
       throw new Error(`响应牌不是该玩家持有的${requiredName}`)
     }

@@ -8,6 +8,7 @@ import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 import { effectiveCardName, moveCard } from './zones'
 import { effectiveCardSuit, skillsOf, type SkillHost } from './skills/runtime'
 import { NULLIFICATION_TIMEOUT_MS, nullificationCardIds } from './nullification'
+import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillIdsOf } from '../data/characters/standard'
 
 /**
@@ -298,13 +299,16 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
   // 这里原来是不分青红皂白挨个问一遍，每张延时锦囊都要空转一整圈，
   // 判定阶段因此卡很久（用户报的「太繁琐」）。
   const cardIds = judgment.lastNullifierId === responderId ? [] : nullificationCardIds(host.state, responderId)
-  if (cardIds.length === 0) {
+  const canGuhuo = judgment.lastNullifierId !== responderId
+    && canGuhuoRespond(host.state, responderId, '无懈可击', skillIdsOf)
+  if (cardIds.length === 0 && !canGuhuo) {
     judgment.responderIndex += 1
     requestCurrentNullification(host)
     return
   }
   const actionIds = cardIds.map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
+  if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
   const request: RespondCardRequest = {
     id: `request-judge-${host.state.seq}-${host.state.decisions.length}-${judgment.responderIndex}`,
     kind: 'respond-card',
@@ -354,7 +358,11 @@ export function resolveJudgmentResponse(host: JudgmentEngineHost, request: Respo
     if (!actionId.startsWith('respond-nullification:')) throw new Error('响应 action 类型不匹配')
     cardId = actionId.slice('respond-nullification:'.length)
     const responder = player(host.state, response.playerId)
-    if (!responder.zones.hand.includes(cardId) || host.state.cards[cardId]?.name !== '无懈可击') throw new Error('响应牌不是该玩家持有的无懈可击')
+    // 蛊惑成立的那一瞬间，那张牌被临时报成【无懈可击】，沿用这里原有的校验
+    const granted = guhuoGrantedAs(host.state, response.playerId, cardId) === '无懈可击'
+    if (!responder.zones.hand.includes(cardId) || (!granted && host.state.cards[cardId]?.name !== '无懈可击')) {
+      throw new Error('响应牌不是该玩家持有的无懈可击')
+    }
   }
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
   host.state.decisions.push({ index: host.state.decisions.length, requestId: request.id, playerId: response.playerId, kind: request.kind, payload: structuredClone(response.payload) })

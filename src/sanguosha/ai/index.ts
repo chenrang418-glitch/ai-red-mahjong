@@ -235,6 +235,12 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
+      // 蛊惑扣掉的牌不管真假都花出去了，所以挑手上最不值钱的那张
+      if (request.prompt.startsWith('【蛊惑】')) {
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
+      }
       // 弃牌阶段挑价值最低的丢；其余场合挑第一张够用
       const sorted = request.purpose === 'discard-phase'
         ? [...request.cardIds].sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
@@ -355,6 +361,13 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         ?? (request.requiredCardName === '无懈可击' ? nullificationChoice(context, request.actionIds) : null)
         ?? (request.actionIds.includes('invoke-bagua') ? 'invoke-bagua' : null)
       if (played) return { ...base, payload: { actionId: played } }
+      /*
+       * 于吉【蛊惑】打出模式：手上真的没有这张牌时才诈一次。
+       * 有真牌就走上面的 preferPlay，不必冒被质疑的风险。
+       */
+      if (request.actionIds.includes('guhuo-respond') && shouldGuhuoRespond(context, request.requiredCardName)) {
+        return { ...base, payload: { actionId: 'guhuo-respond' } }
+      }
       // 「本轮均不使用」只在**每个目标都不值得拦**时才用：
       // 一刀切会把后面该拦的目标一起放弃掉
       const passAll = request.actionIds.includes('respond-pass-round') && canDeclineWholeRound(context)
@@ -369,12 +382,17 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
 
     case 'rescue': {
       // 濒死救援：自己一定救自己，别人看阵营
-      const playable = request.actionIds.filter((id) => id !== 'rescue-pass')
-      if (playable.length === 0) return { ...base, payload: { actionId: 'rescue-pass' } }
+      const playable = request.actionIds.filter((id) => id !== 'rescue-pass' && id !== 'guhuo-respond')
       const savingSelf = request.dyingPlayerId === request.playerId
       // 敌意为负说明是自己人（尤其是主公），一定要救
       const worthSaving = savingSelf || hostility(context.view, context.suspicion, request.dyingPlayerId) <= 0
-      return { ...base, payload: { actionId: worthSaving ? playable[0] : 'rescue-pass' } }
+      if (!worthSaving) return { ...base, payload: { actionId: 'rescue-pass' } }
+      if (playable.length > 0) return { ...base, payload: { actionId: playable[0] } }
+      // 没有真桃，才轮到于吉【蛊惑】赌一把
+      if (request.actionIds.includes('guhuo-respond') && shouldGuhuoRespond(context, '桃')) {
+        return { ...base, payload: { actionId: 'guhuo-respond' } }
+      }
+      return { ...base, payload: { actionId: 'rescue-pass' } }
     }
 
     case 'arrange-cards': {
@@ -502,6 +520,22 @@ function mamaTargetScore(context: AIContext, targetId: PlayerId): number {
   if (attitude <= 0) return -100 + attitude
   // 敌人：血越少价值越高
   return 50 + attitude * 5 + (target.maxHp - target.hp) * 4 - target.hp * 3
+}
+
+/**
+ * 要不要用【蛊惑】硬打出一张牌。
+ *
+ * 只在**真的拿不出**那张牌时才考虑：有真牌就正常打，没必要冒被质疑的风险。
+ * 越是救命的场合越值得赌（求桃、求闪），无懈那种锦标性质的就保守些。
+ */
+function shouldGuhuoRespond(context: AIContext, requiredCardName: string): boolean {
+  const me = myself(context.view)
+  if ((me.hand?.length ?? 0) === 0) return false
+  // 命悬一线：桃和闪都得赌
+  if (requiredCardName === '桃') return true
+  if (requiredCardName === '闪') return me.hp <= 2 || context.rng.nextInt(2) === 0
+  // 无懈这类不救命的，手牌宽裕时才诈
+  return (me.hand?.length ?? 0) >= 3 && context.rng.nextInt(3) === 0
 }
 
 /**
