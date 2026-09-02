@@ -92,12 +92,13 @@ const MIN_PLAYERS = 5
 const MAX_PLAYERS = 8
 const DEFAULT_TURN_SECONDS = 30
 /**
- * AI 之间的间隔。和单机的「标准」档对齐。
+ * AI 之间的间隔。和单机的「标准」档对齐（见 SanguoshaApp.vue 的 AI_PACE_MS）。
  *
- * 700ms 比表现事件本身还短——一次伤害要播 900ms，AI 已经走下一步了，
- * 动画永远在被追着跑，观感就是「太快，看不清发生了什么」。
+ * 间隔必须明显长于单条表现事件（伤害 900ms、阵亡 1200ms），
+ * 否则一步里连出几条事件时动画永远在被追着跑，观感就是「太快，看不清」。
+ * 改这个值时把单机那份一起改，两边对不上会让联机显得比单机快。
  */
-const AI_STEP_MS = 950
+const AI_STEP_MS = 1900
 /** 掉线后多久自动转托管。留一点时间给刷新页面 */
 const DISCONNECT_TRUSTEE_MS = 20_000
 const NEXT_ROUND_TIMEOUT_MS = 40_000

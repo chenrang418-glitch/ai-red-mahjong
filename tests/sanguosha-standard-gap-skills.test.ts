@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
-import { getCharacter } from '@/sanguosha/data/characters/standard'
+import { getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
@@ -70,16 +70,16 @@ describe('技能确实登记在武将身上', () => {
   })
 
   /*
-   * 司马懿【鬼才】还没做，故意用 todo 留在测试输出里。
+   * 司马懿【鬼才】曾经长期缺席，原因是判定当时是全同步的：
+   * 抽牌、发 JudgeResult、用掉结果、弃牌一气呵成，中间没有能插入请求的点。
    *
-   * 它要求判定能中途挂起：现在 `performJudgment` 和延时锦囊的判定都是全同步的
-   * ——抽牌、发 JudgeResult、用掉结果、弃牌一气呵成，中间没有可以插入请求的点。
-   * 鬼才必须在「牌已亮出、结果还没生效」时发问，所以判定得先变成可续接的状态机，
-   * 而刚烈、洛神、八卦阵、四种延时锦囊这些消费方都要跟着改成「前半段 + 续接」。
-   *
-   * 按空壳登记上去比不登记更糟——项目规则是只登记技能完整实现的武将。
+   * 2026-09-02 把判定改成了「翻牌 → 逐人询问改判 → 结算 + 续接」，
+   * 刚烈、洛神、八卦阵、铁骑、双雄和四种延时锦囊都改成了「前半段 + 续接」。
+   * 详细用例在 tests/sanguosha-guicai.test.ts，这里只留一条「他确实有这个技能」。
    */
-  it.todo('司马懿【鬼才】：需要先把判定改成可续接的状态机')
+  it('司马懿【鬼才】已经实现，不再是缺口', () => {
+    expect(skillIdsOf('simayi')).toContain('guicai')
+  })
 })
 
 describe('郭嘉【天妒】', () => {

@@ -2,7 +2,7 @@ import { resolveDamage } from '../../engine/damage'
 import { canTarget } from '../../engine/distance'
 import { drawCards } from '../../engine/draw'
 import { loseHp } from '../../engine/hp'
-import { performJudgment } from '../../engine/judgment'
+import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
@@ -183,13 +183,7 @@ registerSkillRuntime({
       drawCards(host.state, host.rng, ownerId, 2, (name, payload) => { host.dispatch(name, payload) })
       return
     }
-    const judged = performJudgment(host, ownerId, '双雄')
-    const owner = playerOf(host.state, ownerId)
-    if (host.state.zones.discardPile.includes(judged.id)) {
-      moveCard(host.state, judged.id, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
-      host.dispatch('GainCard', { playerId: ownerId, cardIds: [judged.id], reason: '双雄', revealed: true }, { targetId: ownerId, cardIds: [judged.id] })
-    }
-    owner.marks.shuangxiong = judged.color === 'red' ? 1 : 2
+    performJudgment(host, ownerId, '双雄', { tag: SHUANGXIONG_TAG, data: { ownerId } })
   },
   viewAs(state, ownerId) {
     const owner = playerOf(state, ownerId)
@@ -199,6 +193,18 @@ registerSkillRuntime({
       .filter((cardId) => state.cards[cardId]?.color !== judgedColor)
       .map((cardId) => ({ asCardName: '决斗', cardId, label: `将【${state.cards[cardId].name}】当【决斗】使用` }))
   },
+})
+
+const SHUANGXIONG_TAG = 'shuangxiong'
+
+registerJudgmentContinuation(SHUANGXIONG_TAG, (host, judged, data) => {
+  const ownerId = data.ownerId as PlayerId
+  const owner = playerOf(host.state, ownerId)
+  if (host.state.zones.discardPile.includes(judged.id)) {
+    moveCard(host.state, judged.id, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
+    host.dispatch('GainCard', { playerId: ownerId, cardIds: [judged.id], reason: '双雄', revealed: true }, { targetId: ownerId, cardIds: [judged.id] })
+  }
+  owner.marks.shuangxiong = judged.color === 'red' ? 1 : 2
 })
 
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [

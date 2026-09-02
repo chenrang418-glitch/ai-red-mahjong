@@ -1,5 +1,5 @@
 import { markUsedThisTurn, usedThisTurn } from './turn-usage'
-import { performJudgment } from './judgment'
+import { performJudgment, registerJudgmentContinuation } from './judgment'
 import { registerSkillRuntime, type SkillHost } from './skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
@@ -552,18 +552,26 @@ export function askTieji(host: SkillHost, sourceId: PlayerId, targetId: PlayerId
   return true
 }
 
+const TIEJI_TAG = 'tieji'
+
+registerJudgmentContinuation(TIEJI_TAG, (host, judged) => {
+  const resolution = host.state.cardResolution
+  if (judged.color === 'red' && resolution?.kind === 'slash') resolution.noDodge = true
+  // 判定挂起过也一样：控制权最终都要交回这次【杀】的结算
+  callbacks?.resumeSlashAfterEquipment(host)
+})
+
 registerSkillRuntime({
   id: TIEJI_SKILL,
   resume(host, ownerId, _resolution, response) {
     const invoked = (response.payload as { optionId?: string }).optionId === 'yes'
-    if (invoked) {
-      // 走统一的判定入口，判定相关的时机（天妒、鬼才）才对得上
-      const judged = performJudgment(host, ownerId, '铁骑')
-      const resolution = host.state.cardResolution
-      if (judged.color === 'red' && resolution?.kind === 'slash') resolution.noDodge = true
+    if (!invoked) {
+      callbacks?.resumeSlashAfterEquipment(host)
+      return
     }
-    // 无论发不发动，控制权都要交回这次【杀】的结算
-    callbacks?.resumeSlashAfterEquipment(host)
+    // 走统一的判定入口，判定相关的时机（天妒、鬼才）才对得上。
+    // 判定可能挂起等改判，所以收尾放进续接，两条路径共用一个出口
+    performJudgment(host, ownerId, '铁骑', { tag: TIEJI_TAG })
   },
 })
 

@@ -1,22 +1,18 @@
 import { drawCards } from './draw'
-import type { EventContext, GameEvent, GameEventName } from './events'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import { validateResponse } from './requests'
-import type { GameRng } from './rng'
 import { advancePhase } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
-import { beginJudgmentPhase } from './judgment'
+import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
 
-export interface PhaseEngineHost {
-  state: SanguoshaState
-  rng: GameRng
-  dispatch(
-    name: GameEventName,
-    payload?: Record<string, unknown>,
-    metadata?: Omit<GameEvent, 'id' | 'seq' | 'name' | 'payload'>,
-  ): EventContext
-}
+/**
+ * 阶段引擎的宿主。
+ *
+ * 继承 JudgmentEngineHost 而不是自己列三个字段：判定阶段会调 beginJudgmentPhase，
+ * 而判定现在可能挂起等改判、结束后还要继续发问，需要完整的 SkillHost 能力。
+ */
+export type PhaseEngineHost = JudgmentEngineHost
 
 function maxCards(state: SanguoshaState, playerId: PlayerId): number {
   const target = state.players.find((player) => player.id === playerId)

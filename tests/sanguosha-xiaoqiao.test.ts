@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
-import { performJudgment } from '@/sanguosha/engine/judgment'
+import { performJudgment, registerJudgmentContinuation, type JudgmentOutcome } from '@/sanguosha/engine/judgment'
 import { effectiveCardSuit } from '@/sanguosha/engine/skills/runtime'
 import type { CardId, GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
@@ -58,6 +58,9 @@ function revealQueuedTianxiang(game: SanguoshaGame): void {
   expect(game.state.pendingRequests[0]?.prompt).toContain('天香')
 }
 
+/** 续接注册表是模块级的，tag 取一个测试专用的名字，避免和真技能撞车。 */
+const HONGYAN_TEST_TAG = 'test:hongyan'
+
 describe('小乔【红颜】', () => {
   it('自己的黑桃牌在统一规则入口中视为红桃', () => {
     const game = gameWithXiaoqiao()
@@ -67,12 +70,18 @@ describe('小乔【红颜】', () => {
   })
 
   it('小乔的黑桃判定按红桃结果结算', () => {
+    // 判定不再有返回值：可能中途停下来问改判，结果只能从续接里拿
+    const seen: JudgmentOutcome[] = []
+    registerJudgmentContinuation(HONGYAN_TEST_TAG, (_host, judged) => { seen.push(judged) })
+
     const game = gameWithXiaoqiao('hongyan-judge')
     const spade = putSuitOnTop(game, 'spade')
-    const judged = performJudgment(game, 'p0', '红颜测试')
-    expect(judged.id).toBe(spade)
-    expect(judged.suit).toBe('heart')
-    expect(judged.color).toBe('red')
+    performJudgment(game, 'p0', '红颜测试', { tag: HONGYAN_TEST_TAG })
+
+    expect(seen, '没有改判技能在场，判定应当一次走完').toHaveLength(1)
+    expect(seen[0].id).toBe(spade)
+    expect(seen[0].suit).toBe('heart')
+    expect(seen[0].color).toBe('red')
     expect(game.state.zones.discardPile).toContain(spade)
     assertGameInvariants(game.state)
   })

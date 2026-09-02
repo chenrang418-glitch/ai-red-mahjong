@@ -49,6 +49,15 @@ export function assertGameInvariants(state: SanguoshaState): void {
       if (!state.pendingRequests.some((request) => request.id === requestId && request.kind === 'respond-card')) throw new Error('延时锦囊缺少无懈响应 Request')
     }
   }
+  if (state.retrial) {
+    // 改判窗口开着时，判定牌必须还在处理区，而且一定挂着一个改判 Request——
+    // 少了任何一项都说明判定卡在半路，牌局会静默停住
+    if (!state.zones.processingArea.includes(state.retrial.judgeCardId)) throw new Error('改判中的判定牌不在处理区')
+    const requestId = state.retrial.requestId
+    if (!state.pendingRequests.some((request) => request.id === requestId && request.kind === 'choose-cards' && request.purpose === 'retrial')) {
+      throw new Error('改判窗口缺少对应的 Request')
+    }
+  }
   if (state.turnUsage.slashUses < 0 || state.turnUsage.wineUses < 0 || state.turnUsage.wineDamageBonus < 0) throw new Error('回合用牌计数非法')
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')

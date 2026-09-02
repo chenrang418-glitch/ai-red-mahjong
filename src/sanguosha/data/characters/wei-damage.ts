@@ -1,4 +1,4 @@
-import { performJudgment } from '../../engine/judgment'
+import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import { loseHp } from '../../engine/hp'
 import { hiddenHandSlot } from '../../engine/cards/host'
 import type { ChooseCardsRequest, ChooseOptionRequest, DistributeCardsRequest, GameResponse } from '../../engine/requests'
@@ -195,6 +195,37 @@ registerSkillRuntime({
 })
 
 // —— 夏侯惇【刚烈】——
+const GANGLIE_TAG = 'ganglie'
+
+registerJudgmentContinuation(GANGLIE_TAG, (host, judged, data) => {
+  const ownerId = data.ownerId as PlayerId
+  const sourceId = data.sourceId as PlayerId
+  if (judged.suit === 'heart') return
+  const source = host.state.players.find((candidate) => candidate.id === sourceId)
+  if (!source?.alive) return
+  // 手牌不足两张就没得选，直接失去体力
+  if (source.zones.hand.length < 2) {
+    loseHp(host, sourceId, 1, '刚烈')
+    return
+  }
+  host.askSkill({
+    skillId: 'ganglie',
+    ownerId,
+    step: 'choose',
+    data: { sourceId },
+    build: (requestId): ChooseOptionRequest => ({
+      id: requestId,
+      kind: 'choose-option',
+      // 这一问是问伤害来源，不是问夏侯惇
+      playerId: sourceId,
+      prompt: '【刚烈】：弃置两张手牌，或失去一点体力',
+      timeoutMs: 20_000,
+      optional: false,
+      options: [{ id: 'discard', label: '弃置两张手牌' }, { id: 'lose-hp', label: '失去一点体力' }],
+    }),
+  })
+})
+
 registerSkillRuntime({
   id: 'ganglie',
   triggers: [{
@@ -220,29 +251,8 @@ registerSkillRuntime({
     if (resolution.step === 'ask') {
       if (!chose(response, 'yes')) return
       if (!source?.alive) return
-      const judged = performJudgment(host, ownerId, '刚烈')
-      if (judged.suit === 'heart') return
-      // 手牌不足两张就没得选，直接失去体力
-      if (source.zones.hand.length < 2) {
-        loseHp(host, sourceId, 1, '刚烈')
-        return
-      }
-      host.askSkill({
-        skillId: 'ganglie',
-        ownerId,
-        step: 'choose',
-        data: { sourceId },
-        build: (requestId): ChooseOptionRequest => ({
-          id: requestId,
-          kind: 'choose-option',
-          // 这一问是问伤害来源，不是问夏侯惇
-          playerId: sourceId,
-          prompt: '【刚烈】：弃置两张手牌，或失去一点体力',
-          timeoutMs: 20_000,
-          optional: false,
-          options: [{ id: 'discard', label: '弃置两张手牌' }, { id: 'lose-hp', label: '失去一点体力' }],
-        }),
-      })
+      // 判定可能因为改判挂起，红桃与否要等续接才知道
+      performJudgment(host, ownerId, '刚烈', { tag: GANGLIE_TAG, data: { ownerId, sourceId } })
       return
     }
 
@@ -346,6 +356,25 @@ registerSkillRuntime({
   },
 })
 
+// —— 司马懿【鬼才】——
+//
+// 「每当一名角色的判定牌生效前，你可以打出一张手牌代替之。」
+//
+// 判定原本是一次同步翻牌，没有任何插入点；鬼才要求玩家**看到牌面之后**再决定，
+// 所以判定被拆成了「翻牌 → 逐人询问改判 → 结算」（见 engine/judgment.ts）。
+// 这里只负责报告「我现在有哪些牌能用来改判」，问不问、问几轮由判定引擎统一安排——
+// 技能自己不判断该不该改，也不碰判定结果。
+//
+// 手牌为空就返回空数组，判定引擎会跳过他，不会发出一个点不动的请求。
+registerSkillRuntime({
+  id: 'guicai',
+  retrial(state, ownerId) {
+    const owner = state.players.find((player) => player.id === ownerId)
+    // 任何一名角色的判定都能改，包括司马懿自己的
+    return owner?.alive ? [...owner.zones.hand] : []
+  },
+})
+
 export const WEI_DAMAGE_CHARACTERS: readonly CharacterDefinition[] = [
   {
     id: 'caocao',
@@ -366,7 +395,10 @@ export const WEI_DAMAGE_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 3,
     pack: 'standard',
-    skills: [{ id: 'fankui', name: '反馈', description: '每当你受到伤害后，你可以获得伤害来源的一张牌。' }],
+    skills: [
+      { id: 'fankui', name: '反馈', description: '每当你受到伤害后，你可以获得伤害来源的一张牌。' },
+      { id: 'guicai', name: '鬼才', description: '每当一名角色的判定牌生效前，你可以打出一张手牌代替之。' },
+    ],
   },
   {
     id: 'xiahoudun',

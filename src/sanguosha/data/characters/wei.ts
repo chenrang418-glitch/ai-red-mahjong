@@ -1,5 +1,5 @@
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
-import { performJudgment } from '../../engine/judgment'
+import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
@@ -70,19 +70,26 @@ registerSkillRuntime({
     if (!chose(response, 'yes')) return
     const owner = playerOf(host.state, ownerId)
     if (!owner.alive) return
-    // 洛神是一次真正的判定，走统一入口，判定相关的时机才对得上
-    const judged = performJudgment(host, ownerId, '洛神')
-    if (judged.color !== 'black') return
-    // performJudgment 结束时判定牌已经进了弃牌堆，从那里取回来
-    moveCard(host.state, judged.id, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
-    host.dispatch('GainCard', { playerId: ownerId, cardIds: [judged.id], reason: '洛神' }, { targetId: ownerId, cardIds: [judged.id] })
-    host.askSkill({
-      skillId: 'luoshen',
-      ownerId,
-      step: 'ask',
-      build: (requestId) => yesNo(requestId, ownerId, '再次发动【洛神】？'),
-    })
+    // 洛神是一次真正的判定，走统一入口，判定相关的时机才对得上。
+    // 判定可能因为改判（鬼才）挂起，所以结果处理写在续接里
+    performJudgment(host, ownerId, '洛神', { tag: LUOSHEN_TAG, data: { ownerId } })
   },
+})
+
+const LUOSHEN_TAG = 'luoshen'
+
+registerJudgmentContinuation(LUOSHEN_TAG, (host, judged, data) => {
+  const ownerId = data.ownerId as PlayerId
+  if (judged.color !== 'black') return
+  // 判定结束时判定牌已经进了弃牌堆，从那里取回来
+  moveCard(host.state, judged.id, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
+  host.dispatch('GainCard', { playerId: ownerId, cardIds: [judged.id], reason: '洛神' }, { targetId: ownerId, cardIds: [judged.id] })
+  host.askSkill({
+    skillId: 'luoshen',
+    ownerId,
+    step: 'ask',
+    build: (requestId) => yesNo(requestId, ownerId, '再次发动【洛神】？'),
+  })
 })
 
 // —— 许褚【裸衣】——

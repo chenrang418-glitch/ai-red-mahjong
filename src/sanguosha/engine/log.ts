@@ -2,6 +2,9 @@ import type { GameEvent } from './events'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 import { displayCharacterName } from '../data/characters/standard'
 
+const JUDGE_SUIT: Record<string, string> = { spade: '♠', heart: '♥', club: '♣', diamond: '♦' }
+const JUDGE_RANK: Record<number, string> = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }
+
 /**
  * 战报。
  *
@@ -85,7 +88,11 @@ export function describeEvent(state: SanguoshaState, event: GameEvent, viewerId:
       const judged = cardName(state, payload.judgeCardId as string)
       const owner = nameOf(state, (payload.playerId as PlayerId) ?? event.targetId)
       const reason = (payload.reason as string) || cardName(state, payload.delayedCardId as string)
-      return judged ? `${owner} 判定${reason ? `【${reason}】` : ''}翻出【${judged}】` : null
+      // 战报和舞台一样，要报花色点数——判定成不成立全看这两项
+      const suit = payload.suit as string | undefined
+      const rank = payload.rank as number | undefined
+      const face = suit ? `${JUDGE_SUIT[suit] ?? ''}${rank ? JUDGE_RANK[rank] ?? String(rank) : ''}` : ''
+      return judged ? `${owner} 判定${reason ? `【${reason}】` : ''}翻出【${judged}】${face}` : null
     }
 
     case 'GainCard': {

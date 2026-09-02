@@ -5,7 +5,7 @@ import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../re
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
 import { effectiveCardColor, getSkillRuntime, isTargetProhibited, skillsOf } from '../skills/runtime'
-import { performJudgment } from '../judgment'
+import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
@@ -321,6 +321,35 @@ function askSlashInterceptors(host: CardEngineHost): boolean {
   return false
 }
 
+const BAGUA_TAG = 'bagua'
+
+/**
+ * 八卦阵判定完成后的分支。
+ *
+ * 判定牌是红色就等同于打出了一张【闪】，黑色则视为没有响应、伤害照常结算。
+ * 结算状态从 `state.cardResolution` 现取——判定期间牌局没有换过这次结算，
+ * 但中间可能插过改判询问，所以不能沿用调用前抓下来的引用。
+ */
+registerJudgmentContinuation(BAGUA_TAG, (host, judged) => {
+  const engineHost = host as unknown as CardEngineHost
+  const resolution = engineHost.state.cardResolution
+  if (resolution?.kind !== 'slash') return
+  if (judged.color === 'red') {
+    finishDodgedSlash(engineHost, resolution)
+    return
+  }
+  resolution.stage = 'awaiting-dying'
+  resolveDamage(engineHost, {
+    sourceId: resolution.sourceId,
+    targetId: resolution.targetId,
+    amount: resolution.damageAmount,
+    nature: resolution.damageNature,
+    cardName: '杀',
+    cardId: resolution.cardId,
+  })
+  if (!engineHost.state.dying && !engineHost.state.damageChain) resumeCardResolution(engineHost)
+})
+
 /** 向【杀】的当前目标发出求闪。插入点结束之后也回到这里。 */
 function askSlashDodge(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
@@ -513,21 +542,8 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     removeResponseRequest(host.state, request.id)
     resolution.requestId = null
     recordResponse(host, request, response)
-    const judged = performJudgment(host, response.playerId, '八卦阵')
-    if (judged.color === 'red') {
-      finishDodgedSlash(host, resolution)
-      return
-    }
-    resolution.stage = 'awaiting-dying'
-    resolveDamage(host, {
-      sourceId: resolution.sourceId,
-      targetId: resolution.targetId,
-      amount: resolution.damageAmount,
-      nature: resolution.damageNature,
-      cardName: '杀',
-      cardId: resolution.cardId,
-    })
-    if (!host.state.dying && !host.state.damageChain) resumeCardResolution(host)
+    // 判定可能因为改判（鬼才）挂起，红黑分支写在续接里
+    performJudgment(host, response.playerId, '八卦阵', { tag: BAGUA_TAG })
     return
   }
 

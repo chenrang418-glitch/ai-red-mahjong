@@ -70,7 +70,7 @@ export function useLocalSanguosha() {
 
   let aiRng = new GameRng('ai')
   let suspicion: SuspicionMap = {}
-  let delayMs = 950
+  let delayMs = 1900
   let timer: number | null = null
   let generation = 0
 
@@ -169,8 +169,15 @@ export function useLocalSanguosha() {
         error.value = cause instanceof Error ? cause.message : String(cause)
       }
     }
-    // 没有实质操作的自动阶段（判定、弃牌、阶段流转）走短间隔，跟着整体慢一档
-    const visualDelay = delayMs <= 0 ? 0 : automatic ? Math.min(delayMs, 320) : delayMs
+    /**
+     * 自动阶段（判定、弃牌、阶段流转）以前封顶 320ms。
+     *
+     * 但**判定就是走这条路**：翻牌、看花色、结算全在这 320ms 里过完，
+     * 用户报「还没看清就判定结束了」，根因在这个封顶，不在 AI 间隔。
+     * 改成跟随整体节奏的一半，最少 700ms——够看清判定牌的花色点数，
+     * 又不会让纯粹的阶段流转拖沓。
+     */
+    const visualDelay = delayMs <= 0 ? 0 : automatic ? Math.max(700, Math.round(delayMs / 2)) : delayMs
     if (visualDelay <= 0) run()
     else timer = window.setTimeout(run, visualDelay)
   }
@@ -181,7 +188,7 @@ export function useLocalSanguosha() {
     error.value = ''
     log.value = []
     presentationEvents.value = []
-    delayMs = options.aiDelayMs ?? 950
+    delayMs = options.aiDelayMs ?? 1900
     currentDifficulty = options.difficulty
     const seed = options.seed ?? `local-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
     aiRng = new GameRng(`ai:${seed}`)

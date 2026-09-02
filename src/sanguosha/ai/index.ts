@@ -1,8 +1,8 @@
 import type { LegalAction } from '../engine/actions'
-import type { GameRequest, GameResponse } from '../engine/requests'
+import type { ChooseCardsRequest, GameRequest, GameResponse } from '../engine/requests'
 import { assertNever } from '../engine/requests'
 import type { GameRng } from '../engine/rng'
-import type { PlayerId } from '../engine/types'
+import type { PlayerId, Suit } from '../engine/types'
 import type { PlayerView } from '../engine/view'
 import { hostility, PROTECTED, type SuspicionMap } from './belief'
 
@@ -209,6 +209,9 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     case 'choose-cards': {
       const pool = [...request.cardIds, ...request.hiddenCardSlots]
       if (request.min === 0 && pool.length === 0) return { ...base, payload: { cardIds: [] } }
+      if (request.purpose === 'retrial' && request.retrial) {
+        return { ...base, payload: { cardIds: decideRetrial(context, request) } }
+      }
       // 弃牌阶段挑价值最低的丢；其余场合挑第一张够用
       const sorted = request.purpose === 'discard-phase'
         ? [...request.cardIds].sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
@@ -345,6 +348,51 @@ function nullificationChoice(context: AIContext, actionIds: readonly string[]): 
   if (targetAttitude > 0) return null
   // 说不准的情况下，看放牌的人是不是敌人
   return hostility(context.view, context.suspicion, resolution.sourceId) > 0 ? playable[0] : null
+}
+
+/**
+ * 判定「对被判定的角色是不是好结果」。
+ *
+ * 所有判定都满足同一条：**判定的发起者就是希望结果为 good 的那个人**。
+ * 乐不思蜀判红桃＝跳过被免掉，闪电判非黑桃 2~9＝没劈到，八卦阵判红＝闪掉了，
+ * 铁骑判红＝马超自己的杀更强，刚烈判非红桃＝夏侯惇反伤成立，洛神判黑＝甄姬继续摸。
+ * 所以下面只写「对判定发起者是不是好事」，敌我关系在调用处一次性反转。
+ */
+const JUDGE_FAVOURABLE: Record<string, (suit: Suit, rank: number) => boolean> = {
+  乐不思蜀: (suit) => suit === 'heart',
+  兵粮寸断: (suit) => suit === 'club',
+  闪电: (suit, rank) => !(suit === 'spade' && rank >= 2 && rank <= 9),
+  八卦阵: (suit) => suit === 'heart' || suit === 'diamond',
+  铁骑: (suit) => suit === 'heart' || suit === 'diamond',
+  刚烈: (suit) => suit !== 'heart',
+  洛神: (suit) => suit === 'spade' || suit === 'club',
+}
+
+/**
+ * 改判（鬼才）的取舍。
+ *
+ * 默认是**不改**：改判要付一张手牌，乱改比不改更亏。
+ * 只有「现在的结果和我希望的相反、而且我手里有能翻转它的牌」才出手。
+ * 判不出好坏的理由（双雄这类无所谓红黑的）一律放弃。
+ */
+function decideRetrial(context: AIContext, request: ChooseCardsRequest): string[] {
+  const info = request.retrial
+  if (!info) return []
+  const favourable = JUDGE_FAVOURABLE[info.reason]
+  if (!favourable) return []
+
+  const me = myself(context.view)
+  // 判定发起者是自己人就希望 good，是对手就希望 bad
+  const wantFavourable = info.judgingPlayerId === me.id
+    || hostility(context.view, context.suspicion, info.judgingPlayerId) <= 0
+  if (favourable(info.suit, info.rank) === wantFavourable) return []
+
+  const candidates = new Set(request.cardIds)
+  const replacement = (me.hand ?? [])
+    .filter((card) => candidates.has(card.id) && favourable(card.suit, card.rank) === wantFavourable)
+    // 换牌时优先丢价值低的：一样能翻盘就别拿桃去改判
+    .sort((left, right) => cardValue(left.name) - cardValue(right.name))[0]
+  return replacement ? [replacement.id] : []
 }
 
 function cardName(context: AIContext, cardId: string): string {

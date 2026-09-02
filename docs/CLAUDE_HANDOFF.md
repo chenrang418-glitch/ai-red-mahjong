@@ -28,9 +28,9 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | 68 文件 / **626 用例 + 1 todo** |
+| `npm test` | 69 文件 / **643 用例，无 todo** |
 | `npx playwright test` | **49 通过**（Chromium 45 + WebKit 4） |
-| `npm run sanguosha:soak -- 200` | 5 人局与 8 人局各 200 局全部完成 |
+| `npm run sanguosha:soak -- 400` | 5 人局与 8 人局各 400 局全部完成 |
 | `npm run test:online:smoke` | 通过 |
 | `npm run typecheck` / `typecheck:online` | 通过 |
 | `npm run build` / `build:online` | 通过（Worker dry-run 通过） |
@@ -40,6 +40,11 @@
 端口约定：麻将目录 dev 5180 / e2e 4173；本目录 dev **5190** / e2e **4183**。
 `preview_start` 读的是**麻将目录**的 `.claude/launch.json`，配置名要用 `sgs`（5190），
 用 `web` 会起到麻将项目（5180）。这个坑踩过两次。
+
+**每次开预览前先确认 5190 没被上一次会话的 vite 进程占着**——
+这个坑到 2026-09-02 已经第三次了：
+`Get-NetTCPConnection -LocalPort 5190` 查出 PID，`Stop-Process -Id <PID> -Force` 杀掉。
+前两次是新服务器静默连到旧代码，白测了一个小时。
 
 ## 已完成的范围
 
@@ -215,15 +220,31 @@
 若用户要去掉代价，改动在 `engine/equipment-requests.ts` 的 `askMengjin`，
 删掉中间那一步即可，`tests/sanguosha-pangde.test.ts` 里有两条相应用例要跟着改。
 
-## 标准包尚缺的技能
+## 判定与改判（2026-09-02 重做）
 
-**司马懿【鬼才】还没实现**，所以他目前只有【反馈】。
-这不是有意简化——郭嘉【天妒】和马超【铁骑】原来也漏了，已于 2026-09-02 补上。
+判定**不再是一次同步翻牌**，而是三段：翻牌 → 逐人询问改判 → 结算并跑续接。
 
-鬼才要求判定能中途挂起，而 `performJudgment` 和延时锦囊的判定都是全同步的。
-要做就得把判定改成可续接的状态机，刚烈、洛神、八卦阵、四种延时锦囊全部要跟着改。
-**做完顺带解锁张角【鬼道】**（同一个改判机制）。缺口用 `it.todo` 留在
-`tests/sanguosha-standard-gap-skills.test.ts` 里。
+- `performJudgment(host, playerId, reason, { tag, data })` **没有返回值**。
+  判定之后要做的事写成续接，用 `registerJudgmentContinuation(tag, fn)` 注册。
+  用字符串 tag 而不是回调，是因为中间可能挂起等回答，
+  **闭包活不过 Durable Object 休眠，字符串活得下来**。
+- 改判窗口在 `state.retrial`，只放可序列化数据；`invariants.ts` 会检查
+  「窗口开着就必须有对应的 Request、判定牌必须在处理区」。
+- 技能侧只需要实现 `SkillRuntime.retrial(state, ownerId, judgingPlayerId): CardId[]`，
+  报告「现在有哪些牌能用来改判」。**不要在技能里判断该不该改**，
+  也不要碰判定结果——问几轮、谁先问，由判定引擎统一安排。
+- **没有任何人能改判时，三段在同一次调用里走完，不多出任何请求。**
+  这条是回归保护，`tests/sanguosha-guicai.test.ts` 第一组钉着它。
+
+消费方（延时锦囊、八卦阵、铁骑、刚烈、洛神、双雄）都是「前半段 + 续接」的写法，
+再加同类效果照抄其中一个即可。
+
+**张角【鬼道】现在只差登记**：改判机制已经在了，实现一个 `retrial` 就行
+（鬼道限黑色牌，注意它还会把判定牌的花色改成自己那张的）。
+
+AI 侧：改判请求带结构化的 `ChooseCardsRequest.retrial`，
+`ai/index.ts` 的 `JUDGE_FAVOURABLE` 是「这次判定对**发起者**好不好」的表，
+新增会判定的技能记得往表里加一行，否则 AI 面对它一律放弃改判。
 
 > 给已有武将补技能之前，**先查一遍谁在测试里被当成「无技能填充角色」**。
 > 加铁骑时马超正是那个角色，一次改动让 4 个文件 25 条测试变红。

@@ -19,17 +19,25 @@ type Screen = 'home' | 'setup' | 'online' | 'playing' | 'rules' | 'art'
 
 const screen = ref<Screen>(new URLSearchParams(window.location.search).has('room') ? 'online' : 'home')
 const audioOpen = ref(false)
+/** 艺术集从首页和规则页都进得去，返回键要回到来时那一屏。 */
+const artBackTo = ref<Screen>('home')
+function openArt(from: Screen): void {
+  artBackTo.value = from
+  screen.value = 'art'
+}
 const game = useLocalSanguosha()
 const glossary = provideSgsGlossary()
 type AIPace = 'fast' | 'normal' | 'relaxed'
 const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty, aiPace: 'normal' as AIPace })
 /**
- * 电脑节奏，整体比原来慢一档（450/700/950 → 700/950/1300）。
+ * 电脑节奏。经过两轮反馈，整体已经放慢到原来的三倍
+ * （450/700/950 → 700/950/1300 → 1400/1900/2600）。
  *
- * 原来的「标准」700ms 比表现事件本身还短：一次伤害要播 900ms，
- * AI 已经走下一步了，动画一直在被追着跑。放慢之后两边才对得上。
+ * 判断依据是表现事件本身的时长：一次伤害要播 900ms、阵亡 1200ms，
+ * 间隔必须明显长于单条事件，玩家才有时间读完再看下一条。
+ * 1300ms 那一档只比伤害动画长 400ms，一旦一步里连出好几条事件就又被追着跑。
  */
-const AI_PACE_MS: Record<AIPace, number> = { fast: 700, normal: 950, relaxed: 1300 }
+const AI_PACE_MS: Record<AIPace, number> = { fast: 1400, normal: 1900, relaxed: 2600 }
 const AI_PACE_LABEL: Record<AIPace, string> = { fast: '较快', normal: '标准', relaxed: '悠闲' }
 
 const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }
@@ -128,7 +136,10 @@ function handleRespond(response: GameResponse): void {
       <header>
         <button type="button" @click="$emit('backToPortal')">← 返回游戏中心</button>
         <span>CRPLAY · 三国杀</span>
-        <SgsAudioControl v-model:open="audioOpen" />
+        <div class="sgs-home__tools">
+          <button type="button" class="sgs-home__art" @click="openArt('home')">艺术集</button>
+          <SgsAudioControl v-model:open="audioOpen" />
+        </div>
       </header>
       <div class="sgs-home__hero">
         <div class="sgs-home__seal" aria-hidden="true">杀</div>
@@ -212,7 +223,7 @@ function handleRespond(response: GameResponse): void {
       <header>
         <button type="button" @click="screen = 'home'">‹</button>
         <h1>规则</h1>
-        <button type="button" class="sgs-panel__art-link" @click="screen = 'art'">艺术集</button>
+        <button type="button" class="sgs-panel__art-link" @click="openArt('rules')">艺术集</button>
       </header>
       <div class="sgs-rules">
         <article>
@@ -246,7 +257,7 @@ function handleRespond(response: GameResponse): void {
     </section>
 
     <section v-else class="sgs-panel sgs-panel--art">
-      <header><button type="button" @click="screen = 'rules'">‹</button><h1>武将艺术集</h1></header>
+      <header><button type="button" @click="screen = artBackTo">‹</button><h1>武将艺术集</h1></header>
       <div class="sgs-panel__art-scroll"><SgsArtGallery /></div>
     </section>
 
@@ -301,6 +312,7 @@ function handleRespond(response: GameResponse): void {
   min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px;
   color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer;
 }
+.sgs-home__tools { display: flex; align-items: center; gap: 8px; }
 .sgs-home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
 .sgs-home__seal {
   width: 88px; height: 88px; display: grid; place-items: center;

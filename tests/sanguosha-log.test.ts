@@ -65,6 +65,26 @@ describe('战报只描述公开信息', () => {
     expect(text).toContain('八卦阵')
   })
 
+  it('判定要写出花色点数——判定成不成立全看这两项', () => {
+    const game = startedGame()
+    const judgeCardId = game.state.zones.drawPile[0]
+    const text = describeEvent(game.state, event('JudgeResult', {
+      playerId: 'p1', judgeCardId, reason: '乐不思蜀', suit: 'heart', rank: 12,
+    }), 'p0') ?? ''
+    expect(text, '红桃要有花色符号').toContain('♥')
+    expect(text, 'Q 不能写成 12').toContain('Q')
+  })
+
+  it('花色以事件携带的为准，不回头读印刷花色（红颜会改花色）', () => {
+    const game = startedGame()
+    const spade = Object.values(game.state.cards).find((card) => card.suit === 'spade')!.id
+    const text = describeEvent(game.state, event('JudgeResult', {
+      playerId: 'p1', judgeCardId: spade, reason: '洛神', suit: 'heart', rank: 3,
+    }), 'p0') ?? ''
+    expect(text).toContain('♥3')
+    expect(text, '不能按印刷的黑桃写').not.toContain('♠')
+  })
+
   it('未登记的事件不产生噪音', () => {
     const game = startedGame()
     expect(describeEvent(game.state, event('PhaseStart', { phase: 'draw' }), 'p0')).toBeNull()

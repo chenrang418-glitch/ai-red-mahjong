@@ -268,6 +268,29 @@ export interface JudgmentDamageState {
 export type JudgmentState = JudgmentNullificationState | JudgmentDamageState
 
 /**
+ * 判定牌翻开之后、生效之前的改判窗口（鬼才、鬼道）。
+ *
+ * 判定原本是一次同步翻牌，没有任何插入点。改判技能必须能让玩家看到牌面之后
+ * 再决定，所以判定被拆成「翻牌 → 逐人询问改判 → 结算」三段，中间这一段
+ * 要能跨 Durable Object 休眠恢复，因此这里**只放可序列化数据**：
+ * 判定结束之后该做什么，用 `tag` 指向注册表里的续接函数，不存闭包。
+ */
+export interface JudgmentRetrialState {
+  /** 被判定的角色。改判技能的拥有者不一定是他。 */
+  playerId: PlayerId
+  reason: string
+  /** 判定结束后走哪个续接，见 engine/judgment.ts 的 registerJudgmentContinuation。 */
+  tag: string
+  /** 续接需要的上下文，必须可序列化。 */
+  data: Record<string, unknown>
+  /** 当前的判定牌。改判成功后会换成新的那张。 */
+  judgeCardId: CardId
+  responderOrder: PlayerId[]
+  responderIndex: number
+  requestId: string
+}
+
+/**
  * 技能发起 Request 之后的等待状态。
  *
  * 必须完全可序列化——Durable Object 随时可能休眠，
@@ -317,6 +340,8 @@ export interface SanguoshaState {
   dying: DyingState | null
   damageChain: DamageChainState | null
   judgment: JudgmentState | null
+  /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
+  retrial: JudgmentRetrialState | null
   cardResolution: CardResolutionState | null
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]

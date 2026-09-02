@@ -1,5 +1,5 @@
 import type { GameEvent } from './events'
-import type { DamageNature, PlayerId, SanguoshaState } from './types'
+import type { DamageNature, PlayerId, SanguoshaState, Suit } from './types'
 import { displayCharacterName, ALL_CHARACTERS } from '../data/characters/standard'
 
 export type PresentationEventKind =
@@ -20,6 +20,15 @@ export interface PresentationEvent {
   amount?: number
   nature?: DamageNature
   text: string
+}
+
+const SUIT_SYMBOL: Record<Suit, string> = { spade: '♠', heart: '♥', club: '♣', diamond: '♦' }
+/** A / J / Q / K 在牌面上不是数字，判定条件又常常按点数区间写（闪电 2~9）。 */
+const RANK_LABEL: Record<number, string> = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }
+
+function judgeFace(suit: Suit | undefined, rank: number | undefined): string {
+  if (!suit) return ''
+  return `${SUIT_SYMBOL[suit] ?? ''}${rank ? RANK_LABEL[rank] ?? String(rank) : ''}`
 }
 
 /**
@@ -127,7 +136,11 @@ export function buildPresentationEvent(
       const actorId = (payload.playerId as PlayerId) ?? event.targetId
       const judged = cardName(state, payload.judgeCardId as string)
       const reason = String(payload.reason ?? cardName(state, payload.delayedCardId as string))
-      return { id: event.id, seq: event.seq, kind: 'judge', targetIds: actorId ? [actorId] : [], cardName: judged, text: `${playerName(state, actorId)}判定${reason ? `【${reason}】` : ''}：${judged ? `【${judged}】` : '完成'}` }
+      // 判定看的是花色和点数，不是牌名——只报「判定【桃】」等于没报。
+      // 花色由事件携带（技能可能改判、也可能改花色），这里不回头读印刷花色。
+      const face = judgeFace(payload.suit as Suit | undefined, payload.rank as number | undefined)
+      const result = judged ? `【${judged}】${face}` : '完成'
+      return { id: event.id, seq: event.seq, kind: 'judge', targetIds: actorId ? [actorId] : [], cardName: judged, text: `${playerName(state, actorId)}判定${reason ? `【${reason}】` : ''}：${result}` }
     }
     case 'GainCard': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId

@@ -18,7 +18,20 @@ export interface PortraitFraming {
 }
 
 export interface CharacterPortrait {
+  /**
+   * 座位和缩略图用的小图（360×480，约 20~35KB）。
+   *
+   * 对局里 5~8 个座位同时显示，这个尺寸是按「座位实际渲染尺寸 × 设备像素比」定的，
+   * 再大只是白白多传字节。**不要在这里换成高清图**。
+   */
   src: string
+  /**
+   * 艺术集单张查看用的高清图（1086×1448 原始分辨率，约 80~180KB）。
+   *
+   * 只在用户点开某一张时才请求，对局和列表都不会加载它，
+   * 所以放大分辨率不会加重日常流量；缺高清图时回退到 `src`。
+   */
+  fullSrc: string
   desktop: PortraitFraming
   /** 手机（竖屏和横屏共用）。座位更矮更窄，通常要比 PC 再放大一点、焦点更靠脸。 */
   mobile: PortraitFraming
@@ -33,7 +46,7 @@ export interface CharacterPortrait {
  * 裁掉上下、露出中段；再往上加才是往脸上推。窄立绘层时期的那套倍率（1.6~3.2）
  * 在满幅下会把脸放到糊，别照抄。
  */
-const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src'>>> = {
+const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'>>> = {
   // ── 魏 ──
   caocao: {
     desktop: { position: '46% 17%', scale: 1.0 },
@@ -213,6 +226,13 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src'>>> = {
 }
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })
+/**
+ * 高清图单独一个目录，和小图分开 glob。
+ *
+ * 这里仍然是 eager：拿到的只是一串 URL 字符串，浏览器要等 `<img>` 真正挂上去
+ * 才会去下载，所以「全部登记」不等于「全部下载」。
+ */
+const FULL_FILES = import.meta.glob<string>('./portraits-full/*.webp', { eager: true, import: 'default', query: '?url' })
 
 function fileFor(characterId: string): string | null {
   return FILES[`./portraits/${characterId}.webp`] ?? null
@@ -222,7 +242,9 @@ export const CHARACTER_PORTRAITS: Readonly<Record<string, CharacterPortrait>> = 
   Object.entries(FRAMING)
     .map(([id, framing]) => {
       const src = fileFor(id)
-      return src ? [id, { ...framing, src }] as const : null
+      if (!src) return null
+      const fullSrc = FULL_FILES[`./portraits-full/${id}.webp`] ?? src
+      return [id, { ...framing, src, fullSrc }] as const
     })
     .filter((entry): entry is readonly [string, CharacterPortrait] => entry !== null),
 )

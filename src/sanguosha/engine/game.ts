@@ -7,7 +7,7 @@ import { startPlaying } from './turn'
 import { advanceGamePhase, resolveDiscardPhaseResponse } from './phase'
 import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
-import { resolveJudgmentResponse, resumeJudgment } from './judgment'
+import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
@@ -84,6 +84,7 @@ export class SanguoshaGame {
       dying: null,
       damageChain: null,
       judgment: null,
+      retrial: null,
       cardResolution: null,
       skillResolution: null,
       skillQueue: [],
@@ -266,6 +267,11 @@ export class SanguoshaGame {
         kind: request.kind,
         payload: structuredClone(response.payload),
       })
+      return
+    }
+    // 改判（鬼才）：判定牌翻开之后、生效之前的插入点
+    if (request.kind === 'choose-cards' && request.purpose === 'retrial') {
+      resolveRetrialResponse(this, request, response)
       return
     }
     if (request.kind === 'choose-cards' && request.purpose === 'discard-phase') {

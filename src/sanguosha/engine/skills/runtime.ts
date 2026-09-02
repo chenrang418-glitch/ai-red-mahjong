@@ -103,6 +103,14 @@ export interface SkillRuntime {
   ignoresTrickDistance?: boolean
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
+  /**
+   * 改判：判定牌翻开之后、生效之前，用一张牌代替它（鬼才、鬼道）。
+   *
+   * 返回现在能拿来改判的牌，空数组表示这次插不上手。
+   * 判定引擎按座位顺序逐个问，改判成功后会再从头问一遍——
+   * 所以这里只报「有哪些牌可用」，**不要自己判断该不该改**。
+   */
+  retrial?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): CardId[]
   /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
   cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
   /** 禁止拥有者成为指定牌的目标；谦逊、空城等统一走这个入口。 */

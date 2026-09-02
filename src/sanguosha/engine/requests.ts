@@ -24,7 +24,21 @@ export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   hiddenCardSlots: string[]
   min: number
   max: number
-  purpose?: 'discard-phase' | 'card-effect' | 'skill'
+  purpose?: 'discard-phase' | 'card-effect' | 'skill' | 'retrial'
+  /**
+   * 改判专用：当前判定牌的公开信息。
+   *
+   * 判定牌是翻开的，这里不含任何暗信息。给成结构化字段而不是让客户端
+   * 和 AI 去解析提示文案——文案改一个字就会把判断打错。
+   */
+  retrial?: {
+    /** 正在判定的角色。判定对他有利与否，决定要不要改。 */
+    judgingPlayerId: PlayerId
+    reason: string
+    cardName: string
+    suit: Suit
+    rank: number
+  }
 }
 export type ChooseTargetsRequest = RequestBase<'choose-targets'> & { candidateIds: PlayerId[]; min: number; max: number }
 export type ChooseOptionRequest = RequestBase<'choose-option'> & { options: Array<{ id: string; label: string }> }
