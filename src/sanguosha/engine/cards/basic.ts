@@ -4,7 +4,7 @@ import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
-import { getSkillRuntime, isTargetProhibited, skillsOf } from '../skills/runtime'
+import { effectiveCardColor, getSkillRuntime, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
@@ -219,7 +219,8 @@ function enterSlashTarget(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return
   const card = host.state.cards[resolution.cardId]
-  if (isCardIneffective(host.state, resolution.targetId, '杀', card.virtual ? null : card.color, card.damageNature ?? 'normal')) {
+  const slashColor = card.virtual ? null : effectiveCardColor(host.state, resolution.sourceId, card.id, skillIdsOf)
+  if (isCardIneffective(host.state, resolution.targetId, '杀', slashColor, card.damageNature ?? 'normal')) {
     continueSlash(host)
     return
   }

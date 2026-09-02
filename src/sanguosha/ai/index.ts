@@ -253,6 +253,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const attack = isEnemy && (challenger!.hp <= 2 || context.difficulty !== 'easy')
         return { ...base, payload: { optionId: attack ? 'shuajian-attack' : 'shuajian-ignore' } }
       }
+      // 天香的询问只会在确实有红桃手牌和合法转移目标时出现。
+      // 转移伤害通常优于自己硬吃，目标选择分支会再按阵营倾向挑敌方。
+      if (options.some((option) => option.id === 'tianxiang-invoke')) {
+        return { ...base, payload: { optionId: 'tianxiang-invoke' } }
+      }
       const safe = me.hp <= 2 ? options.filter((option) => option.id !== 'hp' && option.id !== 'lose-hp') : options
       const pool = safe.length > 0 ? safe : options
       return { ...base, payload: { optionId: context.rng.pick(pool).id } }

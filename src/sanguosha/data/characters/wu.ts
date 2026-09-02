@@ -2,7 +2,7 @@ import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseSuitRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
-import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
+import { effectiveCardSuit, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { PlayerId, Suit } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
@@ -167,7 +167,7 @@ registerSkillRuntime({
     markUsedThisTurn(host.state, ownerId, 'fanjian')
     host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '反间' }, { sourceId: ownerId, cardIds: [cardId] })
     host.dispatch('GainCard', { playerId: targetId, cardIds: [cardId], reason: '反间', revealed: true }, { sourceId: ownerId, targetId, cardIds: [cardId] })
-    if (host.state.cards[cardId].suit !== declaredSuit) {
+    if (effectiveCardSuit(host.state, targetId, cardId) !== declaredSuit) {
       resolveDamage(host, { sourceId: ownerId, targetId, amount: 1, nature: 'normal' })
     }
   },

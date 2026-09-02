@@ -2,7 +2,7 @@ import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { loseHp } from '../../engine/hp'
-import { registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
+import { provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
@@ -372,6 +372,8 @@ export function getCharacter(characterId: string): CharacterDefinition | undefin
 export function skillIdsOf(characterId: string): string[] {
   return BY_ID.get(characterId)?.skills.map((skill) => skill.id) ?? []
 }
+
+provideSkillIdsLookup(skillIdsOf)
 
 export function allCharacterIds(): string[] {
   return ALL_CHARACTERS.map((character) => character.id)

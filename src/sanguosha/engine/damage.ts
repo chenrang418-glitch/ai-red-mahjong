@@ -58,10 +58,11 @@ function dispatchDamageTiming(
   amount: number,
   nature: DamageNature,
   cardId: CardId | null = null,
+  cardName: string | null = null,
 ): EventContext {
   return host.dispatch(
     name,
-    { amount, cardId },
+    { amount, cardId, cardName },
     { sourceId: sourceId ?? undefined, targetId, damageNature: nature, cardIds: cardId ? [cardId] : undefined },
   )
 }
@@ -214,7 +215,7 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
 
   const cardId = options.cardId ?? null
   for (const timing of ['BeforeDamage', 'DamageCaused', 'DamageInflicted'] as const) {
-    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId)
+    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
     if (context.cancelled) return
     amount = amountAfter(context)
     if (amount === 0) return
@@ -227,8 +228,8 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   }
 
   target.hp -= amount
-  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId)
-  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId)
+  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
+  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
   if (target.hp > 0) return
 
   enterDying(host, target.id, sourceId, nature)

@@ -1,7 +1,11 @@
 import { getDistance } from '../../engine/distance'
+import { resolveDamage } from '../../engine/damage'
+import { drawCards } from '../../engine/draw'
 import { recover } from '../../engine/recover'
-import { registerSkillRuntime } from '../../engine/skills/runtime'
-import type { PlayerId } from '../../engine/types'
+import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
+import { effectiveCardSuit, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
+import type { CardId, DamageNature, PlayerId, SkillResolutionState, SanguoshaState } from '../../engine/types'
+import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -68,7 +72,192 @@ registerSkillRuntime({
   },
 })
 
+// —— 小乔【红颜】【天香】——
+//
+// 采用经典风包版：黑桃牌视为红桃牌；受到伤害时可弃一张红桃手牌，
+// 把整次伤害转移给另一名角色，伤害结算完毕后其摸已损失体力值张牌。
+
+registerSkillRuntime({
+  id: 'hongyan',
+  cardSuit(_state, _ownerId, _cardId, printedSuit) {
+    return printedSuit === 'spade' ? 'heart' : printedSuit
+  },
+})
+
+interface TianxiangDamageFacts {
+  sourceId: PlayerId | null
+  amount: number
+  nature: DamageNature
+  cardId: CardId | null
+  cardName: string | null
+}
+
+function playerOf(state: SanguoshaState, playerId: PlayerId) {
+  const found = state.players.find((player) => player.id === playerId)
+  if (!found) throw new Error(`玩家不存在：${playerId}`)
+  return found
+}
+
+function tianxiangHeartCards(state: SanguoshaState, ownerId: PlayerId): CardId[] {
+  return playerOf(state, ownerId).zones.hand.filter((cardId) => effectiveCardSuit(state, ownerId, cardId) === 'heart')
+}
+
+function damageFactsOf(resolution: Pick<SkillResolutionState, 'data'>): TianxiangDamageFacts {
+  return {
+    sourceId: (resolution.data.sourceId as PlayerId | null) ?? null,
+    amount: Number(resolution.data.amount),
+    nature: resolution.data.nature as DamageNature,
+    cardId: (resolution.data.cardId as CardId | null) ?? null,
+    cardName: (resolution.data.cardName as string | null) ?? null,
+  }
+}
+
+/** 放弃天香后重放被取消的原伤害；一次性标记避免再次询问天香。 */
+function replayOriginalDamage(host: SkillHost, ownerId: PlayerId, facts: TianxiangDamageFacts): void {
+  const owner = playerOf(host.state, ownerId)
+  owner.marks.tianxiangSkip = (owner.marks.tianxiangSkip ?? 0) + 1
+  resolveDamage(host, { ...facts, targetId: ownerId })
+  // 若伤害在到达 DamageInflicted 前已被防具减为零，标记不会被触发器消费。
+  if (owner.marks.tianxiangSkip) delete owner.marks.tianxiangSkip
+}
+
+registerSkillRuntime({
+  id: 'tianxiang',
+  triggers: [{
+    event: 'DamageInflicted',
+    priority: 100,
+    handle(host, ownerId, context) {
+      if (context.event.targetId !== ownerId) return
+      const owner = playerOf(host.state, ownerId)
+      if (owner.marks.tianxiangSkip) {
+        owner.marks.tianxiangSkip -= 1
+        if (owner.marks.tianxiangSkip <= 0) delete owner.marks.tianxiangSkip
+        return
+      }
+      if (tianxiangHeartCards(host.state, ownerId).length === 0) return
+      if (!host.state.players.some((player) => player.alive && player.id !== ownerId)) return
+
+      const amount = Number(context.event.payload.amount)
+      if (!Number.isInteger(amount) || amount <= 0) return
+      context.cancel()
+      // 伤害函数的调用者还要收尾当前【杀】/锦囊。这里只取消原伤害并排队，
+      // 等牌结算完全干净后再发问，避免多目标锦囊继续推进时撞上技能 Request。
+      host.queueSkill({
+        skillId: 'tianxiang', ownerId, step: 'ask', data: {
+          sourceId: context.event.sourceId ?? null,
+          amount,
+          nature: context.event.damageNature ?? 'normal',
+          cardId: (context.event.payload.cardId as CardId | null) ?? null,
+          cardName: (context.event.payload.cardName as string | null) ?? null,
+        },
+      })
+    },
+  }],
+  resume(host, ownerId, resolution, response: GameResponse) {
+    const facts = damageFactsOf(resolution)
+    if (resolution.step === 'ask') {
+      if ((response.payload as { optionId: string }).optionId !== 'tianxiang-invoke') {
+        replayOriginalDamage(host, ownerId, facts)
+        return
+      }
+      const cardIds = tianxiangHeartCards(host.state, ownerId)
+      if (cardIds.length === 0) {
+        replayOriginalDamage(host, ownerId, facts)
+        return
+      }
+      host.askSkill({
+        skillId: 'tianxiang', ownerId, step: 'card', data: resolution.data,
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId, kind: 'choose-cards', playerId: ownerId,
+          prompt: '【天香】：弃置一张红桃手牌（【红颜】转换后的黑桃也可）',
+          timeoutMs: 20_000, optional: false, purpose: 'skill',
+          cardIds, hiddenCardSlots: [], min: 1, max: 1,
+        }),
+      })
+      return
+    }
+
+    if (resolution.step === 'card') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      const owner = playerOf(host.state, ownerId)
+      if (!owner.zones.hand.includes(cardId) || effectiveCardSuit(host.state, ownerId, cardId) !== 'heart') {
+        throw new Error('天香弃置的牌不是红桃手牌')
+      }
+      const candidateIds = host.state.players.filter((player) => player.alive && player.id !== ownerId).map((player) => player.id)
+      if (candidateIds.length === 0) {
+        replayOriginalDamage(host, ownerId, facts)
+        return
+      }
+      host.askSkill({
+        skillId: 'tianxiang', ownerId, step: 'target', data: { ...resolution.data, cardId },
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId, kind: 'choose-targets', playerId: ownerId,
+          prompt: '选择【天香】转移伤害的角色', timeoutMs: 20_000, optional: false,
+          candidateIds, min: 1, max: 1,
+        }),
+      })
+      return
+    }
+
+    if (resolution.step !== 'target') return
+    const cardId = resolution.data.cardId as CardId
+    const owner = playerOf(host.state, ownerId)
+    if (!owner.zones.hand.includes(cardId) || effectiveCardSuit(host.state, ownerId, cardId) !== 'heart') {
+      throw new Error('天香弃置的牌已不在手牌中')
+    }
+    const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
+    const target = playerOf(host.state, targetId)
+    if (!target.alive || targetId === ownerId) throw new Error('天香目标非法')
+    moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
+    host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '天香' }, { sourceId: ownerId, cardIds: [cardId] })
+
+    const hpBefore = target.hp
+    resolveDamage(host, { ...facts, targetId })
+    if (target.hp < hpBefore) {
+      host.queueSkill({ skillId: 'tianxiang', ownerId, step: 'draw', data: { targetId } })
+    }
+  },
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step === 'ask') {
+      const facts = damageFactsOf(prompt)
+      if (tianxiangHeartCards(host.state, ownerId).length === 0
+        || !host.state.players.some((player) => player.alive && player.id !== ownerId)) {
+        replayOriginalDamage(host, ownerId, facts)
+        return
+      }
+      host.askSkill({
+        skillId: 'tianxiang', ownerId, step: 'ask', data: prompt.data,
+        build: (requestId): ChooseOptionRequest => ({
+          id: requestId, kind: 'choose-option', playerId: ownerId,
+          prompt: `受到 ${facts.amount} 点伤害，是否发动【天香】转移此伤害？`,
+          timeoutMs: 20_000, optional: true,
+          options: [{ id: 'tianxiang-invoke', label: '发动天香' }, { id: 'no', label: '承受伤害' }],
+        }),
+      })
+      return
+    }
+    if (prompt.step !== 'draw') return
+    const targetId = prompt.data.targetId as PlayerId
+    const target = host.state.players.find((player) => player.id === targetId)
+    if (!target?.alive) return
+    const count = Math.max(0, target.maxHp - target.hp)
+    if (count > 0) drawCards(host.state, host.rng, targetId, count, (name, payload) => { host.dispatch(name, payload) })
+  },
+})
+
 export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
+  {
+    id: 'xiaoqiao',
+    name: '小乔',
+    kingdom: 'wu',
+    gender: 'female',
+    maxHp: 3,
+    pack: 'wind',
+    skills: [
+      { id: 'tianxiang', name: '天香', description: '当你受到伤害时，你可以弃置一张红桃手牌并选择一名其他角色，将此伤害转移给该角色；其伤害结算结束后，摸等同于其已损失体力值的牌。' },
+      { id: 'hongyan', name: '红颜', description: '锁定技，你的黑桃牌视为红桃牌。' },
+    ],
+  },
   {
     id: 'weiyan',
     name: '魏延',

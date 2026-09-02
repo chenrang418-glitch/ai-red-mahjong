@@ -6,6 +6,8 @@ import type { GameRng } from './rng'
 import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 import { effectiveCardName, moveCard } from './zones'
+import { effectiveCardSuit } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 
 export interface JudgmentEngineHost {
   state: SanguoshaState
@@ -43,10 +45,12 @@ export function performJudgment(host: JudgmentEngineHost, playerId: PlayerId, re
   host.dispatch('JudgeStart', { playerId, reason }, { targetId: playerId })
   const judgeCardId = takeJudgmentCard(host)
   const judgeCard = host.state.cards[judgeCardId]
-  host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit: judgeCard.suit, rank: judgeCard.rank, color: judgeCard.color }, { targetId: playerId, cardIds: [judgeCardId] })
+  const suit = effectiveCardSuit(host.state, playerId, judgeCardId, skillIdsOf)
+  const color = suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
+  host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit, rank: judgeCard.rank, color }, { targetId: playerId, cardIds: [judgeCardId] })
   host.dispatch('JudgeEnd', { playerId, reason, judgeCardId }, { targetId: playerId, cardIds: [judgeCardId] })
   moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-  return judgeCard
+  return { ...judgeCard, suit, color }
 }
 
 function takeJudgmentCard(host: JudgmentEngineHost): CardId {
@@ -92,18 +96,19 @@ function applyDelayedEffect(host: JudgmentEngineHost, ownerId: PlayerId, delayed
   host.dispatch('JudgeStart', { playerId: ownerId, delayedCardId, delayedCardName: delayedName }, { targetId: ownerId, cardIds: [delayedCardId], phase: 'judge' })
   const judgeCardId = takeJudgmentCard(host)
   const judgeCard = host.state.cards[judgeCardId]
-  host.dispatch('JudgeResult', { playerId: ownerId, delayedCardId, judgeCardId, suit: judgeCard.suit, rank: judgeCard.rank }, { targetId: ownerId, cardIds: [judgeCardId], phase: 'judge' })
+  const judgeSuit = effectiveCardSuit(host.state, ownerId, judgeCardId, skillIdsOf)
+  host.dispatch('JudgeResult', { playerId: ownerId, delayedCardId, judgeCardId, suit: judgeSuit, rank: judgeCard.rank }, { targetId: ownerId, cardIds: [judgeCardId], phase: 'judge' })
   host.dispatch('JudgeEnd', { playerId: ownerId, delayedCardId, judgeCardId }, { targetId: ownerId, cardIds: [judgeCardId], phase: 'judge' })
   moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
 
   if (delayedName === '乐不思蜀') {
-    if (judgeCard.suit !== 'heart') skipPhase(host.state, 'play')
+    if (judgeSuit !== 'heart') skipPhase(host.state, 'play')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   } else if (delayedName === '兵粮寸断') {
-    if (judgeCard.suit !== 'club') skipPhase(host.state, 'draw')
+    if (judgeSuit !== 'club') skipPhase(host.state, 'draw')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   } else if (delayedName === '闪电') {
-    if (judgeCard.suit === 'spade' && judgeCard.rank >= 2 && judgeCard.rank <= 9) {
+    if (judgeSuit === 'spade' && judgeCard.rank >= 2 && judgeCard.rank <= 9) {
       host.state.judgment = { playerId: ownerId, delayedCardId, stage: 'awaiting-damage' }
       resolveDamage(host, { targetId: ownerId, amount: 3, nature: 'thunder', cardName: '闪电', cardId: delayedCardId })
       if (!host.state.dying && !host.state.damageChain) finishLightningDamage(host)

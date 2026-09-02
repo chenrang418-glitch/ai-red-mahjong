@@ -12,7 +12,7 @@ import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutio
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
-import { isTargetProhibited, skillsOf } from '../skills/runtime'
+import { effectiveCardSuit, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { skillIdsOf } from '../../data/characters/standard'
 
 /**
@@ -806,12 +806,14 @@ function resolveFireReveal(
   if (!target.zones.hand.includes(revealed)) throw new Error('展示的牌不在目标手牌中')
   consumeRequest(host, resolution, request.id, response, request.kind)
 
-  const suit = host.state.cards[revealed].suit
+  const suit = effectiveCardSuit(host.state, effect.targetId, revealed, skillIdsOf)
   // 展示是公开信息，但只公开这一张，其余手牌不能跟着泄露
   host.dispatch('CardResponded', { asking: false, playerId: effect.targetId, cardId: revealed, cardName: host.state.cards[revealed].name, revealed: true }, { targetId: effect.targetId, cardIds: [revealed] })
 
   const source = playerOf(host.state, resolution.sourceId)
-  const payable = source.zones.hand.filter((cardId) => host.state.cards[cardId]?.suit === suit && cardId !== revealed)
+  const payable = source.zones.hand.filter((cardId) => (
+    effectiveCardSuit(host.state, resolution.sourceId, cardId, skillIdsOf) === suit && cardId !== revealed
+  ))
   if (payable.length === 0) {
     resolution.effect = null
     advanceToNextTarget(host)
@@ -848,7 +850,7 @@ function resolveFireDiscard(
   const source = playerOf(host.state, resolution.sourceId)
   for (const cardId of picked) {
     if (!source.zones.hand.includes(cardId)) throw new Error('弃置的牌不在使用者手牌中')
-    if (host.state.cards[cardId]?.suit !== effect.suit) throw new Error('弃置的牌花色不符')
+    if (effectiveCardSuit(host.state, resolution.sourceId, cardId, skillIdsOf) !== effect.suit) throw new Error('弃置的牌花色不符')
   }
   consumeRequest(host, resolution, request.id, response, request.kind)
   resolution.effect = null

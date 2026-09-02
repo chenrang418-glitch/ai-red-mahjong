@@ -2,7 +2,7 @@
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
-import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState } from '../types'
+import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit } from '../types'
 
 export interface TargetedCardContext {
   sourceId: PlayerId
@@ -101,6 +101,8 @@ export interface SkillRuntime {
   ignoresTrickDistance?: boolean
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
+  /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
+  cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
   /** 禁止拥有者成为指定牌的目标；谦逊、空城等统一走这个入口。 */
   prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string): boolean
   /** 拥有者作为用牌者时，临时禁止其把某名角色设为指定目标。 */
@@ -159,6 +161,12 @@ export interface SkillRuntime {
 }
 
 const registry = new Map<string, SkillRuntime>()
+let providedSkillIdsOf: (characterId: string) => string[] = () => []
+
+/** 由角色总表在模块初始化完成后回注，避免各扩展包反向 import 总表形成环。 */
+export function provideSkillIdsLookup(lookup: (characterId: string) => string[]): void {
+  providedSkillIdsOf = lookup
+}
 
 export function registerSkillRuntime(runtime: SkillRuntime): void {
   if (registry.has(runtime.id)) throw new Error(`技能重复注册：${runtime.id}`)
@@ -195,6 +203,34 @@ export function isTargetProhibited(
     .some((runtime) => runtime.prohibitsTarget?.(state, targetId, sourceId, cardName) ?? false)
     || skillsOf(state, sourceId, skillIdsOf)
       .some((runtime) => runtime.prohibitsSourceTarget?.(state, sourceId, targetId, cardName) ?? false)
+}
+
+/**
+ * 取得某名角色视角下牌张的有效花色。
+ *
+ * 花色修正必须集中在规则层：判定、火攻等地方只读这个结果，不能分别写
+ * “如果是小乔且为黑桃”的特殊判断。没有技能修正时返回实体牌印刷花色。
+ */
+export function effectiveCardSuit(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardId: CardId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): Suit {
+  const card = state.cards[cardId]
+  if (!card) throw new Error(`卡牌不存在：${cardId}`)
+  return skillsOf(state, ownerId, skillIdsOf)
+    .reduce((suit, runtime) => runtime.cardSuit?.(state, ownerId, cardId, suit) ?? suit, card.suit)
+}
+
+export function effectiveCardColor(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardId: CardId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): 'red' | 'black' {
+  const suit = effectiveCardSuit(state, ownerId, cardId, skillIdsOf)
+  return suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
 }
 
 /**
