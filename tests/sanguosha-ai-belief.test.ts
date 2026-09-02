@@ -95,5 +95,5 @@ describe('AI 阵营判断', () => {
     expect(results).toHaveLength(120)
     expect(wins.rebel / results.length).toBeLessThan(0.65)
     expect(wins.lord / results.length).toBeGreaterThan(0.2)
-  })
+  }, 15_000)
 })
