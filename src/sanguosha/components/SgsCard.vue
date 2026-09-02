@@ -25,13 +25,13 @@ const glossary = useSgsGlossary()
 const SUIT_TEXT: Record<string, string> = { heart: '♥', diamond: '♦', spade: '♠', club: '♣' }
 const RANK_TEXT: Record<number, string> = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }
 
-const suit = computed(() => (props.card ? SUIT_TEXT[props.card.suit] ?? '' : ''))
+const suit = computed(() => (props.card && !props.card.virtual ? SUIT_TEXT[props.card.suit] ?? '' : ''))
 const rank = computed(() => {
-  if (!props.card) return ''
+  if (!props.card || props.card.virtual) return ''
   return RANK_TEXT[props.card.rank] ?? String(props.card.rank)
 })
 const isRed = computed(() => props.card?.color === 'red')
-const label = computed(() => (props.card ? `${props.card.name} ${suit.value}${rank.value}` : '未知牌'))
+const label = computed(() => (props.card ? `${props.card.name}${props.card.virtual ? '（虚拟牌）' : ` ${suit.value}${rank.value}`}` : '未知牌'))
 const categoryText = computed(() => ({ basic: '基本', trick: '锦囊', equipment: '装备' })[props.card?.category ?? 'basic'])
 const art = computed(() => props.card ? cardArt(props.card.name) : null)
 
@@ -51,7 +51,7 @@ function showInfo(): void {
       @click="emit('click')"
     >
       <template v-if="card">
-        <span class="sgs-card__corner">{{ suit }}{{ rank }}</span>
+        <span class="sgs-card__corner">{{ card.virtual ? '虚拟' : `${suit}${rank}` }}</span>
         <span class="sgs-card__art" :style="art ? { backgroundImage: `url(${art})` } : undefined" aria-hidden="true">{{ art ? '' : card.name.slice(0, 1) }}</span>
         <span class="sgs-card__name">{{ card.name }}</span>
         <span class="sgs-card__category">{{ categoryText }}</span>

@@ -14,6 +14,7 @@ import { SHU_CHARACTERS } from './shu'
 import { WU_CHARACTERS } from './wu'
 import { WIND_CHARACTERS } from './wind'
 import { FIRE_CHARACTERS } from './fire'
+import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
  * 标准包武将。
@@ -356,6 +357,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...STANDARD_CHARACTERS,
   ...WIND_CHARACTERS,
   ...FIRE_CHARACTERS,
+  ...ENTERTAINMENT_CHARACTERS,
 ] as const
 
 const BY_ID = new Map(ALL_CHARACTERS.map((character) => [character.id, character]))

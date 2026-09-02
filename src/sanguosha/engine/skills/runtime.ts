@@ -2,7 +2,15 @@
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
-import type { CardId, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState } from '../types'
+import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState } from '../types'
+
+export interface TargetedCardContext {
+  sourceId: PlayerId
+  targetId: PlayerId
+  cardId: CardId
+  cardName: string
+  category: CardCategory
+}
 
 /**
  * 技能运行时。
@@ -55,6 +63,15 @@ export interface SkillHost {
   queueSkill(prompt: QueuedSkillPrompt): void
   /** 技能造成的「失去体力」把人打到 0 时走这里，不允许技能自己判死。 */
   enterDying(playerId: PlayerId): void
+  /** 技能生成一张不消耗实体牌、无距离和次数限制的【杀】。 */
+  beginVirtualSlash(options: {
+    sourceId: PlayerId
+    targetId: PlayerId
+    sourceSkillId: string
+    nature?: DamageNature
+  }): void
+  /** “成为目标后”的技能回答完毕，把控制权交回当前牌的结算管线。 */
+  resumeCardTarget(): void
 }
 
 export interface SkillTrigger {
@@ -86,6 +103,10 @@ export interface SkillRuntime {
   distanceModifier?: { toOthers?: number; fromOthers?: number }
   /** 禁止拥有者成为指定牌的目标；谦逊、空城等统一走这个入口。 */
   prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string): boolean
+  /** 拥有者作为用牌者时，临时禁止其把某名角色设为指定目标。 */
+  prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
+  /** 成为【杀】或普通锦囊目标后可插入发问；返回 true 表示结算已挂起。 */
+  interceptTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /** 拥有者使用【杀】时，目标需要连续打出多少张【闪】。 */
   slashDodgeResponses?: number
   /**
@@ -172,6 +193,8 @@ export function isTargetProhibited(
 ): boolean {
   return skillsOf(state, targetId, skillIdsOf)
     .some((runtime) => runtime.prohibitsTarget?.(state, targetId, sourceId, cardName) ?? false)
+    || skillsOf(state, sourceId, skillIdsOf)
+      .some((runtime) => runtime.prohibitsSourceTarget?.(state, sourceId, targetId, cardName) ?? false)
 }
 
 /**

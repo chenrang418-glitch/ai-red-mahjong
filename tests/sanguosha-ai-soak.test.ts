@@ -80,6 +80,31 @@ describe('AI 对每一种 Request 都能给出合法响应', () => {
   }
 })
 
+describe('AI 技能目标', () => {
+  it('回复体力类技能优先选择友方，不会给敌人续命', () => {
+    const game = new SanguoshaGame({ seed: 'ai-heal-target', setup: setupFor(5) })
+    game.state.players[0].identity = 'loyalist'
+    game.state.players[1].identity = 'lord'
+    game.state.players[1].identityRevealed = true
+    game.state.players[1].hp = 2
+    game.state.players[2].identity = 'rebel'
+    game.state.players[2].identityRevealed = true
+    game.state.players[2].hp = 1
+    const view = game.viewFor('p0')
+    const context: AIContext = {
+      view,
+      difficulty: 'normal',
+      rng: new GameRng('ai-heal-target'),
+      suspicion: emptySuspicion(view),
+    }
+    const response = decideResponse(context, {
+      id: 'heal-target', kind: 'choose-targets', playerId: 'p0', prompt: '选择回复体力的角色',
+      timeoutMs: 1000, optional: false, candidateIds: ['p1', 'p2'], min: 1, max: 1,
+    })
+    expect(response.payload).toEqual({ targetIds: ['p1'] })
+  })
+})
+
 describe('无头压测', () => {
   it('五人局固定 seed 可复现', () => {
     const first = runSoakGame({ seed: 'repeat-me', playerCount: 5 })

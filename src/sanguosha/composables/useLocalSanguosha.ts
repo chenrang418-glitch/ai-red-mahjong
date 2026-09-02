@@ -47,8 +47,7 @@ function buildSetup(playerCount: number): GameSetup {
      * 候选武将数：**按人数平分整个武将池，上限 10**。
      *
      * 引擎的公式本来就是 `min(generalChoices, floor(池子 / 人数))`，
-     * 所以这里给上限、平分由那个 min 自动完成。29 名武将下的实际结果：
-     * 5 人各 5 个、6 人各 4 个、7 人各 4 个、8 人各 3 个。
+     * 所以这里只给上限，实际候选数始终随当前完整武将池和人数自动变化。
      * 武将池扩到 50 名才会碰到上限 10。
      */
     generalChoices: 10,

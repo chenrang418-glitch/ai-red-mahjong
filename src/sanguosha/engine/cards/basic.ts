@@ -23,6 +23,7 @@ import {
   resolveTrickEffectResponse,
   resolveTrickPickResponse,
   resumeTrickResolution,
+  resumeTrickTarget,
 } from './tricks'
 
 export type { CardEngineHost }
@@ -143,7 +144,11 @@ function recordPlayDecision(host: CardEngineHost, playerId: PlayerId, actionId: 
   })
 }
 
-function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: 'use-card' }>): void {
+function beginSlash(
+  host: CardEngineHost,
+  action: Extract<LegalAction, { kind: 'use-card' }>,
+  options: { countUsage?: boolean; consumeWine?: boolean } = {},
+): void {
   const [cardId, ...extraCardIds] = action.cardIds
   const [targetId, ...remainingTargetIds] = action.targetIds
   const card = host.state.cards[cardId]
@@ -152,9 +157,11 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
   for (const extra of extraCardIds) {
     moveCard(host.state, extra, { kind: 'hand', playerId: action.playerId }, { kind: 'processingArea' })
   }
-  const damageAmount = 1 + host.state.turnUsage.wineDamageBonus
-  host.state.turnUsage.slashUses += 1
-  host.state.turnUsage.wineDamageBonus = 0
+  const countUsage = options.countUsage ?? true
+  const consumeWine = options.consumeWine ?? true
+  const damageAmount = 1 + (consumeWine ? host.state.turnUsage.wineDamageBonus : 0)
+  if (countUsage) host.state.turnUsage.slashUses += 1
+  if (consumeWine) host.state.turnUsage.wineDamageBonus = 0
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
     damageNature: card.damageNature ?? 'normal', damageAmount,
@@ -163,6 +170,39 @@ function beginSlash(host: CardEngineHost, action: Extract<LegalAction, { kind: '
     dodgeRemaining: slashDodgeRequirement(host, action.playerId),
   }
   enterSlashTarget(host)
+}
+
+/**
+ * 技能生成的【杀】共用正常【杀】管线，但不消耗实体牌、距离、次数或酒增伤。
+ * 临时牌只在结算期间存在，结束时由 finishPhysicalCard 销毁。
+ */
+export function beginVirtualSlash(
+  host: CardEngineHost,
+  options: { sourceId: PlayerId; targetId: PlayerId; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder' },
+): void {
+  if (host.state.cardResolution) throw new Error('已有卡牌正在结算')
+  const source = player(host.state, options.sourceId)
+  const target = player(host.state, options.targetId)
+  if (!source.alive || !target.alive || source.id === target.id) throw new Error('虚拟杀目标非法')
+  const cardId = `virtual:${options.sourceSkillId}:${host.state.seq + 1}:${host.state.decisions.length}`
+  host.state.cards[cardId] = {
+    id: cardId,
+    ruleset: host.state.rulesetVersion,
+    expansion: 'standard',
+    name: '杀',
+    // 虚拟牌没有真实花色；字段仅满足统一牌对象结构，规则判断必须查看 virtual。
+    suit: 'spade',
+    rank: 1,
+    color: 'black',
+    category: 'basic',
+    damageNature: options.nature ?? 'normal',
+    virtual: true,
+    sourceSkillId: options.sourceSkillId,
+  }
+  source.zones.hand.push(cardId)
+  const action = useAction(cardId, source.id, '杀', [target.id], `对${target.nickname}使用虚拟【杀】`)
+  if (action.kind !== 'use-card') throw new Error('虚拟杀动作构造失败')
+  beginSlash(host, action, { countUsage: false, consumeWine: false })
 }
 
 function slashDodgeRequirement(host: CardEngineHost, sourceId: PlayerId): number {
@@ -179,7 +219,7 @@ function enterSlashTarget(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return
   const card = host.state.cards[resolution.cardId]
-  if (isCardIneffective(host.state, resolution.targetId, '杀', card.color, card.damageNature ?? 'normal')) {
+  if (isCardIneffective(host.state, resolution.targetId, '杀', card.virtual ? null : card.color, card.damageNature ?? 'normal')) {
     continueSlash(host)
     return
   }
@@ -222,6 +262,8 @@ function continueSlash(host: CardEngineHost): void {
   resolution.requestId = null
   resolution.stage = 'awaiting-dodge'
   resolution.dodgeRemaining = slashDodgeRequirement(host, resolution.sourceId)
+  resolution.noDodge = false
+  resolution.targetCancelled = false
   enterSlashTarget(host)
 }
 
@@ -254,6 +296,19 @@ function askSlashInterceptors(host: CardEngineHost): boolean {
     ['cixiong', () => askCixiongSword(host, resolution.sourceId, resolution.targetId)],
     ['liuli', () => askSlashTransfer(host, resolution.sourceId, resolution.targetId)],
   ]
+  for (const runtime of skillsOf(host.state, resolution.targetId, skillIdsOf)) {
+    if (!runtime.interceptTarget) continue
+    interceptors.push([
+      `skill:${runtime.id}`,
+      () => runtime.interceptTarget!(host, resolution.targetId, {
+        sourceId: resolution.sourceId,
+        targetId: resolution.targetId,
+        cardId: resolution.cardId,
+        cardName: '杀',
+        category: 'basic',
+      }),
+    ])
+  }
   for (const [id, ask] of interceptors) {
     // 同一个目标只问一次：插入点结算完会回到这里，不记账就会把自己再问一遍
     if (resolution.interceptsDone.includes(id)) continue
@@ -604,6 +659,21 @@ export function resumeCardResolution(host: CardEngineHost): void {
   continueSlash(host)
 }
 
+/** 技能完成“成为目标后”的发问后，恢复当前目标的正常结算。 */
+export function resumeCardTarget(host: CardEngineHost): void {
+  const resolution = host.state.cardResolution
+  if (!resolution) return
+  if (resolution.kind === 'trick') {
+    resumeTrickTarget(host)
+    return
+  }
+  if (resolution.targetCancelled) {
+    continueSlash(host)
+    return
+  }
+  if (!askSlashInterceptors(host)) askSlashDodge(host)
+}
+
 
 // 装备特效要回头调用杀的结算，而 equipment-requests 又被这里 import，
 // 直接互相 import 会成环，所以把能力交进去。
@@ -693,6 +763,8 @@ provideEquipmentCallbacks({
     // 换了目标就是一次全新的响应：代打进度清掉，插入点也要对新目标重新问一遍
     resolution.surrogate = null
     resolution.interceptsDone = []
+    resolution.noDodge = false
+    resolution.targetCancelled = false
     engineHost.dispatch('TargetSpecified', { cardId: resolution.cardId, targetId: newTargetId, reason: '流离' }, {
       sourceId: resolution.sourceId, targetId: newTargetId, cardIds: [resolution.cardId],
     })

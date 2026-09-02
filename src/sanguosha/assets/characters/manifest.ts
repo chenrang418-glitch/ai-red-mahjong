@@ -203,6 +203,13 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src'>>> = {
     mobile: { position: '58% 22%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·貂蝉',
   },
+
+  // ── 好友娱乐包 ──
+  pingtoufangkuai: {
+    desktop: { position: '43% 30%', scale: 1.0 },
+    mobile: { position: '43% 28%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·平头方块',
+  },
 }
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

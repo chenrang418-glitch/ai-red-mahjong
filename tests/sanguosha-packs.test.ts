@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ALL_CHARACTERS, STANDARD_CHARACTERS, allCharacterIds, getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import { WIND_CHARACTERS } from '@/sanguosha/data/characters/wind'
 import { FIRE_CHARACTERS } from '@/sanguosha/data/characters/fire'
+import { ENTERTAINMENT_CHARACTERS } from '@/sanguosha/data/characters/entertainment'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 // 技能运行时靠 import 副作用注册，而装备类技能（含铁骑、流离）注册在引擎侧。
 // 不把引擎拉进来，这里会把已实现的技能误判成空壳。
@@ -12,7 +13,7 @@ import '@/sanguosha/engine/game'
  *
  * 最容易犯的错是让 `STANDARD_CHARACTERS` 实际装上扩展包武将——
  * 名字和内容对不上，之后所有「池子多大」的判断都会跟着错。
- * 这里把「谁属于哪个包」和「可用池子 = 三个包之和」都钉死。
+ * 这里把「谁属于哪个包」和「可用池子 = 全部已登记包之和」都钉死。
  */
 
 describe('包的归属不能串', () => {
@@ -22,13 +23,14 @@ describe('包的归属不能串', () => {
     }
   })
 
-  it('风包和火包各自的 pack 字段也要对', () => {
+  it('风包、火包和娱乐包各自的 pack 字段也要对', () => {
     for (const character of WIND_CHARACTERS) expect(character.pack, `${character.name}`).toBe('wind')
     for (const character of FIRE_CHARACTERS) expect(character.pack, `${character.name}`).toBe('fire')
+    for (const character of ENTERTAINMENT_CHARACTERS) expect(character.pack, `${character.name}`).toBe('entertainment')
   })
 
-  it('可用池子正好是三个包之和，没有重复 id', () => {
-    expect(ALL_CHARACTERS.length).toBe(STANDARD_CHARACTERS.length + WIND_CHARACTERS.length + FIRE_CHARACTERS.length)
+  it('可用池子正好是全部包之和，没有重复 id', () => {
+    expect(ALL_CHARACTERS.length).toBe(STANDARD_CHARACTERS.length + WIND_CHARACTERS.length + FIRE_CHARACTERS.length + ENTERTAINMENT_CHARACTERS.length)
     const ids = ALL_CHARACTERS.map((character) => character.id)
     expect(new Set(ids).size, '武将 id 不能重复').toBe(ids.length)
   })

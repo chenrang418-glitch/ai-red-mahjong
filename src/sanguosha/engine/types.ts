@@ -29,6 +29,10 @@ export interface PhysicalCard {
   damageNature?: DamageNature
   equipmentSlot?: EquipmentSlot
   attackRange?: number
+  /** 技能生成的临时牌。结算结束后销毁，不进入弃牌堆，也不计入牌堆组成。 */
+  virtual?: boolean
+  /** 生成这张虚拟牌的技能，用于结算完成后的技能奖励。 */
+  sourceSkillId?: string
 }
 
 export interface EquipmentZone {
@@ -165,6 +169,8 @@ export interface SlashResolutionState {
    * 每换一个目标都要重置——铁骑是逐个目标判定的。
    */
   noDodge?: boolean
+  /** “成为目标后”的技能只取消当前目标，不影响这张【杀】的其他目标。 */
+  targetCancelled?: boolean
   /**
    * 主公技代打（护驾）的询问进度。
    * 目标自己放弃之后才开始，`null` 表示还没开始或这局用不到。
@@ -210,7 +216,13 @@ export interface TrickResolutionState {
   targetIndex: number
   /** 已经被无懈掉的目标，最终 CardResolved 要报告 */
   nullifiedTargetIds: PlayerId[]
-  stage: 'awaiting-nullification' | 'awaiting-effect'
+  stage: 'awaiting-intercept' | 'awaiting-nullification' | 'awaiting-effect'
+  /** 当前目标已经处理过的“成为目标后”技能，避免恢复时重复发问。 */
+  interceptsDone: string[]
+  /** 被技能取消的目标。多目标牌只跳过对应角色。 */
+  cancelledTargetIds: PlayerId[]
+  /** 不能响应本次牌的角色；只在这张牌的结算状态中生效。 */
+  unresponsiveTargetIds: PlayerId[]
   responderOrder: PlayerId[]
   responderIndex: number
   nullificationCount: number

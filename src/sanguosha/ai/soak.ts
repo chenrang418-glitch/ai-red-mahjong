@@ -32,6 +32,8 @@ export interface SoakResult {
   turns: number
   winningCamp: string | null
   survivors: number
+  /** 失败 seed 复现时直接给出阵容，避免再次插桩。 */
+  characterIds: string[]
 }
 
 function setupFor(playerCount: number): GameSetup {
@@ -125,6 +127,7 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     turns: game.state.turnNumber,
     winningCamp: game.state.result?.winningCamp ?? null,
     survivors: game.state.players.filter((player) => player.alive).length,
+    characterIds: game.state.players.map((player) => player.characterId ?? ''),
   }
 }
 

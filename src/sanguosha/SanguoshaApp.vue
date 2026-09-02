@@ -118,7 +118,7 @@ function handleRespond(response: GameResponse): void {
         <div class="sgs-home__seal" aria-hidden="true">杀</div>
         <p>经典身份局</p>
         <h1>三国杀</h1>
-        <small>标准包与风火扩展共 {{ ALL_CHARACTERS.length }} 名武将、全部装备均已实现，支持单机与好友联机。</small>
+        <small>当前共 {{ ALL_CHARACTERS.length }} 名完整可玩武将、全部装备均已实现，支持单机与好友联机。</small>
       </div>
       <nav aria-label="三国杀模式">
         <button type="button" class="sgs-home__main" @click="screen = 'setup'"><b>单机游戏</b><span>与电脑对战</span></button>

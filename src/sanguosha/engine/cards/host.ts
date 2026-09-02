@@ -70,11 +70,15 @@ export function beginPhysicalCard(host: CardEngineHost, sourceId: PlayerId, card
 
 /** 结算收束：牌还在处理区就送进弃牌堆，然后派发结束时机。 */
 export function finishPhysicalCard(host: CardEngineHost, sourceId: PlayerId, cardId: CardId, targetIds: PlayerId[], cancelled = false): void {
-  if (host.state.zones.processingArea.includes(cardId)) {
+  const card = host.state.cards[cardId]
+  if (card?.virtual) {
+    host.state.zones.processingArea = host.state.zones.processingArea.filter((id) => id !== cardId)
+    delete host.state.cards[cardId]
+  } else if (host.state.zones.processingArea.includes(cardId)) {
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   }
-  const card = host.state.cards[cardId]
   const metadata = { sourceId, targetId: targetIds[0], cardIds: [cardId] }
-  host.dispatch('CardResolved', { cardId, cardName: card.name, targetIds, cancelled }, metadata)
-  host.dispatch('AfterCardUse', { cardId, cardName: card.name, targetIds, cancelled }, metadata)
+  const payload = { cardId, cardName: card.name, targetIds, cancelled, virtual: Boolean(card.virtual), sourceSkillId: card.sourceSkillId }
+  host.dispatch('CardResolved', payload, metadata)
+  host.dispatch('AfterCardUse', payload, metadata)
 }

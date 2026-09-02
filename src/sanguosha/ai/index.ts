@@ -103,6 +103,10 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       return bestTarget > 0 ? 12 : -20
     case 'lijian':
       return bestTarget > 0 ? 14 : -20
+    case 'shuajian':
+      // 一血时主动邀战风险过高；手牌紧张时才积极发动，避免每回合稳定补牌拖长整局。
+      if (me.hp <= 1 || bestTarget <= 0) return -100
+      return me.handCount <= 2 ? 10 : 2
     default:
       // 装备的主动效果（丈八蛇矛、方天画戟）等：给个低分，有更好的牌就先出牌
       return 3
@@ -214,9 +218,19 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     }
 
     case 'choose-targets': {
-      const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+      const isBeneficial = /回复|结姻|青囊/.test(request.prompt)
+      const ranked = [...request.candidateIds].sort((left, right) => {
+        if (!isBeneficial) return targetScore(context, right) - targetScore(context, left)
+        const leftPlayer = context.view.players.find((player) => player.id === left)
+        const rightPlayer = context.view.players.find((player) => player.id === right)
+        const supportScore = (targetId: PlayerId, missingHp: number) => -hostility(context.view, context.suspicion, targetId) * 10 + missingHp * 3
+        return supportScore(right, (rightPlayer?.maxHp ?? 0) - (rightPlayer?.hp ?? 0))
+          - supportScore(left, (leftPlayer?.maxHp ?? 0) - (leftPlayer?.hp ?? 0))
+      })
       // 能不打自己人就不打；但请求要求最少选几个的时候只能硬选
-      const safe = ranked.filter((targetId) => targetScore(context, targetId) > -Infinity)
+      const safe = isBeneficial
+        ? ranked.filter((targetId) => hostility(context.view, context.suspicion, targetId) <= 0)
+        : ranked.filter((targetId) => targetScore(context, targetId) > -Infinity)
       const pool = safe.length >= request.min ? safe : ranked
       const count = Math.min(Math.max(request.min, 1), request.max, pool.length)
       return { ...base, payload: { targetIds: pool.slice(0, count) } }
@@ -227,6 +241,18 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 有别的选项就不要碰它。其余选项仍然随机，避免 AI 行为过于死板。
       const me = myself(context.view)
       const options = request.options
+      if (options.some((option) => option.id === 'fadai-invoke')) {
+        const hasDodge = me.hand?.some((card) => card.name === '闪') ?? false
+        // 没闪时发动只有收益；一血且有闪时保留确定的防御，避免赌失败后无法响应。
+        const invoke = !hasDodge || me.hp > 1
+        return { ...base, payload: { optionId: invoke ? 'fadai-invoke' : 'cancel' } }
+      }
+      if (options.some((option) => option.id === 'shuajian-attack')) {
+        const challenger = context.view.players.find((player) => player.characterId === 'pingtoufangkuai' && player.alive)
+        const isEnemy = challenger ? hostility(context.view, context.suspicion, challenger.id) > 0 : false
+        const attack = isEnemy && (challenger!.hp <= 2 || context.difficulty !== 'easy')
+        return { ...base, payload: { optionId: attack ? 'shuajian-attack' : 'shuajian-ignore' } }
+      }
       const safe = me.hp <= 2 ? options.filter((option) => option.id !== 'hp' && option.id !== 'lose-hp') : options
       const pool = safe.length > 0 ? safe : options
       return { ...base, payload: { optionId: context.rng.pick(pool).id } }

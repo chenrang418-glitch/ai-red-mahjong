@@ -52,7 +52,7 @@
   `src/sanguosha/engine/equipment-requests.ts`——贯石斧、青龙偃月刀（闪抵消后）、
   寒冰剑（伤害前，替代伤害）、麒麟弓（伤害后，走延后队列）、
   雌雄双股剑（指定目标后、求闪前）、丈八蛇矛、方天画戟。
-- **武将 29 名**（**只登记技能完整实现的，没有空壳**）：
+- **武将 30 名**（**只登记运行时完整实现的，没有空壳**）：
 
   标准包 25 名：
 
@@ -72,14 +72,17 @@
   | 火 | 典韦 | 强袭（经典火包版：出牌阶段限一次，失去 1 体力或弃武器，对攻击范围内 1 人造成 1 伤害） | `data/characters/fire.ts` |
   | 火 | 庞德 | 马术（复用马超）+ 猛进（杀被闪抵消后，弃自己一张牌，弃对方一张牌） | `data/characters/fire.ts` |
 
+  好友娱乐包 1 名：平头方块（群，4 体力），【耍剑】【发呆】，位于
+  `data/characters/entertainment.ts`。项目和 UI 中只使用这两个中性技能名。
+
   **一律采用经典风/火包版本，不混界限突破版**，每个技能的注释里都写明了这一条。
 
 ### 扩展包架构（2026-09-02 建立）
 
-- `data/characters/types.ts` 的 `CharacterPack = 'standard' | 'wind' | 'fire'`，
+- `data/characters/types.ts` 的 `CharacterPack = 'standard' | 'wind' | 'fire' | 'entertainment'`，
   每个 `CharacterDefinition` 必须声明 `pack`。
 - `STANDARD_CHARACTERS` **只保留标准包**；对外的单一入口是同文件里的
-  `ALL_CHARACTERS`（标准 + 风 + 火）与 `allCharacterIds()`。
+  `ALL_CHARACTERS`（标准 + 风 + 火 + 好友娱乐）与 `allCharacterIds()`。
   UI、词条、立绘、AI、测试全部读 `ALL_CHARACTERS`，**不要再直接读 `STANDARD_CHARACTERS`**。
 - 新增一个包就加一个 `data/characters/<pack>.ts`，在 `standard.ts` 里并进 `ALL_CHARACTERS`。
 - `tests/sanguosha-packs.test.ts` 里有**空壳探测**：每个注册的技能 id 都必须能取到运行时。
@@ -155,7 +158,7 @@
    再加武将照 `docs/sanguosha-portraits.md` 做。
    **不要自己去网上抓立绘**——原型阶段用过的无授权素材已按用户决定全部撤除。
 
-7. **新增角色**（进行中，见下节）：目标 32 名，已到 29 名。
+7. **新增角色**（进行中，见下节）：经典扩展目标 32 名，已到 29 名；另有好友娱乐武将 1 名，当前总池 30 名。
 
 ## 下一步：扩包到 32 名（用户已给出名单，做到第 4 个）
 

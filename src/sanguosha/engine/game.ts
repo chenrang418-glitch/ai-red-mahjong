@@ -5,7 +5,7 @@ import { identitiesFor } from './modes/identity'
 import { GameRng } from './rng'
 import { startPlaying } from './turn'
 import { advanceGamePhase, resolveDiscardPhaseResponse } from './phase'
-import { legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution } from './cards/basic'
+import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resumeJudgment } from './judgment'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
@@ -145,6 +145,14 @@ export class SanguoshaGame {
 
   enterDying(playerId: string): void {
     enterDying(this, playerId)
+  }
+
+  beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder' }): void {
+    startVirtualSlash(this, options)
+  }
+
+  resumeCardTarget(): void {
+    continueCardTarget(this)
   }
 
   queueSkill(prompt: QueuedSkillPrompt): void {
@@ -357,6 +365,11 @@ export class SanguoshaGame {
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1
     if (resolution?.kind === 'trick' && resolution.effect?.kind === 'duel' && !Number.isInteger(resolution.effect.slashRemaining)) {
       resolution.effect.slashRemaining = 1
+    }
+    if (resolution?.kind === 'trick') {
+      resolution.interceptsDone ??= []
+      resolution.cancelledTargetIds ??= []
+      resolution.unresponsiveTargetIds ??= []
     }
     mutable.rng = new GameRng(`${stored.rulesetVersion}:${stored.seed}`, stored.rngState || undefined)
     mutable.events = new GameEventBus()

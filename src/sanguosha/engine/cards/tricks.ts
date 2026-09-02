@@ -276,6 +276,9 @@ export function beginInstantTrick(host: CardEngineHost, sourceId: PlayerId, card
     targetIds: [...targetIds],
     targetIndex: 0,
     nullifiedTargetIds: [],
+    cancelledTargetIds: [],
+    unresponsiveTargetIds: [],
+    interceptsDone: [],
     stage: 'awaiting-nullification',
     responderOrder: aliveOrderFromCurrent(host.state),
     responderIndex: 0,
@@ -283,7 +286,47 @@ export function beginInstantTrick(host: CardEngineHost, sourceId: PlayerId, card
     requestId: null,
     effect: null,
   }
+  enterTrickTarget(host)
+}
+
+/** 当前锦囊目标先经过武将的“成为目标后”技能，再进入无懈链。 */
+function enterTrickTarget(host: CardEngineHost): void {
+  const resolution = host.state.cardResolution
+  if (!resolution || resolution.kind !== 'trick') return
+  if (resolution.targetIndex >= resolution.targetIds.length) {
+    finishTrick(host)
+    return
+  }
+  const targetId = resolution.targetIds[resolution.targetIndex]
+  const card = host.state.cards[resolution.cardId]
+  for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
+    if (!runtime.interceptTarget) continue
+    const interceptId = `skill:${runtime.id}`
+    if (resolution.interceptsDone.includes(interceptId)) continue
+    resolution.interceptsDone.push(interceptId)
+    if (!runtime.interceptTarget(host, targetId, {
+      sourceId: resolution.sourceId,
+      targetId,
+      cardId: resolution.cardId,
+      cardName: resolution.cardName,
+      category: card.category,
+    })) continue
+    resolution.stage = 'awaiting-intercept'
+    return
+  }
   askNullification(host)
+}
+
+/** 目标技能回答完以后恢复；只取消当前目标，不影响多目标锦囊的其余角色。 */
+export function resumeTrickTarget(host: CardEngineHost): void {
+  const resolution = host.state.cardResolution
+  if (!resolution || resolution.kind !== 'trick') return
+  const targetId = resolution.targetIds[resolution.targetIndex]
+  if (resolution.cancelledTargetIds.includes(targetId)) {
+    advanceToNextTarget(host)
+    return
+  }
+  enterTrickTarget(host)
 }
 
 /** 给当前目标问下一个可以出无懈的人；问完一圈就进效果结算。 */
@@ -312,7 +355,8 @@ export function askNullification(host: CardEngineHost): void {
 
   const responderId = resolution.responderOrder[resolution.responderIndex]
   const responder = playerOf(host.state, responderId)
-  if (!responder.alive) {
+  const currentTargetId = resolution.targetIds[resolution.targetIndex]
+  if (!responder.alive || (responderId === currentTargetId && resolution.unresponsiveTargetIds.includes(responderId))) {
     resolution.responderIndex += 1
     askNullification(host)
     return
@@ -358,14 +402,15 @@ export function advanceToNextTarget(host: CardEngineHost): void {
   resolution.stage = 'awaiting-nullification'
   resolution.effect = null
   resolution.requestId = null
-  askNullification(host)
+  resolution.interceptsDone = []
+  enterTrickTarget(host)
 }
 
 /** 整张牌结算完：收束卡牌并派发结束事件。 */
 function finishTrick(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
-  const allNullified = resolution.nullifiedTargetIds.length === resolution.targetIds.length
+  const allNullified = new Set([...resolution.nullifiedTargetIds, ...resolution.cancelledTargetIds]).size === resolution.targetIds.length
   finishPhysicalCard(host, resolution.sourceId, resolution.cardId, resolution.targetIds, allNullified)
   host.state.cardResolution = null
 }
@@ -468,6 +513,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
   const target = playerOf(host.state, targetId)
+  const cannotRespond = resolution.unresponsiveTargetIds.includes(targetId)
 
   switch (resolution.cardName) {
     case '无中生有':
@@ -489,6 +535,11 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
         advanceToNextTarget(host)
         return
       }
+      if (cannotRespond) {
+        resolveDamage(host, { sourceId: resolution.sourceId, targetId, amount: 1, nature: 'normal', cardName: resolution.cardName, cardId: resolution.cardId })
+        if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
+        return
+      }
       const requestId = askRespondCard(host, resolution, targetId, '杀', `${playerOf(host.state, resolution.sourceId).nickname}使用【南蛮入侵】，请打出【杀】`)
       resolution.effect = { kind: 'ask-slash', targetId, requestId }
       return
@@ -498,12 +549,22 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
         advanceToNextTarget(host)
         return
       }
+      if (cannotRespond) {
+        resolveDamage(host, { sourceId: resolution.sourceId, targetId, amount: 1, nature: 'normal', cardName: resolution.cardName, cardId: resolution.cardId })
+        if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
+        return
+      }
       const requestId = askRespondCard(host, resolution, targetId, '闪', `${playerOf(host.state, resolution.sourceId).nickname}使用【万箭齐发】，请打出【闪】`)
       resolution.effect = { kind: 'ask-dodge', targetId, requestId }
       return
     }
     case '决斗': {
       // 决斗由目标先出杀，然后双方轮流；先出不出来的一方受伤
+      if (cannotRespond) {
+        resolveDamage(host, { sourceId: resolution.sourceId, targetId, amount: 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
+        if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
+        return
+      }
       const requestId = askRespondCard(host, resolution, targetId, '杀', `${playerOf(host.state, resolution.sourceId).nickname}对你使用【决斗】，请打出【杀】`)
       resolution.effect = {
         kind: 'duel', responderId: targetId, otherId: resolution.sourceId, requestId,
