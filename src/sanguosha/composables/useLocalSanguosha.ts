@@ -4,7 +4,7 @@ import { GameRng } from '../engine/rng'
 import type { GameRequest, GameResponse } from '../engine/requests'
 import type { GameSetup } from '../engine/types'
 import type { PlayerView } from '../engine/view'
-import { decidePlayAction, decideResponse, type AIContext, type AIDifficulty } from '../ai'
+import { decidePlayAction, decideResponse, isTrivialAIRequest, type AIContext, type AIDifficulty } from '../ai'
 import { emptySuspicion, observeEvent, type SuspicionMap } from '../ai/belief'
 import { describeEvent } from '../engine/log'
 import type { GameEventName } from '../engine/events'
@@ -70,7 +70,7 @@ export function useLocalSanguosha() {
 
   let aiRng = new GameRng('ai')
   let suspicion: SuspicionMap = {}
-  let delayMs = 1900
+  let delayMs = 700
   let timer: number | null = null
   let generation = 0
 
@@ -119,13 +119,13 @@ export function useLocalSanguosha() {
     if (current.state.status === 'choosing-general') {
       const pending = current.state.pendingRequests[0]
       if (!pending) {
-        step(revision, () => { current.start() }, true)
+        step(revision, () => { current.start() }, 'phase')
         return
       }
       if (pending.playerId === HUMAN_ID) { busy.value = false; refresh(); return }
       // 选将走短间隔：这一步没有任何动画，8 人局按正常节奏要等十几秒
       // 才开得了局，玩家只能盯着「其他角色选将中…」。
-      step(revision, () => { current.respond(decideResponse(contextFor(pending.playerId), pending)) }, true)
+      step(revision, () => { current.respond(decideResponse(contextFor(pending.playerId), pending)) }, 'instant')
       return
     }
 
@@ -134,31 +134,33 @@ export function useLocalSanguosha() {
     const request = current.state.pendingRequests[0]
     if (request) {
       if (request.playerId === HUMAN_ID) { busy.value = false; refresh(); return }
-      step(revision, () => { current.respond(decideResponse(contextFor(request.playerId), request)) })
+      step(revision, () => { current.respond(decideResponse(contextFor(request.playerId), request)) }, isTrivialAIRequest(request) ? 'instant' : 'normal')
       return
     }
 
     const currentPlayer = current.state.players.find((player) => player.id === current.state.currentPlayerId)
     if (current.state.phase === 'play' && currentPlayer?.alive) {
       if (current.state.currentPlayerId === HUMAN_ID) { busy.value = false; refresh(); return }
+      const playerId = current.state.currentPlayerId
+      const actions = current.legalActions(playerId)
+      const onlyPass = actions.every((candidate) => candidate.kind === 'pass')
       step(revision, () => {
-        const playerId = current.state.currentPlayerId
-        const action = decidePlayAction(contextFor(playerId), current.legalActions(playerId))
+        const action = decidePlayAction(contextFor(playerId), actions)
         if (action) current.act(playerId, action.id)
         else {
-          const pass = current.legalActions(playerId).find((candidate) => candidate.kind === 'pass')
+          const pass = actions.find((candidate) => candidate.kind === 'pass')
           if (pass) current.act(playerId, pass.id)
         }
-      })
+      }, onlyPass ? 'instant' : 'normal')
       return
     }
 
     // 当前角色可能已经死了（苦肉、决斗、自己的闪电），回合要收束
-    step(revision, () => { current.advancePhase() }, true)
+    step(revision, () => { current.advancePhase() }, 'phase')
   }
 
   /** 执行一步，带视觉停顿；出错时把牌局停在原地并报出来，不静默吞掉。 */
-  function step(revision: number, action: () => void, automatic = false): void {
+  function step(revision: number, action: () => void, pace: 'normal' | 'phase' | 'instant' = 'normal'): void {
     busy.value = true
     const run = () => {
       if (revision !== generation) return
@@ -179,13 +181,13 @@ export function useLocalSanguosha() {
      * 改成跟随整体节奏的一半，最少 700ms——够看清判定牌的花色点数，
      * 又不会让纯粹的阶段流转拖沓。
      *
-     * 选将阶段也走这条路，但那里没有任何要看的东西，所以再压到 120ms：
-     * 8 人局按 1900ms 要等十几秒，玩家只能盯着「其他角色选将中…」。
+     * 选将、只能放弃的响应和没有牌可出的出牌阶段没有可观察决策，压到 60ms；
+     * 自动阶段推进只留 180～360ms，真实出牌仍使用玩家选择的 AI 节奏。
      */
-    const selecting = game.value?.state.status === 'choosing-general'
     const visualDelay = delayMs <= 0 ? 0
-      : automatic ? (selecting ? 120 : Math.max(700, Math.round(delayMs / 2)))
-        : delayMs
+      : pace === 'instant' ? 60
+        : pace === 'phase' ? Math.min(360, Math.max(180, Math.round(delayMs / 2)))
+          : delayMs
     if (visualDelay <= 0) run()
     else timer = window.setTimeout(run, visualDelay)
   }
@@ -196,7 +198,7 @@ export function useLocalSanguosha() {
     error.value = ''
     log.value = []
     presentationEvents.value = []
-    delayMs = options.aiDelayMs ?? 1900
+    delayMs = options.aiDelayMs ?? 700
     currentDifficulty = options.difficulty
     const seed = options.seed ?? `local-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
     aiRng = new GameRng(`ai:${seed}`)

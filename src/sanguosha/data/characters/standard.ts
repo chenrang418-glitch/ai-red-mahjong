@@ -244,13 +244,18 @@ registerSkillRuntime({
   },
 })
 
-/** 需要打出【闪】时，哪些手牌可以转化成【闪】。 */
-export function dodgeViewAsOptions(state: SanguoshaState, playerId: PlayerId): ViewAsOption[] {
+/** 在响应锦囊或基本牌时，哪些手牌可以转化成指定牌名。 */
+export function responseViewAsOptions(state: SanguoshaState, playerId: PlayerId, requiredCardName: string): ViewAsOption[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player?.characterId) return []
   return skillsOf(state, playerId, skillIdsOf)
     .flatMap((runtime) => runtime.viewAs?.(state, playerId) ?? [])
-    .filter((option) => option.asCardName === '闪')
+    .filter((option) => option.asCardName === requiredCardName)
+}
+
+/** 需要打出【闪】时，哪些手牌可以转化成【闪】。 */
+export function dodgeViewAsOptions(state: SanguoshaState, playerId: PlayerId): ViewAsOption[] {
+  return responseViewAsOptions(state, playerId, '闪')
 }
 
 export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [

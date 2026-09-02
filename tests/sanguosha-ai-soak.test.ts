@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runSoakBatch, runSoakGame } from '@/sanguosha/ai/soak'
-import { decideResponse, type AIContext } from '@/sanguosha/ai'
+import { decideResponse, isTrivialAIRequest, type AIContext } from '@/sanguosha/ai'
 import { emptySuspicion } from '@/sanguosha/ai/belief'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { GameRng } from '@/sanguosha/engine/rng'
@@ -78,6 +78,28 @@ describe('AI 对每一种 Request 都能给出合法响应', () => {
       expect(response.payload).not.toBeNull()
     })
   }
+})
+
+describe('AI 强制响应节奏', () => {
+  const base = { id: 'forced', playerId: 'p0', prompt: '', timeoutMs: 1000, optional: true } as const
+
+  it('只有放弃选项的响应和救援无需模拟思考', () => {
+    expect(isTrivialAIRequest({
+      ...base, kind: 'respond-card', actionIds: ['respond-pass'], requiredCardName: '闪',
+    })).toBe(true)
+    expect(isTrivialAIRequest({
+      ...base, kind: 'rescue', dyingPlayerId: 'p1', actionIds: ['rescue-pass'], requiredRecover: 1,
+    })).toBe(true)
+  })
+
+  it('拥有可用牌时保留正常决策观察时间', () => {
+    expect(isTrivialAIRequest({
+      ...base, kind: 'respond-card', actionIds: ['respond-dodge:c1', 'respond-pass'], requiredCardName: '闪',
+    })).toBe(false)
+    expect(isTrivialAIRequest({
+      ...base, kind: 'rescue', dyingPlayerId: 'p1', actionIds: ['rescue-card:c1', 'rescue-pass'], requiredRecover: 1,
+    })).toBe(false)
+  })
 })
 
 describe('AI 技能目标', () => {

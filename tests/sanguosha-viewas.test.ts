@@ -4,6 +4,7 @@ import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { ALL_CHARACTERS } from '@/sanguosha/data/characters/standard'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import { INSTANT_TRICKS as INSTANT_TRICK_NAMES } from '@/sanguosha/engine/cards/tricks'
+import { moveCard } from '@/sanguosha/engine/zones'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
@@ -50,6 +51,23 @@ function giveCardOfColor(game: SanguoshaGame, playerId: PlayerId, color: 'red' |
   return cardId
 }
 
+function stripHands(game: SanguoshaGame): void {
+  for (const player of game.state.players) {
+    for (const cardId of [...player.zones.hand]) {
+      moveCard(game.state, cardId, { kind: 'hand', playerId: player.id }, { kind: 'discardPile' })
+    }
+  }
+}
+
+function giveNamed(game: SanguoshaGame, playerId: PlayerId, name: string): string {
+  const cardId = game.state.zones.drawPile.find((id) => game.state.cards[id].name === name)
+    ?? game.state.zones.discardPile.find((id) => game.state.cards[id].name === name)
+  if (!cardId) throw new Error(`找不到【${name}】`)
+  const from = game.state.zones.drawPile.includes(cardId) ? { kind: 'drawPile' as const } : { kind: 'discardPile' as const }
+  moveCard(game.state, cardId, from, { kind: 'hand', playerId })
+  return cardId
+}
+
 describe('甘宁【奇袭】', () => {
   it('黑牌真的能当【过河拆桥】打出去', () => {
     const game = gameWith(['ganning'])
@@ -89,6 +107,46 @@ describe('关羽【武圣】', () => {
     expect(wusheng).toBeTruthy()
     game.act('p0', wusheng!.id)
     expect(game.state.cardResolution?.kind).toBe('slash')
+    assertGameInvariants(game.state)
+  })
+
+  it('南蛮入侵求杀时可以把红牌当【杀】打出', () => {
+    const game = gameWith(['machao', 'guanyu'], 'wusheng-response')
+    stripHands(game)
+    const invasion = giveNamed(game, 'p0', '南蛮入侵')
+    const red = giveCardOfColor(game, 'p1', 'red', '杀')
+    const hpBefore = game.state.players[1].hp
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(invasion))!
+    game.act('p0', action.id)
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '杀' })
+    expect(request.kind === 'respond-card' && request.actionIds).toContain(`respond-trick:${red}`)
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-trick:${red}` } })
+
+    expect(game.state.players[1].hp).toBe(hpBefore)
+    expect(game.state.zones.discardPile).toContain(red)
+    assertGameInvariants(game.state)
+  })
+})
+
+describe('赵云【龙胆】响应锦囊', () => {
+  it('万箭齐发求闪时可以把【杀】当【闪】打出', () => {
+    const game = gameWith(['machao', 'zhaoyun'], 'longdan-trick-response')
+    stripHands(game)
+    const barrage = giveNamed(game, 'p0', '万箭齐发')
+    const slash = giveNamed(game, 'p1', '杀')
+    const hpBefore = game.state.players[1].hp
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(barrage))!
+    game.act('p0', action.id)
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '闪' })
+    expect(request.kind === 'respond-card' && request.actionIds).toContain(`respond-trick:${slash}`)
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-trick:${slash}` } })
+
+    expect(game.state.players[1].hp).toBe(hpBefore)
+    expect(game.state.zones.discardPile).toContain(slash)
     assertGameInvariants(game.state)
   })
 })

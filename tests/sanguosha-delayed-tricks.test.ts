@@ -157,20 +157,15 @@ describe('延时锦囊与判定阶段', () => {
     assertGameInvariants(game.state)
   })
 
-  it('闪电造成濒死时判定状态可序列化，救援结束后继续弃置并收束', () => {
+  it('闪电造成濒死且无人可救时立即阵亡并收束判定', () => {
     const game = startedGame('lightning-dying-resume')
     const lightningId = placeDelayed(game, 'p0', '闪电')
     forceTop(game, (candidate) => candidate.suit === 'spade' && candidate.rank >= 2 && candidate.rank <= 9)
     game.state.players[0].hp = 2
     game.advancePhase()
     passJudgmentWindow(game)
-    expect(game.state.dying?.playerId).toBe('p0')
-    expect(game.state.judgment).toEqual({ playerId: 'p0', delayedCardId: lightningId, stage: 'awaiting-damage' })
-    expect(JSON.parse(JSON.stringify(game.state)).judgment.delayedCardId).toBe(lightningId)
-    while (game.state.dying) {
-      const request = game.state.pendingRequests[0]
-      game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'rescue-pass' } })
-    }
+    expect(game.state.dying).toBeNull()
+    expect(game.state.pendingRequests).toHaveLength(0)
     expect(game.state.players[0].alive).toBe(false)
     expect(game.state.judgment).toBeNull()
     expect(game.state.zones.discardPile).toContain(lightningId)

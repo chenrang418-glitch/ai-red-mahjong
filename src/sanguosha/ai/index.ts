@@ -434,6 +434,30 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
 }
 
 /**
+ * AI 没有策略空间、只是在确认唯一结果的请求。
+ * 这类步骤仍走同一套合法响应与校验，但表现层不必假装思考 1～2 秒。
+ */
+export function isTrivialAIRequest(request: GameRequest): boolean {
+  switch (request.kind) {
+    case 'respond-card':
+      return request.actionIds.every((actionId) => actionId === 'respond-pass' || actionId === 'respond-pass-round')
+    case 'rescue':
+      return request.actionIds.every((actionId) => actionId === 'rescue-pass')
+    case 'choose-option':
+      return request.options.length <= 1
+    case 'choose-targets':
+      return request.candidateIds.length === request.min && request.min === request.max
+    case 'choose-cards':
+      return request.cardIds.length + request.hiddenCardSlots.length === 0 || request.max === 0
+    case 'use-card':
+    case 'invoke-skill':
+      return request.actionIds.every((actionId) => actionId === 'respond-pass')
+    default:
+      return false
+  }
+}
+
+/**
  * 无懈可击值不值得出。
  *
  * 判断标准是「这张锦囊会不会害到我这边」，而不是「谁放的」——

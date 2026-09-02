@@ -135,12 +135,25 @@ function requestCurrentRescuer(host: DamageEngineHost): void {
     host.state.dying = null
     return
   }
-  if (dying.responderIndex >= dying.responderOrder.length) {
+  // 没有桃、酒、转化桃或蛊惑入口的人没有任何真实选择，直接越过。
+  // 以前仍给每个人发一个只有「放弃」的 Request，8 人局一次阵亡最多空等十几秒。
+  let responderId: PlayerId | null = null
+  let actionIds: string[] = []
+  while (dying.responderIndex < dying.responderOrder.length) {
+    const candidateId = dying.responderOrder[dying.responderIndex]
+    const candidateActions = rescueActionIds(host.state, candidateId, target.id)
+    if (candidateActions.some((actionId) => actionId !== 'rescue-pass')) {
+      responderId = candidateId
+      actionIds = candidateActions
+      break
+    }
+    dying.responderIndex += 1
+  }
+  if (!responderId) {
     resolveDeath(host, dying.playerId, dying.sourceId)
     return
   }
 
-  const responderId = dying.responderOrder[dying.responderIndex]
   const ask = host.dispatch(
     'AskForPeach',
     { responderId, dyingPlayerId: target.id, requiredRecover: 1 - target.hp },
@@ -154,7 +167,7 @@ function requestCurrentRescuer(host: DamageEngineHost): void {
     timeoutMs: 30_000,
     optional: true,
     dyingPlayerId: target.id,
-    actionIds: rescueActionIds(host.state, responderId, target.id),
+    actionIds,
     requiredRecover: 1 - target.hp,
   }
   host.state.pendingRequests.push(request)

@@ -271,7 +271,7 @@ describe('即时锦囊', () => {
     expect(() => assertGameInvariants(game.state)).not.toThrow()
   })
 
-  it('南蛮入侵造成濒死时暂停，救援结束后继续结算剩余目标', () => {
+  it('南蛮入侵造成濒死且无人可救时立即阵亡并继续结算剩余目标', () => {
     const game = playPhaseGame('tricks-invasion-dying')
     stripCard(game, '无懈可击')
     stripCard(game, '杀')
@@ -282,8 +282,10 @@ describe('即时锦囊', () => {
 
     useOn(game, cardId, ['p1', 'p2', 'p3', 'p4'])
     respond(game, 'respond-pass') // p1 不出杀 → 掉到 0 进入濒死
-    expect(game.state.dying).not.toBeNull()
-    // 濒死状态必须可序列化，Durable Object 休眠后要能恢复
+    expect(game.state.dying).toBeNull()
+    expect(game.state.players[1].alive).toBe(false)
+    expect(game.state.pendingRequests.some((request) => request.kind === 'rescue')).toBe(false)
+    // 下一位响应者的状态仍可序列化，Durable Object 休眠后可恢复。
     expect(() => structuredClone(game.state)).not.toThrow()
     passAll(game)
 

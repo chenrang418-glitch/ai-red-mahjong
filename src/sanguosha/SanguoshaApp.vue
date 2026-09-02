@@ -34,14 +34,9 @@ const glossary = provideSgsGlossary()
 type AIPace = 'fast' | 'normal' | 'relaxed'
 const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty, aiPace: 'normal' as AIPace })
 /**
- * 电脑节奏。经过两轮反馈，整体已经放慢到原来的三倍
- * （450/700/950 → 700/950/1300 → 1400/1900/2600）。
- *
- * 判断依据是表现事件本身的时长：一次伤害要播 900ms、阵亡 1200ms，
- * 间隔必须明显长于单条事件，玩家才有时间读完再看下一条。
- * 1300ms 那一档只比伤害动画长 400ms，一旦一步里连出好几条事件就又被追着跑。
+ * 真实出牌保留可读停顿；无牌可出、唯一选项和纯阶段推进由驱动层单独加速。
  */
-const AI_PACE_MS: Record<AIPace, number> = { fast: 1400, normal: 1900, relaxed: 2600 }
+const AI_PACE_MS: Record<AIPace, number> = { fast: 450, normal: 700, relaxed: 1000 }
 const AI_PACE_LABEL: Record<AIPace, string> = { fast: '较快', normal: '标准', relaxed: '悠闲' }
 
 const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }

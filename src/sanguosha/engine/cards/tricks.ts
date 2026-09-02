@@ -4,12 +4,12 @@ import { canTarget, getDistance } from '../distance'
 import { drawCards } from '../draw'
 import { handleEquipmentLost, isCardIneffective } from '../equipment'
 import { getEngineCallbacks } from '../equipment-requests'
-import { ignoresTrickDistance } from '../../data/characters/standard'
+import { ignoresTrickDistance, responseViewAsOptions } from '../../data/characters/standard'
 import { recover } from '../recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { NULLIFICATION_TIMEOUT_MS, PASS_ROUND_ACTION, nullificationCardIds } from '../nullification'
-import { GUHUO_RESPOND_ACTION, canGuhuoRespond } from '../guhuo-response'
+import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
 import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
@@ -481,9 +481,13 @@ function askRespondCard(
   prompt: string,
 ): string {
   const responder = playerOf(host.state, responderId)
-  const actionIds = responder.zones.hand
+  const responseCards = new Set(responder.zones.hand
     .filter((cardId) => host.state.cards[cardId]?.name === requiredCardName)
-    .map((cardId) => `respond-trick:${cardId}`)
+  )
+  // 武圣、龙胆等“打出”转化同样适用于南蛮、万箭和决斗，不能只在普通【杀】求闪时生效。
+  for (const option of responseViewAsOptions(host.state, responderId, requiredCardName)) responseCards.add(option.cardId)
+  const actionIds = [...responseCards].map((cardId) => `respond-trick:${cardId}`)
+  if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     id: `request-effect-${host.state.seq}-${host.state.decisions.length}`,
@@ -628,7 +632,11 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
     if (!actionId.startsWith('respond-trick:')) throw new Error('响应 action 类型不匹配')
     playedCardId = actionId.slice('respond-trick:'.length)
     const responder = playerOf(host.state, response.playerId)
-    if (!responder.zones.hand.includes(playedCardId) || host.state.cards[playedCardId]?.name !== request.requiredCardName) {
+    const converted = responseViewAsOptions(host.state, response.playerId, request.requiredCardName)
+      .some((option) => option.cardId === playedCardId)
+    const granted = guhuoGrantedAs(host.state, response.playerId, playedCardId) === request.requiredCardName
+    if (!responder.zones.hand.includes(playedCardId)
+      || (host.state.cards[playedCardId]?.name !== request.requiredCardName && !converted && !granted)) {
       throw new Error(`响应牌不是该玩家持有的${request.requiredCardName}`)
     }
   }

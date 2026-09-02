@@ -1,6 +1,6 @@
 import { SanguoshaGame } from '../src/sanguosha/engine/game'
 import { GameRng } from '../src/sanguosha/engine/rng'
-import { decideResponse, decidePlayAction, type AIContext, type AIDifficulty } from '../src/sanguosha/ai'
+import { decideResponse, decidePlayAction, isTrivialAIRequest, type AIContext, type AIDifficulty } from '../src/sanguosha/ai'
 import { emptySuspicion, observeEvent, type SuspicionMap } from '../src/sanguosha/ai/belief'
 import { describeEvent } from '../src/sanguosha/engine/log'
 import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha/engine/presentation'
@@ -98,7 +98,8 @@ const DEFAULT_TURN_SECONDS = 30
  * 否则一步里连出几条事件时动画永远在被追着跑，观感就是「太快，看不清」。
  * 改这个值时把单机那份一起改，两边对不上会让联机显得比单机快。
  */
-const AI_STEP_MS = 1900
+const AI_STEP_MS = 700
+const AI_TRIVIAL_STEP_MS = 60
 /**
  * 选将阶段的 AI 间隔。
  *
@@ -545,7 +546,13 @@ export class SanguoshaRoomCoordinator {
 
     const drivenByAI = seat.kind === 'ai' || seat.trustee || !seat.connected
     const choosing = this.state.game.status === 'choosing-general'
-    const aiDelay = choosing ? AI_PICK_GENERAL_MS : AI_STEP_MS
+    const pending = this.state.game.pendingRequests.find((request) => request.playerId === playerIdOf(actorSeatId))
+    const onlyPass = drivenByAI && !choosing && !pending && this.state.game.phase === 'play'
+      ? this.game().legalActions(playerIdOf(actorSeatId)).every((action) => action.kind === 'pass')
+      : false
+    const aiDelay = choosing ? AI_PICK_GENERAL_MS
+      : ((pending && isTrivialAIRequest(pending)) || onlyPass) ? AI_TRIVIAL_STEP_MS
+        : AI_STEP_MS
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
       dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs(actorSeatId)),
