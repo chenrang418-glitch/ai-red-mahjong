@@ -18,7 +18,9 @@ jobs:
   deploy:
     name: Test, build and deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Playwright 首次下载 Chromium/WebKit 及系统依赖可能接近 15 分钟，
+    # 为完整跑完验收与部署预留空间，避免在 UI 测试开始时被强制取消。
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
