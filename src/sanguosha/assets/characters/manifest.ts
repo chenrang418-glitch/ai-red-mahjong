@@ -251,6 +251,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '52% 13%', scale: 1.4 },
     credit: '用户提供·奶蛙（原创娱乐武将）',
   },
+  /* 牛来是全身立绘，那张张嘴的脸在偏上一点的位置，倍率给高一档才看得清 */
+  niulai: {
+    desktop: { position: '50% 14%', scale: 1.2 },
+    mobile: { position: '50% 12%', scale: 1.35 },
+    credit: '用户提供·牛来（原创娱乐武将）',
+  },
   pingtoufangkuai: {
     desktop: { position: '43% 30%', scale: 1.0 },
     mobile: { position: '43% 28%', scale: 1.15 },

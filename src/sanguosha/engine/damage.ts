@@ -20,6 +20,14 @@ export interface DamageOptions {
   cardName?: string | null
   /** 造成这次伤害的实体牌。奸雄这类「获得造成伤害的牌」的技能要靠它定位。 */
   cardId?: CardId | null
+  /**
+   * 这次伤害是被哪个技能转移过来的（技能 id）。
+   *
+   * 转移类技能靠它防止链式转移：牛来【妈妈】把伤害甩给另一个牛来时，
+   * 对方不能对同一次伤害再甩一次。**标记跟着伤害走**，
+   * 不是记在某个角色身上——记在角色上就挡不住第二个牛来。
+   */
+  redirectedBy?: string | null
 }
 
 interface InternalDamageOptions extends DamageOptions {
@@ -59,10 +67,11 @@ function dispatchDamageTiming(
   nature: DamageNature,
   cardId: CardId | null = null,
   cardName: string | null = null,
+  redirectedBy: string | null = null,
 ): EventContext {
   return host.dispatch(
     name,
-    { amount, cardId, cardName },
+    { amount, cardId, cardName, redirectedBy },
     { sourceId: sourceId ?? undefined, targetId, damageNature: nature, cardIds: cardId ? [cardId] : undefined },
   )
 }
@@ -215,7 +224,7 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
 
   const cardId = options.cardId ?? null
   for (const timing of ['BeforeDamage', 'DamageCaused', 'DamageInflicted'] as const) {
-    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
+    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId, options.cardName ?? null, options.redirectedBy ?? null)
     if (context.cancelled) return
     amount = amountAfter(context)
     if (amount === 0) return

@@ -98,6 +98,9 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       // 主公越危险越该送
       return lord.hp <= 2 ? 12 : 4
     }
+    case 'niulai':
+      // 第一张必定拿到，等于白摸一张牌，没有不发动的理由
+      return 15
     case 'guhuo': {
       // 蛊惑不花代价：真声明基本稳赚，假声明要赌没人质疑。
       // 手牌越多越敢用（被拆穿只亏一张），手上只剩一张时收着点。
@@ -241,6 +244,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     }
 
     case 'choose-targets': {
+      // 【妈妈】把整次伤害甩出去：优先残血敌人，绝不甩给自己人
+      if (request.prompt.includes('替你承受')) {
+        const ranked = [...request.candidateIds].sort((left, right) => mamaTargetScore(context, right) - mamaTargetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, Math.max(request.min, 1)) } }
+      }
       const isBeneficial = /回复|结姻|青囊/.test(request.prompt)
       const ranked = [...request.candidateIds].sort((left, right) => {
         if (!isBeneficial) return targetScore(context, right) - targetScore(context, left)
@@ -280,6 +288,14 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 转移伤害通常优于自己硬吃，目标选择分支会再按阵营倾向挑敌方。
       if (options.some((option) => option.id === 'tianxiang-invoke')) {
         return { ...base, payload: { optionId: 'tianxiang-invoke' } }
+      }
+      // ── 牛来【牛来】：继续追涨还是收手 ──
+      if (options.some((option) => option.id === 'niulai-continue')) {
+        return { ...base, payload: { optionId: decideNiulai(context, request.prompt) } }
+      }
+      // ── 牛来【妈妈】：要不要把伤害甩出去 ──
+      if (options.some((option) => option.id === 'mama-invoke')) {
+        return { ...base, payload: { optionId: decideMama(context, request.prompt) ? 'mama-invoke' : 'cancel' } }
       }
       // ── 于吉【蛊惑】：声明要用哪张牌 ──
       if (options.some((option) => option.id.startsWith('guhuo-name:'))) {
@@ -470,6 +486,59 @@ function decideRetrial(context: AIContext, request: ChooseCardsRequest): string[
     // 换牌时优先丢价值低的：一样能翻盘就别拿桃去改判
     .sort((left, right) => cardValue(left.name) - cardValue(right.name))[0]
   return replacement ? [replacement.id] : []
+}
+
+/**
+ * 【妈妈】该把伤害甩给谁。
+ *
+ * 敌人优先，残血敌人最优先（可能直接打死）；自己人一律压到最低，
+ * 只有实在没有别的选择时才会落到他们头上。
+ */
+function mamaTargetScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  // 自己人：越关键越不能甩
+  if (attitude <= 0) return -100 + attitude
+  // 敌人：血越少价值越高
+  return 50 + attitude * 5 + (target.maxHp - target.hp) * 4 - target.hp * 3
+}
+
+/**
+ * 牛来要不要继续追涨。
+ *
+ * 只用**公开信息**：当前点数和已经拿到几张。**不偷看牌堆顶**——
+ * 服务端知道下一张是什么，AI 不能因此做出必然正确的选择。
+ *
+ * 下一张不下降的概率大致是 `(15 - rank) / 13`：当前点数越低越敢继续。
+ * 拿得越多越怕亏，所以每多一张就往收手偏一点——这正是这个技能想要的手感。
+ */
+function decideNiulai(context: AIContext, prompt: string): string {
+  const rank = Number(/当前点数 (\d+)/.exec(prompt)?.[1] ?? 14)
+  const gained = Number(/已拿 (\d+) 张/.exec(prompt)?.[1] ?? 1)
+  // 点数越低，不下降的空间越大。A(14) 时只有再来一张 A 才能续上
+  const safety = Math.max(0, Math.min(100, Math.round(((15 - rank) / 13) * 100)))
+  // 已经赚了就见好就收：每多一张扣 18 点意愿
+  const greed = safety - (gained - 1) * 18
+  return context.rng.nextInt(100) < greed ? 'niulai-continue' : 'niulai-stop'
+}
+
+/**
+ * 要不要发动【妈妈】。
+ *
+ * 引擎已经保证了发动条件（体力比较、有牌可弃、来源存在），
+ * 这里只判断值不值：会被打死或打到濒死时一定甩，血厚又只挨一点时可以省下这张牌。
+ */
+function decideMama(context: AIContext, prompt: string): boolean {
+  const me = myself(context.view)
+  const amount = Number(/受到 (\d+) 点伤害/.exec(prompt)?.[1] ?? 1)
+  // 这一下会要命：无论如何都甩
+  if (me.hp - amount <= 0) return true
+  // 会被打到 1 血：也甩
+  if (me.hp - amount <= 1) return true
+  // 血厚 + 只挨一点 + 手牌紧张时留着牌
+  if (amount <= 1 && me.hp >= 3 && me.handCount <= 1) return false
+  return true
 }
 
 /**

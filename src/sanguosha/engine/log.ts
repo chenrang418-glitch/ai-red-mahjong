@@ -3,6 +3,13 @@ import type { CardId, PlayerId, SanguoshaState } from './types'
 import { displayCharacterName } from '../data/characters/standard'
 
 const JUDGE_SUIT: Record<string, string> = { spade: '♠', heart: '♥', club: '♣', diamond: '♦' }
+
+/** 「♠7」这样的牌面。展示类的战报要带上，否则「展示【杀】」看不出大小。 */
+function faceOf(state: SanguoshaState, cardId: CardId): string {
+  const card = state.cards[cardId]
+  if (!card) return ''
+  return `${JUDGE_SUIT[card.suit] ?? ''}${JUDGE_RANK[card.rank] ?? String(card.rank)}`
+}
 const JUDGE_RANK: Record<number, string> = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }
 
 /**
@@ -102,14 +109,29 @@ export function describeEvent(state: SanguoshaState, event: GameEvent, viewerId:
       return judged ? `${owner} 判定${reason ? `【${reason}】` : ''}翻出【${judged}】${face}` : null
     }
 
+    case 'CardMove': {
+      // 只报**公开展示**的牌。CardMove 本身覆盖了大量内部移动，
+      // 不带 revealed 的一律不写进战报，否则会刷屏。
+      if (payload.revealed !== true) return null
+      const ids = (payload.cardIds as CardId[] | undefined) ?? []
+      if (ids.length === 0) return null
+      const who = (payload.playerId as PlayerId | undefined) ?? event.targetId
+      const reason = REASON_TEXT[String(payload.reason ?? '')] ?? String(payload.reason ?? '')
+      const suffix = reason ? `（${reason}）` : ''
+      const faces = ids.map((id) => `【${cardName(state, id)}】${faceOf(state, id)}`).join('、')
+      return who ? `${nameOf(state, who)} 展示 ${faces}${suffix}` : `展示 ${faces}${suffix}`
+    }
+
     case 'GainCard': {
-      // 摸到什么牌只有自己能看见；别人只知道「摸了几张」
+      // 摸到什么牌只有自己能看见；别人只知道「摸了几张」。
+      // **公开获得的牌是例外**（双雄、发呆、牛来）：那张牌本来就是亮出来的，
+      // 藏着反而让别人看不懂战报。
       const gainer = (payload.playerId as PlayerId) ?? event.targetId
       const ids = (payload.cardIds as CardId[] | undefined) ?? (payload.cardId ? [payload.cardId as CardId] : [])
       if (ids.length === 0) return null
       const reason = REASON_TEXT[String(payload.reason ?? '')] ?? ''
       const suffix = reason ? `（${reason}）` : ''
-      if (gainer !== viewerId) return `${nameOf(state, gainer)} 获得 ${ids.length} 张牌${suffix}`
+      if (gainer !== viewerId && payload.revealed !== true) return `${nameOf(state, gainer)} 获得 ${ids.length} 张牌${suffix}`
       const names = ids.map((id) => cardName(state, id)).filter(Boolean)
       return names.length ? `${nameOf(state, gainer)} 获得【${names.join('】【')}】${suffix}` : null
     }

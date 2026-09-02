@@ -132,6 +132,20 @@ export function buildPresentationEvent(
       const actorId = payload.playerId as PlayerId
       return { id: event.id, seq: event.seq, kind: 'death', targetIds: [actorId], text: `${playerName(state, actorId)}阵亡` }
     }
+    case 'CardMove': {
+      // 同上：只表现公开展示
+      if (payload.revealed !== true) return null
+      const ids = (payload.cardIds as string[] | undefined) ?? []
+      if (ids.length === 0) return null
+      const actorId = (payload.playerId as PlayerId) ?? event.targetId
+      const shown = cardName(state, ids[0])
+      return {
+        id: event.id, seq: event.seq, kind: 'status',
+        targetIds: actorId ? [actorId] : [], cardName: shown,
+        text: `${actorId ? playerName(state, actorId) : ''}展示【${shown}】`,
+      }
+    }
+
     case 'CharacterFlip': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId
       if (!actorId) return null
