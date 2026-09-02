@@ -28,9 +28,9 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | 69 文件 / **643 用例，无 todo** |
+| `npm test` | 72 文件 / **689 用例，无 todo** |
 | `npx playwright test` | **49 通过**（Chromium 45 + WebKit 4） |
-| `npm run sanguosha:soak -- 400` | 5 人局与 8 人局各 400 局全部完成 |
+| `npm run sanguosha:soak -- 500` | 5 人局与 8 人局各 500 局全部完成 |
 | `npm run test:online:smoke` | 通过 |
 | `npm run typecheck` / `typecheck:online` | 通过 |
 | `npm run build` / `build:online` | 通过（Worker dry-run 通过） |
@@ -61,7 +61,7 @@
   `src/sanguosha/engine/equipment-requests.ts`——贯石斧、青龙偃月刀（闪抵消后）、
   寒冰剑（伤害前，替代伤害）、麒麟弓（伤害后，走延后队列）、
   雌雄双股剑（指定目标后、求闪前）、丈八蛇矛、方天画戟。
-- **武将 33 名**（**只登记运行时完整实现的，没有空壳**）：
+- **武将 36 名**（**只登记运行时完整实现的，没有空壳**）：
 
   标准包 25 名：
 
@@ -219,6 +219,37 @@
 我按规则原文做了（用户当时刚确认「典韦按经典火包版」）。
 若用户要去掉代价，改动在 `engine/equipment-requests.ts` 的 `askMengjin`，
 删掉中间那一步即可，`tests/sanguosha-pangde.test.ts` 里有两条相应用例要跟着改。
+
+## 本轮新增的公共机制（2026-09-02）
+
+改任何扩展武将之前先看这一节，**已经有的不要重造**。
+
+| 机制 | 入口 | 谁在用 |
+|---|---|---|
+| 武将牌翻面 | `engine/character-state.ts` 的 `flipCharacter`；跳过回合在 `turn.ts` 的 `beginTurn` | 曹仁【据守】 |
+| 武将专属牌堆 | `PlayerState.characterPiles` + `ZoneRef` 的 `characterPile` | 周泰【不屈】的「创」 |
+| 濒死介入 | `SkillRuntime.dyingIntercept` | 周泰【不屈】 |
+| 零体力存活豁免 | `SkillRuntime.survivesAtZeroHp`（不变量的唯一例外） | 周泰【不屈】 |
+| 判定改判 | `SkillRuntime.retrial` | 司马懿【鬼才】、张角【鬼道】 |
+| 主公技授权别人的动作 | `SkillRuntime.grantsPlayActions` / `invokeGrantedAction` | 张角【黄天】 |
+| 不可闪避 | `SkillRuntime.slashUndodgeable` | 马超【铁骑】、黄忠【烈弓】 |
+| 有效花色 | `effectiveCardSuit` | 小乔【红颜】 |
+
+## 下一步：于吉【蛊惑】（本轮唯一没做完的）
+
+**不要直接开始写 yuji.ts。** 蛊惑需要两套项目还没有的公共能力：
+
+1. **隐藏声明牌**：扣置的牌在揭示前，其他人的 PlayerView 里不能出现
+   cardId / 花色 / 点数 / 真实牌名。处理区（`zones.processingArea`）是完全公开的，
+   所以不能把牌推进去；需要一个只有所有者可见的暂存区 + `buildPlayerView` 里的裁剪。
+   验收条件是**看网络 payload**，不是「界面上没显示」。
+2. **多人同时质疑**：现在的 Request 是一次问一个人，而质疑不能让后手看到前手的选择。
+   需要一个公共的 MultiPlayerDecision 能力，人类 / AI / 超时 / 断线重连走同一条路。
+   五谷丰登、群体响应以后也会用到。
+
+声明的合法性必须走现有的用牌校验（时机、目标数、距离、次数、禁止目标），
+蛊惑解决的是「实体牌和声明牌不一致」，不是绕过牌规则。
+锁定的技能文本在 `docs/sanguosha-ruleset-v1.md` 的风包表里。
 
 ## 判定与改判（2026-09-02 重做）
 

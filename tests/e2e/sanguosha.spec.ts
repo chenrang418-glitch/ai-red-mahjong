@@ -1,4 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
+import { ALL_CHARACTERS } from '../../src/sanguosha/data/characters/standard'
+
+/**
+ * 可选武将总数。**不要在用例里写死数字**——每加一个武将就得改两处，
+ * 而且这个数已经被写错过一次（记成 26，实为 25）。
+ */
+const CHARACTER_COUNT = ALL_CHARACTERS.length
 
 /**
  * 三国杀单机流程的浏览器验收。
@@ -177,7 +184,7 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   await page.getByRole('button', { name: '自选', exact: true }).click()
   await expect(page.getByRole('heading', { name: '自选武将' })).toBeVisible()
   await expect(page.getByText('全部武将', { exact: true })).toBeVisible()
-  await expect(page.locator('.sgs-dock__general')).toHaveCount(33)
+  await expect(page.locator('.sgs-dock__general')).toHaveCount(CHARACTER_COUNT)
 
   await page.getByRole('button', { name: '返回单机设置' }).click()
   await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
@@ -191,7 +198,7 @@ test('艺术集按阵营展示全部立绘并可查看原图', async ({ page }) 
   await page.getByRole('button', { name: '艺术集' }).click()
   await expect(page.getByRole('heading', { name: '武将艺术集' })).toBeVisible()
   await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['蜀', '魏', '吴', '群'])
-  await expect(page.locator('.sgs-art-gallery__grid > button')).toHaveCount(33)
+  await expect(page.locator('.sgs-art-gallery__grid > button')).toHaveCount(CHARACTER_COUNT)
   await page.getByRole('button', { name: /诸葛亮/ }).click()
   await expect(page.getByRole('dialog', { name: '诸葛亮立绘原图' })).toBeVisible()
   await expect(page.getByAltText('诸葛亮立绘原图')).toBeVisible()

@@ -313,6 +313,20 @@ function handleRespond(response: GameResponse): void {
   color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer;
 }
 .sgs-home__tools { display: flex; align-items: center; gap: 8px; }
+/*
+  顶栏现在有四样东西（返回、站名、艺术集、声音）。窄屏放不下时，
+  第一个牺牲的是中间那行站名——它纯装饰，下方的大标题已经说清是哪个游戏；
+  返回键的文案也收成一个箭头。不这样做的话「返回游戏中心」会折成两行
+  并压到站名上（375px 实测）。
+*/
+@media (max-width: 430px) {
+  /*
+    只藏中间那行站名，**不动返回键**——两个游戏的首页要保持 1:1，
+    改了返回键的字号，responsive.spec 里逐项比对的 headerButton 就对不上了。
+    站名是纯装饰，下方的大标题已经说清是哪个游戏。
+  */
+  .sgs-home header > span { display: none; }
+}
 .sgs-home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
 .sgs-home__seal {
   width: 88px; height: 88px; display: grid; place-items: center;
