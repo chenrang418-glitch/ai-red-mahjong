@@ -9,6 +9,8 @@ export type ZoneRef =
   | { kind: 'equipment'; playerId: PlayerId; slot: EquipmentSlot }
   /** 武将专属牌堆，`pile` 是技能 id（周泰的「创」是 'buqu'）。 */
   | { kind: 'characterPile'; playerId: PlayerId; pile: string }
+  /** 私有暂存区，`zoneId` 是 state.privateZones 里那一项的 id。 */
+  | { kind: 'privateZone'; zoneId: string }
 
 function player(state: SanguoshaState, playerId: PlayerId) {
   const found = state.players.find((candidate) => candidate.id === playerId)
@@ -27,6 +29,11 @@ export function zoneCards(state: SanguoshaState, zone: ZoneRef): CardId[] {
       const owner = player(state, zone.playerId)
       // 读的时候顺手建空堆：调用方拿到的永远是同一个数组引用，push 才生效
       return owner.characterPiles[zone.pile] ?? (owner.characterPiles[zone.pile] = [])
+    }
+    case 'privateZone': {
+      const found = (state.privateZones ?? []).find((candidate) => candidate.id === zone.zoneId)
+      if (!found) throw new Error(`私有牌区不存在：${zone.zoneId}`)
+      return found.cards
     }
     case 'equipment': {
       const id = player(state, zone.playerId).zones.equipment[zone.slot]
@@ -115,6 +122,8 @@ export function allLocatedCardIds(state: SanguoshaState): CardId[] {
     // 专属牌堆也要算进守恒：漏了这里，一张牌进「创」就等于凭空消失
     for (const pile of Object.values(candidate.characterPiles ?? {})) ids.push(...pile)
   }
+  // 私有暂存区同理：牌看不见不代表它不在场上
+  for (const zone of state.privateZones ?? []) ids.push(...zone.cards)
   return ids
 }
 

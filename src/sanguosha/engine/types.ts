@@ -94,6 +94,30 @@ export interface GameZones {
   processingArea: CardId[]
 }
 
+/**
+ * 私有暂存牌区。
+ *
+ * 处理区（`processingArea`）是**完全公开**的：任何进去的牌，全场都能在
+ * PlayerView 里看到牌名花色点数。所以「先扣一张牌、稍后才揭示」这种效果
+ * 不能借道处理区——把牌塞进去再让前端别显示，网络包里照样是明文。
+ *
+ * 这里是真正的服务端私有区：牌仍然是一张真实的 CardId（计入牌张守恒），
+ * 但 `buildPlayerView` **只把 owner 自己的那些区下发给他**，其他人连区的
+ * 存在都不需要知道。
+ *
+ * 于吉【蛊惑】是第一个用户；以后的拼点、伏兵一类也走这里，
+ * 不要给某个武将单开一个 `state.xxxHiddenCardId`。
+ */
+export interface PrivateCardZone {
+  /** 区的唯一 id，技能用它取回自己的牌。 */
+  id: string
+  /** 谁能看见这个区。 */
+  ownerId: PlayerId
+  /** 建区的原因（技能 id），便于战报和排查。 */
+  reason: string
+  cards: CardId[]
+}
+
 export interface GameResult {
   winningCamp: 'lord' | 'rebel' | 'renegade'
   winnerIds: PlayerId[]
@@ -365,6 +389,8 @@ export interface SanguoshaState {
   dying: DyingState | null
   damageChain: DamageChainState | null
   judgment: JudgmentState | null
+  /** 私有暂存牌区。见 PrivateCardZone 的说明——**不要用处理区代替它**。 */
+  privateZones: PrivateCardZone[]
   /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
   retrial: JudgmentRetrialState | null
   /**

@@ -86,6 +86,7 @@ export class SanguoshaGame {
       damageChain: null,
       judgment: null,
       retrial: null,
+      privateZones: [],
       judgedDelayedCards: [],
       cardResolution: null,
       skillResolution: null,
@@ -395,6 +396,7 @@ export class SanguoshaGame {
     // 专属牌堆是后加的字段，进行中的旧房间里没有
     for (const player of mutable.state.players) player.characterPiles ??= {}
     mutable.state.judgedDelayedCards ??= []
+    mutable.state.privateZones ??= []
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1

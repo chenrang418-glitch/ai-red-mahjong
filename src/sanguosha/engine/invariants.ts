@@ -59,6 +59,12 @@ export function assertGameInvariants(state: SanguoshaState): void {
       if (!state.pendingRequests.some((request) => request.id === requestId && request.kind === 'respond-card')) throw new Error('延时锦囊缺少无懈响应 Request')
     }
   }
+  for (const zone of state.privateZones ?? []) {
+    // 私有区的主人必须真实存在：主人没了还留着区，牌就永远拿不回来
+    if (!state.players.some((candidate) => candidate.id === zone.ownerId)) {
+      throw new Error(`私有牌区的主人不存在：${zone.id}`)
+    }
+  }
   if (state.retrial) {
     // 改判窗口开着时，判定牌必须还在处理区，而且一定挂着一个改判 Request——
     // 少了任何一项都说明判定卡在半路，牌局会静默停住

@@ -26,6 +26,13 @@ export interface PlayerPublicView {
   equipment: Array<PhysicalCard>
   judgingArea: Array<PhysicalCard>
   marks: Record<string, number>
+  /**
+   * 只属于观察者自己的私有暂存牌（于吉扣置的蛊惑牌）。
+   *
+   * **别人的私有区连键都不会出现在这个视图里**——不是「标个 hidden 再照发」，
+   * 是根本不下发。
+   */
+  privateCards: Record<string, PhysicalCard[]> | null
   /** 从当前观察者到该角色的实际距离；自己或阵亡角色为 null。 */
   distanceFromViewer: number | null
   /** 公开的攻击范围，供座位卡展示；数值仍由 Engine 统一计算。 */
@@ -95,6 +102,12 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         characterPiles: Object.fromEntries(
           Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [pile, cards(state, ids)]),
         ),
+        // 私有区只发给它的主人，别人拿到 null
+        privateCards: player.id === viewerId
+          ? Object.fromEntries((state.privateZones ?? [])
+            .filter((zone) => zone.ownerId === viewerId)
+            .map((zone) => [zone.id, cards(state, zone.cards)]))
+          : null,
         handCount: player.zones.hand.length,
         hand: ownHand,
         equipment: cards(state, Object.values(player.zones.equipment).filter((id): id is CardId => Boolean(id))),
