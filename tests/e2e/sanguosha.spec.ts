@@ -136,6 +136,11 @@ test('环形座位和词条入口在手机牌桌可用', async ({ page }) => {
 })
 
 test('真人最终一定拿得到可点的操作', async ({ page }) => {
+  // 等待预算必须跟着 AI 节奏走：标准档从 950ms 放慢到 1900ms 之后，
+  // 「等到真人能操作」需要的真实时间翻了一倍，CI 上比本地更慢。
+  // 全局 30s 的用例超时会先一步把它掐掉，所以这条单独放宽。
+  // **放宽的是等待时间，不是断言**——真卡住仍然会失败。
+  test.setTimeout(180_000)
   await page.setViewportSize(PORTRAIT)
   await enterTable(page)
 
@@ -143,7 +148,7 @@ test('真人最终一定拿得到可点的操作', async ({ page }) => {
   // 真人迟早会拿到可以点的东西，要么是自己的回合，要么是需要响应的请求。
   // 只能干等超时才是任务书明令禁止的情况。
   const actionable = page.locator('.sgs-dock button:not([disabled]), .sgs-table__dock .sgs-table__actions button:not([disabled])')
-  await expect(actionable.first()).toBeVisible({ timeout: 60_000 })
+  await expect(actionable.first()).toBeVisible({ timeout: 150_000 })
   await expectNoPageScroll(page)
 })
 
