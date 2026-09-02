@@ -31,7 +31,8 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
   switch (host.state.phase) {
     case 'prepare': return
     case 'judge':
-      host.dispatch('JudgePhase', { playerId }, { sourceId: playerId, phase: 'judge' })
+      // 神速等技能可以接管整个判定阶段；取消后由技能在放弃发动时自行恢复判定。
+      if (host.dispatch('JudgePhase', { playerId }, { sourceId: playerId, phase: 'judge' }).cancelled) return
       beginJudgmentPhase(host)
       return
     case 'draw': {

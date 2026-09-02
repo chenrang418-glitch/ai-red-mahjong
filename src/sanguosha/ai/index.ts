@@ -258,6 +258,14 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id === 'tianxiang-invoke')) {
         return { ...base, payload: { optionId: 'tianxiang-invoke' } }
       }
+      if (options.some((option) => option.id === 'shensu-judge')) {
+        return { ...base, payload: { optionId: 'shensu-judge' } }
+      }
+      if (options.some((option) => option.id === 'shensu-play')) {
+        // 装备代价已经由请求前置条件保证存在；标准/困难会积极换成一次无距离杀，
+        // 简单难度保留少量放弃空间，避免所有难度行为完全一致。
+        return { ...base, payload: { optionId: context.difficulty === 'easy' && context.rng.nextInt(3) === 0 ? 'no' : 'shensu-play' } }
+      }
       const safe = me.hp <= 2 ? options.filter((option) => option.id !== 'hp' && option.id !== 'lose-hp') : options
       const pool = safe.length > 0 ? safe : options
       return { ...base, payload: { optionId: context.rng.pick(pool).id } }

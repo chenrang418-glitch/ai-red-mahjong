@@ -72,6 +72,8 @@ export interface SkillHost {
   }): void
   /** “成为目标后”的技能回答完毕，把控制权交回当前牌的结算管线。 */
   resumeCardTarget(): void
+  /** 技能完成阶段替代效果后，按统一回合状态机进入下一阶段。 */
+  advancePhase(): void
 }
 
 export interface SkillTrigger {

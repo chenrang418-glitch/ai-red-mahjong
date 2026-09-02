@@ -1,11 +1,14 @@
 import { getDistance } from '../../engine/distance'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
+import { handleEquipmentLost } from '../../engine/equipment'
+import { beginJudgmentPhase } from '../../engine/judgment'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
 import { effectiveCardSuit, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { CardId, DamageNature, PlayerId, SkillResolutionState, SanguoshaState } from '../../engine/types'
-import { moveCard } from '../../engine/zones'
+import { skipPhase } from '../../engine/turn'
+import { locateOwnedCard, moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -245,7 +248,146 @@ registerSkillRuntime({
   },
 })
 
+// —— 夏侯渊【神速】——
+//
+// ① 跳过判定和摸牌阶段，视为使用一张无距离限制的【杀】；
+// ② 弃置一张装备牌并跳过出牌阶段，视为使用一张无距离限制的【杀】。
+
+function shensuTargets(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
+  return state.players.filter((player) => player.alive && player.id !== ownerId).map((player) => player.id)
+}
+
+function shensuEquipment(state: SanguoshaState, ownerId: PlayerId): CardId[] {
+  const owner = playerOf(state, ownerId)
+  return [
+    ...owner.zones.hand.filter((cardId) => state.cards[cardId]?.category === 'equipment'),
+    ...Object.values(owner.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId)),
+  ]
+}
+
+registerSkillRuntime({
+  id: 'shensu',
+  triggers: [
+    {
+      event: 'JudgePhase',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { playerId?: PlayerId }
+        if (payload.playerId !== ownerId || host.state.currentPlayerId !== ownerId) return
+        if (shensuTargets(host.state, ownerId).length === 0) return
+        context.cancel()
+        host.askSkill({
+          skillId: 'shensu', ownerId, step: 'judge-ask',
+          build: (requestId): ChooseOptionRequest => ({
+            id: requestId, kind: 'choose-option', playerId: ownerId,
+            prompt: '发动【神速】？跳过判定阶段和摸牌阶段，视为使用一张无距离限制的【杀】',
+            timeoutMs: 20_000, optional: true,
+            options: [{ id: 'shensu-judge', label: '发动神速' }, { id: 'no', label: '正常进行判定和摸牌' }],
+          }),
+        })
+      },
+    },
+    {
+      event: 'PlayPhase',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { playerId?: PlayerId }
+        if (payload.playerId !== ownerId || host.state.currentPlayerId !== ownerId) return
+        if (shensuTargets(host.state, ownerId).length === 0 || shensuEquipment(host.state, ownerId).length === 0) return
+        host.askSkill({
+          skillId: 'shensu', ownerId, step: 'play-ask',
+          build: (requestId): ChooseOptionRequest => ({
+            id: requestId, kind: 'choose-option', playerId: ownerId,
+            prompt: '发动【神速】？弃置一张装备牌并跳过出牌阶段，视为使用一张无距离限制的【杀】',
+            timeoutMs: 20_000, optional: true,
+            options: [{ id: 'shensu-play', label: '发动神速' }, { id: 'no', label: '正常出牌' }],
+          }),
+        })
+      },
+    },
+    {
+      event: 'AfterCardUse',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { sourceSkillId?: string }
+        if (context.event.sourceId !== ownerId || payload.sourceSkillId !== 'shensu-play') return
+        host.queueSkill({ skillId: 'shensu', ownerId, step: 'advance-play', data: {} })
+      },
+    },
+  ],
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step === 'judge-ask') {
+      if ((response.payload as { optionId: string }).optionId !== 'shensu-judge') {
+        beginJudgmentPhase(host)
+        return
+      }
+      skipPhase(host.state, 'draw')
+      host.askSkill({
+        skillId: 'shensu', ownerId, step: 'judge-target',
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId, kind: 'choose-targets', playerId: ownerId,
+          prompt: '选择【神速】①的目标', timeoutMs: 20_000, optional: false,
+          candidateIds: shensuTargets(host.state, ownerId), min: 1, max: 1,
+        }),
+      })
+      return
+    }
+    if (resolution.step === 'judge-target') {
+      const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
+      host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: 'shensu-judge' })
+      return
+    }
+    if (resolution.step === 'play-ask') {
+      if ((response.payload as { optionId: string }).optionId !== 'shensu-play') return
+      const cardIds = shensuEquipment(host.state, ownerId)
+      if (cardIds.length === 0) return
+      host.askSkill({
+        skillId: 'shensu', ownerId, step: 'play-card',
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId, kind: 'choose-cards', playerId: ownerId,
+          prompt: '【神速】②：弃置一张装备牌', timeoutMs: 20_000, optional: false,
+          purpose: 'skill', cardIds, hiddenCardSlots: [], min: 1, max: 1,
+        }),
+      })
+      return
+    }
+    if (resolution.step === 'play-card') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      if (!shensuEquipment(host.state, ownerId).includes(cardId)) throw new Error('神速弃置的牌不是拥有者的装备牌')
+      host.askSkill({
+        skillId: 'shensu', ownerId, step: 'play-target', data: { cardId },
+        build: (requestId): ChooseTargetsRequest => ({
+          id: requestId, kind: 'choose-targets', playerId: ownerId,
+          prompt: '选择【神速】②的目标', timeoutMs: 20_000, optional: false,
+          candidateIds: shensuTargets(host.state, ownerId), min: 1, max: 1,
+        }),
+      })
+      return
+    }
+    if (resolution.step !== 'play-target') return
+    const cardId = resolution.data.cardId as CardId
+    const from = locateOwnedCard(host.state, ownerId, cardId)
+    if (!from || from.kind === 'judgingArea' || host.state.cards[cardId]?.category !== 'equipment') {
+      throw new Error('神速弃置的装备牌已不在合法区域')
+    }
+    const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
+    moveCard(host.state, cardId, from, { kind: 'discardPile' })
+    if (from.kind === 'equipment') handleEquipmentLost(host, ownerId, cardId)
+    else host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '神速' }, { sourceId: ownerId, cardIds: [cardId] })
+    host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: 'shensu-play' })
+  },
+  startQueued(host, _ownerId, prompt) {
+    if (prompt.step === 'advance-play' && host.state.phase === 'play') host.advancePhase()
+  },
+})
+
 export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
+  {
+    id: 'xiahouyuan',
+    name: '夏侯渊',
+    kingdom: 'wei',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'wind',
+    skills: [{ id: 'shensu', name: '神速', description: '你可以选择一项：跳过判定阶段和摸牌阶段，视为使用一张无距离限制的【杀】；或弃置一张装备牌并跳过出牌阶段，视为使用一张无距离限制的【杀】。' }],
+  },
   {
     id: 'xiaoqiao',
     name: '小乔',
