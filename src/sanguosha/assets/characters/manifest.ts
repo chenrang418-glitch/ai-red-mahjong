@@ -34,18 +34,135 @@ export interface CharacterPortrait {
  * 在满幅下会把脸放到糊，别照抄。
  */
 const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src'>>> = {
-  // 目前没有已登记的立绘：原型阶段用的那批素材没有授权，已按用户决定全部撤除，
-  // 等用户提供合法素材后再逐个加回来。加法照抄下面这个模板：
-  //
-  //   zhaoyun: {
-  //     desktop: { position: '52% 20%', scale: 1.0 },   // 竖构图站姿的默认值
-  //     mobile:  { position: '52% 18%', scale: 1.15 },  // 座位更矮，焦点上移、倍率高一档
-  //     credit:  '<素材出处>',
-  //   },
-  //
-  // position 就是脸在原图里的位置，同时喂给 object-position 和 transform-origin。
-  // 横构图原图（宽 > 高）脸通常在中段，用 '40%' 上下的纵向焦点、1.05 / 1.20 的倍率。
-  // 数值必须对着浏览器调，经验区间和验收清单见 docs/sanguosha-portraits.md。
+  // ── 魏 ──
+  caocao: {
+    desktop: { position: '46% 17%', scale: 1.0 },
+    mobile: { position: '46% 15%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹操',
+  },
+  simayi: {
+    desktop: { position: '52% 22%', scale: 1.0 },
+    mobile: { position: '52% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·司马懿',
+  },
+  xiahoudun: {
+    desktop: { position: '45% 22%', scale: 1.0 },
+    mobile: { position: '45% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·夏侯惇',
+  },
+  zhangliao: {
+    desktop: { position: '60% 20%', scale: 1.0 },
+    mobile: { position: '60% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·张辽',
+  },
+  xuchu: {
+    desktop: { position: '51% 15%', scale: 1.0 },
+    mobile: { position: '51% 13%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·许褚',
+  },
+  guojia: {
+    desktop: { position: '47% 20%', scale: 1.0 },
+    mobile: { position: '47% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·郭嘉',
+  },
+  zhenji: {
+    desktop: { position: '55% 22%', scale: 1.0 },
+    mobile: { position: '55% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·甄姬',
+  },
+  // ── 蜀 ──
+  liubei: {
+    desktop: { position: '50% 17%', scale: 1.0 },
+    mobile: { position: '50% 15%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·刘备',
+  },
+  guanyu: {
+    desktop: { position: '47% 20%', scale: 1.0 },
+    mobile: { position: '47% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·关羽',
+  },
+  zhangfei: {
+    desktop: { position: '49% 22%', scale: 1.0 },
+    mobile: { position: '49% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·张飞',
+  },
+  zhaoyun: {
+    desktop: { position: '50% 22%', scale: 1.0 },
+    mobile: { position: '50% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·赵云',
+  },
+  machao: {
+    desktop: { position: '52% 20%', scale: 1.0 },
+    mobile: { position: '52% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·马超',
+  },
+  zhugeliang: {
+    desktop: { position: '55% 18%', scale: 1.0 },
+    mobile: { position: '55% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·诸葛亮',
+  },
+  huangyueying: {  // 场景图（在造连弩），脸比同批略小
+    desktop: { position: '46% 22%', scale: 1.12 },
+    mobile: { position: '46% 20%', scale: 1.3 },
+    credit: '用户提供（GPT 生成）·黄月英',
+  },
+  // ── 吴 ──
+  sunquan: {
+    desktop: { position: '50% 18%', scale: 1.0 },
+    mobile: { position: '50% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·孙权',
+  },
+  ganning: {
+    desktop: { position: '58% 22%', scale: 1.0 },
+    mobile: { position: '58% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·甘宁',
+  },
+  huanggai: {
+    desktop: { position: '55% 20%', scale: 1.0 },
+    mobile: { position: '55% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·黄盖',
+  },
+  lvmeng: {
+    desktop: { position: '52% 21%', scale: 1.0 },
+    mobile: { position: '52% 19%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·吕蒙',
+  },
+  zhouyu: {
+    desktop: { position: '52% 20%', scale: 1.0 },
+    mobile: { position: '52% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·周瑜',
+  },
+  daqiao: {  // 全批里脸最小且最靠右的一张，倍率单独调高
+    desktop: { position: '70% 21%', scale: 1.3 },
+    mobile: { position: '70% 19%', scale: 1.5 },
+    credit: '用户提供（GPT 生成）·大乔',
+  },
+  sunshangxiang: {  // 动作姿势，脸偏右
+    desktop: { position: '62% 24%', scale: 1.1 },
+    mobile: { position: '62% 22%', scale: 1.28 },
+    credit: '用户提供（GPT 生成）·孙尚香',
+  },
+  luxun: {
+    desktop: { position: '52% 22%', scale: 1.0 },
+    mobile: { position: '52% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·陆逊',
+  },
+  // ── 群 ──
+  huatuo: {
+    desktop: { position: '53% 20%', scale: 1.05 },
+    mobile: { position: '53% 18%', scale: 1.2 },
+    credit: '用户提供（GPT 生成）·华佗',
+  },
+  lvbu: {
+    desktop: { position: '55% 20%', scale: 1.0 },
+    mobile: { position: '55% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·吕布',
+  },
+  diaochan: {
+    desktop: { position: '58% 24%', scale: 1.0 },
+    mobile: { position: '58% 22%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·貂蝉',
+  },
 }
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

@@ -5,6 +5,7 @@ import { renderToString } from 'vue/server-renderer'
 import SgsSeat from '@/sanguosha/components/SgsSeat.vue'
 import { characterPortrait, CHARACTER_PORTRAITS } from '@/sanguosha/assets/characters/manifest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
+import { allCharacterIds } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity } from '@/sanguosha/engine/types'
 
 /**
@@ -33,8 +34,11 @@ function seatProps(characterId: string) {
 
 describe('缺素材时的回退', () => {
   it('没登记的武将不渲染立绘层，改用文字底纹', async () => {
-    expect(characterPortrait('machao'), '马超没有登记素材').toBeNull()
-    const html = await renderToString(createSSRApp(SgsSeat, seatProps('machao')))
+    // 不写死某个武将：素材是一批批加的，写死谁迟早会因为那个人加了图而失效。
+    // 直接找一个当前没登记的 id，加到多少个武将这条都成立。
+    const unregistered = allCharacterIds().find((id) => !CHARACTER_PORTRAITS[id]) ?? '__never_registered__'
+    expect(characterPortrait(unregistered), `${unregistered} 不该有素材`).toBeNull()
+    const html = await renderToString(createSSRApp(SgsSeat, seatProps(unregistered)))
     expect(html).not.toContain('sgs-seat__art')
     expect(html).not.toContain('sgs-seat--has-art')
     // 文字底纹那一层必须还在，否则座位会是一块空白
