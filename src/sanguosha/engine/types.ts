@@ -238,6 +238,18 @@ export interface TrickResolutionState {
   responderOrder: PlayerId[]
   responderIndex: number
   nullificationCount: number
+  /**
+   * 本次结算里选了「本轮均不使用」的人。
+   *
+   * 五谷丰登这类多目标锦囊，每个目标都要问一轮无懈；一路点「不使用」
+   * 会被问五六次。声明一次之后这张牌剩下的目标就不再打扰他。
+   */
+  declinedAllIds: PlayerId[]
+  /**
+   * 最后打出无懈的人。换人之后要从头再问一轮，但**不问他自己**——
+   * 对自己刚打出的无懈再打一张，效果等于两张都没打，只是白白多问一次。
+   */
+  lastNullifierId: PlayerId | null
   requestId: string | null
   effect: TrickEffectState | null
   /** 五谷丰登亮出的牌：整张牌结算期间共用一批，中途不重新亮 */
@@ -266,6 +278,9 @@ export interface JudgmentNullificationState {
   responderOrder: PlayerId[]
   responderIndex: number
   nullificationCount: number
+  /** 见 TrickResolutionState 上的同名字段。 */
+  declinedAllIds: PlayerId[]
+  lastNullifierId: PlayerId | null
   requestId: string
 }
 

@@ -56,6 +56,8 @@ export interface PlayerView {
     sourceId: PlayerId
     /** 多目标锦囊会有多个；杀这类单目标牌也包成一个元素，客户端只处理一种形状 */
     targetIds: PlayerId[]
+    /** 正在结算的那个目标。多目标锦囊逐个走，判断敌我关系要看这个而不是 targetIds[0]。 */
+    currentTargetId: PlayerId | null
     stage: 'awaiting-dodge' | 'awaiting-intercept' | 'awaiting-dying' | 'awaiting-nullification' | 'awaiting-effect'
   } | null
   legalActions: LegalAction[]
@@ -130,6 +132,16 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
           targetIds: state.cardResolution.kind === 'trick'
             ? [...state.cardResolution.targetIds]
             : [state.cardResolution.targetId],
+          /**
+           * 当前正在结算/正在问无懈的那个目标。
+           *
+           * 多目标锦囊是一个目标一个目标走的，只给 targetIds 的话，
+           * 界面和 AI 只能猜「现在是谁」——AI 原来固定读第一个目标，
+           * 于是万箭齐发打到第三个人时它按第一个人的敌我关系做判断。
+           */
+          currentTargetId: state.cardResolution.kind === 'trick'
+            ? state.cardResolution.targetIds[state.cardResolution.targetIndex] ?? null
+            : state.cardResolution.targetId,
           stage: state.cardResolution.stage,
         }
       : null,

@@ -8,6 +8,7 @@ import { ignoresTrickDistance } from '../../data/characters/standard'
 import { recover } from '../recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
+import { NULLIFICATION_TIMEOUT_MS, PASS_ROUND_ACTION, nullificationCardIds } from '../nullification'
 import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
@@ -283,6 +284,8 @@ export function beginInstantTrick(host: CardEngineHost, sourceId: PlayerId, card
     responderOrder: aliveOrderFromCurrent(host.state),
     responderIndex: 0,
     nullificationCount: 0,
+    declinedAllIds: [],
+    lastNullifierId: null,
     requestId: null,
     effect: null,
   }
@@ -356,28 +359,35 @@ export function askNullification(host: CardEngineHost): void {
   const responderId = resolution.responderOrder[resolution.responderIndex]
   const responder = playerOf(host.state, responderId)
   const currentTargetId = resolution.targetIds[resolution.targetIndex]
-  if (!responder.alive || (responderId === currentTargetId && resolution.unresponsiveTargetIds.includes(responderId))) {
+  const skip = !responder.alive
+    || (responderId === currentTargetId && resolution.unresponsiveTargetIds.includes(responderId))
+    // 声明过「本轮均不使用」的人，这张牌剩下的目标都不再问
+    || resolution.declinedAllIds.includes(responderId)
+    // 刚打出无懈的人不问他自己：对自己的无懈再叠一张，等于两张都没打
+    || responderId === resolution.lastNullifierId
+  if (skip) {
     resolution.responderIndex += 1
     askNullification(host)
     return
   }
-  const actionIds = responder.zones.hand
-    .filter((cardId) => host.state.cards[cardId]?.name === '无懈可击')
-    .map((cardId) => `respond-nullification:${cardId}`)
-  if (actionIds.length === 0) {
+  const cardIds = nullificationCardIds(host.state, responderId)
+  if (cardIds.length === 0) {
     // 手上没有无懈就不必打扰这名玩家，直接问下一个
     resolution.responderIndex += 1
     askNullification(host)
     return
   }
+  const actionIds = cardIds.map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
+  // 多目标锦囊才需要「本轮均不使用」：单目标牌只问一轮，多一个按钮反而是噪音
+  if (resolution.targetIds.length > 1) actionIds.push(PASS_ROUND_ACTION)
   const targetName = playerOf(host.state, resolution.targetIds[resolution.targetIndex]).nickname
   const request: RespondCardRequest = {
     id: `request-trick-${host.state.seq}-${host.state.decisions.length}-${resolution.targetIndex}-${resolution.responderIndex}`,
     kind: 'respond-card',
     playerId: responderId,
     prompt: `是否对${targetName}的【${resolution.cardName}】使用【无懈可击】`,
-    timeoutMs: 30_000,
+    timeoutMs: NULLIFICATION_TIMEOUT_MS,
     optional: true,
     actionIds,
     requiredCardName: '无懈可击',

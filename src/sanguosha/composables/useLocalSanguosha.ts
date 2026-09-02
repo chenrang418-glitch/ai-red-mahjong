@@ -179,12 +179,12 @@ export function useLocalSanguosha() {
      * 改成跟随整体节奏的一半，最少 700ms——够看清判定牌的花色点数，
      * 又不会让纯粹的阶段流转拖沓。
      *
-     * 选将阶段也走这条路，但那里没有任何要看的东西，所以再压到 200ms：
-     * 8 人局按 950ms 都要等七八秒，按 1900ms 就是十几秒。
+     * 选将阶段也走这条路，但那里没有任何要看的东西，所以再压到 120ms：
+     * 8 人局按 1900ms 要等十几秒，玩家只能盯着「其他角色选将中…」。
      */
     const selecting = game.value?.state.status === 'choosing-general'
     const visualDelay = delayMs <= 0 ? 0
-      : automatic ? (selecting ? 200 : Math.max(700, Math.round(delayMs / 2)))
+      : automatic ? (selecting ? 120 : Math.max(700, Math.round(delayMs / 2)))
         : delayMs
     if (visualDelay <= 0) run()
     else timer = window.setTimeout(run, visualDelay)

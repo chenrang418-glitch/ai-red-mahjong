@@ -99,6 +99,13 @@ const DEFAULT_TURN_SECONDS = 30
  * 改这个值时把单机那份一起改，两边对不上会让联机显得比单机快。
  */
 const AI_STEP_MS = 1900
+/**
+ * 选将阶段的 AI 间隔。
+ *
+ * 选将没有任何动画可看，按对局节奏走 8 人局要等十几秒才开得了局。
+ * 和单机那边（useLocalSanguosha 的 selecting 分支）保持同一个量级。
+ */
+const AI_PICK_GENERAL_MS = 150
 /** 掉线后多久自动转托管。留一点时间给刷新页面 */
 const DISCONNECT_TRUSTEE_MS = 20_000
 const NEXT_ROUND_TIMEOUT_MS = 40_000
@@ -536,9 +543,11 @@ export class SanguoshaRoomCoordinator {
     if (!seat) return
 
     const drivenByAI = seat.kind === 'ai' || seat.trustee || !seat.connected
+    const choosing = this.state.game.status === 'choosing-general'
+    const aiDelay = choosing ? AI_PICK_GENERAL_MS : AI_STEP_MS
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
-      dueAt: now + (drivenByAI ? AI_STEP_MS : this.state.settings.turnSeconds * 1000),
+      dueAt: now + (drivenByAI ? aiDelay : this.state.settings.turnSeconds * 1000),
       seatId: actorSeatId,
     })
   }

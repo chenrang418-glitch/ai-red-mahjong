@@ -149,6 +149,8 @@ function rankText(rank: number): string { return RANK_MARK[rank] ?? String(rank)
 
 function actionLabel(actionId: string): string {
   if (actionId === 'respond-pass') return '放弃'
+  // 多目标锦囊每个目标问一轮，一路点「放弃」要点五六次
+  if (actionId === 'respond-pass-round') return '本轮均不使用'
   if (actionId === 'rescue-pass') return '不救'
   if (actionId === 'invoke-bagua') return '发动【八卦阵】'
   // 卡牌 id 本身含冒号（ruleset-v1:standard:57），只能按第一个冒号切

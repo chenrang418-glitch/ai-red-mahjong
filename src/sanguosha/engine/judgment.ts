@@ -7,6 +7,7 @@ import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 import { effectiveCardName, moveCard } from './zones'
 import { effectiveCardSuit, skillsOf, type SkillHost } from './skills/runtime'
+import { NULLIFICATION_TIMEOUT_MS, nullificationCardIds } from './nullification'
 import { skillIdsOf } from '../data/characters/standard'
 
 /**
@@ -293,17 +294,23 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
     return
   }
   const responderId = judgment.responderOrder[judgment.responderIndex]
-  const responder = player(host.state, responderId)
-  const actionIds = responder.zones.hand
-    .filter((cardId) => host.state.cards[cardId]?.name === '无懈可击')
-    .map((cardId) => `respond-nullification:${cardId}`)
+  // 死人、刚打出无懈的人都跳过；**手上没有无懈的人根本不问**——
+  // 这里原来是不分青红皂白挨个问一遍，每张延时锦囊都要空转一整圈，
+  // 判定阶段因此卡很久（用户报的「太繁琐」）。
+  const cardIds = judgment.lastNullifierId === responderId ? [] : nullificationCardIds(host.state, responderId)
+  if (cardIds.length === 0) {
+    judgment.responderIndex += 1
+    requestCurrentNullification(host)
+    return
+  }
+  const actionIds = cardIds.map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     id: `request-judge-${host.state.seq}-${host.state.decisions.length}-${judgment.responderIndex}`,
     kind: 'respond-card',
     playerId: responderId,
     prompt: `是否对判定区的【${host.state.cards[judgment.delayedCardId].name}】使用【无懈可击】`,
-    timeoutMs: 30_000,
+    timeoutMs: NULLIFICATION_TIMEOUT_MS,
     optional: true,
     actionIds,
     requiredCardName: '无懈可击',
@@ -329,6 +336,8 @@ function processRemaining(host: JudgmentEngineHost): void {
     responderOrder: aliveOrderFromCurrent(host.state),
     responderIndex: 0,
     nullificationCount: 0,
+    declinedAllIds: [],
+    lastNullifierId: null,
     requestId: '',
   }
   requestCurrentNullification(host)
@@ -354,6 +363,8 @@ export function resolveJudgmentResponse(host: JudgmentEngineHost, request: Respo
     host.dispatch('CardResponded', { playerId: response.playerId, cardId, cardName: '无懈可击' }, { sourceId: response.playerId, targetId: judgment.playerId, cardIds: [cardId] })
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
     judgment.nullificationCount += 1
+    // 记下是谁打的：下一圈跳过他自己，别让人对自己刚打出的无懈再问一次
+    judgment.lastNullifierId = response.playerId
     judgment.responderIndex = 0
   } else judgment.responderIndex += 1
   judgment.requestId = ''

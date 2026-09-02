@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import SgsRequestDock from './SgsRequestDock.vue'
 import SgsTable from './SgsTable.vue'
 import SgsChatDock from './SgsChatDock.vue'
+import SgsResultDialog from './SgsResultDialog.vue'
 import { useOnlineSanguosha } from '../composables/useOnlineSanguosha'
 import { DEFAULT_SGS_ROOM_SETTINGS } from '../online/protocol'
 
@@ -13,6 +14,23 @@ const nickname = ref(online.lastNickname.value)
 const manualCode = ref('')
 const settings = reactive({ ...DEFAULT_SGS_ROOM_SETTINGS })
 const confirmLeave = ref(false)
+/**
+ * 牌桌什么时候留在屏幕上。
+ *
+ * 结算（phase === 'finished'）时也留着：单机就是「牌桌 + 结算弹层」，
+ * 联机原来直接把牌桌换成一行文字，看不到最后一手发生了什么。
+ */
+/** 结算需要的视图和结果；没结束时是 null。 */
+const finishedResult = computed(() => {
+  const view = online.room.value?.playerView
+  return view?.result ? { view, result: view.result } : null
+})
+const tableVisible = computed(() => {
+  const room = online.room.value
+  if (!room?.playerView) return false
+  if (room.playerView.status === 'choosing-general') return false
+  return room.phase === 'playing' || room.phase === 'finished'
+})
 const me = computed(() => online.room.value?.seats.find((seat) => seat.isSelf) ?? null)
 const isHost = computed(() => online.session.value?.userId === online.room.value?.hostUserId)
 const allSeatsFilled = computed(() => online.room.value?.seats.every((seat) => seat.kind !== 'empty') ?? false)
@@ -76,16 +94,16 @@ onBeforeUnmount(() => {
 
 <template>
   <SgsTable
-    v-if="online.room.value?.phase === 'playing' && online.room.value.playerView?.status !== 'choosing-general'"
-    :view="online.room.value.playerView!"
-    :request="online.room.value.playerView?.pendingRequest ?? null"
-    :legal-actions="online.room.value.playerView?.legalActions ?? []"
-    :busy="online.room.value.aiThinking || !online.connected.value"
-    :log="online.room.value.log"
-    :presentation-events="online.room.value.presentationEvents"
-    :deadline-at="online.room.value.deadlineAt"
+    v-if="tableVisible"
+    :view="online.room.value!.playerView!"
+    :request="online.room.value!.playerView?.pendingRequest ?? null"
+    :legal-actions="online.room.value!.playerView?.legalActions ?? []"
+    :busy="online.room.value!.aiThinking || !online.connected.value"
+    :log="online.room.value!.log"
+    :presentation-events="online.room.value!.presentationEvents"
+    :deadline-at="online.room.value!.deadlineAt"
     :connection-statuses="connectionStatuses"
-    :chat="online.room.value.chat"
+    :chat="online.room.value!.chat"
     :self-user-id="online.session.value?.userId ?? ''"
     :bubbles="bubbleTexts"
     @act="online.act"
@@ -178,7 +196,7 @@ onBeforeUnmount(() => {
 
     <section v-else class="sgs-online__panel sgs-online__finished">
       <h1>本局结束</h1>
-      <p>{{ online.room.value.playerView?.result?.reason ?? '等待下一局' }}</p>
+      <p>等待下一局</p>
       <button type="button" class="primary" :disabled="me?.nextRoundReady" @click="online.send({ type: 'next-round' })">{{ me?.nextRoundReady ? '等待其他玩家' : '再来一局' }}</button>
     </section>
 
@@ -192,6 +210,21 @@ onBeforeUnmount(() => {
 
     <p v-if="online.error.value" class="sgs-online__error" role="alert">{{ online.error.value }}</p>
   </main>
+
+  <!--
+    结算弹层：和单机共用 SgsResultDialog，身份、武将、存活情况一次看全，
+    而且浮在牌桌之上——单机就是这个观感。放在牌桌之外，牌桌显示与否都不影响它。
+  -->
+  <SgsResultDialog
+    v-if="finishedResult"
+    :view="finishedResult.view"
+    :result="finishedResult.result"
+    :again-label="me?.nextRoundReady ? '等待其他玩家' : '再来一局'"
+    :again-disabled="me?.nextRoundReady"
+    exit-label="退出对局"
+    @again="online.send({ type: 'next-round' })"
+    @exit="online.leaveRoom()"
+  />
 
   <div v-if="confirmLeave" class="sgs-online__mask">
     <section role="dialog" aria-modal="true" class="sgs-online__confirm">

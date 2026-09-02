@@ -11,6 +11,7 @@ import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
+import { PASS_ROUND_ACTION } from '../nullification'
 import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
@@ -577,6 +578,19 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     return
   }
 
+  // 「本轮均不使用」：这张牌剩下的目标都不再问他。五谷丰登这类多目标锦囊
+  // 一路点「不使用」要点五六次，声明一次就够了。
+  if (actionId === PASS_ROUND_ACTION) {
+    if (resolution.kind !== 'trick') throw new Error('只有多目标锦囊才有本轮均不使用')
+    removeResponseRequest(host.state, request.id)
+    resolution.requestId = null
+    recordResponse(host, request, response)
+    if (!resolution.declinedAllIds.includes(response.playerId)) resolution.declinedAllIds.push(response.playerId)
+    resolution.responderIndex += 1
+    askNullification(host)
+    return
+  }
+
   let responseCardId: string | null = null
   if (actionId !== 'respond-pass') {
     const prefix = resolution.kind === 'slash' ? 'respond-dodge:' : 'respond-nullification:'
@@ -604,7 +618,10 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
       host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId, cardName: '无懈可击' }, { sourceId: responder.id, targetId, cardIds: [cardId] })
       moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
       resolution.nullificationCount += 1
-      // 被无懈之后要从头再问一圈：任何人都可以对这张无懈再无懈
+      // 被无懈之后要从头再问一圈：任何人都可以对这张无懈再无懈。
+      // 但记下是谁打的，下一圈跳过他自己——对自己的无懈再叠一张，
+      // 效果等于两张都没打，只是白白多问一次（用户报的「连续问两遍」）。
+      resolution.lastNullifierId = responder.id
       resolution.responderIndex = 0
     } else resolution.responderIndex += 1
     askNullification(host)

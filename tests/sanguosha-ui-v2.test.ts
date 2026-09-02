@@ -63,12 +63,31 @@ describe('三国杀牌桌 V2 座位', () => {
     expect(source).toContain('.sgs-seat .sgs-seat__identity--hidden')
   })
 
-  it('结算界面先显示红色返回首页，再显示再来一局，并强制玩家名为浅色', () => {
-    const source = readFileSync('src/sanguosha/SanguoshaApp.vue', 'utf8')
+  it('结算界面先显示红色退出键，再显示再来一局，并强制玩家名为浅色', () => {
+    // 结算弹层已经抽成单机和联机共用的组件，这里跟着读组件而不是 App
+    const source = readFileSync('src/sanguosha/components/SgsResultDialog.vue', 'utf8')
     const actions = source.slice(source.indexOf('<div class="sgs-result__actions">'), source.indexOf('</div>', source.indexOf('<div class="sgs-result__actions">')))
-    expect(actions.indexOf('返回首页')).toBeLessThan(actions.indexOf('再来一局'))
+    expect(actions.indexOf('exit')).toBeLessThan(actions.indexOf('again'))
     expect(actions).toContain('class="danger"')
-    expect(source).toContain('.sgs-result__roster strong { min-width: 0; overflow: hidden; color: #f7f0df;')
+    expect(source).toContain('.sgs-result__roster strong { min-width: 0; display: flex;')
+  })
+
+  it('退出键和再来一局是同一套形状，只有配色不同', () => {
+    // 用户明确要求两个按钮长得一样。圆角/高度写在通用规则里，
+    // .danger 只能覆盖颜色——写进用例，免得以后有人只改一个。
+    const source = readFileSync('src/sanguosha/components/SgsResultDialog.vue', 'utf8')
+    const shared = /\.sgs-result__actions button \{([\s\S]*?)\}/.exec(source)?.[1] ?? ''
+    expect(shared, '圆角写在共用规则里').toContain('border-radius')
+    expect(shared, '高度也写在共用规则里').toContain('min-height')
+    const danger = /\.sgs-result__actions \.danger \{([^}]*)\}/.exec(source)?.[1] ?? ''
+    expect(danger, '危险色只改颜色，不改形状').not.toContain('border-radius')
+    expect(danger).not.toContain('min-height')
+  })
+
+  it('单机和联机用的是同一个结算组件', () => {
+    for (const file of ['src/sanguosha/SanguoshaApp.vue', 'src/sanguosha/components/SgsOnlineHub.vue']) {
+      expect(readFileSync(file, 'utf8'), `${file} 应当复用结算组件`).toContain('SgsResultDialog')
+    }
   })
 })
 

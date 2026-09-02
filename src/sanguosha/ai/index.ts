@@ -304,7 +304,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         ?? preferPlay(request.actionIds, 'respond-trick:')
         ?? (request.requiredCardName === '无懈可击' ? nullificationChoice(context, request.actionIds) : null)
         ?? (request.actionIds.includes('invoke-bagua') ? 'invoke-bagua' : null)
-      return { ...base, payload: { actionId: played ?? 'respond-pass' } }
+      if (played) return { ...base, payload: { actionId: played } }
+      // 「本轮均不使用」只在**每个目标都不值得拦**时才用：
+      // 一刀切会把后面该拦的目标一起放弃掉
+      const passAll = request.actionIds.includes('respond-pass-round') && canDeclineWholeRound(context)
+      return { ...base, payload: { actionId: passAll ? 'respond-pass-round' : 'respond-pass' } }
     }
 
     case 'use-card':
@@ -358,14 +362,33 @@ function nullificationChoice(context: AIContext, actionIds: readonly string[]): 
   // 简单档不做这层判断，随手用
   if (context.difficulty === 'easy') return context.rng.nextInt(2) === 0 ? playable[0] : null
 
-  const targetId = resolution.targetIds[0]
-  const targetAttitude = hostility(context.view, context.suspicion, targetId)
+  // 看**当前**这个目标，不是 targetIds[0]：多目标锦囊逐个结算，
+  // 万箭齐发打到第三个人时按第一个人的敌我关系判断是错的
+  const targetId = resolution.currentTargetId ?? resolution.targetIds[0]
+  return worthNullifying(context, targetId, resolution.sourceId) ? playable[0] : null
+}
+
+/** 这张锦囊落在某个目标身上时，值不值得我拦。 */
+function worthNullifying(context: AIContext, targetId: PlayerId, sourceId: PlayerId): boolean {
+  const attitude = hostility(context.view, context.suspicion, targetId)
   // 目标是自己或需要保护的人 → 一定拦
-  if (targetId === context.view.viewerId || targetAttitude <= PROTECTED) return playable[0]
+  if (targetId === context.view.viewerId || attitude <= PROTECTED) return true
   // 目标是敌人 → 不拦，让它生效
-  if (targetAttitude > 0) return null
+  if (attitude > 0) return false
   // 说不准的情况下，看放牌的人是不是敌人
-  return hostility(context.view, context.suspicion, resolution.sourceId) > 0 ? playable[0] : null
+  return hostility(context.view, context.suspicion, sourceId) > 0
+}
+
+/**
+ * 能不能直接答「本轮均不使用」。
+ *
+ * 只有**这张牌的每一个目标**都不值得拦时才行。否则会把后面某个
+ * 「该拦的目标」一起放弃掉——那比多点几次糟糕得多。
+ */
+function canDeclineWholeRound(context: AIContext): boolean {
+  const resolution = context.view.cardResolution
+  if (!resolution) return false
+  return resolution.targetIds.every((targetId) => !worthNullifying(context, targetId, resolution.sourceId))
 }
 
 /**
