@@ -14,6 +14,7 @@ import { ALL_CHARACTERS } from './data/characters/standard'
 import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
 import type { AIDifficulty } from './ai'
+import { AI_PACE_MS } from './shared/timing'
 
 defineEmits<{ backToPortal: [] }>()
 
@@ -36,7 +37,6 @@ const config = reactive({ playerCount: 5, difficulty: 'normal' as AIDifficulty, 
 /**
  * 真实出牌保留可读停顿；无牌可出、唯一选项和纯阶段推进由驱动层单独加速。
  */
-const AI_PACE_MS: Record<AIPace, number> = { fast: 450, normal: 700, relaxed: 1000 }
 const AI_PACE_LABEL: Record<AIPace, string> = { fast: '较快', normal: '标准', relaxed: '悠闲' }
 
 const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }

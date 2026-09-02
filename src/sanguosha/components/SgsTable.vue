@@ -13,6 +13,7 @@ import type { GameRequest, GameResponse } from '../engine/requests'
 import type { PresentationEvent } from '../engine/presentation'
 import type { SgsChatMessage } from '../online/protocol'
 import type { PlayerView } from '../engine/view'
+import { fixedTargetAction } from '../presentation/targetSelection'
 
 const props = withDefaults(defineProps<{
   view: PlayerView
@@ -69,7 +70,16 @@ watch(() => props.request?.id, (id) => {
 function resetSelection(): void { selectedCardId.value = null; selectedMode.value = null; selectedTargetIds.value = [] }
 function toggleCard(cardId: string): void {
   if (selectedCardId.value === cardId) { resetSelection(); return }
+  const automatic = fixedTargetAction(props.legalActions, cardId)
+  if (automatic) { emit('act', automatic.id); resetSelection(); return }
   selectedCardId.value = cardId; selectedMode.value = null; selectedTargetIds.value = []
+}
+function selectMode(modeId: string): void {
+  if (!selectedCardId.value) return
+  const automatic = fixedTargetAction(props.legalActions, selectedCardId.value, modeId)
+  if (automatic) { emit('act', automatic.id); resetSelection(); return }
+  selectedMode.value = modeId
+  selectedTargetIds.value = []
 }
 function toggleTarget(playerId: string): void {
   if (!candidateTargetIds.value.has(playerId)) return
@@ -116,7 +126,7 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
     <section v-else-if="legalActions.length" class="sgs-table__dock">
       <template v-if="selectedCardId">
         <p class="sgs-table__hint">{{ candidateTargetIds.size ? `请直接点击牌桌上的目标（已选 ${selectedTargetIds.length}）` : '确认使用这张牌' }}</p>
-        <div v-if="modes.length > 1" class="sgs-table__actions"><button v-for="mode in modes" :key="mode.id" type="button" :class="activeMode === mode.id ? 'primary' : 'ghost'" @click="selectedMode=mode.id;selectedTargetIds=[]">当【{{ mode.label }}】使用</button></div>
+        <div v-if="modes.length > 1" class="sgs-table__actions"><button v-for="mode in modes" :key="mode.id" type="button" :class="activeMode === mode.id ? 'primary' : 'ghost'" @click="selectMode(mode.id)">当【{{ mode.label }}】使用</button></div>
         <div class="sgs-table__actions"><button type="button" class="ghost" @click="resetSelection">取消</button><button type="button" class="primary" :disabled="!exactAction" @click="confirmTargets">确定</button></div>
       </template>
       <div v-else class="sgs-table__actions"><button v-for="action in standaloneActions" :key="action.id" type="button" :class="action.kind === 'pass' ? 'ghost' : 'primary'" @click="act(action.id)">{{ action.label }}</button></div>

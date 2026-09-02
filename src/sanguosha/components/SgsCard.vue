@@ -59,7 +59,7 @@ function showInfo(): void {
       </template>
       <span v-else class="sgs-card__back">{{ backIndex === null ? '' : backIndex + 1 }}</span>
     </button>
-    <button v-if="card" type="button" class="sgs-card__info" :aria-label="`查看${card.name}说明`" @click.stop="showInfo">i</button>
+    <button v-if="card" type="button" class="sgs-card__info" :aria-label="`查看${card.name}说明`" @click.stop="showInfo"><span aria-hidden="true">i</span></button>
   </div>
 </template>
 
@@ -101,8 +101,10 @@ function showInfo(): void {
 .sgs-card--compact .sgs-card__corner { font-size: 8px; }
 .sgs-card--compact .sgs-card__art, .sgs-card--compact .sgs-card__category { display: none; }
 .sgs-card__nature { font-size: 9px; color: #a8332a; }
-.sgs-card__info { position: absolute; z-index: 2; top: 3px; right: 3px; width: 16px; height: 16px; padding: 0; border: 1px solid rgba(70,57,38,.38); border-radius: 50%; background: rgba(250,242,220,.86); color: #5a4a30; font: 700 10px/1 serif; cursor: help; }
-.sgs-card-shell--compact .sgs-card__info { top: -3px; right: -3px; width: 14px; height: 14px; font-size: 8px; }
+.sgs-card__info { position: absolute; z-index: 2; top: -2px; right: -2px; width: 26px; height: 26px; display:grid; place-items:center; padding: 0; border:0; background:transparent; color: #5a4a30; cursor: help; }
+.sgs-card__info span{width:16px;height:16px;display:grid;place-items:center;border:1px solid rgba(70,57,38,.38);border-radius:50%;background:rgba(250,242,220,.9);font:700 10px/1 serif}
+.sgs-card-shell--compact .sgs-card__info { top: -6px; right: -6px; width: 24px; height: 24px; }
+.sgs-card-shell--compact .sgs-card__info span{width:14px;height:14px;font-size:8px}
 /* 牌背：不放任何牌面信息 */
 .sgs-card--back {
   border-color: #4a5a52;

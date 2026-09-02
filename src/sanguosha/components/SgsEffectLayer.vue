@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { StagedEvent } from '../composables/useSgsEventStage'
+import { directedTargets, effectOwnerIds } from '../presentation/effects'
 
 const props = defineProps<{ staged: StagedEvent | null }>()
 const event = computed(() => props.staged?.event ?? null)
 const skin = computed(() => props.staged?.skin ?? 'plain')
 const root = ref<HTMLElement | null>(null)
-const path = ref('')
+const paths = ref<string[]>([])
+const floatPositions = ref<Array<{ id: string; x: number; y: number }>>([])
 let observer: ResizeObserver | null = null
 
 /**
@@ -17,9 +19,8 @@ let observer: ResizeObserver | null = null
  */
 const directed = computed(() => {
   const current = event.value
-  if (!current?.sourceId) return null
-  const others = current.targetIds?.filter((id) => id !== current.sourceId) ?? []
-  return others.length ? { sourceId: current.sourceId, targetId: others[0] } : null
+  if (!current?.sourceId) return []
+  return directedTargets(current).map((targetId) => ({ sourceId: current.sourceId!, targetId }))
 })
 const floatText = computed(() => {
   const event = props.staged?.event
@@ -43,25 +44,43 @@ function centerOf(id: string): { x: number; y: number } | null {
   return { x: rect.left - outer.left + rect.width / 2, y: rect.top - outer.top + rect.height / 2 }
 }
 
-async function updatePath(): Promise<void> {
-  await nextTick()
-  const link = directed.value
-  if (!link) { path.value = ''; return }
-  const source = centerOf(link.sourceId), target = centerOf(link.targetId)
-  if (!source || !target) { path.value = ''; return }
-  const lift = Math.max(18, Math.abs(target.x - source.x) * .08)
-  path.value = `M ${source.x} ${source.y} Q ${(source.x + target.x) / 2} ${Math.min(source.y, target.y) - lift} ${target.x} ${target.y}`
+function floatAnchorOf(id: string): { x: number; y: number } | null {
+  const container = root.value?.parentElement
+  const seat = container?.querySelector<HTMLElement>(`[data-seat-id="${CSS.escape(id)}"]`)
+  if (!container || !seat) return null
+  const outer = container.getBoundingClientRect(), rect = seat.getBoundingClientRect()
+  return {
+    x: Math.max(20, Math.min(outer.width - 20, rect.left - outer.left + rect.width / 2)),
+    y: Math.max(22, Math.min(outer.height - 22, rect.top - outer.top + Math.min(32, rect.height * .32))),
+  }
 }
 
-watch(() => event.value?.id, updatePath, { immediate: true })
-onMounted(() => { observer = new ResizeObserver(updatePath); if (root.value?.parentElement) observer.observe(root.value.parentElement); void updatePath() })
+async function updateGeometry(): Promise<void> {
+  await nextTick()
+  paths.value = directed.value.flatMap((link) => {
+    const source = centerOf(link.sourceId), target = centerOf(link.targetId)
+    if (!source || !target) return []
+    const lift = Math.max(18, Math.abs(target.x - source.x) * .08)
+    return [`M ${source.x} ${source.y} Q ${(source.x + target.x) / 2} ${Math.min(source.y, target.y) - lift} ${target.x} ${target.y}`]
+  })
+  floatPositions.value = effectOwnerIds(event.value).flatMap((id) => {
+    const point = floatAnchorOf(id)
+    return point ? [{ id, ...point }] : []
+  })
+}
+
+watch(() => event.value?.id, updateGeometry, { immediate: true })
+onMounted(() => { observer = new ResizeObserver(updateGeometry); if (root.value?.parentElement) observer.observe(root.value.parentElement); void updateGeometry() })
 onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <template>
   <div ref="root" class="sgs-effects" aria-hidden="true">
-    <svg v-if="path" class="sgs-effects__svg"><defs><marker id="sgs-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" /></marker></defs><path :key="event?.id" :d="path" class="sgs-effects__path" :class="`sgs-effects__path--${skin}`" marker-end="url(#sgs-arrow)" /></svg>
-    <div v-if="floatText" :key="event?.id" class="sgs-effects__float" :class="[`sgs-effects__float--${event?.kind}`, `sgs-effects__float--skin-${skin}`]">{{ floatText }}</div>
+    <svg v-if="paths.length" class="sgs-effects__svg"><defs><marker id="sgs-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" /></marker></defs><path v-for="(path,index) in paths" :key="`${event?.id}-${index}`" :d="path" class="sgs-effects__path" :class="`sgs-effects__path--${skin}`" marker-end="url(#sgs-arrow)" /></svg>
+    <template v-if="floatText">
+      <div v-for="point in floatPositions" :key="`${event?.id}-${point.id}`" class="sgs-effects__float sgs-effects__float--positioned" :class="[`sgs-effects__float--${event?.kind}`, `sgs-effects__float--skin-${skin}`]" :style="{ left: `${point.x}px`, top: `${point.y}px` }" :data-effect-target="point.id">{{ floatText }}</div>
+      <div v-if="!floatPositions.length" :key="event?.id" class="sgs-effects__float" :class="[`sgs-effects__float--${event?.kind}`, `sgs-effects__float--skin-${skin}`]">{{ floatText }}</div>
+    </template>
   </div>
 </template>
 

@@ -1,29 +1,40 @@
 import { onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
 
-/**
- * 对局、选将和联机等人时保持屏幕常亮。
- *
- * 浏览器切到后台会由系统自动释放锁；回到前台以及下一次用户触摸时重新申请。
- * 不支持 Screen Wake Lock 的旧浏览器安静降级，不使用循环视频或静音音频绕过系统。
- */
-export function useScreenWakeLock(active: Readonly<Ref<boolean>>): void {
+interface WakeLockLike {
+  request(type: 'screen'): Promise<WakeLockSentinel>
+}
+
+interface WakeLockEnvironment {
+  document: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>
+  wakeLock?: WakeLockLike
+}
+
+export interface ScreenWakeLockController {
+  start(): void
+  stop(): void
+  sync(): void
+}
+
+/** 独立控制器让生命周期能用假的 document / wakeLock 做真实行为测试。 */
+export function createScreenWakeLockController(
+  isActive: () => boolean,
+  environment: WakeLockEnvironment,
+): ScreenWakeLockController {
   let sentinel: WakeLockSentinel | null = null
   let requesting = false
+  let started = false
 
   async function acquire(): Promise<void> {
-    if (!active.value || document.visibilityState !== 'visible' || sentinel || requesting) return
-    if (!('wakeLock' in navigator)) return
+    if (!started || !isActive() || environment.document.visibilityState !== 'visible' || sentinel || requesting || !environment.wakeLock) return
     requesting = true
     try {
-      const next = await navigator.wakeLock.request('screen')
-      if (!active.value || document.visibilityState !== 'visible') {
+      const next = await environment.wakeLock.request('screen')
+      if (!started || !isActive() || environment.document.visibilityState !== 'visible') {
         await next.release()
         return
       }
       sentinel = next
-      next.addEventListener('release', () => {
-        if (sentinel === next) sentinel = null
-      }, { once: true })
+      next.addEventListener('release', () => { if (sentinel === next) sentinel = null }, { once: true })
     } catch {
       // 权限被拒绝或系统暂时不允许时，等待下一次用户触摸/回到前台再试。
     } finally {
@@ -39,22 +50,41 @@ export function useScreenWakeLock(active: Readonly<Ref<boolean>>): void {
     }
   }
 
-  function onVisibilityChange(): void {
-    if (document.visibilityState === 'visible') void acquire()
-    else void release()
-  }
-
+  function sync(): void { if (isActive() && environment.document.visibilityState === 'visible') void acquire(); else void release() }
+  function onVisibilityChange(): void { sync() }
   function onPointerDown(): void { void acquire() }
 
-  onMounted(() => {
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    document.addEventListener('pointerdown', onPointerDown, { passive: true })
-    void acquire()
-  })
-  watch(active, (enabled) => { if (enabled) void acquire(); else void release() })
-  onBeforeUnmount(() => {
-    document.removeEventListener('visibilitychange', onVisibilityChange)
-    document.removeEventListener('pointerdown', onPointerDown)
-    void release()
-  })
+  return {
+    start() {
+      if (started) return
+      started = true
+      environment.document.addEventListener('visibilitychange', onVisibilityChange)
+      environment.document.addEventListener('pointerdown', onPointerDown, { passive: true })
+      void acquire()
+    },
+    stop() {
+      if (!started) return
+      started = false
+      environment.document.removeEventListener('visibilitychange', onVisibilityChange)
+      environment.document.removeEventListener('pointerdown', onPointerDown)
+      void release()
+    },
+    sync,
+  }
+}
+
+/**
+ * 对局、选将和联机等人时保持屏幕常亮。
+ *
+ * 浏览器切到后台会由系统自动释放锁；回到前台以及下一次用户触摸时重新申请。
+ * 不支持 Screen Wake Lock 的旧浏览器安静降级，不使用循环视频或静音音频绕过系统。
+ */
+export function useScreenWakeLock(active: Readonly<Ref<boolean>>): void {
+  const controller = createScreenWakeLockController(
+    () => active.value,
+    { document, wakeLock: 'wakeLock' in navigator ? navigator.wakeLock : undefined },
+  )
+  onMounted(controller.start)
+  watch(active, controller.sync)
+  onBeforeUnmount(controller.stop)
 }

@@ -44,13 +44,9 @@ describe('三国杀牌桌 V2 座位', () => {
       return at < 0 ? '' : source.slice(at, source.indexOf('}', at))
     }
     expect(rule('.sgs-seat__equipment {'), '装备槽要展开成双列，不能整块隐藏').toContain('display: grid')
-    expect(rule('.sgs-seat__skills {'), '技能区不能再被裁高').toContain('max-height: none')
-    expect(rule('.sgs-seat__skills {')).toContain('overflow: visible')
-    // 旧的隐藏规则并没有被删掉，是靠后写的规则覆盖的，所以顺序本身就是不变量：
-    // 一旦展开规则被挪到隐藏规则前面，手机上装备又会整块消失。
-    expect(source.indexOf('.sgs-seat__equipment{display:none}'), '旧隐藏规则应当仍在（靠覆盖生效）').toBeGreaterThan(-1)
-    expect(source.indexOf('.sgs-seat__equipment {'), '展开规则必须写在隐藏规则之后才盖得住')
-      .toBeGreaterThan(source.indexOf('.sgs-seat__equipment{display:none}'))
+    expect(source, '技能区不能再被裁高').toMatch(/\.sgs-seat__skills\s*\{[^}]*max-height:\s*none[^}]*overflow:\s*visible/s)
+    expect(source).not.toMatch(/\.sgs-seat__equipment\s*\{\s*display:\s*none/)
+    expect(source).not.toMatch(/\.sgs-seat__skills\s*\{\s*max-height:\s*14px/)
   })
 
   it('立绘座位不使用会让 iPhone 中文笔画重叠的文字描边', () => {

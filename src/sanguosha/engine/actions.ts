@@ -9,7 +9,7 @@ interface LegalActionBase<K extends string> {
 
 export type LegalAction =
   | (LegalActionBase<'pass'> & { requestId: string })
-  | (LegalActionBase<'use-card'> & { cardIds: CardId[]; targetIds: PlayerId[]; targetMin: number; targetMax: number; asCardName: string })
+  | (LegalActionBase<'use-card'> & { cardIds: CardId[]; targetIds: PlayerId[]; targetMin: number; targetMax: number; asCardName: string; targetMode?: 'fixed' })
   | (LegalActionBase<'respond-card'> & { cardIds: CardId[]; asCardName: string })
   | (LegalActionBase<'invoke-skill'> & { skillId: string; cardIds: CardId[]; targetIds: PlayerId[] })
   | (LegalActionBase<'choose'> & { requestId: string; value: string | number | string[] })

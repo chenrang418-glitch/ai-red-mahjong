@@ -25,7 +25,7 @@ export function playerOf(state: SanguoshaState, playerId: PlayerId): PlayerState
   return found
 }
 
-export function useAction(cardId: CardId, playerId: PlayerId, name: string, targetIds: PlayerId[], label: string): LegalAction {
+export function useAction(cardId: CardId, playerId: PlayerId, name: string, targetIds: PlayerId[], label: string, targetMode?: 'fixed'): LegalAction {
   return {
     id: `play:${cardId}:${targetIds.join(',') || 'self'}`,
     kind: 'use-card',
@@ -36,6 +36,7 @@ export function useAction(cardId: CardId, playerId: PlayerId, name: string, targ
     targetMin: targetIds.length,
     targetMax: targetIds.length,
     asCardName: name,
+    targetMode,
   }
 }
 

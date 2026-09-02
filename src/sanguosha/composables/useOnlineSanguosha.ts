@@ -10,6 +10,7 @@ import type {
   SgsRoomSettings,
   SgsRoomView,
 } from '../online/protocol'
+import { reconnectDelay } from '../online/reconnect'
 
 const ROOM_KEY = 'crplay.sanguosha.online-room'
 const NICKNAME_KEY = 'red-mahjong.nickname'
@@ -73,6 +74,7 @@ export function useOnlineSanguosha() {
   let roomCode = ''
   let manualClose = false
   let reconnectTimer: number | null = null
+  let reconnectAttempt = 0
   let heartbeatTimer: number | null = null
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -138,8 +140,9 @@ export function useOnlineSanguosha() {
     connectRoom(normalized)
   }
 
-  function connectRoom(code: string): void {
+  function connectRoom(code: string, reconnecting = false): void {
     cleanupSocket()
+    if (!reconnecting) reconnectAttempt = 0
     roomCode = code
     storageSet(ROOM_KEY, code)
     syncRoomUrl(code)
@@ -153,6 +156,7 @@ export function useOnlineSanguosha() {
       if (socket !== current) return
       connected.value = true
       connecting.value = false
+      reconnectAttempt = 0
       heartbeatTimer = window.setInterval(() => {
         if (current.readyState === WebSocket.OPEN) current.send('ping')
       }, 20_000)
@@ -178,7 +182,11 @@ export function useOnlineSanguosha() {
         if (event.code === SESSION_SUPERSEDED_CODE) session.value = null
         return
       }
-      if (!manualClose && session.value && roomCode) reconnectTimer = window.setTimeout(() => connectRoom(roomCode), 1200)
+      if (!manualClose && session.value && roomCode) {
+        const delay = reconnectDelay(reconnectAttempt)
+        reconnectAttempt += 1
+        reconnectTimer = window.setTimeout(() => connectRoom(roomCode, true), delay)
+      }
     })
   }
 
@@ -232,6 +240,7 @@ export function useOnlineSanguosha() {
       socket.send(JSON.stringify({ type: 'leave-room', actionId: crypto.randomUUID(), baseSeq: room.value.version }))
     }
     manualClose = true
+    reconnectAttempt = 0
     room.value = null
     roomCode = ''
     storageSet(ROOM_KEY, '')

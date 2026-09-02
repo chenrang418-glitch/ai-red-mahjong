@@ -49,6 +49,18 @@ function passCurrentRescuer(game: SanguoshaGame): void {
 }
 
 describe('伤害、濒死、救援、死亡与奖惩', () => {
+  it('全场没有桃、酒或转化牌时直接完成死亡，不逐人生成空救援请求', () => {
+    const game = startedGame('no-empty-rescue-round')
+    for (const owner of game.state.players) {
+      for (const cardId of [...owner.zones.hand]) moveCard(game.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'discardPile' })
+    }
+    game.state.players[1].hp = 1
+    game.damage({ sourceId: 'p2', targetId: 'p1' })
+    expect(game.state.dying).toBeNull()
+    expect(game.state.players[1].alive).toBe(false)
+    expect(game.state.pendingRequests.some((request) => request.kind === 'rescue')).toBe(false)
+  })
+
   it('按伤害时机结算，并允许技能取消或修改伤害', () => {
     const game = startedGame('damage-timing')
     const seen: string[] = []

@@ -87,13 +87,13 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return [useAction(cardId, playerId, card.name, [playerId], '使用【无中生有】摸两张牌')]
     case '桃园结义':
       // 目标是所有存活角色（含自己），已满体力的人也算目标，只是回复无效
-      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【桃园结义】，全场回复一点体力')]
+      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【桃园结义】，全场回复一点体力', 'fixed')]
     case '南蛮入侵':
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【南蛮入侵】')]
+      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【南蛮入侵】', 'fixed')]
     case '万箭齐发':
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【万箭齐发】')]
+      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【万箭齐发】', 'fixed')]
     case '决斗':
       for (const target of others) {
         if (!allowed(target.id)) continue
@@ -118,7 +118,7 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return actions
     case '五谷丰登':
       // 目标是所有存活角色，亮出等量的牌轮流挑
-      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【五谷丰登】')]
+      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【五谷丰登】', 'fixed')]
     case '火攻':
       for (const target of others) {
         if (!allowed(target.id)) continue

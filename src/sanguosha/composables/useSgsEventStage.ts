@@ -1,5 +1,6 @@
 import { getCurrentInstance, onBeforeUnmount, shallowRef, watch } from 'vue'
 import type { PresentationEvent, PresentationEventKind } from '../engine/presentation'
+import { presentationDuration } from '../shared/timing'
 
 /**
  * 表现事件的播放队列。
@@ -26,24 +27,6 @@ export interface StagedEvent {
   chainDepth: number
 }
 
-/** 每类事件在舞台上停留多久。重要的慢，流水账快。 */
-const DURATION: Record<PresentationEventKind, number> = {
-  death: 1200,
-  dying: 1050,
-  damage: 900,
-  'lose-hp': 800,
-  judge: 800,
-  skill: 700,
-  recover: 700,
-  'card-use': 620,
-  'card-response': 620,
-  'turn-start': 420,
-  draw: 380,
-  discard: 380,
-  equipment: 380,
-  status: 340,
-}
-
 /**
  * 积压时的取舍权重：2 绝不丢，1 尽量留，0 可以直接扔。
  *
@@ -52,7 +35,7 @@ const DURATION: Record<PresentationEventKind, number> = {
  */
 const WEIGHT: Record<PresentationEventKind, 0 | 1 | 2> = {
   death: 2, dying: 2, damage: 2, 'lose-hp': 2, recover: 2,
-  judge: 1, skill: 1, 'card-use': 1, 'card-response': 1, 'turn-start': 1,
+  judge: 2, skill: 1, 'card-use': 1, 'card-response': 1, 'turn-start': 1,
   draw: 0, discard: 0, equipment: 0, status: 0,
 }
 
@@ -72,6 +55,7 @@ export function useSgsEventStage(source: () => readonly PresentationEvent[]) {
   const staged = shallowRef<StagedEvent | null>(null)
   let queue: PresentationEvent[] = []
   let lastSeenId: string | null = null
+  let lastSeenSeq = -1
   let timer: ReturnType<typeof setTimeout> | null = null
 
   function stopTimer(): void {
@@ -97,7 +81,7 @@ export function useSgsEventStage(source: () => readonly PresentationEvent[]) {
       ? (previous?.skin === 'nullify' ? previous.chainDepth + 1 : 1)
       : 0
     staged.value = { event, skin, chainDepth }
-    timer = setTimeout(pump, DURATION[event.kind] ?? 500)
+    timer = setTimeout(pump, presentationDuration(event.kind, queue.length + 1))
   }
 
   function pump(): void {
@@ -140,14 +124,16 @@ export function useSgsEventStage(source: () => readonly PresentationEvent[]) {
       // 首次看到（含联机重连时一次性拿到整段历史）：只认最后一条，不回放 30 条
       const last = events[events.length - 1]
       lastSeenId = last?.id ?? null
+      lastSeenSeq = last?.seq ?? -1
       if (last) { stopTimer(); show(last) }
       return
     }
     const seenIndex = events.findIndex((event) => event.id === lastSeenId)
     // 找不到说明旧事件已经被上限截掉了，此时只取末尾一小段，不整段重放
-    const incoming = seenIndex >= 0 ? events.slice(seenIndex + 1) : events.slice(-MAX_BACKLOG)
+    const incoming = seenIndex >= 0 ? events.slice(seenIndex + 1) : events.filter((event) => event.seq > lastSeenSeq)
     if (!incoming.length) return
     lastSeenId = incoming[incoming.length - 1].id
+    lastSeenSeq = incoming[incoming.length - 1].seq
     queue.push(...incoming)
     compress()
     if (timer === null) pump()

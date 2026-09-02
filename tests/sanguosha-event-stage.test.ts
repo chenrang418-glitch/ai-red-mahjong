@@ -84,6 +84,25 @@ describe('成批到达时逐条播放', () => {
     expect(kinds.filter((kind) => kind === 'draw').length, '两条摸牌至少压掉一条').toBeLessThan(2)
     expect(played.size, '积压总量要收在上限内').toBeLessThanOrEqual(4)
   })
+
+  it('全是关键事件时保持顺序且动态加速，不因上限删除', () => {
+    const events = ref<PresentationEvent[]>([event('turn-start')])
+    const { staged } = useSgsEventStage(() => events.value)
+    vi.advanceTimersByTime(500)
+    const critical = [
+      event('damage'), event('damage'), event('dying'), event('recover'),
+      event('judge'), event('damage'), event('death'),
+    ]
+    events.value = [...events.value, ...critical]
+
+    const played: string[] = []
+    for (let elapsed = 0; elapsed < 6000; elapsed += 100) {
+      if (staged.value && played.at(-1) !== staged.value.event.id) played.push(staged.value.event.id)
+      vi.advanceTimersByTime(100)
+    }
+    expect(played).toEqual(critical.map((item) => item.id))
+    expect(staged.value, '积压时应在六秒内追上真实局面').toBeNull()
+  })
 })
 
 describe('不回放历史', () => {

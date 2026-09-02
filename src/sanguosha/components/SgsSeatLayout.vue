@@ -8,6 +8,7 @@ import { displayCharacterName } from '../data/characters/standard'
 import type { GameRequest } from '../engine/requests'
 import type { StagedEvent } from '../composables/useSgsEventStage'
 import type { PlayerView } from '../engine/view'
+import { seatEffectFor } from '../presentation/effects'
 
 const props = defineProps<{
   view: PlayerView
@@ -52,23 +53,14 @@ function mamaOwnersOf(playerId: string): string[] {
     .filter(([, mamaId]) => mamaId === playerId)
     .map(([ownerId]) => displayCharacterName(props.view.players, ownerId))
 }
-const effectFor = (playerId: string) => {
-  const event = props.staged?.event
-  if (!event) return null
-  if (!event.targetIds?.includes(playerId) && event.sourceId !== playerId) return null
-  if (event.kind === 'damage' || event.kind === 'lose-hp') return 'damage'
-  if (event.kind === 'recover') return 'recover'
-  if (event.kind === 'card-response' && event.cardName === '闪') return 'dodge'
-  if (event.kind === 'skill') return 'skill'
-  return null
-}
+const effectFor = (playerId: string) => seatEffectFor(props.staged?.event ?? null, playerId)
 </script>
 
 <template>
   <section class="sgs-seat-layout" :class="`sgs-seat-layout--${view.players.length}`">
     <div v-for="(player, index) in ordered" :key="player.id" class="sgs-seat-layout__slot" :class="`sgs-seat-layout__slot--${slots[index]}`">
       <SgsSeat
-        :player="player" :viewer-id="view.viewerId" :active="player.id === view.currentPlayerId"
+        :player="player" :viewer-id="view.viewerId" :active="player.id === view.currentPlayerId" :targeting="selectableIds.size > 0"
         :selectable="selectableIds.has(player.id)" :selected="selectedIds.includes(player.id)"
         :threatened="event?.kind === 'card-use' && event.targetIds?.includes(player.id)"
         :effect="effectFor(player.id)" :status="statuses?.[player.id] ?? null"

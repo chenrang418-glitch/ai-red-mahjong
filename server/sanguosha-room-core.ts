@@ -7,6 +7,7 @@ import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha
 import type { GameResponse } from '../src/sanguosha/engine/requests'
 import type { PlayerId, SanguoshaState } from '../src/sanguosha/engine/types'
 import type { PlayerView } from '../src/sanguosha/engine/view'
+import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS } from '../src/sanguosha/shared/timing'
 import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 
@@ -98,15 +99,12 @@ const DEFAULT_TURN_SECONDS = 30
  * 否则一步里连出几条事件时动画永远在被追着跑，观感就是「太快，看不清」。
  * 改这个值时把单机那份一起改，两边对不上会让联机显得比单机快。
  */
-const AI_STEP_MS = 700
-const AI_TRIVIAL_STEP_MS = 60
 /**
  * 选将阶段的 AI 间隔。
  *
  * 选将没有任何动画可看，按对局节奏走 8 人局要等十几秒才开得了局。
  * 和单机那边（useLocalSanguosha 的 selecting 分支）保持同一个量级。
  */
-const AI_PICK_GENERAL_MS = 150
 /** 掉线后多久自动转托管。留一点时间给刷新页面 */
 const DISCONNECT_TRUSTEE_MS = 20_000
 const NEXT_ROUND_TIMEOUT_MS = 40_000
@@ -552,7 +550,7 @@ export class SanguoshaRoomCoordinator {
       : false
     const aiDelay = choosing ? AI_PICK_GENERAL_MS
       : ((pending && isTrivialAIRequest(pending)) || onlyPass) ? AI_TRIVIAL_STEP_MS
-        : AI_STEP_MS
+        : AI_PACE_MS.normal
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
       dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs(actorSeatId)),

@@ -10,6 +10,7 @@ import { describeEvent } from '../engine/log'
 import type { GameEventName } from '../engine/events'
 import { buildPresentationEvent, type PresentationEvent } from '../engine/presentation'
 import { getCharacter } from '../data/characters/standard'
+import { AI_PACE_MS, AI_TRIVIAL_STEP_MS, phaseDelay } from '../shared/timing'
 
 /** 会写进战报的事件。只挑对玩家有意义的，避免把每一次内部时机都刷上去。 */
 const LOGGED_EVENTS: readonly GameEventName[] = [
@@ -185,8 +186,8 @@ export function useLocalSanguosha() {
      * 自动阶段推进只留 180～360ms，真实出牌仍使用玩家选择的 AI 节奏。
      */
     const visualDelay = delayMs <= 0 ? 0
-      : pace === 'instant' ? 60
-        : pace === 'phase' ? Math.min(360, Math.max(180, Math.round(delayMs / 2)))
+      : pace === 'instant' ? AI_TRIVIAL_STEP_MS
+        : pace === 'phase' ? phaseDelay(delayMs)
           : delayMs
     if (visualDelay <= 0) run()
     else timer = window.setTimeout(run, visualDelay)
@@ -198,7 +199,7 @@ export function useLocalSanguosha() {
     error.value = ''
     log.value = []
     presentationEvents.value = []
-    delayMs = options.aiDelayMs ?? 700
+    delayMs = options.aiDelayMs ?? AI_PACE_MS.normal
     currentDifficulty = options.difficulty
     const seed = options.seed ?? `local-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
     aiRng = new GameRng(`ai:${seed}`)

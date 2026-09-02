@@ -3,14 +3,14 @@ import { computed, onBeforeUnmount, onErrorCaptured, ref, shallowRef, watch } fr
 import GamePortal from '@/portal/GamePortal.vue'
 import { gameManifest, playableGames, type GameDefinition } from '@/portal/gameManifest'
 import { buildGameUrl, buildPortalUrl, resolveAppRoute } from '@/portal/navigation'
+import { LatestGameLoader } from '@/portal/gameLoader'
 import type { Component } from 'vue'
 
 const route = ref(resolveAppRoute(new URL(window.location.href)))
 const activeComponent = shallowRef<Component | null>(null)
 const loading = ref(false)
 const loadError = ref('')
-let loadRevision = 0
-let loadTimer: number | null = null
+const gameLoader = new LatestGameLoader<{ default: Component }>(15_000)
 
 const activeGame = computed<GameDefinition | null>(() => {
   if (route.value.kind !== 'game') return null
@@ -36,29 +36,18 @@ function returnToPortal() {
 }
 
 async function loadActiveGame(game: GameDefinition | null) {
-  const revision = ++loadRevision
-  if (loadTimer !== null) window.clearTimeout(loadTimer)
+  gameLoader.dispose()
   activeComponent.value = null
   loadError.value = ''
-  if (!game?.loadApp) return
+  if (!game?.loadApp) { loading.value = false; return }
   loading.value = true
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      loadTimer = window.setTimeout(() => reject(new Error('游戏资源加载超时')), 15_000)
-    })
-    const module = await Promise.race([game.loadApp(), timeout])
-    if (revision === loadRevision) activeComponent.value = module.default
-  } catch (cause) {
-    if (revision === loadRevision) {
-      loadError.value = import.meta.env.DEV && cause instanceof Error
-        ? `游戏加载失败：${cause.message}`
-        : '游戏加载失败，请重试。'
-    }
-  } finally {
-    if (loadTimer !== null) window.clearTimeout(loadTimer)
-    loadTimer = null
-    if (revision === loadRevision) loading.value = false
-  }
+  const result = await gameLoader.load(game.loadApp)
+  if (result.status === 'stale') return
+  if (result.status === 'success') activeComponent.value = result.value.default
+  else loadError.value = import.meta.env.DEV && result.error instanceof Error
+    ? `游戏加载失败：${result.error.message}`
+    : '游戏加载失败，请重试。'
+  loading.value = false
 }
 
 function retryLoad() {
@@ -68,7 +57,7 @@ function retryLoad() {
 window.addEventListener('popstate', syncRoute)
 window.addEventListener('hashchange', syncRoute)
 onBeforeUnmount(() => {
-  if (loadTimer !== null) window.clearTimeout(loadTimer)
+  gameLoader.dispose()
   window.removeEventListener('popstate', syncRoute)
   window.removeEventListener('hashchange', syncRoute)
 })
