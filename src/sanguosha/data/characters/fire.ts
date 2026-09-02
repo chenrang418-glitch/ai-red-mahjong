@@ -146,6 +146,19 @@ registerSkillRuntime({
 
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   {
+    id: 'pangde',
+    name: '庞德',
+    kingdom: 'qun',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'fire',
+    skills: [
+      // 马术直接复用马超那套 distanceModifier，没有另写一份庞德专属的距离判断
+      { id: 'mashu', name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' },
+      { id: 'mengjin', name: '猛进', description: '当你使用的【杀】被【闪】抵消后，你可以弃置一张牌，然后弃置该角色的一张牌。' },
+    ],
+  },
+  {
     id: 'dianwei',
     name: '典韦',
     kingdom: 'wei',

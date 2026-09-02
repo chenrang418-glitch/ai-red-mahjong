@@ -147,11 +147,44 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src'>>> = {
     mobile: { position: '52% 20%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·陆逊',
   },
+  // ── 风包 ──
+  weiyan: {
+    desktop: { position: '56% 19%', scale: 1.0 },
+    mobile: { position: '56% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·魏延',
+  },
+  huangzhong: {
+    desktop: { position: '48% 20%', scale: 1.0 },
+    mobile: { position: '48% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·黄忠',
+  },
+  xiaoqiao: {
+    desktop: { position: '55% 22%', scale: 1.0 },
+    mobile: { position: '55% 20%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·小乔',
+  },
+  xiahouyuan: {
+    desktop: { position: '55% 20%', scale: 1.0 },
+    mobile: { position: '55% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·夏侯渊',
+  },
+
   // ── 火包 ──
   dianwei: {
     desktop: { position: '45% 20%', scale: 1.0 },
     mobile: { position: '45% 18%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·典韦',
+  },
+  pangde: {
+    desktop: { position: '48% 18%', scale: 1.0 },
+    mobile: { position: '48% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·庞德',
+  },
+  // 双人构图：两张脸，焦点对准前景那个（文丑），否则小尺寸下两张脸都糊
+  yanliangwenchou: {
+    desktop: { position: '62% 30%', scale: 1.0 },
+    mobile: { position: '62% 28%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·颜良文丑',
   },
 
   // ── 群 ──

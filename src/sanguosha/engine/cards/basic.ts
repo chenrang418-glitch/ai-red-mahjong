@@ -11,7 +11,7 @@ import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
-import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
@@ -556,7 +556,15 @@ function finishDodgedSlash(host: CardEngineHost, resolution: SlashResolutionStat
     nature: resolution.damageNature,
     cardId: resolution.cardId,
   }
-  if (askDodgedSlashWeapon(host, facts)) {
+  // 「杀被【闪】抵消后」的时机链。装备（贯石斧、青龙偃月刀）和武将技能
+  // （庞德【猛进】）走同一条链，谁先抢到就先问谁，回答完由各自的 resume
+  // 调 continueSlash 交还控制。往这个时机加新技能只需要往这里加一环。
+  const afterDodged: Array<() => boolean> = [
+    () => askDodgedSlashWeapon(host, facts),
+    () => askMengjin(host, facts),
+  ]
+  for (const ask of afterDodged) {
+    if (!ask()) continue
     resolution.stage = 'awaiting-intercept'
     return
   }

@@ -4,7 +4,8 @@ import { registerSkillRuntime, type SkillHost } from './skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 import { hasWeapon } from './equipment'
-import { moveCard } from './zones'
+import { hiddenHandSlot } from './cards/host'
+import { locateOwnedCard, moveCard } from './zones'
 
 /**
  * 需要向玩家发问、并且要动引擎内部状态的效果。
@@ -563,6 +564,130 @@ registerSkillRuntime({
     }
     // 无论发不发动，控制权都要交回这次【杀】的结算
     callbacks?.resumeSlashAfterEquipment(host)
+  },
+})
+
+export const MENGJIN_SKILL = 'mengjin'
+
+/**
+ * 庞德【猛进】：你使用的【杀】被【闪】抵消后，可以弃置一张牌，然后弃置该角色的一张牌。
+ *
+ * 经典火包版，带「弃置一张牌」的代价。
+ *
+ * 挂在「杀被闪抵消后」这个时机上——贯石斧和青龙偃月刀走的是同一条链，
+ * 所以这里不需要新造时机，只是往链上再加一环。
+ */
+export function askMengjin(host: SkillHost, facts: DodgedSlashFacts): boolean {
+  if (host.state.skillResolution) return false
+  const source = host.state.players.find((player) => player.id === facts.sourceId)
+  const target = host.state.players.find((player) => player.id === facts.targetId)
+  if (!source?.alive || !target?.alive || !source.characterId) return false
+  if (!skillIdsProvider?.(source.characterId).includes(MENGJIN_SKILL)) return false
+  // 自己没牌可弃、或者对方没牌可拆，都发动不了
+  if (discardableCards(host.state, facts.sourceId).length === 0) return false
+  if (discardableCards(host.state, facts.targetId).length === 0) return false
+
+  host.askSkill({
+    skillId: MENGJIN_SKILL,
+    ownerId: facts.sourceId,
+    step: 'ask',
+    data: { ...facts },
+    build: (requestId): ChooseOptionRequest => ({
+      id: requestId,
+      kind: 'choose-option',
+      playerId: facts.sourceId,
+      prompt: `发动【猛进】？弃置一张牌，然后弃置 ${target.nickname} 的一张牌`,
+      timeoutMs: 20_000,
+      optional: true,
+      options: [{ id: 'yes', label: '发动' }, { id: 'no', label: '放弃' }],
+    }),
+  })
+  return true
+}
+
+registerSkillRuntime({
+  id: MENGJIN_SKILL,
+  resume(host, _ownerId, resolution, response) {
+    const facts = resolution.data as unknown as DodgedSlashFacts
+    const bail = () => { callbacks?.continueSlash(host) }
+
+    if (resolution.step === 'ask') {
+      if ((response.payload as { optionId: string }).optionId !== 'yes') return bail()
+      const pool = discardableCards(host.state, facts.sourceId)
+      // 发问期间牌可能已经没了，重新确认
+      if (pool.length === 0) return bail()
+      host.askSkill({
+        skillId: MENGJIN_SKILL,
+        ownerId: facts.sourceId,
+        step: 'cost',
+        data: { ...facts },
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId,
+          kind: 'choose-cards',
+          playerId: facts.sourceId,
+          prompt: '【猛进】：弃置自己的一张牌',
+          timeoutMs: 20_000,
+          optional: false,
+          purpose: 'skill',
+          cardIds: pool,
+          hiddenCardSlots: [],
+          min: 1,
+          max: 1,
+        }),
+      })
+      return
+    }
+
+    if (resolution.step === 'cost') {
+      const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+      const from = locateOwnedCard(host.state, facts.sourceId, cardId)
+      if (!from) return bail()
+      moveCard(host.state, cardId, from, { kind: 'discardPile' })
+      if (from.kind === 'equipment') {
+        host.dispatch('LoseEquipment', { playerId: facts.sourceId, cardId, slot: from.slot }, { targetId: facts.sourceId, cardIds: [cardId] })
+      }
+      const target = host.state.players.find((player) => player.id === facts.targetId)
+      if (!target?.alive) return bail()
+      const equipment = Object.values(target.zones.equipment).filter((id): id is CardId => Boolean(id))
+      if (target.zones.hand.length === 0 && equipment.length === 0) return bail()
+      host.askSkill({
+        skillId: MENGJIN_SKILL,
+        ownerId: facts.sourceId,
+        step: 'pick',
+        data: { ...facts },
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId,
+          kind: 'choose-cards',
+          playerId: facts.sourceId,
+          prompt: `【猛进】：弃置 ${target.nickname} 的一张牌`,
+          timeoutMs: 20_000,
+          optional: false,
+          purpose: 'skill',
+          // 手牌是暗的，只给占位槽——不能让庞德先看见点数花色再挑（和反馈同一条纪律）
+          cardIds: equipment,
+          hiddenCardSlots: target.zones.hand.map((_, index) => hiddenHandSlot(facts.targetId, index)),
+          min: 1,
+          max: 1,
+        }),
+      })
+      return
+    }
+
+    if (resolution.step === 'pick') {
+      const target = host.state.players.find((player) => player.id === facts.targetId)
+      if (!target?.alive) return bail()
+      const [picked] = (response.payload as { cardIds: string[] }).cardIds
+      const hiddenIndex = target.zones.hand.findIndex((_, index) => hiddenHandSlot(facts.targetId, index) === picked)
+      const realId = hiddenIndex >= 0 ? target.zones.hand[hiddenIndex] : picked
+      const from = locateOwnedCard(host.state, facts.targetId, realId)
+      if (from) {
+        moveCard(host.state, realId, from, { kind: 'discardPile' })
+        if (from.kind === 'equipment') {
+          host.dispatch('LoseEquipment', { playerId: facts.targetId, cardId: realId, slot: from.slot }, { targetId: facts.targetId, cardIds: [realId] })
+        }
+      }
+      return bail()
+    }
   },
 })
 
