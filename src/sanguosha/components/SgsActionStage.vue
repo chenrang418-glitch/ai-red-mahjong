@@ -5,7 +5,7 @@ import type { StagedEvent } from '../composables/useSgsEventStage'
 import type { PlayerView } from '../engine/view'
 import { cardGlossary, skillGlossary } from '../glossary'
 import { useSgsGlossary } from '../composables/useSgsGlossary'
-import { getCharacter } from '../data/characters/standard'
+import { displayCharacterName } from '../data/characters/standard'
 
 const props = defineProps<{ view: PlayerView; staged: StagedEvent | null; request: GameRequest | null; busy: boolean }>()
 const event = computed(() => props.staged?.event ?? null)
@@ -22,8 +22,7 @@ const glossary = useSgsGlossary()
 const PHASE: Record<string, string> = { prepare: '准备阶段', judge: '判定阶段', draw: '摸牌阶段', play: '出牌阶段', discard: '弃牌阶段', finish: '结束阶段' }
 const current = computed(() => props.view.players.find((player) => player.id === props.view.currentPlayerId))
 const characterName = (playerId?: string) => {
-  const player = props.view.players.find((candidate) => candidate.id === playerId)
-  return player?.characterId ? getCharacter(player.characterId)?.name ?? '当前角色' : '当前角色'
+  return playerId ? displayCharacterName(props.view.players, playerId).replace('某角色', '当前角色') : '当前角色'
 }
 const phaseText = computed(() => `${characterName(current.value?.id)} · ${PHASE[props.view.phase] ?? props.view.phase}`)
 const waitingText = computed(() => {

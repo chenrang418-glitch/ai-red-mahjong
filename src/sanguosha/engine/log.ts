@@ -1,6 +1,6 @@
 import type { GameEvent } from './events'
 import type { CardId, PlayerId, SanguoshaState } from './types'
-import { getCharacter } from '../data/characters/standard'
+import { displayCharacterName } from '../data/characters/standard'
 
 /**
  * 战报。
@@ -19,8 +19,7 @@ export interface LogEntry {
 
 function nameOf(state: SanguoshaState, playerId: PlayerId | undefined): string {
   if (!playerId) return '某角色'
-  const player = state.players.find((candidate) => candidate.id === playerId)
-  return player?.characterId ? getCharacter(player.characterId)?.name ?? '某角色' : '某角色'
+  return displayCharacterName(state.players, playerId)
 }
 
 function cardName(state: SanguoshaState, cardId: string | undefined): string {

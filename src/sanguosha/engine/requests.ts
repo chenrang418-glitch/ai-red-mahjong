@@ -9,7 +9,16 @@ interface RequestBase<K extends string> {
   optional: boolean
 }
 
-export type ChooseGeneralRequest = RequestBase<'choose-general'> & { candidates: CharacterId[]; min: 1; max: 1 }
+export type ChooseGeneralRequest = RequestBase<'choose-general'> & {
+  /** 本局随机发到的候选，固定娱乐武将也会包含在这里。 */
+  candidates: CharacterId[]
+  /** 仅单机真人拥有；用于自选界面，服务端仍按该白名单校验。 */
+  allCandidates?: CharacterId[]
+  /** 固定展示在“自定义武将”分区的候选。 */
+  fixedCandidates?: CharacterId[]
+  min: 1
+  max: 1
+}
 export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   cardIds: CardId[]
   hiddenCardSlots: string[]
@@ -72,7 +81,10 @@ export function validateResponse(request: GameRequest, response: GameResponse): 
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '响应 payload 必须是对象'
 
   switch (request.kind) {
-    case 'choose-general': return typeof payload.characterId === 'string' && request.candidates.includes(payload.characterId) ? null : '武将选择非法'
+    case 'choose-general': {
+      const allowed = request.allCandidates ?? request.candidates
+      return typeof payload.characterId === 'string' && allowed.includes(payload.characterId) ? null : '武将选择非法'
+    }
     case 'choose-cards': {
       if (!isStringArray(payload.cardIds)) return '卡牌选择格式错误'
       const allowed = new Set([...request.cardIds, ...request.hiddenCardSlots])

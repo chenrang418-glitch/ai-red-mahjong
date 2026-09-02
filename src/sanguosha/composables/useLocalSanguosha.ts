@@ -51,6 +51,7 @@ function buildSetup(playerCount: number): GameSetup {
      * 武将池扩到 50 名才会碰到上限 10。
      */
     generalChoices: 10,
+    allowHumanGeneralSelection: true,
     players: Array.from({ length: playerCount }, (_, index) => ({
       id: `p${index}`,
       nickname: index === 0 ? '你' : `电脑${index}`,

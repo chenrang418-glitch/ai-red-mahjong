@@ -12,7 +12,7 @@ import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
 import { validateResponse } from './requests'
-import { allCharacterIds, getCharacter, skillIdsOf } from '../data/characters/standard'
+import { allCharacterIds, entertainmentCharacterIds, getCharacter, isEntertainmentCharacter, skillIdsOf } from '../data/characters/standard'
 import { getSkillRuntime, registerSkillTriggers } from './skills/runtime'
 import { buildPlayerView } from './view'
 import { skillDisplayName } from './presentation'
@@ -251,6 +251,14 @@ export class SanguoshaGame {
       player.maxHp = character.maxHp + (player.identity === 'lord' && this.state.players.length >= 5 ? 1 : 0)
       player.hp = player.maxHp
       this.state.pendingRequests = this.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+      // 单机自选可能挑中原本分给 AI 的普通武将。普通武将保持唯一；
+      // 娱乐包是固定公共候选，明确允许一桌多人选择同一个。
+      if (!isEntertainmentCharacter(characterId)) {
+        for (const pending of this.state.pendingRequests) {
+          if (pending.kind !== 'choose-general') continue
+          pending.candidates = pending.candidates.filter((candidate) => candidate !== characterId)
+        }
+      }
       this.state.decisions.push({
         index: this.state.decisions.length,
         requestId: request.id,
@@ -300,7 +308,10 @@ export class SanguoshaGame {
   dealGenerals(): void {
     if (this.state.status !== 'choosing-general') throw new Error('牌局不在选将阶段')
     if (this.state.pendingRequests.length > 0) throw new Error('选将已经发起')
-    const pool = this.rng.shuffle(allCharacterIds())
+    const allIds = allCharacterIds()
+    const fixedCandidates = entertainmentCharacterIds()
+    const fixedSet = new Set(fixedCandidates)
+    const pool = this.rng.shuffle(allIds)
     // 每个人的候选互不重叠，所以武将总数必须够分。不够就直接报错，
     // 不能静默给最后一个人发一份空候选——那会变成他永远选不了将。
     if (pool.length < this.state.players.length) {
@@ -308,7 +319,8 @@ export class SanguoshaGame {
     }
     const perPlayer = Math.max(1, Math.min(this.state.setup.generalChoices, Math.floor(pool.length / this.state.players.length)))
     this.state.players.forEach((player, index) => {
-      const candidates = pool.slice(index * perPlayer, (index + 1) * perPlayer)
+      const randomCandidates = pool.slice(index * perPlayer, (index + 1) * perPlayer)
+      const candidates = [...randomCandidates, ...fixedCandidates.filter((id) => !randomCandidates.includes(id))]
       this.state.pendingRequests.push({
         id: `request-general-${player.id}`,
         kind: 'choose-general',
@@ -317,6 +329,8 @@ export class SanguoshaGame {
         timeoutMs: 60_000,
         optional: false,
         candidates,
+        allCandidates: player.isHuman && this.state.setup.allowHumanGeneralSelection ? [...allIds] : undefined,
+        fixedCandidates: [...fixedSet],
         min: 1,
         max: 1,
       })

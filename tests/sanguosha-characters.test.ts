@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
-import { ALL_CHARACTERS, allCharacterIds, getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
+import { ALL_CHARACTERS, allCharacterIds, displayCharacterName, entertainmentCharacterIds, getCharacter, isEntertainmentCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import { getDistance } from '@/sanguosha/engine/distance'
 import { resolveDamage } from '@/sanguosha/engine/damage'
@@ -432,7 +432,7 @@ describe('武将包完整性', () => {
 })
 
 describe('选将流程', () => {
-  it('相同 seed 得到相同候选，且候选之间不重复', () => {
+  it('相同 seed 得到相同候选；普通武将不重复，自定义武将固定给每个人', () => {
     const first = new SanguoshaGame({ seed: 'pick-generals', setup: setup() })
     const second = new SanguoshaGame({ seed: 'pick-generals', setup: setup() })
     first.dealGenerals()
@@ -442,8 +442,36 @@ describe('选将流程', () => {
     ))
     expect(candidatesOf(first)).toEqual(candidatesOf(second))
 
-    const all = first.state.pendingRequests.flatMap((request) => request.kind === 'choose-general' ? request.candidates : [])
-    expect(new Set(all).size).toBe(all.length)
+    const requests = first.state.pendingRequests.filter((request) => request.kind === 'choose-general')
+    const ordinary = requests.flatMap((request) => request.candidates.filter((id) => !isEntertainmentCharacter(id)))
+    expect(new Set(ordinary).size).toBe(ordinary.length)
+    for (const request of requests) expect(request.fixedCandidates).toEqual(entertainmentCharacterIds())
+  })
+
+  it('单机真人可从全部武将自选，选中普通武将后 AI 不再撞将', () => {
+    const localSetup = { ...setup(), allowHumanGeneralSelection: true }
+    const game = new SanguoshaGame({ seed: 'self-pick', setup: localSetup })
+    game.dealGenerals()
+    const human = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === 'p0')!
+    const ai = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === 'p1')!
+    expect(human.allCandidates).toEqual(allCharacterIds())
+    expect(ai.allCandidates).toBeUndefined()
+    const selected = ai.candidates.find((id) => !isEntertainmentCharacter(id))!
+    game.respond({ requestId: human.id, playerId: 'p0', payload: { characterId: selected } })
+    const remaining = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === 'p1')!
+    expect(remaining.candidates).not.toContain(selected)
+  })
+
+  it('多人可以选择同一个自定义武将，并按座次显示编号', () => {
+    const game = new SanguoshaGame({ seed: 'custom-duplicate', setup: setup() })
+    game.dealGenerals()
+    const requests = game.state.pendingRequests.filter((request) => request.kind === 'choose-general')
+    const custom = entertainmentCharacterIds()[0]
+    for (const request of requests.slice(0, 2)) {
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { characterId: custom } })
+    }
+    expect(displayCharacterName(game.state.players, 'p0')).toBe('平头方块①')
+    expect(displayCharacterName(game.state.players, 'p1')).toBe('平头方块②')
   })
 
   it('选将没结束不能开局；选完后武将和体力都装上', () => {

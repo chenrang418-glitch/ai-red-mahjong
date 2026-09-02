@@ -13,9 +13,8 @@
 ## Git 基线
 
 - 仓库：`https://github.com/chenrang418-glitch/ai-red-mahjong.git`
-- `origin/main` 已包含好友娱乐武将“平头方块”，部署提交为 `3787535`。
-- `feature/sanguosha` 继续包含后续扩展武将提交；最新一条以 `git log --oneline -1` 为准。
-  **push 前先跑三层验证。**
+- `origin/main` 与 `feature/sanguosha` 保持同一条线，已包含 33 名武将及本轮声音、选将、艺术集 UI；
+  具体提交以 `git log --oneline -1` 为准。**push 前先跑三层验证。**
 - CI 全绿，已部署。生产 `https://crplay.cn` 实测：`/api/health` 返回 `{"ok":true}`，
   首页标题已是 `CRPlay`。
 - 部署方式：
@@ -29,8 +28,8 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | 67 文件 / **621 用例 + 1 todo** |
-| `npx playwright test` | **46 通过**（Chromium 42 + WebKit 4） |
+| `npm test` | 68 文件 / **626 用例 + 1 todo** |
+| `npx playwright test` | **49 通过**（Chromium 45 + WebKit 4） |
 | `npm run sanguosha:soak -- 200` | 5 人局与 8 人局各 200 局全部完成 |
 | `npm run test:online:smoke` | 通过 |
 | `npm run typecheck` / `typecheck:online` | 通过 |
@@ -43,6 +42,12 @@
 用 `web` 会起到麻将项目（5180）。这个坑踩过两次。
 
 ## 已完成的范围
+
+### 2026-09-02 UI 批次
+
+- 三国杀牌桌新增独立的原创国风背景音乐、全牌类事件音效与参与者震动反馈，入口位于首页和牌桌顶栏。
+- 单机选将支持返回、随机池/完整自选切换；娱乐包武将固定可选、允许重复并自动编号，普通武将避免与 AI 撞将。
+- 规则页按阵营整理武将；艺术集按阵营展示全部 33 张立绘并可查看原图。
 
 ### 三国杀规则引擎：ruleset-v1 全部实现
 

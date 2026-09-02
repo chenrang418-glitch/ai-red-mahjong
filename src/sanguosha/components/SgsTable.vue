@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import SgsCard from './SgsCard.vue'
 import SgsSeatLayout from './SgsSeatLayout.vue'
 import SgsRequestDock from './SgsRequestDock.vue'
 import SgsCountdown from './SgsCountdown.vue'
 import SgsChatDock from './SgsChatDock.vue'
+import SgsAudioControl from './SgsAudioControl.vue'
 import { useSgsEventStage } from '../composables/useSgsEventStage'
+import { sgsAudio } from '../composables/useSgsAudio'
 import type { LegalAction } from '../engine/actions'
 import type { GameRequest, GameResponse } from '../engine/requests'
 import type { PresentationEvent } from '../engine/presentation'
@@ -33,6 +35,7 @@ const selectedCardId = ref<string | null>(null)
 const selectedMode = ref<string | null>(null)
 const selectedTargetIds = ref<string[]>([])
 const logOpen = ref(false)
+const audioOpen = ref(false)
 const me = computed(() => props.view.players.find((player) => player.id === props.view.viewerId)!)
 // 表现事件按到达顺序逐条播放并自带寿命；旧实现直接取最后一条，
 // 结果近半数推进不产生事件时箭头会一直挂着，成批到达时首条又被吞掉
@@ -47,6 +50,12 @@ const candidateTargetIds = computed(() => new Set(requestTargets.value?.candidat
 const selectableTargetIds = computed(() => candidateTargetIds.value)
 const exactAction = computed(() => modeActions.value.find((action) => action.targetIds.length === selectedTargetIds.value.length && action.targetIds.every((id) => selectedTargetIds.value.includes(id))) ?? null)
 const standaloneActions = computed(() => props.legalActions.filter((action) => action.kind === 'invoke-skill' || action.kind === 'pass'))
+
+onMounted(() => { sgsAudio.prepare(props.presentationEvents) })
+onBeforeUnmount(() => { sgsAudio.stop() })
+watch(() => props.presentationEvents.map((event) => event.id), () => {
+  sgsAudio.processEvents(props.presentationEvents, props.view.viewerId)
+})
 
 watch(() => props.view.seq, () => {
   if (selectedCardId.value && !me.value.hand?.some((card) => card.id === selectedCardId.value)) resetSelection()
@@ -86,6 +95,7 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
       <button type="button" class="sgs-table__back" aria-label="退出牌局" @click="emit('quit')">‹</button>
       <span>第 {{ view.turnNumber }} 回合</span><span>牌堆 {{ view.drawPileCount }}</span><span>弃牌 {{ view.discardPile.length }}</span>
       <SgsCountdown :deadline-at="deadlineAt" />
+      <SgsAudioControl v-model:open="audioOpen" />
       <button type="button" class="sgs-table__logbtn" @click="logOpen = true">战报</button>
     </header>
 
@@ -124,6 +134,8 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
 @media(max-width:620px) and (orientation:portrait){.sgs-table__bar{gap:6px;font-size:9px;padding-left:6px;padding-right:6px}.sgs-table__bar>span:nth-of-type(1){display:none}.sgs-table__arena{padding:0 2px}.sgs-table__hand{justify-content:flex-start;min-height:66px;padding-left:16px}.sgs-table__hand>:deep(.sgs-card-shell){margin-left:-11px}.sgs-table__dock{max-height:32dvh;padding-top:6px}}
 @media(orientation:landscape) and (max-height:500px){.sgs-table{grid-template-rows:auto minmax(0,1fr) auto auto}.sgs-table__bar{padding-top:max(3px,env(safe-area-inset-top));padding-bottom:2px}.sgs-table__hand{position:absolute;z-index:9;left:50%;bottom:44px;transform:translateX(-50%);width:min(64vw,620px);min-height:58px;padding-bottom:0}.sgs-table__dock{max-height:36dvh;min-height:38px;padding:4px 10px calc(4px + env(safe-area-inset-bottom))}.sgs-table__actions button{min-height:32px}}
 
+.sgs-table__bar :deep(.sgs-audio) { margin-left: auto; }
+.sgs-table__bar .sgs-table__logbtn { margin-left: 0; }
 /*
  * 有聊天圆钮时给手牌行留出横向空间。
  * 圆钮是 fixed 在右下角的，手牌行横向滚动，牌多了最右一张会滚到圆钮底下点不到。

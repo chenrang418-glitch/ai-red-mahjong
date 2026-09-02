@@ -155,7 +155,53 @@ test('规则页的技能说明来自武将数据', async ({ page }) => {
   // 武将技能条目直接由 STANDARD_CHARACTERS 渲染
   await expect(page.locator('.sgs-rules')).toContainText('武圣')
   await expect(page.locator('.sgs-rules')).toContainText('咆哮')
+  await expect(page.locator('.sgs-rules__kingdom h2')).toHaveText(['蜀', '魏', '吴', '群'])
   await expectNoPageScroll(page)
+})
+
+test('选将页可返回、固定显示自定义武将并进入完整自选池', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: /单机游戏/ }).click()
+  await page.getByRole('button', { name: '开始', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '选择武将' })).toBeVisible()
+  await expect(page.getByText('随机武将池', { exact: true })).toBeVisible()
+  await expect(page.getByText('自定义武将', { exact: true })).toBeVisible()
+  await expect(page.locator('.sgs-dock__general--custom')).toContainText('平头方块')
+
+  await page.getByRole('button', { name: '自选', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '自选武将' })).toBeVisible()
+  await expect(page.getByText('全部武将', { exact: true })).toBeVisible()
+  await expect(page.locator('.sgs-dock__general')).toHaveCount(33)
+
+  await page.getByRole('button', { name: '返回单机设置' }).click()
+  await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
+  await expectNoPageScroll(page)
+})
+
+test('艺术集按阵营展示全部立绘并可查看原图', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: /规则/ }).click()
+  await page.getByRole('button', { name: '艺术集' }).click()
+  await expect(page.getByRole('heading', { name: '武将艺术集' })).toBeVisible()
+  await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['蜀', '魏', '吴', '群'])
+  await expect(page.locator('.sgs-art-gallery__grid > button')).toHaveCount(33)
+  await page.getByRole('button', { name: /诸葛亮/ }).click()
+  await expect(page.getByRole('dialog', { name: '诸葛亮立绘原图' })).toBeVisible()
+  await expect(page.getByAltText('诸葛亮立绘原图')).toBeVisible()
+})
+
+test('声音面板提供音乐、音效和震动设置', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: '声音设置' }).click()
+  const panel = page.getByRole('dialog', { name: '声音设置' })
+  await expect(panel).toContainText('动作音效')
+  await expect(panel).toContainText('背景音乐')
+  await expect(panel).toContainText('震动反馈')
+  await expect(panel.getByRole('slider', { name: '动作音效音量' })).toBeVisible()
+  await expect(panel.getByRole('slider', { name: '背景音乐音量' })).toBeVisible()
 })
 
 test('联机大厅入口在手机上一屏可操作', async ({ page }) => {

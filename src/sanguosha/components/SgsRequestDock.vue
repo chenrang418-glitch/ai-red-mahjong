@@ -16,7 +16,7 @@ import type { PhysicalCard } from '../engine/types'
  * 缺任何一种都会走到最后的兜底分支并显式报出来，而不是静默卡住。
  */
 
-const props = defineProps<{ request: GameRequest; view: PlayerView }>()
+const props = withDefaults(defineProps<{ request: GameRequest; view: PlayerView; showAllGenerals?: boolean }>(), { showAllGenerals: false })
 const emit = defineEmits<{ submit: [response: GameResponse] }>()
 
 const selectedCards = ref<string[]>([])
@@ -61,6 +61,18 @@ function toggleCard(value: string, max: number): void { selectedCards.value = to
 function toggleTarget(value: string, max: number): void { selectedTargets.value = toggleIn(selectedTargets.value, value, max) }
 
 const cardRequest = computed(() => (props.request.kind === 'choose-cards' ? props.request : null))
+const visibleGeneralIds = computed(() => {
+  if (props.request.kind !== 'choose-general') return []
+  return props.showAllGenerals && props.request.allCandidates?.length
+    ? props.request.allCandidates
+    : props.request.candidates
+})
+const fixedGeneralIds = computed(() => props.request.kind === 'choose-general' ? props.request.fixedCandidates ?? [] : [])
+const regularGeneralIds = computed(() => {
+  const fixed = new Set(fixedGeneralIds.value)
+  return visibleGeneralIds.value.filter((id) => !fixed.has(id))
+})
+const customGeneralIds = computed(() => fixedGeneralIds.value.filter((id) => visibleGeneralIds.value.includes(id)))
 /**
  * 选将卡的立绘。和座位共用 manifest 的同一份裁切参数——
  * 选将卡比座位更接近原图比例，所以直接用 desktop 那套即可，不另调一份。
@@ -172,9 +184,10 @@ function withCharacterNames(text: string): string {
 
     <!-- 选将 -->
     <template v-if="request.kind === 'choose-general'">
+      <p class="sgs-dock__general-section">{{ showAllGenerals ? '全部武将' : '随机武将池' }}</p>
       <div class="sgs-dock__generals">
         <button
-          v-for="candidate in request.candidates"
+          v-for="candidate in regularGeneralIds"
           :key="candidate"
           type="button"
           class="sgs-dock__general"
@@ -191,6 +204,26 @@ function withCharacterNames(text: string): string {
           </span>
         </button>
       </div>
+      <template v-if="customGeneralIds.length">
+        <div class="sgs-dock__general-divider"><span>自定义武将</span></div>
+        <div class="sgs-dock__generals sgs-dock__generals--custom">
+          <button
+            v-for="candidate in customGeneralIds"
+            :key="candidate"
+            type="button"
+            class="sgs-dock__general sgs-dock__general--custom"
+            :class="{ selected: selectedGeneral === candidate, 'has-art': !!characterPortrait(candidate) }"
+            :style="portraitStyle(candidate)"
+            :aria-pressed="selectedGeneral === candidate"
+            @click="selectedGeneral = candidate"
+          >
+            <i v-if="characterPortrait(candidate)" class="sgs-dock__general-art" aria-hidden="true"></i>
+            <strong>{{ getCharacter(candidate)?.name ?? candidate }}</strong>
+            <small>娱乐武将 · 体力 {{ getCharacter(candidate)?.maxHp }}</small>
+            <span v-for="skill in getCharacter(candidate)?.skills ?? []" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</span>
+          </button>
+        </div>
+      </template>
       <div class="sgs-dock__actions sgs-dock__general-actions">
         <span class="sgs-dock__count">{{ selectedGeneral ? `已选择：${getCharacter(selectedGeneral)?.name ?? selectedGeneral}` : '请选择一名武将' }}</span>
         <button type="button" class="primary" :disabled="!selectedGeneral" @click="submit({ characterId: selectedGeneral })">开始游戏</button>
@@ -384,6 +417,11 @@ function withCharacterNames(text: string): string {
 }
 .sgs-dock__actions--wrap { flex-wrap: wrap; }
 .sgs-dock__count { margin-right: auto; color: #8fa199; font-size: 11px; }
+.sgs-dock__general-section { margin: 2px 0 0; color: #b8a779; font-size: 11px; letter-spacing: .08em; }
+.sgs-dock__general-divider { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; color: #d0a86a; font-size: 11px; }
+.sgs-dock__general-divider::before, .sgs-dock__general-divider::after { content: ''; height: 1px; flex: 1; background: linear-gradient(90deg, transparent, #665637); }
+.sgs-dock__general-divider::after { background: linear-gradient(90deg, #665637, transparent); }
+.sgs-dock__general--custom { border-color: #76543f; background: linear-gradient(155deg, #2b221d, #18231c); }
 
 button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer; font: inherit; font-weight: 700; }
 .primary { border: 1px solid #9e7f3c; background: linear-gradient(180deg, #6d5527, #4c3b1a); color: #ffe6a8; }

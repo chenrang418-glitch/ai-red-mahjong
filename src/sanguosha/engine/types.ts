@@ -100,6 +100,8 @@ export interface GameSetup {
   mode: 'identity'
   players: GameSetupPlayer[]
   generalChoices: number
+  /** 单机真人可从完整武将池自选；联机默认不开放。 */
+  allowHumanGeneralSelection?: boolean
 }
 
 export interface GameDecision {

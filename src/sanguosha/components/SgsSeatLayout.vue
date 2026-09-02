@@ -4,6 +4,7 @@ import SgsSeat from './SgsSeat.vue'
 import SgsEffectLayer from './SgsEffectLayer.vue'
 import SgsActionStage from './SgsActionStage.vue'
 import { seatSlotsForPlayerCount } from '../composables/useSgsSeatLayout'
+import { displayCharacterName } from '../data/characters/standard'
 import type { GameRequest } from '../engine/requests'
 import type { StagedEvent } from '../composables/useSgsEventStage'
 import type { PlayerView } from '../engine/view'
@@ -59,7 +60,8 @@ const effectFor = (playerId: string) => {
         :player="player" :viewer-id="view.viewerId" :active="player.id === view.currentPlayerId"
         :selectable="selectableIds.has(player.id)" :selected="selectedIds.includes(player.id)"
         :threatened="event?.kind === 'card-use' && event.targetIds?.includes(player.id)"
-        :effect="effectFor(player.id)" :status="statuses?.[player.id] ?? null" @select="emit('select', $event)"
+        :effect="effectFor(player.id)" :status="statuses?.[player.id] ?? null"
+        :display-name="displayCharacterName(view.players, player.id)" @select="emit('select', $event)"
       />
       <!-- 气泡放在槽位上而不是座位卡里：座位卡是 overflow:hidden 的，放里面会被裁掉 -->
       <transition name="sgs-bubble">

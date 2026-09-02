@@ -379,6 +379,33 @@ export function allCharacterIds(): string[] {
   return ALL_CHARACTERS.map((character) => character.id)
 }
 
+export function entertainmentCharacterIds(): string[] {
+  return ALL_CHARACTERS.filter((character) => character.pack === 'entertainment').map((character) => character.id)
+}
+
+export function isEntertainmentCharacter(characterId: string): boolean {
+  return BY_ID.get(characterId)?.pack === 'entertainment'
+}
+
+const DUPLICATE_INDEX = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧'] as const
+
+/** 娱乐武将允许重复；同桌重复时给公开名称加座次编号，避免玩家看不出目标。 */
+export function displayCharacterName(
+  players: readonly { id: string; seat: number; characterId: string | null }[],
+  playerId: string,
+): string {
+  const player = players.find((candidate) => candidate.id === playerId)
+  const character = player?.characterId ? getCharacter(player.characterId) : undefined
+  if (!player || !character) return '某角色'
+  if (character.pack !== 'entertainment') return character.name
+  const same = players
+    .filter((candidate) => candidate.characterId === player.characterId)
+    .sort((left, right) => left.seat - right.seat)
+  if (same.length < 2) return character.name
+  const index = same.findIndex((candidate) => candidate.id === playerId)
+  return `${character.name}${DUPLICATE_INDEX[index] ?? `（${index + 1}）`}`
+}
+
 /** 这名玩家使用锦囊时是否无视距离（奇才）。 */
 export function ignoresTrickDistance(state: SanguoshaState, playerId: PlayerId): boolean {
   const player = state.players.find((candidate) => candidate.id === playerId)

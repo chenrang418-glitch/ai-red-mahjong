@@ -16,7 +16,8 @@ const props = withDefaults(defineProps<{
   effect?: 'damage' | 'recover' | 'dodge' | 'skill' | null
   status?: 'online' | 'offline' | 'trustee' | 'connecting' | null
   hint?: string
-}>(), { active: false, selectable: false, selected: false, threatened: false, effect: null, status: null, hint: '' })
+  displayName?: string
+}>(), { active: false, selectable: false, selected: false, threatened: false, effect: null, status: null, hint: '', displayName: '' })
 
 const emit = defineEmits<{ select: [playerId: string] }>()
 const glossary = useSgsGlossary()
@@ -78,7 +79,7 @@ const artVars = computed(() => {
       <strong>{{ player.nickname }}</strong><span v-if="active" class="sgs-seat__turn">行动中</span>
     </header>
     <div class="sgs-seat__body">
-      <button v-if="character" type="button" class="sgs-seat__general" @click.stop="glossary?.open(characterGlossary(player.characterId!))">{{ character.name }}</button>
+      <button v-if="character" type="button" class="sgs-seat__general" @click.stop="glossary?.open(characterGlossary(player.characterId!))">{{ displayName || character.name }}</button>
       <span v-else class="sgs-seat__general">未选将</span>
       <div class="sgs-seat__hp" :aria-label="`体力 ${player.hp} / ${player.maxHp}`"><span v-for="(filled, index) in hpHearts" :key="index" :class="{ empty: !filled }">{{ filled ? '♥' : '♡' }}</span><small>{{ player.hp }}/{{ player.maxHp }}</small></div>
       <div class="sgs-seat__meta">

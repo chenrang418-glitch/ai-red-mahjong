@@ -4,6 +4,8 @@ import SgsTable from './components/SgsTable.vue'
 import SgsRequestDock from './components/SgsRequestDock.vue'
 import SgsOnlineHub from './components/SgsOnlineHub.vue'
 import SgsGlossarySheet from './components/SgsGlossarySheet.vue'
+import SgsArtGallery from './components/SgsArtGallery.vue'
+import SgsAudioControl from './components/SgsAudioControl.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
 import { provideSgsGlossary } from './composables/useSgsGlossary'
 import { getCharacter, ALL_CHARACTERS } from './data/characters/standard'
@@ -13,9 +15,10 @@ import type { AIDifficulty } from './ai'
 
 defineEmits<{ backToPortal: [] }>()
 
-type Screen = 'home' | 'setup' | 'online' | 'playing' | 'rules'
+type Screen = 'home' | 'setup' | 'online' | 'playing' | 'rules' | 'art'
 
 const screen = ref<Screen>(new URLSearchParams(window.location.search).has('room') ? 'online' : 'home')
+const audioOpen = ref(false)
 const game = useLocalSanguosha()
 const glossary = provideSgsGlossary()
 type AIPace = 'fast' | 'normal' | 'relaxed'
@@ -37,6 +40,11 @@ const playerCounts = computed(() => [5, 6, 7, 8].filter((count) => count <= maxP
 const result = computed(() => game.view.value?.result ?? null)
 const CAMP_LABEL: Record<string, string> = { lord: '主公与忠臣', rebel: '反贼', renegade: '内奸' }
 const choosingGeneral = computed(() => game.view.value?.status === 'choosing-general')
+const selfSelectOpen = ref(false)
+const KINGDOM_LABEL = { shu: '蜀', wei: '魏', wu: '吴', qun: '群' } as const
+const characterGroups = computed(() => (Object.keys(KINGDOM_LABEL) as Array<keyof typeof KINGDOM_LABEL>)
+  .map((kingdom) => ({ kingdom, label: KINGDOM_LABEL[kingdom], characters: ALL_CHARACTERS.filter((character) => character.kingdom === kingdom) }))
+  .filter((group) => group.characters.length))
 
 const IDENTITY_LABEL: Record<string, string> = { lord: '主公', loyalist: '忠臣', rebel: '反贼', renegade: '内奸' }
 const WINNING_IDENTITIES: Record<string, string[]> = {
@@ -61,8 +69,15 @@ const finalRoster = computed(() => {
 })
 
 function startMatch(): void {
+  selfSelectOpen.value = false
   game.start({ playerCount: config.playerCount, difficulty: config.difficulty, aiDelayMs: AI_PACE_MS[config.aiPace] })
   screen.value = 'playing'
+}
+
+function backFromGeneralPick(): void {
+  game.abandon()
+  selfSelectOpen.value = false
+  screen.value = 'setup'
 }
 
 const exitConfirmOpen = ref(false)
@@ -113,6 +128,7 @@ function handleRespond(response: GameResponse): void {
       <header>
         <button type="button" @click="$emit('backToPortal')">← 返回游戏中心</button>
         <span>CRPLAY · 三国杀</span>
+        <SgsAudioControl v-model:open="audioOpen" />
       </header>
       <div class="sgs-home__hero">
         <div class="sgs-home__seal" aria-hidden="true">杀</div>
@@ -172,20 +188,31 @@ function handleRespond(response: GameResponse): void {
     </section>
 
     <section v-else-if="screen === 'playing'" class="sgs-panel sgs-panel--choose">
-      <h1>选择武将</h1>
+      <header class="sgs-panel__choose-header">
+        <button type="button" aria-label="返回单机设置" @click="backFromGeneralPick">‹</button>
+        <h1>{{ selfSelectOpen ? '自选武将' : '选择武将' }}</h1>
+        <button
+          v-if="game.myRequest.value?.kind === 'choose-general' && game.myRequest.value.allCandidates?.length"
+          type="button"
+          class="sgs-panel__self-select"
+          @click="selfSelectOpen = !selfSelectOpen"
+        >{{ selfSelectOpen ? '随机候选' : '自选' }}</button>
+      </header>
       <SgsRequestDock
         v-if="game.myRequest.value && game.view.value"
         :request="game.myRequest.value"
         :view="game.view.value"
+        :show-all-generals="selfSelectOpen"
         @submit="handleRespond"
       />
       <p v-else class="sgs-panel__note">其他角色选将中…</p>
     </section>
 
-    <section v-else class="sgs-panel">
+    <section v-else-if="screen === 'rules'" class="sgs-panel">
       <header>
         <button type="button" @click="screen = 'home'">‹</button>
         <h1>规则</h1>
+        <button type="button" class="sgs-panel__art-link" @click="screen = 'art'">艺术集</button>
       </header>
       <div class="sgs-rules">
         <article>
@@ -208,11 +235,19 @@ function handleRespond(response: GameResponse): void {
           <b>{{ section.title }}</b>
           <p v-for="card in section.cards" :key="card.name">【{{ card.name }}】{{ card.description }}</p>
         </article>
-        <article v-for="character in ALL_CHARACTERS" :key="character.id">
-          <b>{{ character.name }}（体力 {{ character.maxHp }}）</b>
-          <p v-for="skill in character.skills" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</p>
-        </article>
+        <section v-for="group in characterGroups" :key="group.kingdom" class="sgs-rules__kingdom">
+          <h2>{{ group.label }}</h2>
+          <article v-for="character in group.characters" :key="character.id">
+            <b>{{ character.name }}（体力 {{ character.maxHp }}）<small v-if="character.pack === 'entertainment'">自定义</small></b>
+            <p v-for="skill in character.skills" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</p>
+          </article>
+        </section>
       </div>
+    </section>
+
+    <section v-else class="sgs-panel sgs-panel--art">
+      <header><button type="button" @click="screen = 'rules'">‹</button><h1>武将艺术集</h1></header>
+      <div class="sgs-panel__art-scroll"><SgsArtGallery /></div>
     </section>
 
     <p v-if="game.error.value" class="sgs-app__error" role="alert">{{ game.error.value }}</p>
@@ -290,6 +325,9 @@ function handleRespond(response: GameResponse): void {
 
 .sgs-panel { gap: 16px; }
 .sgs-panel header { display: flex; align-items: center; gap: 12px; }
+.sgs-panel__choose-header { flex: none; }
+.sgs-panel__choose-header h1 { flex: 1; }
+.sgs-panel header .sgs-panel__self-select, .sgs-panel header .sgs-panel__art-link { margin-left: auto; color: #f0d68d; border-color: #7e6737; }
 .sgs-panel h1 { margin: 0; color: #f0d68d; font-size: 22px; }
 .sgs-panel [role="group"] { display: grid; gap: 7px; }
 .sgs-panel [role="group"] > span { color: #8f9b90; font-size: 12px; }
@@ -330,7 +368,12 @@ function handleRespond(response: GameResponse): void {
 .sgs-rules { flex: 1; min-height: 0; overflow-y: auto; display: grid; gap: 12px; }
 .sgs-rules article { padding: 11px 13px; border: 1px solid #333c35; border-radius: 11px; background: rgba(18, 26, 22, .75); }
 .sgs-rules b { display: block; margin-bottom: 4px; color: #e6d29a; font-size: 13px; }
+.sgs-rules b small { margin-left: 7px; padding: 2px 5px; border-radius: 5px; background: #57392b; color: #f1bd8d; font-size: 9px; }
 .sgs-rules p { margin: 0 0 3px; color: #a3aea5; font-size: 12px; line-height: 1.65; }
+.sgs-rules__kingdom { display: grid; gap: 10px; }
+.sgs-rules__kingdom h2 { position: sticky; top: 0; z-index: 2; margin: 5px 0 0; padding: 8px 3px; color: #f0d68d; background: #14211be8; font: 800 18px/1 KaiTi, serif; }
+.sgs-panel--art { overflow: hidden; }
+.sgs-panel__art-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 .sgs-app__error {
   position: fixed; z-index: 40; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%);

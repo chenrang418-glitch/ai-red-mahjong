@@ -1,6 +1,6 @@
 import type { GameEvent } from './events'
 import type { DamageNature, PlayerId, SanguoshaState } from './types'
-import { getCharacter, ALL_CHARACTERS } from '../data/characters/standard'
+import { displayCharacterName, ALL_CHARACTERS } from '../data/characters/standard'
 
 export type PresentationEventKind =
   | 'turn-start' | 'card-use' | 'card-response' | 'skill' | 'damage' | 'recover'
@@ -49,8 +49,7 @@ export function skillDisplayName(skillId: string): string {
 
 function playerName(state: SanguoshaState, playerId?: PlayerId): string {
   if (!playerId) return '某角色'
-  const player = state.players.find((candidate) => candidate.id === playerId)
-  return player?.characterId ? getCharacter(player.characterId)?.name ?? '某角色' : '某角色'
+  return displayCharacterName(state.players, playerId)
 }
 
 function cardName(state: SanguoshaState, cardId?: string): string {
