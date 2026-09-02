@@ -232,12 +232,24 @@ describe('联机房间：牌局能打完', () => {
 
 describe('联机房间：超时', () => {
   it('真人不响应时，到点由 AI 代做一步', () => {
-    const now = 1_000
+    let now = 1_000
     const room = started(now)
-    // 找到当前该行动的真人，并确认他既没托管也没掉线
+
+    /*
+     * 开局的选将是**每人一个请求同时挂着**，而房间会优先驱动 AI 座位
+     * （AI 不需要思考时间，让它们排在真人后面干等会把「同时决定」拖成一个一个来）。
+     * 所以先把 AI 那几个跑完，剩下的才是真人的请求。
+     */
+    for (let guard = 0; guard < 20; guard += 1) {
+      const deadline = room.view(HOST.userId, now).deadlineAt
+      if (deadline !== null) break
+      now += 1_000
+      room.runDueJobs(now)
+    }
+
     const state = room.snapshot().game!
     const request = state.pendingRequests[0]
-    expect(request).toBeTruthy()
+    expect(request, '应当还剩真人的请求').toBeTruthy()
     const seatId = Number(request.playerId.slice('seat-'.length))
     const seat = room.snapshot().seats[seatId]
     if (seat.kind !== 'human') return
@@ -253,7 +265,8 @@ describe('联机房间：超时', () => {
     room.runDueJobs(deadline!)
     const after = room.snapshot().game!
     expect(after.decisions.length, '超时之后应当由 AI 代做一步').toBeGreaterThan(decisionsBefore)
-    expect(after.pendingRequests[0]?.id, '原来那个请求应当已经被消费').not.toBe(request.id)
+    expect(after.pendingRequests.some((candidate) => candidate.id === request.id),
+      '原来那个请求应当已经被消费').toBe(false)
   })
 
   it('AI 座位不给真人倒计时', () => {
@@ -353,15 +366,16 @@ describe('联机的等待窗口', () => {
     const windowFor = (requiredCardName: string | null): number => {
       const anyRoom = room as unknown as {
         state: { game: { pendingRequests: unknown[] } | null }
-        humanWindowMs(): number
+        humanWindowMs(seatId: number): number
       }
       const game = anyRoom.state.game
       if (!game) throw new Error('牌局没有开始')
       const saved = game.pendingRequests
+      // 多人决定时每人各有一个请求，所以要按座位找，payload 里得带上 playerId
       game.pendingRequests = requiredCardName
-        ? [{ kind: 'respond-card', requiredCardName, timeoutMs: 3_000 }]
+        ? [{ kind: 'respond-card', playerId: 'seat-0', requiredCardName, timeoutMs: 3_000 }]
         : []
-      const result = anyRoom.humanWindowMs()
+      const result = anyRoom.humanWindowMs(0)
       game.pendingRequests = saved
       return result
     }
@@ -373,8 +387,8 @@ describe('联机的等待窗口', () => {
 
   it('房主把操作时间调得比 3 秒还短时，不会反而变长', () => {
     const room = SanguoshaRoomCoordinator.create('ABC235', HOST, normalizeSettings({ playerCount: 5, turnSeconds: 15 }), 1_000)
-    const anyRoom = room as unknown as { state: { settings: { turnSeconds: number } }; humanWindowMs(): number }
+    const anyRoom = room as unknown as { state: { settings: { turnSeconds: number } }; humanWindowMs(seatId: number): number }
     anyRoom.state.settings.turnSeconds = 1
-    expect(anyRoom.humanWindowMs()).toBe(1_000)
+    expect(anyRoom.humanWindowMs(0)).toBe(1_000)
   })
 })

@@ -547,7 +547,7 @@ export class SanguoshaRoomCoordinator {
     const aiDelay = choosing ? AI_PICK_GENERAL_MS : AI_STEP_MS
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
-      dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs()),
+      dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs(actorSeatId)),
       seatId: actorSeatId,
     })
   }
@@ -560,24 +560,43 @@ export class SanguoshaRoomCoordinator {
    * 整桌人晾在那里。所以无懈按请求自带的窗口来（3 秒），
    * 但不会超过房间设置——房主把操作时间调到 15 秒时不该反而变长。
    */
-  private humanWindowMs(): number {
+  private humanWindowMs(seatId: number): number {
     const setting = this.state.settings.turnSeconds * 1000
-    const request = this.state.game?.pendingRequests[0]
+    const playerId = playerIdOf(seatId)
+    // 多人决定时每人各有一个请求，要看**这个座位的**那一个，不能永远看 [0]
+    const request = this.state.game?.pendingRequests.find((candidate) => candidate.playerId === playerId)
     if (request?.kind === 'respond-card' && request.requiredCardName === '无懈可击') {
       return Math.min(setting, request.timeoutMs)
     }
     return setting
   }
 
-  /** 现在轮到哪个座位做决定。没人要做决定时返回 null。 */
+  /**
+   * 现在轮到哪个座位做决定。没人要做决定时返回 null。
+   *
+   * 同时挂着多个请求是正常情况（开局选将、于吉【蛊惑】的多人质疑）。
+   * 这时候**先驱动 AI 那些**：AI 不需要思考时间，让它们排在真人后面干等
+   * 会把「大家同时决定」拖成一个一个来。真人的请求留给 turn-timeout。
+   */
   private currentActorSeatId(): number | null {
     const state = this.state.game
     if (!state) return null
-    const request = state.pendingRequests[0]
-    if (request) return seatIdOf(request.playerId)
+    const pending = state.pendingRequests
+    if (pending.length > 0) {
+      const aiFirst = pending.find((request) => this.isAIDriven(seatIdOf(request.playerId)))
+      return seatIdOf((aiFirst ?? pending[0]).playerId)
+    }
     if (state.status !== 'playing') return null
     return seatIdOf(state.currentPlayerId)
   }
+
+  /** 这个座位现在是不是由 AI 代打（电脑、托管、掉线）。 */
+  private isAIDriven(seatId: number): boolean {
+    const seat = this.state.seats.find((candidate) => candidate.seatId === seatId)
+    if (!seat) return false
+    return seat.kind === 'ai' || seat.trustee || !seat.connected
+  }
+
 
   nextAlarmAt(): number | null {
     if (this.state.jobs.length === 0) return null
@@ -622,7 +641,7 @@ export class SanguoshaRoomCoordinator {
       case 'turn-timeout': {
         // 超时和 AI 走子是同一件事：都由 AI 代做一步决定。
         // 区别只在于谁的时间到了。
-        this.stepAI(now)
+        this.stepAI(now, job.seatId)
         return true
       }
 
@@ -634,7 +653,7 @@ export class SanguoshaRoomCoordinator {
   }
 
   /** 让 AI 替当前该行动的人做一步。 */
-  private stepAI(now: number): void {
+  private stepAI(now: number, seatId?: number): void {
     const game = this.game()
     if (game.state.status !== 'playing' && game.state.status !== 'choosing-general') return
     const aiRng = new GameRng(this.state.aiSeed, this.state.aiRngState || undefined)
@@ -646,7 +665,12 @@ export class SanguoshaRoomCoordinator {
     })
 
     try {
-      const request = game.state.pendingRequests[0]
+      // 指定了座位就答那个座位的请求：多人决定时 pendingRequests[0]
+      // 可能是别人的，答错人会把状态搅乱
+      const request = seatId === undefined
+        ? game.state.pendingRequests[0]
+        : game.state.pendingRequests.find((candidate) => candidate.playerId === playerIdOf(seatId))
+          ?? game.state.pendingRequests[0]
       if (request) {
         game.respond(decideResponse(contextFor(request.playerId), request))
       } else if (game.state.status !== 'playing') {

@@ -65,6 +65,21 @@ export function assertGameInvariants(state: SanguoshaState): void {
       throw new Error(`私有牌区的主人不存在：${zone.id}`)
     }
   }
+  const decision = state.groupDecision
+  if (decision) {
+    // 已经收齐还挂着，说明续接没跑；参与者不存在说明状态是脏的
+    const waiting = decision.playerIds.filter((playerId) => decision.responses[playerId] === undefined)
+    if (waiting.length === 0) throw new Error('多人决定已经收齐却没有结束')
+    for (const playerId of waiting) {
+      if (!state.players.some((candidate) => candidate.id === playerId)) {
+        throw new Error(`多人决定的参与者不存在：${playerId}`)
+      }
+      const requestId = decision.requestIds[playerId]
+      if (!state.pendingRequests.some((request) => request.id === requestId)) {
+        throw new Error(`多人决定缺少对应的 Request：${playerId}`)
+      }
+    }
+  }
   if (state.retrial) {
     // 改判窗口开着时，判定牌必须还在处理区，而且一定挂着一个改判 Request——
     // 少了任何一项都说明判定卡在半路，牌局会静默停住

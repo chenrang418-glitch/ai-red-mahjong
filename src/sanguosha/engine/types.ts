@@ -118,6 +118,31 @@ export interface PrivateCardZone {
   cards: CardId[]
 }
 
+/**
+ * 多人同时决定。
+ *
+ * 每个参与者各挂一个 pendingRequest，`buildPlayerView` 只下发发给自己的那一个，
+ * 所以谁也看不到别人的请求。**`responses` 不进 PlayerView**，
+ * 在收齐之前谁也看不到别人选了什么。
+ *
+ * 收齐之后由 `tag` 指向的续接统一处理——用字符串而不是闭包，
+ * 因为 Durable Object 在等回答的时候会休眠。
+ */
+export interface GroupDecisionState {
+  id: string
+  tag: string
+  /** 参与者，**按稳定顺序**（调用方按座次生成）。结算顺序要照它来。 */
+  playerIds: PlayerId[]
+  /** 已经交上来的选择。没交的人这里没有键。 */
+  responses: Record<PlayerId, string | undefined>
+  /** 超时、掉线、中途死亡时替玩家填的默认选项。 */
+  defaultOptionId: string
+  /** 每个参与者对应的请求 id，用于校验和收尾清理。 */
+  requestIds: Record<PlayerId, string>
+  /** 续接需要的上下文，必须可序列化。 */
+  data: Record<string, unknown>
+}
+
 export interface GameResult {
   winningCamp: 'lord' | 'rebel' | 'renegade'
   winnerIds: PlayerId[]
@@ -391,6 +416,8 @@ export interface SanguoshaState {
   judgment: JudgmentState | null
   /** 私有暂存牌区。见 PrivateCardZone 的说明——**不要用处理区代替它**。 */
   privateZones: PrivateCardZone[]
+  /** 进行中的多人同时决定；同一时刻最多一个。 */
+  groupDecision: GroupDecisionState | null
   /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
   retrial: JudgmentRetrialState | null
   /**

@@ -8,6 +8,7 @@ import { advanceGamePhase, resolveDiscardPhaseResponse } from './phase'
 import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
+import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
@@ -87,6 +88,7 @@ export class SanguoshaGame {
       judgment: null,
       retrial: null,
       privateZones: [],
+      groupDecision: null,
       judgedDelayedCards: [],
       cardResolution: null,
       skillResolution: null,
@@ -202,6 +204,12 @@ export class SanguoshaGame {
   private respondInner(response: GameResponse): void {
     const request = this.state.pendingRequests.find((candidate) => candidate.id === response.requestId)
     if (!request) throw new Error('Request 不存在或已经处理')
+
+    // 多人同时决定的一环：每个人各有一个请求，收齐之后统一处理
+    if (isGroupDecisionRequest(this.state, request.id)) {
+      resolveGroupDecisionResponse(this, request.id, response)
+      return
+    }
 
     // 技能自己发起的 Request 优先认领：requestId 唯一，不会和牌的结算混淆
     const skillResolution = this.state.skillResolution
@@ -397,6 +405,7 @@ export class SanguoshaGame {
     for (const player of mutable.state.players) player.characterPiles ??= {}
     mutable.state.judgedDelayedCards ??= []
     mutable.state.privateZones ??= []
+    mutable.state.groupDecision ??= null
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1
