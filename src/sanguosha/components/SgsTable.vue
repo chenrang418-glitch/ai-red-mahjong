@@ -13,7 +13,7 @@ import type { GameRequest, GameResponse } from '../engine/requests'
 import type { PresentationEvent } from '../engine/presentation'
 import type { SgsChatMessage } from '../online/protocol'
 import type { PlayerView } from '../engine/view'
-import { fixedTargetAction } from '../presentation/targetSelection'
+import { fixedTargetAction, initialTargetIds } from '../presentation/targetSelection'
 
 const props = withDefaults(defineProps<{
   view: PlayerView
@@ -48,7 +48,18 @@ const activeMode = computed(() => selectedMode.value ?? (modes.value.length === 
 const modeActions = computed(() => selectedActions.value.filter((action) => !activeMode.value || action.asCardName === activeMode.value))
 const requestTargets = computed(() => props.request?.kind === 'choose-targets' ? props.request : null)
 const candidateTargetIds = computed(() => new Set(requestTargets.value?.candidateIds ?? modeActions.value.flatMap((action) => action.targetIds)))
-const selectableTargetIds = computed(() => candidateTargetIds.value)
+/**
+ * 当前选中的牌是不是全体锦囊（南蛮入侵、万箭齐发、桃园结义、五谷丰登）。
+ *
+ * 这类牌的目标由引擎定死，玩家没有可选空间。**但不代表可以点一下就飞出去**——
+ * 原来是点击即发，手一抖就是一张牌，用户报的误触就是这个。现在改成
+ * 选中时把目标全部预选标红，仍然要按「确定」才真的用出去。
+ */
+const fixedAction = computed(() => (selectedCardId.value
+  ? fixedTargetAction(props.legalActions, selectedCardId.value, activeMode.value ?? undefined)
+  : null))
+// 目标锁死了就不该再显示成「可点选」：座位上不给准星，点了也不改变什么
+const selectableTargetIds = computed(() => (fixedAction.value ? new Set<string>() : candidateTargetIds.value))
 const exactAction = computed(() => modeActions.value.find((action) => action.targetIds.length === selectedTargetIds.value.length && action.targetIds.every((id) => selectedTargetIds.value.includes(id))) ?? null)
 const standaloneActions = computed(() => props.legalActions.filter((action) => action.kind === 'invoke-skill' || action.kind === 'pass'))
 
@@ -70,18 +81,19 @@ watch(() => props.request?.id, (id) => {
 function resetSelection(): void { selectedCardId.value = null; selectedMode.value = null; selectedTargetIds.value = [] }
 function toggleCard(cardId: string): void {
   if (selectedCardId.value === cardId) { resetSelection(); return }
-  const automatic = fixedTargetAction(props.legalActions, cardId)
-  if (automatic) { emit('act', automatic.id); resetSelection(); return }
-  selectedCardId.value = cardId; selectedMode.value = null; selectedTargetIds.value = []
+  selectedCardId.value = cardId
+  selectedMode.value = null
+  // 全体锦囊：目标是引擎给的，选中就整套标红，等玩家按确定
+  selectedTargetIds.value = initialTargetIds(props.legalActions, cardId)
 }
 function selectMode(modeId: string): void {
   if (!selectedCardId.value) return
-  const automatic = fixedTargetAction(props.legalActions, selectedCardId.value, modeId)
-  if (automatic) { emit('act', automatic.id); resetSelection(); return }
   selectedMode.value = modeId
-  selectedTargetIds.value = []
+  selectedTargetIds.value = initialTargetIds(props.legalActions, selectedCardId.value, modeId)
 }
 function toggleTarget(playerId: string): void {
+  // 全体锦囊的目标不是玩家选的，点掉一个会让「确定」永远按不下去
+  if (fixedAction.value) return
   if (!candidateTargetIds.value.has(playerId)) return
   const index = selectedTargetIds.value.indexOf(playerId)
   if (index >= 0) { selectedTargetIds.value.splice(index, 1); return }
@@ -125,7 +137,7 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
     <SgsRequestDock v-else-if="request" :request="request" :view="view" @submit="emit('respond', $event)" />
     <section v-else-if="legalActions.length" class="sgs-table__dock">
       <template v-if="selectedCardId">
-        <p class="sgs-table__hint">{{ candidateTargetIds.size ? `请直接点击牌桌上的目标（已选 ${selectedTargetIds.length}）` : '确认使用这张牌' }}</p>
+        <p class="sgs-table__hint">{{ fixedAction ? `【${fixedAction.asCardName}】的目标已全部选中（${selectedTargetIds.length} 人），点「确定」使用` : candidateTargetIds.size ? `请直接点击牌桌上的目标（已选 ${selectedTargetIds.length}）` : '确认使用这张牌' }}</p>
         <div v-if="modes.length > 1" class="sgs-table__actions"><button v-for="mode in modes" :key="mode.id" type="button" :class="activeMode === mode.id ? 'primary' : 'ghost'" @click="selectMode(mode.id)">当【{{ mode.label }}】使用</button></div>
         <div class="sgs-table__actions"><button type="button" class="ghost" @click="resetSelection">取消</button><button type="button" class="primary" :disabled="!exactAction" @click="confirmTargets">确定</button></div>
       </template>
