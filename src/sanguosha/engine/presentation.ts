@@ -106,7 +106,11 @@ export function buildPresentationEvent(
       const skillName = String(payload.skillName ?? payload.skillId ?? '')
       const targetIds = (payload.targetIds as PlayerId[] | undefined) ?? []
       const targets = targetIds.map((id) => playerName(state, id)).join('、')
-      return { id: event.id, seq: event.seq, kind: 'skill', sourceId, targetIds, skillName, text: targets ? `${source}对${targets}发动【${skillName}】` : `${source}发动【${skillName}】` }
+      // 技能可以自带一句战报文本。默认那句「A对B发动【X】」在认亲、
+      // 收手、爆仓这类场合读起来不对，但也不值得给每个武将在这里写一个分支
+      const custom = typeof payload.logText === 'string' && payload.logText ? payload.logText : null
+      const text = custom ?? (targets ? `${source}对${targets}发动【${skillName}】` : `${source}发动【${skillName}】`)
+      return { id: event.id, seq: event.seq, kind: 'skill', sourceId, targetIds, skillName, text }
     }
     case 'Damaged': {
       const amount = Number(payload.amount ?? 1)

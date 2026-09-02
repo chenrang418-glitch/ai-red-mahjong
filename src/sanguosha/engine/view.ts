@@ -68,6 +68,13 @@ export interface PlayerView {
     stage: 'awaiting-dodge' | 'awaiting-intercept' | 'awaiting-dying' | 'awaiting-nullification' | 'awaiting-effect'
   } | null
   legalActions: LegalAction[]
+  /**
+   * 牛来【麻麻】的认亲关系（牛来 id → 麻麻 id）。
+   *
+   * 公开信息：规则要求所有人都知道谁是谁的麻麻，所以整份原样下发，
+   * 不按观察者裁剪。没有牛来时是空对象。
+   */
+  mamaBonds: Record<PlayerId, PlayerId>
   result: GameResult | null
 }
 
@@ -159,6 +166,7 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         }
       : null,
     legalActions: structuredClone(legalPlayActions(state, viewerId)),
+    mamaBonds: { ...(state.mamaBonds ?? {}) },
     result: state.result,
   }
 }

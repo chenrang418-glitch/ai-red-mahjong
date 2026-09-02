@@ -63,12 +63,18 @@ export interface SkillHost {
   queueSkill(prompt: QueuedSkillPrompt): void
   /** 技能造成的「失去体力」把人打到 0 时走这里，不允许技能自己判死。 */
   enterDying(playerId: PlayerId): void
-  /** 技能生成一张不消耗实体牌、无距离和次数限制的【杀】。 */
+  /**
+   * 技能发起一张无距离和次数限制的【杀】。
+   *
+   * 不给 `cardId` 就是纯虚拟【杀】；给了则用这张实体手牌当载体，
+   * 牌该弃还是照常弃，花色和火/雷属性照常生效。
+   */
   beginVirtualSlash(options: {
     sourceId: PlayerId
     targetId: PlayerId
     sourceSkillId: string
     nature?: DamageNature
+    cardId?: CardId
   }): void
   /** “成为目标后”的技能回答完毕，把控制权交回当前牌的结算管线。 */
   resumeCardTarget(): void

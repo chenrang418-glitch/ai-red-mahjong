@@ -444,6 +444,15 @@ export interface SanguoshaState {
   groupDecision: GroupDecisionState | null
   /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
   guhuoResponse: GuhuoResponseState | null
+  /**
+   * 牛来【麻麻】的认亲关系：牛来的 playerId → 麻麻的 playerId。
+   *
+   * 放在牌局状态里而不是 `player.marks`，因为 marks 只存数字，存不下 playerId；
+   * 也不能只存在牛来一侧的内存里——这是**公开信息**，服务端权威，
+   * 断线重连和多客户端都要看到同一份。一局里可以有多个牛来，
+   * 各自维护自己的一条，允许指向同一个人。
+   */
+  mamaBonds: Record<PlayerId, PlayerId>
   /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
   retrial: JudgmentRetrialState | null
   /**

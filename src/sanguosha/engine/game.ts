@@ -91,6 +91,7 @@ export class SanguoshaGame {
       privateZones: [],
       groupDecision: null,
       guhuoResponse: null,
+      mamaBonds: {},
       judgedDelayedCards: [],
       cardResolution: null,
       skillResolution: null,
@@ -155,7 +156,7 @@ export class SanguoshaGame {
     enterDying(this, playerId)
   }
 
-  beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder' }): void {
+  beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder'; cardId?: string }): void {
     startVirtualSlash(this, options)
   }
 
@@ -390,6 +391,9 @@ export class SanguoshaGame {
       for (const player of this.state.players) player.zones.hand.push(this.state.zones.drawPile.shift()!)
     }
     startPlaying(this.state, (name, payload) => { this.emit(name, payload) })
+    // 开局排队的发问（牛来认麻麻）在这里就放出去，
+    // 否则要等到第一次 act/advancePhase 才轮到，第一个准备阶段已经过去了
+    this.settle()
   }
 
   viewFor(playerId: string) {
@@ -424,6 +428,7 @@ export class SanguoshaGame {
     mutable.state.privateZones ??= []
     mutable.state.groupDecision ??= null
     mutable.state.guhuoResponse ??= null
+    mutable.state.mamaBonds ??= {}
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1

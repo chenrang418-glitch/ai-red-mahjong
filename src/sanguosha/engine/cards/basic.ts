@@ -216,17 +216,37 @@ function beginSlash(
 }
 
 /**
- * 技能生成的【杀】共用正常【杀】管线，但不消耗实体牌、距离、次数或酒增伤。
- * 临时牌只在结算期间存在，结束时由 finishPhysicalCard 销毁。
+ * 技能生成的【杀】共用正常【杀】管线，但不消耗距离、次数或酒增伤。
+ *
+ * 不给 `cardId` 时造一张临时牌，结算结束由 finishPhysicalCard 销毁；
+ * 给了 `cardId` 就用这张**实体手牌**——牛来【麻麻】的「跟上」要求真的花掉
+ * 一张【杀】，实体牌上的花色和属性（火杀、雷杀）也要照常生效，
+ * 所以不能改成「弃掉实体牌再放一张虚拟杀」。
  */
 export function beginVirtualSlash(
   host: CardEngineHost,
-  options: { sourceId: PlayerId; targetId: PlayerId; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder' },
+  options: {
+    sourceId: PlayerId
+    targetId: PlayerId
+    sourceSkillId: string
+    nature?: 'normal' | 'fire' | 'thunder'
+    /** 用作载体的实体手牌；不传则生成临时牌 */
+    cardId?: CardId
+  },
 ): void {
   if (host.state.cardResolution) throw new Error('已有卡牌正在结算')
   const source = player(host.state, options.sourceId)
   const target = player(host.state, options.targetId)
   if (!source.alive || !target.alive || source.id === target.id) throw new Error('虚拟杀目标非法')
+  if (options.cardId) {
+    if (!source.zones.hand.includes(options.cardId)) throw new Error('作为载体的【杀】不在手牌里')
+    const carrier = host.state.cards[options.cardId]
+    if (carrier?.name !== '杀') throw new Error('作为载体的牌不是【杀】')
+    const realAction = useAction(options.cardId, source.id, '杀', [target.id], `对${target.nickname}使用【杀】`)
+    if (realAction.kind !== 'use-card') throw new Error('技能杀动作构造失败')
+    beginSlash(host, realAction, { countUsage: false, consumeWine: false })
+    return
+  }
   const cardId = `virtual:${options.sourceSkillId}:${host.state.seq + 1}:${host.state.decisions.length}`
   host.state.cards[cardId] = {
     id: cardId,

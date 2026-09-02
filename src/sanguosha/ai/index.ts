@@ -235,6 +235,12 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
+      // 【麻麻】弃两张牌换一刀：挑手上最不值钱的两张
+      if (request.prompt.startsWith('【麻麻】：弃置')) {
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, Math.max(request.min, 2)) } }
+      }
       // 蛊惑扣掉的牌不管真假都花出去了，所以挑手上最不值钱的那张
       if (request.prompt.startsWith('【蛊惑】')) {
         const cheapest = [...request.cardIds]
@@ -250,8 +256,13 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     }
 
     case 'choose-targets': {
-      // 【妈妈】把整次伤害甩出去：优先残血敌人，绝不甩给自己人
-      if (request.prompt.includes('替你承受')) {
+      // 【麻麻】认亲：牌多、血厚、关系好的优先
+      if (request.prompt.includes('成为你的')) {
+        const ranked = [...request.candidateIds].sort((left, right) => pickMamaScore(context, right) - pickMamaScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, Math.max(request.min, 1)) } }
+      }
+      // 【麻麻】跟杀：优先残血敌人，绝不打自己人
+      if (request.prompt.includes('跟杀')) {
         const ranked = [...request.candidateIds].sort((left, right) => mamaTargetScore(context, right) - mamaTargetScore(context, left))
         return { ...base, payload: { targetIds: ranked.slice(0, Math.max(request.min, 1)) } }
       }
@@ -299,9 +310,15 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id === 'niulai-continue')) {
         return { ...base, payload: { optionId: decideNiulai(context, request.prompt) } }
       }
-      // ── 牛来【妈妈】：要不要把伤害甩出去 ──
-      if (options.some((option) => option.id === 'mama-invoke')) {
-        return { ...base, payload: { optionId: decideMama(context, request.prompt) ? 'mama-invoke' : 'cancel' } }
+      // ── 牛来【麻麻】：要不要跟这一刀 ──
+      if (options.some((option) => option.id === 'mama-follow' || option.id === 'mama-help')) {
+        // 目标列表这时还没发给客户端，先按「所有活着的其他人」估个方向；
+        // 真正挑目标在后面那个 choose-targets 里，那时候候选是准的
+        const candidates = context.view.players
+          .filter((player) => player.alive && player.id !== request.playerId)
+          .map((player) => player.id)
+        const optionIds = options.map((option) => option.id)
+        return { ...base, payload: { optionId: decideMamaFollow(context, optionIds, candidates) ?? 'cancel' } }
       }
       // ── 于吉【蛊惑】：声明要用哪张牌 ──
       if (options.some((option) => option.id.startsWith('guhuo-name:'))) {
@@ -507,19 +524,61 @@ function decideRetrial(context: AIContext, request: ChooseCardsRequest): string[
 }
 
 /**
- * 【妈妈】该把伤害甩给谁。
+ * 【麻麻】跟杀该选麻麻的哪个目标。
  *
- * 敌人优先，残血敌人最优先（可能直接打死）；自己人一律压到最低，
- * 只有实在没有别的选择时才会落到他们头上。
+ * 敌人优先，残血敌人最优先（跟这一刀可能直接收掉）；自己人一律压到最低，
+ * 实在只有自己人可选时也宁可不跟。
  */
 function mamaTargetScore(context: AIContext, targetId: PlayerId): number {
   const target = context.view.players.find((player) => player.id === targetId)
   if (!target?.alive) return -Infinity
   const attitude = hostility(context.view, context.suspicion, targetId)
-  // 自己人：越关键越不能甩
+  // 自己人：越关键越不能打
   if (attitude <= 0) return -100 + attitude
   // 敌人：血越少价值越高
   return 50 + attitude * 5 + (target.maxHp - target.hp) * 4 - target.hp * 3
+}
+
+/**
+ * 认谁当【麻麻】。
+ *
+ * 只看**公开信息**：手牌数、体力、以及现有的敌我判断。不去读身份牌，
+ * 也读不到——`hostility` 走的是和别处一样的那套怀疑度推断。
+ *
+ * 「使用【杀】频率高」在开局无从得知，用手牌数和体力代替：牌多血厚的人
+ * 更可能一直在出杀，也更不容易早早退场，跟着他能跟到更多刀。
+ * 关系好的加权最重——认了敌人当麻麻，跟杀时只能挑他打的自己人。
+ */
+function pickMamaScore(context: AIContext, candidateId: PlayerId): number {
+  const candidate = context.view.players.find((player) => player.id === candidateId)
+  if (!candidate?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, candidateId)
+  return -attitude * 12 + candidate.handCount * 3 + candidate.hp * 4
+}
+
+/**
+ * 要不要跟这一刀，跟的话用哪种方式。
+ *
+ * 返回 null 表示不跟。
+ *
+ * 有闲置的【杀】就直接跟上——那张牌本来这回合也未必用得掉。
+ * 没有【杀】就得掂量「弃两张」的代价：能把人打残或打死才值，
+ * 手牌本来就紧张时不做这种买卖。
+ */
+function decideMamaFollow(context: AIContext, actionIds: readonly string[], targetIds: readonly PlayerId[]): string | null {
+  const best = [...targetIds].sort((left, right) => mamaTargetScore(context, right) - mamaTargetScore(context, left))[0]
+  // 只剩自己人可打就不跟
+  if (!best || mamaTargetScore(context, best) < 0) return null
+  const target = context.view.players.find((player) => player.id === best)
+  const me = myself(context.view)
+
+  if (actionIds.includes('mama-follow')) return 'mama-follow'
+  if (!actionIds.includes('mama-help')) return null
+
+  // 弃两张牌是硬成本：对方残血、或者自己手牌宽裕时才做
+  const lethal = (target?.hp ?? 9) <= 1
+  if (lethal) return 'mama-help'
+  return me.handCount >= 4 ? 'mama-help' : null
 }
 
 /**
@@ -555,24 +614,6 @@ function decideNiulai(context: AIContext, prompt: string): string {
   // 已经赚了就见好就收：每多一张扣 18 点意愿
   const greed = safety - (gained - 1) * 18
   return context.rng.nextInt(100) < greed ? 'niulai-continue' : 'niulai-stop'
-}
-
-/**
- * 要不要发动【妈妈】。
- *
- * 引擎已经保证了发动条件（体力比较、有牌可弃、来源存在），
- * 这里只判断值不值：会被打死或打到濒死时一定甩，血厚又只挨一点时可以省下这张牌。
- */
-function decideMama(context: AIContext, prompt: string): boolean {
-  const me = myself(context.view)
-  const amount = Number(/受到 (\d+) 点伤害/.exec(prompt)?.[1] ?? 1)
-  // 这一下会要命：无论如何都甩
-  if (me.hp - amount <= 0) return true
-  // 会被打到 1 血：也甩
-  if (me.hp - amount <= 1) return true
-  // 血厚 + 只挨一点 + 手牌紧张时留着牌
-  if (amount <= 1 && me.hp >= 3 && me.handCount <= 1) return false
-  return true
 }
 
 /**

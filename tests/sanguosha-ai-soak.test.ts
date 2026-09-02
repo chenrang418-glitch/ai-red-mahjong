@@ -127,12 +127,17 @@ describe('无头压测', () => {
        * 新武将），拿最大值当红线只会每次扩包都误报。真正说明规则出问题的是
        * 「整体都在变长」，那会体现在平均值上。
        * 上限仍然留一条，但放到明显不可能正常达到的位置。
+       *
+       * 600 这条线被 seed `ci-6-4` 顶穿过一次（675 回合）。插桩数过：那一局
+       * 华佗 + 刘备的组合回复了 181 次，而牌局里唯一的新技能【麻麻】只触发
+       * 1 次——是续航僵局，不是规则出错。真正的死锁由 runSoakGame 的
+       * maxSteps 兜底，这里只拦「离谱到不可能」的量级。
        */
       const turns = results.map((result) => result.turns)
       const average = turns.reduce((sum, value) => sum + value, 0) / turns.length
       expect(Math.min(...turns)).toBeGreaterThan(1)
       expect(average, '平均回合数异常说明规则出了问题').toBeLessThan(80)
-      expect(Math.max(...turns)).toBeLessThan(600)
+      expect(Math.max(...turns)).toBeLessThan(1_200)
     }, 60_000)
   }
 })

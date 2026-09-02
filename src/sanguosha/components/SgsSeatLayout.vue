@@ -41,6 +41,17 @@ function bubbleSide(slot: string): 'up' | 'down' | 'left' | 'right' {
   if (slot.startsWith('top')) return 'down'
   return slot.startsWith('left') ? 'right' : 'left'
 }
+/**
+ * 谁认了这名角色当「麻麻」。
+ *
+ * 认亲关系是公开信息，服务端下发在 view.mamaBonds 里；这里只负责翻成武将名。
+ * 一个人可以同时是多个牛来的麻麻，所以返回的是列表。
+ */
+function mamaOwnersOf(playerId: string): string[] {
+  return Object.entries(props.view.mamaBonds ?? {})
+    .filter(([, mamaId]) => mamaId === playerId)
+    .map(([ownerId]) => displayCharacterName(props.view.players, ownerId))
+}
 const effectFor = (playerId: string) => {
   const event = props.staged?.event
   if (!event) return null
@@ -61,7 +72,8 @@ const effectFor = (playerId: string) => {
         :selectable="selectableIds.has(player.id)" :selected="selectedIds.includes(player.id)"
         :threatened="event?.kind === 'card-use' && event.targetIds?.includes(player.id)"
         :effect="effectFor(player.id)" :status="statuses?.[player.id] ?? null"
-        :display-name="displayCharacterName(view.players, player.id)" @select="emit('select', $event)"
+        :display-name="displayCharacterName(view.players, player.id)" :mama-owners="mamaOwnersOf(player.id)"
+        @select="emit('select', $event)"
       />
       <!-- 气泡放在槽位上而不是座位卡里：座位卡是 overflow:hidden 的，放里面会被裁掉 -->
       <transition name="sgs-bubble">
