@@ -1,3 +1,4 @@
+import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { performJudgment } from '../../engine/judgment'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
@@ -193,7 +194,7 @@ registerSkillRuntime({
     const owner = playerOf(state, ownerId)
     if (!owner.alive || owner.zones.hand.length === 0) return []
     // 出牌阶段限一次，用过就不再出现在合法动作里
-    if (owner.usedLimitedSkills.includes('qingnang')) return []
+    if (usedThisTurn(state, ownerId, 'qingnang')) return []
     // 场上没人受伤时发动没有意义，也不该给出这个按钮
     if (!state.players.some((player) => player.alive && player.hp < player.maxHp)) return []
     return [{ id: 'skill:qingnang', label: '发动【青囊】：弃一张手牌，令一名已受伤角色回复一点体力' }]
@@ -227,7 +228,7 @@ registerSkillRuntime({
       if (!owner.zones.hand.includes(cardId)) throw new Error('青囊弃置的牌不在手上')
       moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
       host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '青囊' }, { sourceId: ownerId, cardIds: [cardId] })
-      owner.usedLimitedSkills.push('qingnang')
+      markUsedThisTurn(host.state, ownerId, 'qingnang')
       const candidateIds = host.state.players.filter((player) => player.alive && player.hp < player.maxHp).map((player) => player.id)
       // 弃牌之后场上一定还有受伤角色：弃牌本身不会让谁回满
       host.askSkill({

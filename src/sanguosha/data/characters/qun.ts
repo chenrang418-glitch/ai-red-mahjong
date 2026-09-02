@@ -13,13 +13,7 @@ registerSkillRuntime({
 registerSkillRuntime({
   id: 'biyue',
   triggers: [{
-    // 离间是「出牌阶段限一次」，回合一结束就把用过的记录抹掉
-    event: 'TurnEnd',
-    handle(host, ownerId) {
-      const owner = host.state.players.find((player) => player.id === ownerId)
-      if (owner) owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'lijian')
-    },
-  }, {
+    // 离间的「限一次」由 turn.ts 统一在回合结束清，这里不再各清各的
     event: 'PhaseStart',
     handle(host, ownerId, context) {
       const payload = context.event.payload as { playerId?: string; phase?: string }

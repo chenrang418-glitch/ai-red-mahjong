@@ -59,7 +59,16 @@ export interface PlayerState {
   faceDown: boolean
   zones: PlayerZones
   marks: Record<string, number>
+  /** 限定技：**一局一次**，永不重置。 */
   usedLimitedSkills: string[]
+  /**
+   * 本回合已经用过的技能（「出牌阶段限一次」这类）。
+   *
+   * 和 `usedLimitedSkills` 分开是因为两者的生命周期完全不同，混用过一次就出过 bug：
+   * 华佗【青囊】原来记在 usedLimitedSkills 里而没人清，「限一次」变成了「一局一次」。
+   * 这个列表由 `turn.ts` 在回合结束时统一清空，技能不需要各自注册重置。
+   */
+  turnUsedSkills: string[]
   distanceFromOthers: number
   distanceToOthers: number
   attackRangeBonus: number

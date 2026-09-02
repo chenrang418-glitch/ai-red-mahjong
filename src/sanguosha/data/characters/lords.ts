@@ -1,3 +1,4 @@
+import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { recover } from '../../engine/recover'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
@@ -126,8 +127,8 @@ registerSkillRuntime({
     // 一个回合内累计给出两张才回血，而且只回一次
     const marks = owner.marks
     marks.rendeGiven = (marks.rendeGiven ?? 0) + given.length
-    if (marks.rendeGiven >= 2 && !owner.usedLimitedSkills.includes('rende-recover')) {
-      owner.usedLimitedSkills.push('rende-recover')
+    if (marks.rendeGiven >= 2 && !usedThisTurn(host.state, ownerId, 'rende-recover')) {
+      markUsedThisTurn(host.state, ownerId, 'rende-recover')
       recover(host, ownerId, 1, ownerId)
     }
   },
@@ -138,7 +139,6 @@ registerSkillRuntime({
       const owner = host.state.players.find((candidate) => candidate.id === ownerId)
       if (!owner) return
       delete owner.marks.rendeGiven
-      owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'rende-recover')
     },
   }],
 })
@@ -158,7 +158,7 @@ registerSkillRuntime({
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
     if (!owner.alive || owner.zones.hand.length === 0) return []
-    if (owner.usedLimitedSkills.includes('zhiheng')) return []
+    if (usedThisTurn(state, ownerId, 'zhiheng')) return []
     return [{ id: 'skill:zhiheng', label: '发动【制衡】：弃置任意张牌，摸等量的牌' }]
   },
   invokeActive(host, ownerId, actionId) {
@@ -193,17 +193,10 @@ registerSkillRuntime({
       discarded.push(cardId)
     }
     if (discarded.length === 0) return
-    owner.usedLimitedSkills.push('zhiheng')
+    markUsedThisTurn(host.state, ownerId, 'zhiheng')
     host.dispatch('LoseCard', { playerId: ownerId, cardIds: discarded, reason: '制衡' }, { sourceId: ownerId, cardIds: discarded })
     drawInto(host, ownerId, discarded.length, '制衡')
   },
-  triggers: [{
-    event: 'TurnEnd',
-    handle(host, ownerId) {
-      const owner = host.state.players.find((candidate) => candidate.id === ownerId)
-      if (owner) owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'zhiheng')
-    },
-  }],
 })
 
 // —— 孙权 主公技【救援】——
@@ -230,11 +223,15 @@ function drawInto(host: SkillHost, playerId: PlayerId, count: number, reason: st
   if (drawn.length > 0) host.dispatch('GainCard', { playerId, cardIds: drawn, reason }, { targetId: playerId, cardIds: drawn })
 }
 
-/** 制衡限一次的重置也可以从外部触发，测试用。 */
+/**
+ * 把某个角色本回合的限次记录清掉。测试用。
+ *
+ * 正常牌局里由 `turn.ts` 在回合结束统一清，技能不需要各自注册重置。
+ */
 export function resetTurnLimitedSkills(state: SanguoshaState, playerId: PlayerId): void {
   const owner = state.players.find((player) => player.id === playerId)
   if (!owner) return
-  owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'zhiheng' && skillId !== 'rende-recover')
+  owner.turnUsedSkills = []
 }
 
 export const LORD_CHARACTERS: readonly CharacterDefinition[] = [

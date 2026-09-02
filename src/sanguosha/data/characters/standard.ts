@@ -1,3 +1,4 @@
+import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { loseHp } from '../../engine/hp'
@@ -197,7 +198,7 @@ registerSkillRuntime({
   id: 'jieyin',
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
-    if (!owner.alive || owner.zones.hand.length < 2 || owner.usedLimitedSkills.includes('jieyin')) return []
+    if (!owner.alive || owner.zones.hand.length < 2 || usedThisTurn(state, ownerId, 'jieyin')) return []
     const hasTarget = state.players.some((target) => (
       target.alive && target.id !== ownerId && target.hp < target.maxHp
       && target.characterId !== null && getCharacter(target.characterId)?.gender === 'male'
@@ -236,18 +237,10 @@ registerSkillRuntime({
       return
     }
     const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
-    const owner = playerOf(host.state, ownerId)
-    owner.usedLimitedSkills.push('jieyin')
+    markUsedThisTurn(host.state, ownerId, 'jieyin')
     recover(host, targetId, 1, ownerId)
     recover(host, ownerId, 1, ownerId)
   },
-  triggers: [{
-    event: 'TurnEnd',
-    handle(host, ownerId) {
-      const owner = host.state.players.find((player) => player.id === ownerId)
-      if (owner) owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'jieyin')
-    },
-  }],
 })
 
 /** 需要打出【闪】时，哪些手牌可以转化成【闪】。 */

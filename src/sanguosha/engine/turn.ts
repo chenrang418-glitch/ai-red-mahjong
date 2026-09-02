@@ -51,6 +51,10 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
   }
 
   emit('TurnEnd', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
+  // 「每回合限一次」统一在这里清，技能不需要各自注册 TurnEnd 重置——
+  // 那样散着写漏过一个（青囊），「限一次」直接变成了「一局一次」。
+  // 清全场而不只是当前回合角色：回合外也能发动的技能同样按回合计数。
+  for (const player of state.players) player.turnUsedSkills = []
   state.currentPlayerId = nextAlivePlayerId(state)
   state.turnNumber += 1
   state.phase = 'prepare'

@@ -59,6 +59,7 @@ export class SanguoshaGame {
       zones: { hand: [], equipment: emptyEquipment(), judgingArea: [] },
       marks: {},
       usedLimitedSkills: [],
+      turnUsedSkills: [],
       distanceFromOthers: 0,
       distanceToOthers: 0,
       attackRangeBonus: 0,

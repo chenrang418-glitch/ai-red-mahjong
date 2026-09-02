@@ -1,3 +1,4 @@
+import { markUsedThisTurn, usedThisTurn } from './turn-usage'
 import { performJudgment } from './judgment'
 import { registerSkillRuntime, type SkillHost } from './skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
@@ -724,7 +725,7 @@ registerSkillRuntime({
   id: LIJIAN_SKILL,
   activeActions(state, ownerId) {
     const owner = state.players.find((player) => player.id === ownerId)
-    if (!owner?.alive || owner.usedLimitedSkills.includes(LIJIAN_SKILL)) return []
+    if (!owner?.alive || usedThisTurn(state, ownerId, LIJIAN_SKILL)) return []
     if (discardableCards(state, ownerId).length === 0) return []
     if (maleTargets(state, ownerId).length < 2) return []
     return [{ id: 'skill:lijian', label: '发动【离间】：弃一张牌，令两名男性角色决斗' }]
@@ -755,8 +756,7 @@ registerSkillRuntime({
       const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
       const candidateIds = maleTargets(host.state, ownerId)
       if (candidateIds.length < 2) return
-      const owner = playerOf(host.state, ownerId)
-      owner.usedLimitedSkills.push(LIJIAN_SKILL)
+      markUsedThisTurn(host.state, ownerId, LIJIAN_SKILL)
       // 这张牌先留在原处，等选完目标再作为决斗的载体打出去
       host.askSkill({
         skillId: LIJIAN_SKILL,

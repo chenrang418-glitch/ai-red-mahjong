@@ -1,3 +1,4 @@
+import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseSuitRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
@@ -111,7 +112,7 @@ registerSkillRuntime({
   id: 'fanjian',
   activeActions(state, ownerId) {
     const owner = state.players.find((player) => player.id === ownerId)
-    if (!owner?.alive || owner.zones.hand.length === 0 || owner.usedLimitedSkills.includes('fanjian')) return []
+    if (!owner?.alive || owner.zones.hand.length === 0 || usedThisTurn(state, ownerId, 'fanjian')) return []
     if (!state.players.some((player) => player.alive && player.id !== ownerId)) return []
     return [{ id: 'skill:fanjian', label: '发动【反间】：令一名角色猜测花色并获得你的一张随机手牌' }]
   },
@@ -163,20 +164,13 @@ registerSkillRuntime({
     if (!owner?.alive || !target?.alive || owner.zones.hand.length === 0) return
     const cardId = owner.zones.hand[host.rng.nextInt(owner.zones.hand.length)]
     moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'hand', playerId: targetId })
-    owner.usedLimitedSkills.push('fanjian')
+    markUsedThisTurn(host.state, ownerId, 'fanjian')
     host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '反间' }, { sourceId: ownerId, cardIds: [cardId] })
     host.dispatch('GainCard', { playerId: targetId, cardIds: [cardId], reason: '反间', revealed: true }, { sourceId: ownerId, targetId, cardIds: [cardId] })
     if (host.state.cards[cardId].suit !== declaredSuit) {
       resolveDamage(host, { sourceId: ownerId, targetId, amount: 1, nature: 'normal' })
     }
   },
-  triggers: [{
-    event: 'TurnEnd',
-    handle(host, ownerId) {
-      const owner = host.state.players.find((player) => player.id === ownerId)
-      if (owner) owner.usedLimitedSkills = owner.usedLimitedSkills.filter((skillId) => skillId !== 'fanjian')
-    },
-  }],
 })
 
 function drawForSkill(host: SkillHost, playerId: PlayerId, count: number, reason: string): void {
