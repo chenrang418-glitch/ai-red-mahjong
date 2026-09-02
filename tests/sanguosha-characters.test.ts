@@ -432,7 +432,7 @@ describe('武将包完整性', () => {
 })
 
 describe('选将流程', () => {
-  it('相同 seed 得到相同候选；普通武将不重复，自定义武将固定给每个人', () => {
+  it('相同 seed 得到相同候选；普通武将不重复，自定义武将只固定给真人', () => {
     const first = new SanguoshaGame({ seed: 'pick-generals', setup: setup() })
     const second = new SanguoshaGame({ seed: 'pick-generals', setup: setup() })
     first.dealGenerals()
@@ -445,7 +445,11 @@ describe('选将流程', () => {
     const requests = first.state.pendingRequests.filter((request) => request.kind === 'choose-general')
     const ordinary = requests.flatMap((request) => request.candidates.filter((id) => !isEntertainmentCharacter(id)))
     expect(new Set(ordinary).size).toBe(ordinary.length)
-    for (const request of requests) expect(request.fixedCandidates).toEqual(entertainmentCharacterIds())
+    for (const request of requests) {
+      const player = first.state.players.find((candidate) => candidate.id === request.playerId)!
+      // 固定的自定义池只发给真人，AI 只能靠随机池分到
+      expect(request.fixedCandidates).toEqual(player.isHuman ? entertainmentCharacterIds() : [])
+    }
   })
 
   it('单机真人可从全部武将自选，选中普通武将后 AI 不再撞将', () => {
@@ -463,7 +467,10 @@ describe('选将流程', () => {
   })
 
   it('多人可以选择同一个自定义武将，并按座次显示编号', () => {
-    const game = new SanguoshaGame({ seed: 'custom-duplicate', setup: setup() })
+    // 自定义池只发给真人，所以这一条要两个真人
+    const twoHumans = setup()
+    twoHumans.players = twoHumans.players.map((player, index) => ({ ...player, isHuman: index < 2 }))
+    const game = new SanguoshaGame({ seed: 'custom-duplicate', setup: twoHumans })
     game.dealGenerals()
     const requests = game.state.pendingRequests.filter((request) => request.kind === 'choose-general')
     const custom = entertainmentCharacterIds()[0]
@@ -714,5 +721,42 @@ describe('黄月英【集智】【奇才】', () => {
     }
     // 奇才能顺到距离更远的人
     expect(snatchTargets(skilled).length).toBeGreaterThan(snatchTargets(plain).length)
+  })
+})
+
+
+describe('自定义武将池只发给真人', () => {
+  it('AI 的候选里没有固定的自定义池', () => {
+    const game = new SanguoshaGame({ seed: 'custom-pool', setup: setup() })
+    game.dealGenerals()
+    const custom = new Set(entertainmentCharacterIds())
+    const requests = game.state.pendingRequests.filter((request) => request.kind === 'choose-general')
+
+    for (const request of requests) {
+      const player = game.state.players.find((candidate) => candidate.id === request.playerId)!
+      if (player.isHuman) {
+        expect(request.fixedCandidates, '真人要能看到自定义池').toEqual([...custom])
+        for (const id of custom) expect(request.candidates).toContain(id)
+        continue
+      }
+      expect(request.fixedCandidates, 'AI 不该看到自定义池').toEqual([])
+      // 随机池里恰好分到的自定义武将仍然算数，所以这里只断言「不是全都有」
+      expect([...custom].every((id) => request.candidates.includes(id)),
+        'AI 不该每个自定义武将都拿到').toBe(false)
+    }
+  })
+
+  it('随机池分到的自定义武将，AI 仍然可以选', () => {
+    // 把自定义武将塞进某个 AI 的候选里，验证引擎不会额外拦一道
+    const game = new SanguoshaGame({ seed: 'custom-random', setup: setup() })
+    game.dealGenerals()
+    const custom = entertainmentCharacterIds()[0]
+    const request = game.state.pendingRequests.find((candidate) => candidate.kind === 'choose-general'
+      && candidate.playerId === 'p1')!
+    if (request.kind !== 'choose-general') throw new Error('请求类型不对')
+    request.candidates = [...request.candidates, custom]
+
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { characterId: custom } })
+    expect(game.state.players[1].characterId).toBe(custom)
   })
 })

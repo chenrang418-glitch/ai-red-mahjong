@@ -98,6 +98,11 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       // 主公越危险越该送
       return lord.hp <= 2 ? 12 : 4
     }
+    case 'houxiao': {
+      // 齁笑不花代价，两条分支都不亏；但手里全是好牌时随机交换有风险
+      const precious = (me.hand ?? []).filter((card) => cardValue(card.name) >= 8).length
+      return precious >= 2 ? 6 : 14
+    }
     case 'kurou':
       // 苦肉在 1 血时直接进濒死，除非已经没别的路，否则不发
       return me.hp <= 1 ? -100 : 6
@@ -271,6 +276,22 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id === 'tianxiang-invoke')) {
         return { ...base, payload: { optionId: 'tianxiang-invoke' } }
       }
+      // ── 奶蛙【齁笑】：被找上的人选一起笑还是绷住 ──
+      if (options.some((option) => option.id === 'houxiao-together')) {
+        return { ...base, payload: { optionId: decideHouxiaoAnswer(context, options) } }
+      }
+      // ── 奶蛙【齁笑】：猜对方剩下的牌里有没有同色 ──
+      if (options.some((option) => option.id === 'houxiao-yes')) {
+        return { ...base, payload: { optionId: guessSameColour(context) } }
+      }
+      // ── 奶蛙【捧腹】：要不要起哄 ──
+      if (options.some((option) => option.id === 'pengfu-invoke')) {
+        return { ...base, payload: { optionId: decidePengfu(context, request.prompt) ? 'pengfu-invoke' : 'cancel' } }
+      }
+      // ── 奶蛙【捧腹】：被起哄的人选继续还是算了 ──
+      if (options.some((option) => option.id === 'pengfu-continue')) {
+        return { ...base, payload: { optionId: decideContinue(context, options) } }
+      }
       if (request.prompt.includes('雷击')) {
         // 雷击不花任何代价，判定成功就是 2 点雷电伤害——没有不发动的理由。
         // 打谁由后面的 choose-targets 分支按敌我倾向挑。
@@ -436,6 +457,72 @@ function decideRetrial(context: AIContext, request: ChooseCardsRequest): string[
     // 换牌时优先丢价值低的：一样能翻盘就别拿桃去改判
     .sort((left, right) => cardValue(left.name) - cardValue(right.name))[0]
   return replacement ? [replacement.id] : []
+}
+
+/**
+ * 面对【齁笑】选一起笑还是绷住。
+ *
+ * 一起笑是「双方各摸一张再随机换一张」：手牌少的时候净赚，
+ * 手里全是桃和无懈时不想赌。绷住是「展示一张让奶蛙猜」：
+ * 手牌越多，奶蛙越容易猜中「有同色」，所以牌多时反而该一起笑。
+ */
+function decideHouxiaoAnswer(context: AIContext, options: readonly { id: string }[]): string {
+  const canHold = options.some((option) => option.id === 'houxiao-hold')
+  // 只有一张手牌时引擎根本不给绷住这个选项
+  if (!canHold) return 'houxiao-together'
+  const me = myself(context.view)
+  const hand = me.hand ?? []
+  const precious = hand.filter((card) => cardValue(card.name) >= 8).length
+  // 手里有两张以上关键牌：不赌随机交换
+  if (precious >= 2) return 'houxiao-hold'
+  // 手牌多的时候「有同色」几乎必中，绷住等于白送奶蛙两张
+  if (hand.length >= 4) return 'houxiao-together'
+  return context.rng.nextInt(2) === 0 ? 'houxiao-together' : 'houxiao-hold'
+}
+
+/**
+ * 奶蛙猜对方其余手牌里有没有同色牌。
+ *
+ * **只能用公开信息**：请求里根本没有对方的其余手牌，这里也不去翻 view
+ * 里别人的 hand（那本来就是 null）。用手牌数做概率估计——
+ * 剩的牌越多，「至少有一张同色」的概率越高，剩一张时接近一半。
+ */
+function guessSameColour(context: AIContext): string {
+  const resolution = context.view.cardResolution
+  void resolution
+  // 展示牌之外还剩几张，只能从公开的手牌数推
+  const others = context.view.players.filter((player) => player.alive && player.id !== context.view.viewerId)
+  // 请求里没带目标是谁，取场上手牌最多的那个做估计已经够用；
+  // 猜错的代价只是对方摸一张，不值得为此引入更多耦合
+  const remaining = Math.max(0, Math.max(...others.map((player) => player.handCount), 1) - 1)
+  // p(至少一张同色) ≈ 1 - (1/2)^remaining，用整数概率近似即可
+  const chance = remaining <= 0 ? 50 : Math.min(90, 100 - Math.round(100 / (2 ** remaining)))
+  return context.rng.nextInt(100) < chance ? 'houxiao-yes' : 'houxiao-no'
+}
+
+/** 要不要发动【捧腹】。自己手牌够多、或者对象是自己人时收着点。 */
+function decidePengfu(context: AIContext, prompt: string): boolean {
+  const me = myself(context.view)
+  // 提示里带着目标昵称，用它找出是谁在被起哄
+  const target = context.view.players.find((player) => player.alive && prompt.includes(player.nickname))
+  const friendly = target ? hostility(context.view, context.suspicion, target.id) <= 0 : false
+  // 帮自己人白摸一张也不算亏，但没有敌意时不必每次都起哄
+  if (friendly) return context.rng.nextInt(3) === 0
+  // 手牌已经很多时收益边际递减
+  return me.handCount <= 6
+}
+
+/** 面对【捧腹】选继续还是算了。 */
+function decideContinue(context: AIContext, options: readonly { id: string }[]): string {
+  // 没牌可弃时引擎不给「算了」，只能继续
+  if (!options.some((option) => option.id === 'pengfu-stop')) return 'pengfu-continue'
+  const me = myself(context.view)
+  const hand = me.hand ?? []
+  // 继续要求本阶段还能再打出一张牌。手上还有杀、桃、酒、锦囊、装备就有底气；
+  // 只剩闪和无懈这种纯响应牌时，继续多半会失败，反而要多弃一张
+  const playable = hand.filter((card) => card.name !== '闪' && card.name !== '无懈可击').length
+  // 摸的那一张也可能是能用的牌，所以门槛放在 1
+  return playable >= 1 ? 'pengfu-continue' : 'pengfu-stop'
 }
 
 /**

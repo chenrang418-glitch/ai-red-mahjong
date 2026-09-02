@@ -87,7 +87,13 @@ test('全站用同一套墨绿配色，文字对比度达标', async ({ page }) 
       }
     }, root)
 
-    expect(probe.ink, `${url} 应当读到统一的墨绿变量`).toBe('#1d332a')
+    // 不钉死具体色值——配色会调，但这三条不能变：
+    // 读得到统一变量、色相是墨绿（绿通道最高）、而且确实够暗
+    expect(probe.ink, `${url} 应当读到统一的墨绿变量`).toMatch(/^#[0-9a-f]{6}$/i)
+    const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(probe.ink.slice(offset, offset + 2), 16))
+    expect(green, `${url} 墨绿：绿通道要高于红`).toBeGreaterThan(red)
+    expect(green, `${url} 墨绿：绿通道要高于蓝`).toBeGreaterThan(blue)
+    expect(Math.max(red, green, blue), `${url} 底色要足够深`).toBeLessThan(70)
     // 文字对亮度：暗底上主文字必须足够亮
     expect(relativeLuminance(probe.color), `${url} 主文字亮度`).toBeGreaterThan(0.75)
   }

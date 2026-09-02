@@ -328,7 +328,17 @@ export class SanguoshaGame {
     const perPlayer = Math.max(1, Math.min(this.state.setup.generalChoices, Math.floor(pool.length / this.state.players.length)))
     this.state.players.forEach((player, index) => {
       const randomCandidates = pool.slice(index * perPlayer, (index + 1) * perPlayer)
-      const candidates = [...randomCandidates, ...fixedCandidates.filter((id) => !randomCandidates.includes(id))]
+      /*
+       * 固定的「自定义武将」池**只发给真人**。
+       *
+       * 娱乐武将是给朋友之间图个乐子的，AI 每局都能拿到会让它们频繁出现，
+       * 冲淡正常牌局。AI 仍然可能选到娱乐武将——那是随机池里恰好分到的，
+       * 和这个固定池是两回事。
+       */
+      const showsFixedPool = player.isHuman
+      const candidates = showsFixedPool
+        ? [...randomCandidates, ...fixedCandidates.filter((id) => !randomCandidates.includes(id))]
+        : randomCandidates
       this.state.pendingRequests.push({
         id: `request-general-${player.id}`,
         kind: 'choose-general',
@@ -338,7 +348,7 @@ export class SanguoshaGame {
         optional: false,
         candidates,
         allCandidates: player.isHuman && this.state.setup.allowHumanGeneralSelection ? [...allIds] : undefined,
-        fixedCandidates: [...fixedSet],
+        fixedCandidates: showsFixedPool ? [...fixedSet] : [],
         min: 1,
         max: 1,
       })

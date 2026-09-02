@@ -5,6 +5,8 @@ import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
+// 奶蛙的两个技能要动出牌阶段计数和临时挑战状态，单独一个文件，别和平头方块混在一起
+import { NAIWA } from './entertainment-naiwa'
 
 /** 好友娱乐包：只放原创且技能完整可玩的武将。 */
 
@@ -221,4 +223,4 @@ export const ENTERTAINMENT_CHARACTERS: readonly CharacterDefinition[] = [{
       description: '每回合限一次，当你成为其他角色使用的【杀】或普通锦囊牌的目标后，你可以展示牌堆顶一张牌：若为方块，取消你作为此牌的目标并弃置展示牌；否则你获得展示牌，且不能响应此牌。',
     },
   ],
-}] as const
+}, NAIWA] as const

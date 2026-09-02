@@ -6,6 +6,8 @@ import { ALL_CHARACTERS } from '../../src/sanguosha/data/characters/standard'
  * 而且这个数已经被写错过一次（记成 26，实为 25）。
  */
 const CHARACTER_COUNT = ALL_CHARACTERS.length
+/** 固定展示在「自定义武将」分区的娱乐武将名。 */
+const CUSTOM_CHARACTERS = ALL_CHARACTERS.filter((character) => character.pack === 'entertainment').map((character) => character.name)
 
 /**
  * 三国杀单机流程的浏览器验收。
@@ -179,7 +181,13 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   await expect(page.getByRole('heading', { name: '选择武将' })).toBeVisible()
   await expect(page.getByText('随机武将池', { exact: true })).toBeVisible()
   await expect(page.getByText('自定义武将', { exact: true })).toBeVisible()
-  await expect(page.locator('.sgs-dock__general--custom')).toContainText('平头方块')
+  // 自定义池现在不止一个人，逐个断言会随着新增娱乐武将而反复改；
+  // 这里只守「池子里确实有这些自定义武将」
+  const customCards = page.locator('.sgs-dock__general--custom')
+  await expect(customCards).toHaveCount(CUSTOM_CHARACTERS.length)
+  for (const name of CUSTOM_CHARACTERS) {
+    await expect(customCards.filter({ hasText: name })).toHaveCount(1)
+  }
 
   await page.getByRole('button', { name: '自选', exact: true }).click()
   await expect(page.getByRole('heading', { name: '自选武将' })).toBeVisible()

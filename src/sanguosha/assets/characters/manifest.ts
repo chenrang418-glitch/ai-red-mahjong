@@ -236,6 +236,15 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
   },
 
   // ── 好友娱乐包 ──
+  /*
+   * 奶蛙是一张全身立绘，脑袋只占上面一小块。倍率给得比别人高一点，
+   * 否则座位里看到的基本是肚子——焦点对准那张笑脸。
+   */
+  naiwa: {
+    desktop: { position: '52% 15%', scale: 1.25 },
+    mobile: { position: '52% 13%', scale: 1.4 },
+    credit: '用户提供·奶蛙（原创娱乐武将）',
+  },
   pingtoufangkuai: {
     desktop: { position: '43% 30%', scale: 1.0 },
     mobile: { position: '43% 28%', scale: 1.15 },
