@@ -237,13 +237,26 @@ describe('杠杆：借牌', () => {
 })
 
 describe('杠杆：还债', () => {
-  /** 让 p0 走一次完整的摸牌阶段，停在出牌阶段。 */
+  /**
+   * 让 p0 走一次完整的摸牌阶段。
+   *
+   * 摸牌阶段结束后如果还欠债，会停在「弃牌抵债」的询问上——那一步由各用例
+   * 自己回答，这里不替它决定。
+   */
   function runDrawPhase(game: SanguoshaGame): void {
     game.state.currentPlayerId = 'p0'
     game.state.phase = 'judge'
     game.advancePhase()
     expect(game.state.phase).toBe('draw')
     game.advancePhase()
+  }
+
+  /** 回答「弃牌抵债」：交出指定的牌（空数组＝一张都不还）。 */
+  function repay(game: SanguoshaGame, cardIds: string[]): void {
+    const request = pending(game)
+    expect(request?.kind, '应当在问要不要弃牌抵债').toBe('choose-cards')
+    expect(request?.prompt).toContain('还欠')
+    answer(game, { cardIds })
   }
 
   it('2 债遇上正常摸 2：摸 0 张，债清空且不掉血（测试 7）', () => {
@@ -257,32 +270,95 @@ describe('杠杆：还债', () => {
     expect(game.state.players[0].zones.hand, '一张都摸不到').toHaveLength(0)
     expect(debtOf(game.state, 'p0'), '两枚债正好还清').toBe(0)
     expect(game.state.players[0].hp, '还清了就不掉血').toBe(hpBefore)
+    expect(pending(game), '债已经还完，不该再问弃牌').toBeUndefined()
     assertCardConservation(game.state)
     assertGameInvariants(game.state)
   })
 
-  it('3 债遇上正常摸 2：摸 0 张，剩 1 债并失去 1 点体力（测试 8）', () => {
+  it('3 债遇上正常摸 2：摸 0 张，剩 1 债，不还就失去 1 点体力（测试 8）', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
+    give(game, 'p0', '桃')
     game.state.players[0].marks.debt = 3
     const hpBefore = game.state.players[0].hp
 
     runDrawPhase(game)
+    // 摸牌阶段一张都摸不到，手上只剩本来那张桃
+    expect(game.state.players[0].zones.hand).toHaveLength(1)
+    repay(game, [])
 
-    expect(game.state.players[0].zones.hand).toHaveLength(0)
-    expect(game.state.players[0].hp, '失去一点体力').toBe(hpBefore - 1)
+    expect(game.state.players[0].hp, '不还就失去一点体力').toBe(hpBefore - 1)
     expect(debtOf(game.state, 'p0'), '剩下的债一笔勾销').toBe(0)
     assertGameInvariants(game.state)
   })
 
-  it('欠再多也只掉一点体力', () => {
+  it('剩 1 债时弃一张牌就能还清，不掉血', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
-    game.state.players[0].marks.debt = 6
+    const kept = give(game, 'p0', '桃')
+    game.state.players[0].marks.debt = 3
     const hpBefore = game.state.players[0].hp
+
     runDrawPhase(game)
-    expect(game.state.players[0].hp, '不是欠几枚掉几点').toBe(hpBefore - 1)
+    repay(game, [kept])
+
+    expect(game.state.players[0].hp, '还清了就不掉血').toBe(hpBefore)
+    expect(game.state.players[0].zones.hand, '那张牌真的弃掉了').toHaveLength(0)
+    expect(game.state.zones.discardPile).toContain(kept)
     expect(debtOf(game.state, 'p0')).toBe(0)
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
+  })
+
+  it('剩 2 债只还 1 张：另一枚照样扣 1 点体力', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const first = give(game, 'p0', '桃')
+    give(game, 'p0', '闪')
+    game.state.players[0].marks.debt = 4
+    const hpBefore = game.state.players[0].hp
+
+    runDrawPhase(game)
+    const request = pending(game)
+    expect(request?.kind === 'choose-cards' && request.max, '最多按剩下的债数弃牌').toBe(2)
+    repay(game, [first])
+
+    expect(game.state.players[0].hp, '少还一枚就掉一点').toBe(hpBefore - 1)
+    expect(debtOf(game.state, 'p0')).toBe(0)
+    assertGameInvariants(game.state)
+  })
+
+  it('还不上的债有几枚就掉几点体力', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    game.state.players[0].marks.debt = 5
+    const hpBefore = game.state.players[0].hp
+
+    // 手上一张牌都没有，连问都不该问，直接按还不上处理
+    runDrawPhase(game)
+    expect(pending(game), '没牌可弃就不弹窗').toBeUndefined()
+    expect(game.state.players[0].hp, '剩 3 枚还不上，掉 3 点').toBe(hpBefore - 3)
+    expect(debtOf(game.state, 'p0')).toBe(0)
+    assertGameInvariants(game.state)
+  })
+
+  it('装备区的牌也能拿来抵债', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const weapon = game.state.zones.drawPile.find((id) => game.state.cards[id].equipmentSlot === 'weapon')!
+    moveCard(game.state, weapon, { kind: 'drawPile' }, { kind: 'equipment', playerId: 'p0', slot: 'weapon' })
+    game.state.players[0].marks.debt = 3
+    const hpBefore = game.state.players[0].hp
+
+    runDrawPhase(game)
+    const request = pending(game)
+    expect(request?.kind === 'choose-cards' && request.cardIds, '装备在可弃列表里').toContain(weapon)
+    repay(game, [weapon])
+
+    expect(game.state.players[0].hp, '用装备还清了就不掉血').toBe(hpBefore)
+    expect(game.state.players[0].zones.equipment.weapon).toBeNull()
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
   })
 
   it('1 债遇上正常摸 2：还是摸到 1 张', () => {
@@ -330,6 +406,7 @@ describe('杠杆：还债', () => {
     game.state.phase = 'judge'
     game.advancePhase()
     game.advancePhase()
+    // 手上一张牌都没有，不会问弃牌，直接按还不上处理
 
     expect(game.state.players[0].hp).toBe(3)
     expect(damaged, '失去体力不是伤害——奸雄、遗计、刚烈都不该被触发').toEqual([])
@@ -349,6 +426,8 @@ describe('杠杆：还债', () => {
     restored.state.phase = 'judge'
     restored.advancePhase()
     restored.advancePhase()
+    // 没牌可弃，直接按还不上处理
+    expect(restored.state.pendingRequests).toEqual([])
 
     expect(restored.state.players[0].zones.hand).toHaveLength(0)
     expect(restored.state.players[0].hp, '只结算一次').toBe(3)

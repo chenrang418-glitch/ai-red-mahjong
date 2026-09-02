@@ -246,6 +246,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
+      // 【杠杆】还债：能用低价值牌抵掉就别硬扛体力
+      if (request.prompt.startsWith('【杠杆】：还欠')) {
+        return { ...base, payload: { cardIds: repayGanggan(context, request.cardIds, request.max) } }
+      }
       // 【麻麻】弃两张牌换一刀：挑手上最不值钱的两张
       if (request.prompt.startsWith('【麻麻】：弃置')) {
         const cheapest = [...request.cardIds]
@@ -666,6 +670,22 @@ function guessKongchengji(context: AIContext): string {
   // 概率高就猜「有」，但保留一点随机，别变成永远同一个答案让人摸清规律
   const threshold = basicRatio > 0.5 ? 70 : 30
   return context.rng.nextInt(100) < threshold ? 'kongchengji-basic' : 'kongchengji-other'
+}
+
+/**
+ * 【杠杆】还债时弃几张、弃哪几张。
+ *
+ * 一枚还不上的债就是一点体力，所以**血越少越要用牌抵**：残血时能抵多少抵多少，
+ * 血厚时才愿意留牌硬扛。抵债一律先出手上最不值钱的牌。
+ */
+function repayGanggan(context: AIContext, cardIds: readonly string[], max: number): string[] {
+  const me = myself(context.view)
+  const cheapest = [...cardIds].sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+  // 掉这些血会要命：牌全押上也要还
+  if (me.hp <= max) return cheapest.slice(0, max)
+  // 血还算宽裕：手牌紧张时留一张，其余照还
+  const keep = me.handCount <= 2 ? 1 : 0
+  return cheapest.slice(0, Math.max(0, Math.min(max, cheapest.length - keep)))
 }
 
 /**

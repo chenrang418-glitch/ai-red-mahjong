@@ -3,11 +3,11 @@ import { loseHp } from '../../engine/hp'
 import {
   closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivateZone, privateZoneCards,
 } from '../../engine/private-zone'
-import type { ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
+import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
-import { moveCard } from '../../engine/zones'
+import { locateOwnedCard, moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -53,6 +53,14 @@ function setDebt(state: SanguoshaState, playerId: PlayerId, value: number): void
   if (!owner) return
   if (value > 0) owner.marks[DEBT_MARK] = value
   else delete owner.marks[DEBT_MARK]
+}
+
+/** 现在能弃的牌：手牌加装备区。 */
+function discardableCardIds(state: SanguoshaState, playerId: PlayerId): CardId[] {
+  const owner = playerOf(state, playerId)
+  if (!owner?.alive) return []
+  const equipment = Object.values(owner.zones.equipment).filter((id): id is CardId => Boolean(id))
+  return [...owner.zones.hand, ...equipment]
 }
 
 function drawFor(host: SkillHost, playerId: PlayerId, count: number, reason: string): void {
@@ -293,6 +301,23 @@ registerSkillRuntime({
   },
 
   resume(host, ownerId, resolution, response: GameResponse) {
+    if (resolution.step === 'settle') {
+      const cardIds = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
+      const debt = debtOf(host.state, ownerId)
+      const discarded: CardId[] = []
+      // 多给的牌不算数：最多抵掉现有的债
+      for (const cardId of cardIds.slice(0, debt)) {
+        const zone = locateOwnedCard(host.state, ownerId, cardId)
+        if (!zone) continue
+        moveCard(host.state, cardId, zone, { kind: 'discardPile' })
+        discarded.push(cardId)
+      }
+      if (discarded.length > 0) {
+        host.dispatch('LoseCard', { playerId: ownerId, cardIds: discarded, reason: GANGGAN }, { targetId: ownerId, cardIds: discarded })
+      }
+      settleDebt(host, ownerId, discarded.length)
+      return
+    }
     if (resolution.step !== 'amount') return
     const optionId = String((response.payload as { optionId?: string }).optionId ?? '')
     if (!optionId.startsWith(BORROW_PREFIX)) return
@@ -340,7 +365,7 @@ registerSkillRuntime({
     },
     {
       /*
-       * 摸牌阶段结束后还欠着就掉一点体力，然后一笔勾销。
+       * 摸牌阶段结束后还欠着，先给一次弃牌还债的机会，还不上的才扣体力。
        *
        * **跳过的摸牌阶段不会走到这里**：引擎跳过阶段时既不发 PhaseStart 也不发
        * PhaseEnd，所以「摸牌阶段被跳过则债保留、不掉血」是自然成立的，
@@ -367,16 +392,60 @@ registerSkillRuntime({
     if (debt <= 0) return
     const owner = playerOf(host.state, ownerId)
     if (!owner?.alive) return
-    host.dispatch('SkillActivated', {
-      skillId: GANGGAN, skillName: '杠杆', playerId: ownerId, result: 'default', amount: debt,
-      logText: `${owner.nickname}资金链有点紧张：还欠 ${debt} 枚「债」，失去 1 点体力并清空债务`,
-    }, { sourceId: ownerId })
-    // 无论欠 1 枚还是 3 枚都只掉一点，而且是**失去体力**不是伤害：
-    // 奸雄、遗计、刚烈、狂骨都不该被触发
-    setDebt(host.state, ownerId, 0)
-    loseHp(host, ownerId, 1, GANGGAN)
+
+    const payable = discardableCardIds(host.state, ownerId)
+    // 一张能弃的牌都没有：直接按还不上处理，不弹一个空窗口
+    if (payable.length === 0) {
+      settleDebt(host, ownerId, 0)
+      return
+    }
+    host.askSkill({
+      skillId: GANGGAN,
+      ownerId,
+      step: 'settle',
+      data: { debt },
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId,
+        kind: 'choose-cards',
+        playerId: ownerId,
+        prompt: `【杠杆】：还欠 ${debt} 枚「债」，可以弃牌抵债（每少还 1 枚就失去 1 点体力）`,
+        timeoutMs: 20_000,
+        // 可以一张都不弃，硬扛体力
+        optional: true,
+        purpose: 'skill',
+        cardIds: payable,
+        hiddenCardSlots: [],
+        min: 0,
+        max: Math.min(debt, payable.length),
+      }),
+    })
   },
 })
+
+/**
+ * 结清债务：弃掉的部分抵掉等量的债，剩下的**每枚扣一点体力**，然后一笔勾销。
+ *
+ * 是**失去体力**不是伤害——奸雄、遗计、刚烈、狂骨都不该被触发。
+ */
+function settleDebt(host: SkillHost, ownerId: PlayerId, paid: number): void {
+  const owner = playerOf(host.state, ownerId)
+  if (!owner?.alive) return
+  const debt = debtOf(host.state, ownerId)
+  const unpaid = Math.max(0, debt - paid)
+  setDebt(host.state, ownerId, 0)
+  if (unpaid <= 0) {
+    host.dispatch('SkillActivated', {
+      skillId: GANGGAN, skillName: '杠杆', playerId: ownerId, result: 'settled', amount: paid,
+      logText: `${owner.nickname}弃置 ${paid} 张牌还清了「债」`,
+    }, { sourceId: ownerId })
+    return
+  }
+  host.dispatch('SkillActivated', {
+    skillId: GANGGAN, skillName: '杠杆', playerId: ownerId, result: 'default', amount: unpaid,
+    logText: `${owner.nickname}资金链有点紧张：还差 ${unpaid} 枚「债」，失去 ${unpaid} 点体力`,
+  }, { sourceId: ownerId })
+  loseHp(host, ownerId, unpaid, GANGGAN)
+}
 
 export const XULAOBAN: CharacterDefinition = {
   id: 'xulaoban',
@@ -394,7 +463,7 @@ export const XULAOBAN: CharacterDefinition = {
     {
       id: GANGGAN,
       name: '杠杆',
-      description: '出牌阶段限一次，你可以摸至多三张牌，并获得等量“债”。你的下一个摸牌阶段每有1枚“债”，便少摸一张牌并移去1枚“债”；摸牌阶段结束后若仍有“债”，你失去1点体力并清除所有“债”。',
+      description: '出牌阶段限一次，你可以摸至多三张牌，并获得等量“债”。你的下一个正常摸牌阶段开始时，每有1枚“债”便少摸1张牌并移去1枚“债”，最多减少至0张。摸牌阶段结束后若仍有“债”，你可以弃置等量的牌并清除这些“债”；每有1枚无法或不愿以此法清除的“债”，你失去1点体力，然后清除剩余“债”。',
     },
   ],
 }
