@@ -77,11 +77,18 @@ function dispatchDamageTiming(
   )
 }
 
-function rescueOrder(state: SanguoshaState): PlayerId[] {
-  const current = player(state, state.currentPlayerId)
+/**
+ * 求桃的询问顺序：**从濒死角色自己开始**，再按座次绕一圈。
+ *
+ * 起点是濒死角色而不是当前回合角色。别人回合里被打到濒死时，从回合
+ * 角色问起会先把队友的【桃】要走，而濒死角色自己的【桃】和【酒】反倒
+ * 最后才问到——【酒】只有他本人能用，顺序错了就可能白白花掉队友一张桃。
+ */
+function rescueOrder(state: SanguoshaState, dyingPlayerId: PlayerId): PlayerId[] {
+  const dyingPlayer = player(state, dyingPlayerId)
   const order: PlayerId[] = []
   for (let offset = 0; offset < state.players.length; offset += 1) {
-    const candidate = state.players[(current.seat + offset) % state.players.length]
+    const candidate = state.players[(dyingPlayer.seat + offset) % state.players.length]
     if (candidate.alive) order.push(candidate.id)
   }
   return order
@@ -262,7 +269,7 @@ export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId:
     playerId,
     sourceId,
     damageNature: nature,
-    responderOrder: rescueOrder(host.state),
+    responderOrder: rescueOrder(host.state, playerId),
     responderIndex: 0,
     requestId: null,
   }

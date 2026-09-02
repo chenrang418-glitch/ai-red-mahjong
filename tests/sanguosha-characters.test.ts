@@ -310,10 +310,12 @@ describe('已登记武将的缺失技能补齐', () => {
     const red = giveNamed(game, 'p1', (card) => card.color === 'red' && card.name !== '桃')
     const target = game.state.players[2]
     resolveDamage(game, { sourceId: 'p0', targetId: target.id, amount: target.hp, nature: 'normal' })
+    // 求桃从濒死者本人起按座次问一圈，这里走到华佗那一问
     let request = game.state.pendingRequests[0]
-    expect(request.playerId).toBe('p0')
-    game.respond({ requestId: request.id, playerId: 'p0', payload: { actionId: 'rescue-pass' } })
-    request = game.state.pendingRequests[0]
+    while (request.playerId !== 'p1') {
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'rescue-pass' } })
+      request = game.state.pendingRequests[0]
+    }
     expect(request).toMatchObject({ kind: 'rescue', playerId: 'p1' })
     if (request.kind !== 'rescue') throw new Error('没有生成急救请求')
     expect(request.actionIds).toContain(`rescue-card:${red}`)

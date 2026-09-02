@@ -95,36 +95,50 @@ describe('伤害、濒死、救援、死亡与奖惩', () => {
 
   it('桃能救援任意濒死角色，Request 与牌局状态可序列化', () => {
     const game = startedGame('peach-rescue')
-    const peachId = giveCard(game, 'p0', '桃')
+    const peachId = giveCard(game, 'p2', '桃')
     game.state.players[1].hp = 1
     game.damage({ sourceId: 'p2', targetId: 'p1' })
+    // 先问濒死者本人，他手上没有桃，轮到下一位
+    expect(game.state.pendingRequests[0]).toMatchObject({ kind: 'rescue', playerId: 'p1' })
+    passCurrentRescuer(game)
     const request = game.state.pendingRequests[0]
-    expect(request).toMatchObject({ kind: 'rescue', playerId: 'p0', dyingPlayerId: 'p1', requiredRecover: 1 })
+    expect(request).toMatchObject({ kind: 'rescue', playerId: 'p2', dyingPlayerId: 'p1', requiredRecover: 1 })
     expect(JSON.parse(JSON.stringify(game.state)).dying.requestId).toBe(request.id)
 
-    game.respond({ requestId: request.id, playerId: 'p0', payload: { actionId: `rescue-card:${peachId}` } })
+    game.respond({ requestId: request.id, playerId: 'p2', payload: { actionId: `rescue-card:${peachId}` } })
     expect(game.state.players[1]).toMatchObject({ hp: 1, alive: true })
     expect(game.state.dying).toBeNull()
     expect(game.state.pendingRequests).toHaveLength(0)
     expect(game.state.zones.discardPile).toContain(peachId)
-    expect(game.state.decisions).toHaveLength(1)
+    expect(game.state.decisions).toHaveLength(2)
     assertCardConservation(game.state)
   })
 
-  it('酒仅能由濒死者自救，且救援按当前回合角色起依次询问', () => {
+  it('酒仅能由濒死者自救，且救援从濒死者本人起依次询问', () => {
     const game = startedGame('wine-rescue')
     const wineId = giveCard(game, 'p1', '酒')
     game.state.players[1].hp = 1
+    // p0 的回合里 p1 濒死：先问 p1 自己，而不是回合角色 p0
     game.damage({ targetId: 'p1' })
-    expect(game.state.pendingRequests[0].playerId).toBe('p0')
-    expect(game.state.pendingRequests[0].kind === 'rescue' && game.state.pendingRequests[0].actionIds.some((id) => id.includes(wineId))).toBe(false)
-    passCurrentRescuer(game)
     const selfRequest = game.state.pendingRequests[0]
     expect(selfRequest).toMatchObject({ kind: 'rescue', playerId: 'p1' })
-    expect(selfRequest.kind === 'rescue' && selfRequest.actionIds).toContain(`rescue-card:${wineId}`)
+    expect(selfRequest.kind === 'rescue' && selfRequest.actionIds, '酒只有濒死者本人能用')
+      .toContain(`rescue-card:${wineId}`)
     game.respond({ requestId: selfRequest.id, playerId: 'p1', payload: { actionId: `rescue-card:${wineId}` } })
     expect(game.state.players[1].hp).toBe(1)
     expect(game.state.dying).toBeNull()
+  })
+
+  it('别人手上的酒不会出现在求桃选项里', () => {
+    const game = startedGame('wine-not-shared')
+    const wineId = giveCard(game, 'p0', '酒')
+    game.state.players[1].hp = 1
+    game.damage({ targetId: 'p1' })
+    passCurrentRescuer(game)
+    const next = game.state.pendingRequests[0]
+    expect(next).toMatchObject({ kind: 'rescue', playerId: 'p2' })
+    expect(next.kind === 'rescue' && next.actionIds.some((id) => id.includes(wineId)), '酒不能救别人')
+      .toBe(false)
   })
 
   it('无人救援后死亡、公开身份、弃置区域，并由伤害来源获得反贼奖励', () => {
