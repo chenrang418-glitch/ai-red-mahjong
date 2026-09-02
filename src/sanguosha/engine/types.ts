@@ -62,6 +62,16 @@ export interface PlayerState {
   chained: boolean
   faceDown: boolean
   zones: PlayerZones
+  /**
+   * 武将专属牌堆：置于武将牌上的牌，按技能 id 分组。
+   *
+   * 周泰的「创」是第一个用户，之后的「田」「权」「忍」都放这里，
+   * **不允许给某个武将单开一个 `buquCards` 字段**——那样牌张守恒、
+   * 序列化、断线重连就要各写一遍。
+   *
+   * 这里放的是真实的 CardId，牌是从牌堆真移动过来的，不是复制出来的牌面。
+   */
+  characterPiles: Record<string, CardId[]>
   marks: Record<string, number>
   /** 限定技：**一局一次**，永不重置。 */
   usedLimitedSkills: string[]
@@ -342,6 +352,14 @@ export interface SanguoshaState {
   judgment: JudgmentState | null
   /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
   retrial: JudgmentRetrialState | null
+  /**
+   * 本回合判定阶段已经结算过的延时锦囊。
+   *
+   * 【闪电】判定失败会传给下一名没有【闪电】的角色；当场上只剩他自己
+   * 符合条件时，闪电会回到他自己的判定区——如果不记账，判定阶段就会
+   * 把同一张闪电反复判下去，一局直接卡死。回合结束时清空。
+   */
+  judgedDelayedCards: CardId[]
   cardResolution: CardResolutionState | null
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]

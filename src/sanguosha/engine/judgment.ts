@@ -315,7 +315,12 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
 function processRemaining(host: JudgmentEngineHost): void {
   const owner = player(host.state, host.state.currentPlayerId)
   if (host.state.judgment || host.state.retrial || host.state.dying || host.state.damageChain || owner.zones.judgingArea.length === 0) return
-  const delayedCardId = owner.zones.judgingArea.at(-1)!
+  // 本回合判过的不再判：闪电判定失败后可能又转回自己的判定区（场上没有别人
+  // 能接手时），不记账就会在同一个判定阶段里把它反复判下去，直接卡死。
+  const judged = host.state.judgedDelayedCards ?? (host.state.judgedDelayedCards = [])
+  const delayedCardId = [...owner.zones.judgingArea].reverse().find((cardId) => !judged.includes(cardId))
+  if (!delayedCardId) return
+  judged.push(delayedCardId)
   moveCard(host.state, delayedCardId, { kind: 'judgingArea', playerId: owner.id }, { kind: 'processingArea' })
   host.state.judgment = {
     playerId: owner.id,

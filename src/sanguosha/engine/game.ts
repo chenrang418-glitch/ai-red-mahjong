@@ -56,6 +56,7 @@ export class SanguoshaGame {
       maxHp: 4,
       chained: false,
       faceDown: false,
+      characterPiles: {},
       zones: { hand: [], equipment: emptyEquipment(), judgingArea: [] },
       marks: {},
       usedLimitedSkills: [],
@@ -85,6 +86,7 @@ export class SanguoshaGame {
       damageChain: null,
       judgment: null,
       retrial: null,
+      judgedDelayedCards: [],
       cardResolution: null,
       skillResolution: null,
       skillQueue: [],
@@ -380,6 +382,9 @@ export class SanguoshaGame {
     mutable.state = structuredClone(stored)
     // 旧存档里没有这张表，补一个空的，免得后续读写炸掉
     mutable.state.cardAliases ??= {}
+    // 专属牌堆是后加的字段，进行中的旧房间里没有
+    for (const player of mutable.state.players) player.characterPiles ??= {}
+    mutable.state.judgedDelayedCards ??= []
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1

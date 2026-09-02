@@ -21,6 +21,7 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   state.turnNumber = 1
   state.phase = 'prepare'
   state.skippedPhases = []
+  state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
   emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
   emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
@@ -45,6 +46,7 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): void {
   state.currentPlayerId = nextAlivePlayerId(state)
   state.turnNumber += 1
   state.skippedPhases = []
+  state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
   emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
 

@@ -220,3 +220,54 @@ describe('延时锦囊与判定阶段', () => {
     expect(game.state.players[0].hp).toBe(4)
   })
 })
+
+describe('闪电传不出去时不会把判定阶段卡死', () => {
+  /**
+   * 回归：压测 seed=soak-5-147 曾经在这里死循环 20002 步。
+   *
+   * 场上只剩两人、另一人判定区已经有【闪电】时，`nextLightningTarget`
+   * 找不到别的接手者就会把闪电退回给自己；判定阶段随即又把同一张闪电
+   * 拿起来重判，无限循环。修法是给「本回合已经判过的延时锦囊」记账。
+   */
+  it('闪电只能退回自己时，本回合不再重复判定', () => {
+    const game = startedGame('lightning-selfloop')
+    // 只留 p0 和 p1 活着，两人的判定区各放一张闪电，让闪电无处可去
+    for (const player of game.state.players.slice(2)) {
+      player.alive = false
+      player.identityRevealed = true
+    }
+    const lightning = placeDelayed(game, 'p0', '闪电')
+    const other = card(game, (candidate) => candidate.name === '闪电' && candidate.id !== lightning)
+    moveCard(game.state, other.id, locate(game.state, other.id), { kind: 'judgingArea', playerId: 'p1' })
+    // 判定为非黑桃 2~9，闪电必然要往外传
+    forceTop(game, (candidate) => candidate.suit === 'heart')
+
+    game.advancePhase()
+    let guard = 0
+    while (game.state.pendingRequests.length > 0) {
+      if (guard++ > 30) throw new Error('判定阶段没有收敛——闪电又循环了')
+      respondCurrent(game, 'respond-pass')
+    }
+
+    expect(game.state.judgedDelayedCards, '判过的要记账').toContain(lightning)
+    expect(game.state.phase, '判定阶段应当能正常走完').toBe('judge')
+    assertGameInvariants(game.state)
+  })
+
+  it('记账每回合清空，下个回合还能正常判', () => {
+    const game = startedGame('lightning-reset')
+    placeDelayed(game, 'p0', '乐不思蜀')
+    forceTop(game, (candidate) => candidate.suit === 'spade')
+    game.advancePhase()
+    passJudgmentWindow(game)
+    expect(game.state.judgedDelayedCards.length).toBeGreaterThan(0)
+
+    // 推进到下一个回合
+    let guard = 0
+    while (game.state.turnNumber === 1 && guard++ < 40) {
+      if (game.state.pendingRequests.length > 0) { respondCurrent(game, 'respond-pass'); continue }
+      game.advancePhase()
+    }
+    expect(game.state.judgedDelayedCards, '换回合就该清空').toHaveLength(0)
+  })
+})
