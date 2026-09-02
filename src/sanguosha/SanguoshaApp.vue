@@ -9,6 +9,7 @@ import SgsAudioControl from './components/SgsAudioControl.vue'
 import SgsResultDialog from './components/SgsResultDialog.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
 import { provideSgsGlossary } from './composables/useSgsGlossary'
+import { useScreenWakeLock } from './composables/useScreenWakeLock'
 import { ALL_CHARACTERS } from './data/characters/standard'
 import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
@@ -19,6 +20,8 @@ defineEmits<{ backToPortal: [] }>()
 type Screen = 'home' | 'setup' | 'online' | 'playing' | 'rules' | 'art'
 
 const screen = ref<Screen>(new URLSearchParams(window.location.search).has('room') ? 'online' : 'home')
+// 单机选将/对局和整个联机流程（含房间等人）都保持屏幕常亮；返回首页立即释放。
+useScreenWakeLock(computed(() => screen.value === 'playing' || screen.value === 'online'))
 const audioOpen = ref(false)
 /** 艺术集从首页和规则页都进得去，返回键要回到来时那一屏。 */
 const artBackTo = ref<Screen>('home')
