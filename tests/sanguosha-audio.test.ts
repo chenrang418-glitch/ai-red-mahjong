@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_CARD_INFO } from '@/sanguosha/data/ruleset-v1/card-info'
-import { effectForPresentation } from '@/sanguosha/composables/useSgsAudio'
+import { effectForPresentation, SGS_AUDIO_DEFAULTS } from '@/sanguosha/composables/useSgsAudio'
 import type { PresentationEvent } from '@/sanguosha/engine/presentation'
 
 function cardEvent(cardName: string, kind: 'card-use' | 'card-response' = 'card-use'): PresentationEvent {
@@ -8,6 +8,11 @@ function cardEvent(cardName: string, kind: 'card-use' | 'card-response' = 'card-
 }
 
 describe('三国杀声音映射', () => {
+  it('音乐和动作音效默认均为 100%', () => {
+    expect(SGS_AUDIO_DEFAULTS.musicVolume).toBe(1)
+    expect(SGS_AUDIO_DEFAULTS.effectsVolume).toBe(1)
+  })
+
   it('规则集里的每一种卡牌都有动作音效', () => {
     for (const card of ALL_CARD_INFO) expect(effectForPresentation(cardEvent(card.name)), card.name).not.toBeNull()
   })

@@ -52,6 +52,24 @@ describe('三国杀牌桌 V2 座位', () => {
     expect(source.indexOf('.sgs-seat__equipment {'), '展开规则必须写在隐藏规则之后才盖得住')
       .toBeGreaterThan(source.indexOf('.sgs-seat__equipment{display:none}'))
   })
+
+  it('立绘座位不使用会让 iPhone 中文笔画重叠的文字描边', () => {
+    const source = readFileSync('src/sanguosha/components/SgsSeat.vue', 'utf8')
+    expect(source).not.toContain('-webkit-text-stroke')
+    expect(source).toContain('.sgs-seat .sgs-seat__identity--lord')
+    expect(source).toContain('.sgs-seat .sgs-seat__identity--renegade')
+    expect(source).toContain('.sgs-seat .sgs-seat__identity--rebel')
+    expect(source).toContain('.sgs-seat .sgs-seat__identity--loyalist')
+    expect(source).toContain('.sgs-seat .sgs-seat__identity--hidden')
+  })
+
+  it('结算界面先显示红色返回首页，再显示再来一局，并强制玩家名为浅色', () => {
+    const source = readFileSync('src/sanguosha/SanguoshaApp.vue', 'utf8')
+    const actions = source.slice(source.indexOf('<div class="sgs-result__actions">'), source.indexOf('</div>', source.indexOf('<div class="sgs-result__actions">')))
+    expect(actions.indexOf('返回首页')).toBeLessThan(actions.indexOf('再来一局'))
+    expect(actions).toContain('class="danger"')
+    expect(source).toContain('.sgs-result__roster strong { min-width: 0; overflow: hidden; color: #f7f0df;')
+  })
 })
 
 describe('三国杀公开表现事件', () => {

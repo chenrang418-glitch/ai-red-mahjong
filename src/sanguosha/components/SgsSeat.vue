@@ -164,7 +164,7 @@ const artVars = computed(() => {
   left: 0;
   /*
    * 立绘铺满整个座位，不加遮罩——用户选的就是这个「整张画」的观感。
-   * 文字的可读性改由描边承担，见下面 `--has-art` 那一段。
+   * 文字的可读性改由轻量阴影承担，见下面 `--has-art` 那一段。
    *
    * 外层负责裁剪。放大后的图必须在这里被切掉，不能只靠座位卡的 overflow：
    * 那样 transform 撑出来的部分会算进座位的 scrollHeight，
@@ -199,8 +199,7 @@ const artVars = computed(() => {
 .sgs-seat--has-art .sgs-seat__meta button,
 .sgs-seat--has-art .sgs-seat__hint {
   color: #fff;
-  text-shadow: 0 0 2px #000, 0 0 3px #000, 0 1px 2px #000, 0 0 7px rgba(0, 0, 0, .95);
-  -webkit-text-stroke: .35px rgba(0, 0, 0, .85);
+  text-shadow: 0 1px 2px #000, 0 0 5px rgba(0, 0, 0, .92);
 }
 .sgs-seat--has-art .sgs-seat__general { color: #ffe6a0; font-weight: 900; }
 .sgs-seat--has-art .sgs-seat__hp span { color: #ff6a5c; }
@@ -213,14 +212,19 @@ const artVars = computed(() => {
 .sgs-seat--has-art .sgs-seat__states span,
 .sgs-seat--has-art .sgs-seat__states button,
 .sgs-seat--has-art .sgs-seat__judging button { background: rgba(0, 0, 0, .78); color: #fff; text-shadow: none; }
+.sgs-seat .sgs-seat__identity--lord { background: rgba(114, 85, 29, .94); color: #ffe39a; }
+.sgs-seat .sgs-seat__identity--renegade { background: rgba(118, 47, 43, .94); color: #ffc0b8; }
+.sgs-seat .sgs-seat__identity--rebel { background: rgba(89, 50, 111, .94); color: #e6c8ff; }
+.sgs-seat .sgs-seat__identity--loyalist { background: rgba(36, 83, 58, .94); color: #b8f0ca; }
+.sgs-seat .sgs-seat__identity--hidden { background: rgba(0, 0, 0, .82); color: #fff; }
 .sgs-seat--has-art .sgs-seat__turn { background: rgba(122, 92, 30, .92); color: #ffe39a; text-shadow: none; }
 
 /*
  * 有立绘时不压任何遮罩。
  *
  * 试过三种遮罩方案：整体压暗会把画糊掉；只压左侧文字区读得清但画面被切成两半；
- * 满幅压渐变则会把脸推到右边缘。最后选的是「一点不压 + 文字描边」——
- * 描边是局部生效的，不依赖背景亮度，所以再亮的立绘也压得住字。
+ * 满幅压渐变则会把脸推到右边缘。最后选的是「一点不压 + 轻量文字阴影」，
+ * 避免 iPhone Safari 在小字号中文上出现描边笔画粘连。
  */
 .sgs-seat__shade--art { background: none; }
 

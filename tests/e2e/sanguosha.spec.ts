@@ -197,11 +197,12 @@ test('声音面板提供音乐、音效和震动设置', async ({ page }) => {
   await page.goto('/?game=sanguosha')
   await page.getByRole('button', { name: '声音设置' }).click()
   const panel = page.getByRole('dialog', { name: '声音设置' })
-  await expect(panel).toContainText('动作音效')
+  await expect(panel).toContainText('音效音量 100')
+  await expect(panel).toContainText('音乐音量 100')
   await expect(panel).toContainText('背景音乐')
   await expect(panel).toContainText('震动反馈')
-  await expect(panel.getByRole('slider', { name: '动作音效音量' })).toBeVisible()
-  await expect(panel.getByRole('slider', { name: '背景音乐音量' })).toBeVisible()
+  await expect(panel.getByRole('slider', { name: '动作音效音量' })).toHaveValue('1')
+  await expect(panel.getByRole('slider', { name: '背景音乐音量' })).toHaveValue('1')
 })
 
 test('联机大厅入口在手机上一屏可操作', async ({ page }) => {

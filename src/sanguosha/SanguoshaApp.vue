@@ -267,8 +267,8 @@ function handleRespond(response: GameResponse): void {
         </li>
       </ol>
       <div class="sgs-result__actions">
+        <button type="button" class="danger" @click="quit">返回首页</button>
         <button type="button" class="primary" @click="playAgain">再来一局</button>
-        <button type="button" @click="quit">返回首页</button>
       </div>
     </section>
   </div>
@@ -395,16 +395,17 @@ function handleRespond(response: GameResponse): void {
 }
 .sgs-result__roster li.won { border-color: var(--accent-gold); background: rgba(155, 122, 55, .22); }
 .sgs-result__roster li.dead { opacity: .55; }
-.sgs-result__roster strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sgs-result__roster strong { min-width: 0; overflow: hidden; color: #f7f0df; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; text-shadow: 0 1px 2px rgba(0, 0, 0, .72); }
 .sgs-result__roster small { grid-column: 2; color: var(--ink-text-muted); font-size: 11px; }
 .sgs-result__roster em { grid-row: 1 / 3; color: var(--ink-text-soft); font-size: 11px; font-style: normal; }
 .sgs-result__identity { grid-row: 1 / 3; padding: 2px 6px; border-radius: 5px; background: #2b3831; color: #93a49b; font-size: 10px; }
 .sgs-result__identity--lord { background: #6a4a1c; color: #ffd98a; }
-.sgs-result__identity--rebel { background: #5c2622; color: #ffb3aa; }
+.sgs-result__identity--rebel { background: #59326f; color: #e6c8ff; }
 .sgs-result__identity--loyalist { background: #21432f; color: #a6e0bb; }
-.sgs-result__identity--renegade { background: #3d3151; color: #cbb6ee; }
+.sgs-result__identity--renegade { background: #762f2b; color: #ffc0b8; }
 .sgs-result__actions { display: flex; gap: 8px; }
 .sgs-result__actions button { flex: 1; }
+.sgs-result__actions .danger { border-color: #b95147; background: linear-gradient(180deg, #a9433a, #7f2d28); color: #fff1ed; }
 
 /* 退出确认：居中弹层，和麻将那边同一套观感 */
 .sgs-confirm-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(3, 10, 8, .74); }

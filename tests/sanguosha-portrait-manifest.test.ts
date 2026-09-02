@@ -76,10 +76,9 @@ describe('座位结构的硬约束', () => {
     expect(source).toMatch(/\.sgs-seat__art img \{[^}]*transform: scale\(var\(--art-scale/)
   })
 
-  it('文字靠描边而不是靠压暗遮罩', () => {
-    // 实测立绘在文字区的白字裸对比度低到 2.7:1，压暗救不了：
-    // 压轻了亮图读不出，压重了整张画糊掉。描边是局部生效的，不看背景亮度。
-    expect(source).toContain('-webkit-text-stroke')
+  it('文字靠轻量阴影提亮，不使用会让 iPhone 中文笔画粘连的描边', () => {
+    expect(source).not.toContain('-webkit-text-stroke')
+    expect(source).toContain('text-shadow: 0 1px 2px #000, 0 0 5px')
     expect(source).toMatch(/\.sgs-seat__shade--art \{ background: none/)
   })
 
