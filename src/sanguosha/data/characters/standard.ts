@@ -11,6 +11,8 @@ import { LORD_CHARACTERS, provideKingdomLookup } from './lords'
 import { QUN_CHARACTERS } from './qun'
 import { SHU_CHARACTERS } from './shu'
 import { WU_CHARACTERS } from './wu'
+import { WIND_CHARACTERS } from './wind'
+import { FIRE_CHARACTERS } from './fire'
 
 /**
  * 标准包武将。
@@ -350,7 +352,20 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
   ...WU_CHARACTERS,
 ] as const
 
-const BY_ID = new Map(STANDARD_CHARACTERS.map((character) => [character.id, character]))
+/**
+ * 真正可用的武将池 = 标准包 + 已完成的扩展包。
+ *
+ * **`STANDARD_CHARACTERS` 只装标准包**，不要往里塞扩展包武将——
+ * 名字和内容对不上是最容易让人误判池子大小的一类错误。
+ * 候选池、规则页、AI、立绘 manifest 一律读这个 `ALL_CHARACTERS`。
+ */
+export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
+  ...STANDARD_CHARACTERS,
+  ...WIND_CHARACTERS,
+  ...FIRE_CHARACTERS,
+] as const
+
+const BY_ID = new Map(ALL_CHARACTERS.map((character) => [character.id, character]))
 
 // 主公技要按势力找同伴，但势力表在这里才拼齐，所以运行时回注一个查询函数
 provideKingdomLookup((characterId) => BY_ID.get(characterId)?.kingdom)
@@ -364,7 +379,7 @@ export function skillIdsOf(characterId: string): string[] {
 }
 
 export function allCharacterIds(): string[] {
-  return STANDARD_CHARACTERS.map((character) => character.id)
+  return ALL_CHARACTERS.map((character) => character.id)
 }
 
 /** 这名玩家使用锦囊时是否无视距离（奇才）。 */

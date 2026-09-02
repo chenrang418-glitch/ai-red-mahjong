@@ -1,5 +1,5 @@
 import { ALL_CARD_INFO } from '../data/ruleset-v1/card-info'
-import { getCharacter, STANDARD_CHARACTERS } from '../data/characters/standard'
+import { getCharacter, ALL_CHARACTERS } from '../data/characters/standard'
 
 export type GlossaryKind = 'card' | 'character' | 'skill' | 'identity' | 'rule' | 'unknown-identity'
 
@@ -42,7 +42,7 @@ export function characterGlossary(characterId: string): GlossaryEntry | null {
 }
 
 export function skillGlossary(skillId: string): GlossaryEntry | null {
-  for (const character of STANDARD_CHARACTERS) {
+  for (const character of ALL_CHARACTERS) {
     const skill = character.skills.find((candidate) => candidate.id === skillId || candidate.name === skillId)
     if (skill) return { id: `skill:${skill.id}`, kind: 'skill', title: skill.name, subtitle: `${character.name}的技能`, description: skill.description, characterId: character.id }
   }

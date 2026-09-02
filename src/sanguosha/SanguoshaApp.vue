@@ -6,7 +6,7 @@ import SgsOnlineHub from './components/SgsOnlineHub.vue'
 import SgsGlossarySheet from './components/SgsGlossarySheet.vue'
 import { useLocalSanguosha } from './composables/useLocalSanguosha'
 import { provideSgsGlossary } from './composables/useSgsGlossary'
-import { getCharacter, STANDARD_CHARACTERS } from './data/characters/standard'
+import { getCharacter, ALL_CHARACTERS } from './data/characters/standard'
 import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
 import type { AIDifficulty } from './ai'
@@ -31,7 +31,7 @@ const AI_PACE_LABEL: Record<AIPace, string> = { fast: '较快', normal: '标准'
 
 const DIFFICULTY_LABEL: Record<AIDifficulty, string> = { easy: '简单', normal: '标准', hard: '困难' }
 // 每人的候选互不重叠，所以人数不能超过已实现的武将数
-const maxPlayers = computed(() => Math.min(8, STANDARD_CHARACTERS.length))
+const maxPlayers = computed(() => Math.min(8, ALL_CHARACTERS.length))
 const playerCounts = computed(() => [5, 6, 7, 8].filter((count) => count <= maxPlayers.value))
 
 const result = computed(() => game.view.value?.result ?? null)
@@ -167,7 +167,7 @@ function handleRespond(response: GameResponse): void {
           >{{ label }}</button>
         </div>
       </div>
-      <p class="sgs-panel__note">当前已实现 {{ STANDARD_CHARACTERS.length }} 名武将，每人随机分配候选。</p>
+      <p class="sgs-panel__note">当前已实现 {{ ALL_CHARACTERS.length }} 名武将，每人随机分配候选。</p>
       <button type="button" class="primary sgs-panel__start" @click="startMatch">开始</button>
     </section>
 
@@ -208,7 +208,7 @@ function handleRespond(response: GameResponse): void {
           <b>{{ section.title }}</b>
           <p v-for="card in section.cards" :key="card.name">【{{ card.name }}】{{ card.description }}</p>
         </article>
-        <article v-for="character in STANDARD_CHARACTERS" :key="character.id">
+        <article v-for="character in ALL_CHARACTERS" :key="character.id">
           <b>{{ character.name }}（体力 {{ character.maxHp }}）</b>
           <p v-for="skill in character.skills" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</p>
         </article>

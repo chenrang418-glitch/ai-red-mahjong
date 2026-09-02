@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
-import { STANDARD_CHARACTERS } from '@/sanguosha/data/characters/standard'
+import { ALL_CHARACTERS } from '@/sanguosha/data/characters/standard'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import { INSTANT_TRICKS as INSTANT_TRICK_NAMES } from '@/sanguosha/engine/cards/tricks'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
@@ -107,7 +107,7 @@ describe('转化技不能产出无人消费的牌名', () => {
     const DELAYED_TRICK_NAMES = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
     const produced = new Set<string>()
-    for (const character of STANDARD_CHARACTERS) {
+    for (const character of ALL_CHARACTERS) {
       const runtimes = character.skills.map((skill) => getSkillRuntime(skill.id)).filter(Boolean)
       if (!runtimes.some((runtime) => runtime!.viewAs)) continue
 

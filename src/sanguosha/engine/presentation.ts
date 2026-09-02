@@ -1,6 +1,6 @@
 import type { GameEvent } from './events'
 import type { DamageNature, PlayerId, SanguoshaState } from './types'
-import { getCharacter, STANDARD_CHARACTERS } from '../data/characters/standard'
+import { getCharacter, ALL_CHARACTERS } from '../data/characters/standard'
 
 export type PresentationEventKind =
   | 'turn-start' | 'card-use' | 'card-response' | 'skill' | 'damage' | 'recover'
@@ -42,7 +42,7 @@ const EQUIPMENT_SKILL_NAMES: Record<string, string> = {
  */
 export function skillDisplayName(skillId: string): string {
   return EQUIPMENT_SKILL_NAMES[skillId]
-    ?? STANDARD_CHARACTERS.flatMap((character) => character.skills)
+    ?? ALL_CHARACTERS.flatMap((character) => character.skills)
       .find((skill) => skill.id === skillId)?.name
     ?? skillId
 }

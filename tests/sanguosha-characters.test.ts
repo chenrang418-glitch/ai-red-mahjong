@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
-import { STANDARD_CHARACTERS, allCharacterIds, getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
+import { ALL_CHARACTERS, allCharacterIds, getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import { getDistance } from '@/sanguosha/engine/distance'
 import { resolveDamage } from '@/sanguosha/engine/damage'
@@ -410,7 +410,7 @@ function passAll(game: SanguoshaGame): void {
 describe('武将包完整性', () => {
   it('注册的武将必须每个技能都有真正的运行时实现', () => {
     // 任务书禁止「选将页看得到、技能其实没写」，这条就是防线
-    for (const character of STANDARD_CHARACTERS) {
+    for (const character of ALL_CHARACTERS) {
       expect(character.skills.length).toBeGreaterThan(0)
       for (const skill of character.skills) {
         expect(getSkillRuntime(skill.id), `${character.name}的【${skill.name}】没有运行时实现`).toBeDefined()
