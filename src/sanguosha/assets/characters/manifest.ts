@@ -200,6 +200,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     credit: '用户提供（GPT 生成）·张角',
   },
 
+  yuji: {
+    desktop: { position: '52% 18%', scale: 1.0 },
+    mobile: { position: '52% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·于吉',
+  },
+
   // ── 火包 ──
   dianwei: {
     desktop: { position: '45% 20%', scale: 1.0 },

@@ -403,3 +403,54 @@ describe('质疑的隐私与边界', () => {
     expect(game.state.groupDecision!.playerIds).not.toContain('p2')
   })
 })
+
+describe('蛊惑的界面', () => {
+  it('声明列表按牌名列出，每一项都是一条可点的选项', async () => {
+    const { createSSRApp } = await import('vue')
+    const { renderToString } = await import('vue/server-renderer')
+    const SgsRequestDock = (await import('@/sanguosha/components/SgsRequestDock.vue')).default
+
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    game.state.players[0].hp -= 1
+    const cardId = give(game, 'p0', '杀', 'spade')
+    game.act('p0', guhuoAction(game)!.id)
+    answer(game, { cardIds: [cardId] })
+
+    const view = game.viewFor('p0')
+    const request = view.pendingRequest!
+    expect(request.kind).toBe('choose-option')
+    const html = await renderToString(createSSRApp(SgsRequestDock, { request, view }))
+
+    // 声明的是牌名，不是内部 id
+    expect(html).toContain('声明【杀】')
+    expect(html).toContain('声明【桃】')
+    expect(html, '装备不能声明').not.toContain('声明【赤兔】')
+    expect(html, '延时锦囊不能声明').not.toContain('声明【乐不思蜀】')
+    // 选项数量就是候选数量，UI 不自己增删
+    const rendered = (html.match(/声明【/g) ?? []).length
+    expect(rendered).toBe((request as { options: unknown[] }).options.length)
+  })
+
+  it('质疑面板只有两个按钮，看不到别人的选择', async () => {
+    const { createSSRApp } = await import('vue')
+    const { renderToString } = await import('vue/server-renderer')
+    const SgsRequestDock = (await import('@/sanguosha/components/SgsRequestDock.vue')).default
+
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    game.state.players[0].hp -= 1
+    const cardId = give(game, 'p0', '杀', 'spade')
+    declare(game, cardId, '桃')
+
+    const view = game.viewFor('p1')
+    const request = view.pendingRequest!
+    const html = await renderToString(createSSRApp(SgsRequestDock, { request, view }))
+
+    expect(html).toContain('质疑')
+    expect(html).toContain('不质疑')
+    expect(html, '不能提前透露真实牌').not.toContain(cardId)
+    // 声明的是桃，界面上要说清楚
+    expect(request.prompt).toContain('声明【桃】')
+  })
+})
