@@ -414,7 +414,24 @@ export class SanguoshaRoomCoordinator {
     if (userId !== this.state.hostUserId) throw new InvalidSgsCommandError('只有房主可以这么做')
   }
 
+  /**
+   * 开局前把空位补成电脑。
+   *
+   * 房主不必再手动一个个「添加电脑」——人来齐了就是全真人局，人不够就自动凑满。
+   * 手动添加的按钮保留：房主想固定几个电脑位时还用得上。
+   */
+  private fillEmptySeatsWithAI(): void {
+    for (const seat of this.state.seats) {
+      if (seat.kind !== 'empty') continue
+      seat.kind = 'ai'
+      seat.name = `电脑${seat.seatId + 1}`
+      seat.ready = true
+      seat.connected = true
+    }
+  }
+
   private startGame(now: number): void {
+    this.fillEmptySeatsWithAI()
     const occupied = this.state.seats.filter((seat) => seat.kind !== 'empty')
     if (occupied.length !== this.state.settings.playerCount) throw new InvalidSgsCommandError('还有空位没有坐满')
     const humans = occupied.filter((seat) => seat.kind === 'human' && !seat.leftRoom)
@@ -434,7 +451,18 @@ export class SanguoshaRoomCoordinator {
          * 上限 10 现在碰不到（floor(25/5)=5 已是最大），是给扩包之后留的。
          */
         generalChoices: 10,
-        players: occupied.map((seat) => ({
+        /*
+         * **每局重新洗座次。**
+         *
+         * 引擎按 `players` 数组的下标定座位，所以照房间座位顺序传进去的话，
+         * 谁在谁的上家、谁跟谁离得远，整个房间从第一局到最后一局都是同一套，
+         * 距离和出杀关系也就固定了。这里按 seed 洗一遍：playerId 仍然是
+         * `seat-N`（房间那边全靠它认人，不能动），变的只是入座顺序。
+         *
+         * 洗牌用的是从同一个 seed 派生的确定性随机源，服务端算一次就写进
+         * 牌局状态，重连和多客户端看到的是同一份。
+         */
+        players: new GameRng(`seat:${seed}`).shuffle(occupied).map((seat) => ({
           id: playerIdOf(seat.seatId),
           nickname: seat.name,
           isHuman: seat.kind === 'human',

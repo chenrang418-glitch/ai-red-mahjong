@@ -48,10 +48,39 @@ describe('联机房间：大厅', () => {
     expect(() => room.handle(GUEST.userId, { type: 'start-game' })).toThrow(InvalidSgsCommandError)
   })
 
-  it('座位没坐满不许开局', () => {
+  it('座位没坐满就自动补电脑，房主不用一个个添加', () => {
     const room = lobby()
     room.handle(HOST.userId, { type: 'toggle-ready' })
-    expect(() => room.handle(HOST.userId, { type: 'start-game' })).toThrow(/空位/)
+    room.handle(HOST.userId, { type: 'start-game' })
+
+    const seats = room.view(HOST.userId).seats
+    expect(seats.filter((seat) => seat.kind === 'empty'), '不该再有空位').toHaveLength(0)
+    expect(seats.filter((seat) => seat.kind === 'ai'), '四个空位全补成电脑').toHaveLength(4)
+    expect(room.view(HOST.userId).playerView, '牌局真的开起来了').toBeTruthy()
+  })
+
+  it('每局重新洗座次，不按房间座位固定', () => {
+    // 同样的房间、同样的人，只有开局时间不同：入座顺序应当会变
+    const orders = new Set<string>()
+    for (let index = 0; index < 12; index += 1) {
+      const room = lobby(1_000 + index)
+      room.handle(HOST.userId, { type: 'toggle-ready' }, 1_000 + index)
+      room.handle(HOST.userId, { type: 'start-game' }, 1_000 + index)
+      const view = room.view(HOST.userId).playerView!
+      orders.add([...view.players].sort((left, right) => left.seat - right.seat).map((player) => player.id).join(','))
+    }
+    expect(orders.size, '十二局下来座次不该只有一种').toBeGreaterThan(1)
+  })
+
+  it('洗座次不改变 playerId 与房间座位的对应关系', () => {
+    const room = started()
+    const view = room.view(HOST.userId).playerView!
+    for (const player of view.players) {
+      // 房间那边全靠 `seat-N` 认人，洗的只是入座顺序
+      expect(player.id).toMatch(/^seat-\d$/)
+    }
+    expect(new Set(view.players.map((player) => player.id)).size).toBe(view.players.length)
+    expect(new Set(view.players.map((player) => player.seat))).toEqual(new Set([0, 1, 2, 3, 4]))
   })
 
   it('大厅里断线直接腾出座位，牌局中则保留', () => {

@@ -171,6 +171,7 @@ onBeforeUnmount(() => {
       <div class="sgs-online__seats">
         <article v-for="seat in online.room.value.seats" :key="seat.seatId" :class="{ empty: seat.kind === 'empty' }">
           <span>{{ seat.kind === 'empty' ? '空位' : seat.name }}</span>
+          <small v-if="seat.kind === 'empty'">开局时自动补电脑</small>
           <small v-if="seat.kind === 'human'">{{ seat.ready ? '已准备' : '未准备' }}{{ seat.connected ? '' : ' · 离线' }}</small>
           <small v-else-if="seat.kind === 'ai'">电脑 · {{ online.room.value.settings.difficulty }}</small>
           <button v-if="isHost && seat.kind === 'ai'" type="button" @click="online.send({ type: 'remove-ai', seatId: seat.seatId })">移除</button>
@@ -179,7 +180,8 @@ onBeforeUnmount(() => {
       <div class="sgs-online__actions">
         <button v-if="isHost && !allSeatsFilled" type="button" @click="online.send({ type: 'add-ai' })">添加电脑</button>
         <button v-if="me?.kind === 'human'" type="button" :class="{ primary: !me.ready }" @click="online.send({ type: 'toggle-ready' })">{{ me.ready ? '取消准备' : '准备' }}</button>
-        <button v-if="isHost" type="button" class="primary" :disabled="!allSeatsFilled || !allHumansReady" @click="online.send({ type: 'start-game' })">开始游戏</button>
+        <!-- 不再要求坐满：空位在服务端开局时自动补成电脑 -->
+        <button v-if="isHost" type="button" class="primary" :disabled="!allHumansReady" @click="online.send({ type: 'start-game' })">开始游戏</button>
       </div>
     </section>
 
