@@ -88,6 +88,13 @@ export interface SkillRuntime {
   prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string): boolean
   /** 拥有者使用【杀】时，目标需要连续打出多少张【闪】。 */
   slashDodgeResponses?: number
+  /**
+   * 锁定技：拥有者对某个目标使用的【杀】不可被【闪】响应。
+   *
+   * 每个目标单独判定——多目标【杀】里可能只有一部分满足条件。
+   * 不发问、不产生请求，所以放在这里而不是「成为目标时」的插入点链上。
+   */
+  slashUndodgeable?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
   /** 对方在与拥有者【决斗】时，每轮需要连续打出多少张【杀】。 */
   duelSlashResponses?: number
   /**

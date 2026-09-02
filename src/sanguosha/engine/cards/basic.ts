@@ -183,7 +183,23 @@ function enterSlashTarget(host: CardEngineHost): void {
     continueSlash(host)
     return
   }
+  applyUndodgeableSkills(host, resolution.sourceId, resolution.targetId)
   if (!askSlashInterceptors(host)) askSlashDodge(host)
+}
+
+/**
+ * 锁定技造成的「不可闪避」。
+ *
+ * 铁骑是判定成功后写 noDodge，烈弓是看目标手牌数——都落到同一个字段上，
+ * 后面求闪那一步只认这个字段，不需要知道是哪个技能写的。
+ * 只加不减：铁骑已经判成功了，烈弓不满足条件也不能把它抹掉。
+ */
+function applyUndodgeableSkills(host: CardEngineHost, sourceId: PlayerId, targetId: PlayerId): void {
+  const resolution = host.state.cardResolution
+  if (resolution?.kind !== 'slash') return
+  for (const runtime of skillsOf(host.state, sourceId, skillIdsOf)) {
+    if (runtime.slashUndodgeable?.(host.state, sourceId, targetId)) resolution.noDodge = true
+  }
 }
 
 /**

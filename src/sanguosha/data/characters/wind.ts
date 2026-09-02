@@ -46,6 +46,28 @@ registerSkillRuntime({
   }],
 })
 
+// —— 黄忠【烈弓】——
+//
+// 采用**经典风包版**：锁定技，当你使用【杀】指定一个目标后，
+// 若该角色的手牌数小于等于你的体力值，或大于等于你的体力上限，
+// 则该【杀】不可被【闪】响应。
+// 界限突破版换成了「距离条件 + 可选发动」，这里不混进来。
+//
+// 走 `slashUndodgeable` 这个公共入口，和铁骑落到同一个 noDodge 字段上——
+// 不为烈弓单开一条结算分支。
+
+registerSkillRuntime({
+  id: 'liegong',
+  slashUndodgeable(state, ownerId, targetId) {
+    const owner = state.players.find((player) => player.id === ownerId)
+    const target = state.players.find((player) => player.id === targetId)
+    if (!owner || !target) return false
+    // 比的是当前手牌数。此刻【杀】已经离手进了处理区，所以两边数的都是「出牌之后」的手牌
+    const handCount = target.zones.hand.length
+    return handCount <= owner.hp || handCount >= owner.maxHp
+  },
+})
+
 export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
   {
     id: 'weiyan',
@@ -58,6 +80,19 @@ export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
       id: 'kuanggu',
       name: '狂骨',
       description: '锁定技，当你对距离一以内的角色造成伤害后，你回复等同于伤害点数的体力。',
+    }],
+  },
+  {
+    id: 'huangzhong',
+    name: '黄忠',
+    kingdom: 'shu',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'wind',
+    skills: [{
+      id: 'liegong',
+      name: '烈弓',
+      description: '锁定技，当你使用【杀】指定一个目标后，若该角色的手牌数小于等于你的体力值，或大于等于你的体力上限，则该【杀】不可被【闪】响应。',
     }],
   },
 ] as const
