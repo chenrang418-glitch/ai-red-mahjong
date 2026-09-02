@@ -20,7 +20,7 @@ describe('AI 节奏', () => {
       expect(playActionDelay(base), `${base}ms 档的出牌应当比响应慢`).toBeGreaterThan(base)
     }
     // 即使玩家选了最快的档，主动出牌也不会快到看不清
-    expect(playActionDelay(AI_PACE_MS.fast)).toBeGreaterThanOrEqual(900)
+    expect(playActionDelay(AI_PACE_MS.fast)).toBeGreaterThanOrEqual(1_800)
   })
 
   it('响应牌和自动阶段的节奏没有被改动', () => {
@@ -35,7 +35,7 @@ describe('AI 节奏', () => {
   })
 
   it('有上限，不会因为节奏调慢就无限拉长', () => {
-    expect(playActionDelay(10_000)).toBeLessThanOrEqual(2_400)
+    expect(playActionDelay(10_000)).toBeLessThanOrEqual(4_800)
   })
 
   it('联机：AI 主动出牌排的等待比响应牌长', () => {

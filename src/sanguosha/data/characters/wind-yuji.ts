@@ -86,6 +86,8 @@ function hasAnyDeclaration(state: SanguoshaState, ownerId: PlayerId): boolean {
 
 registerSkillRuntime({
   id: GUHUO,
+  // 扣牌、声明、质疑各有自己的横幅文案，引擎那条通用的会和它撞在一起
+  announcesSelf: true,
 
   activeActions(state, ownerId) {
     if (!hasAnyDeclaration(state, ownerId)) return []
@@ -268,9 +270,12 @@ registerGroupDecision(CHALLENGE_TAG, (host, decision) => {
   const challengers = playersWhoChose(decision, CHALLENGE)
 
   if (challengers.length === 0) {
-    // 无人质疑：牌按所述之牌结算，不揭示
+    // 无人质疑：牌按所述之牌结算，不揭示。
+    // 这条要有自己的文案：和上面那条声明横幅只隔一次群体决定，
+    // 两条都写「于吉发动【蛊惑】」的话中央就是同一句连播两遍
     skillHost.dispatch('SkillActivated', {
       skillId: GUHUO, skillName: '蛊惑', playerId: ownerId, declaredName, challenged: false,
+      logText: `无人质疑，${owner.nickname}的【${declaredName}】按所述结算`,
     }, { sourceId: ownerId })
     resolveDeclared(skillHost, ownerId, cardId, actionId, declaredName, targetIds)
     return

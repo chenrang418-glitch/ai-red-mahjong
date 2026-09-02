@@ -475,6 +475,8 @@ function inheritEstate(host: SkillHost, heirId: PlayerId, deadId: PlayerId): voi
 
 registerSkillRuntime({
   id: MAMA,
+  // 认亲、跟杀、被打懵、继承遗产各有自己的横幅文案，引擎那条会和它撞在一起
+  announcesSelf: true,
   triggers: [
     {
       /*

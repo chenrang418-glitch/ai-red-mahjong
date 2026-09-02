@@ -37,6 +37,13 @@ export class SanguoshaGame {
   rng: GameRng
   readonly events = new GameEventBus()
   readonly state: SanguoshaState
+  /**
+   * 本次 act/respond 调用链里最近播过的技能横幅。
+   *
+   * 只在同一个调用链里有意义，所以不进 GameState；跨调用要保留的信息由
+   * `skillResolution.announced` 负责（那个是序列化的）。
+   */
+  private recentAnnounce: { skillId: string; ownerId: string } | null = null
 
   constructor(options: SanguoshaGameOptions) {
     const { setup, seed } = options
@@ -115,6 +122,14 @@ export class SanguoshaGame {
     payload: Record<string, unknown> = {},
     metadata: Omit<GameEvent, 'id' | 'seq' | 'name' | 'payload'> = {},
   ): EventContext {
+    if (name === 'SkillActivated') {
+      // 记下刚报过谁的什么技能，紧接着的 askSkill 靠它判断「这次发动已经报过了」。
+      // 只在同一次 act/respond 的调用链里有效，入口处会清掉。
+      this.recentAnnounce = {
+        skillId: String(payload.skillId ?? ''),
+        ownerId: String(metadata.sourceId ?? payload.playerId ?? ''),
+      }
+    }
     const seq = ++this.state.seq
     const event: GameEvent = { id: `event-${seq}`, seq, name, payload, ...metadata }
     return this.events.emit(event)
@@ -148,6 +163,10 @@ export class SanguoshaGame {
       step: options.step,
       requestId,
       data: structuredClone(options.data ?? {}),
+      // 刚刚为这个技能报过横幅（引擎兜底的那条，或者武将自己发的那条）就记下来，
+      // 后面的步骤不再重复播
+      announced: this.recentAnnounce?.skillId === options.skillId
+        && this.recentAnnounce.ownerId === options.ownerId,
     }
     this.state.pendingRequests.push(request)
   }
@@ -200,6 +219,7 @@ export class SanguoshaGame {
   }
 
   respond(response: GameResponse): void {
+    this.recentAnnounce = null
     this.respondInner(response)
     this.settle()
   }
@@ -236,8 +256,13 @@ export class SanguoshaGame {
       if (validationError) throw new Error(validationError)
       const runtime = getSkillRuntime(skillResolution.skillId)
       if (!runtime?.resume) throw new Error(`技能缺少续接实现：${skillResolution.skillId}`)
-      if (skillResponseWasInvoked(request, response)) {
+      // 这次发动已经报过横幅就不再补：多步技能否则会连播好几遍同一个技能名。
+      // 技能自己会报的（announcesSelf）也不补，那两条会挨在一起变成重复播放。
+      if (!skillResolution.announced && !runtime.announcesSelf && skillResponseWasInvoked(request, response)) {
         this.dispatch('SkillActivated', { skillId: skillResolution.skillId, skillName: skillDisplayName(skillResolution.skillId) }, { sourceId: skillResolution.ownerId })
+      } else if (skillResolution.announced) {
+        // 续接下一步时 askSkill 要能继续认出「已经报过」
+        this.recentAnnounce = { skillId: skillResolution.skillId, ownerId: skillResolution.ownerId }
       }
       this.state.pendingRequests = this.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
       // 先清空再回调，技能才能在 resume 里接着问下一步
@@ -321,6 +346,7 @@ export class SanguoshaGame {
   }
 
   advancePhase(): void {
+    this.recentAnnounce = null
     advanceGamePhase(this)
     this.settle()
   }
@@ -330,6 +356,7 @@ export class SanguoshaGame {
   }
 
   act(playerId: string, actionId: string): void {
+    this.recentAnnounce = null
     performPlayAction(this, playerId, actionId)
     this.settle()
   }

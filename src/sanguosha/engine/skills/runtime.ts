@@ -82,6 +82,17 @@ export interface SkillHost {
   advancePhase(): void
 }
 
+/**
+ * 技能自己播横幅，引擎不要再补兜底那条。
+ *
+ * 引擎默认会在技能被肯定发动时补一条 `SkillActivated`，给的是「谁发动了【X】」
+ * 这种通用文案。有些技能自己发的那条信息更全（带目标、带战报文案），
+ * 两条挨在一起就是牌桌中央同一个技能名连播两遍。
+ *
+ * 只给**每次发动都会自己报**的技能加这个标记。像【牛来】那种只在收手/爆仓时
+ * 报结果的，仍然需要引擎那条开场横幅，不要加。
+ */
+
 export interface SkillTrigger {
   event: GameEventName
   /** 数字越大越先执行，和 GameEventBus 的排序一致。 */
@@ -101,6 +112,8 @@ export interface ViewAsOption {
 
 export interface SkillRuntime {
   id: string
+  /** 见上方说明：这个技能每次发动都自己播横幅，引擎不补兜底那条。 */
+  announcesSelf?: boolean
   /** 挂到事件总线上的触发技。 */
   triggers?: SkillTrigger[]
   /** 锁定技：出牌阶段【杀】不限次。 */

@@ -537,10 +537,13 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     }
 
     if (!runtime.invokeActive) throw new Error('技能不可发动')
-    // 确认技能真的能发动之后再广播，界面才不会为一次失败的点击闪一下技能名
-    host.dispatch('SkillActivated', {
-      skillId: action.skillId, skillName: skillDisplayName(action.skillId), targetIds: action.targetIds,
-    }, { sourceId: playerId })
+    // 确认技能真的能发动之后再广播，界面才不会为一次失败的点击闪一下技能名。
+    // 自己会报横幅的技能不补这条，否则中央会连播两遍同一个技能名
+    if (!runtime.announcesSelf) {
+      host.dispatch('SkillActivated', {
+        skillId: action.skillId, skillName: skillDisplayName(action.skillId), targetIds: action.targetIds,
+      }, { sourceId: playerId })
+    }
     runtime.invokeActive(host, playerId, action.id)
     return
   }

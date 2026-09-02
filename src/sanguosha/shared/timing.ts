@@ -27,10 +27,10 @@ export function phaseDelay(aiDelayMs: number): number {
  * AI 主动出牌——谁对谁用了什么牌、触发了什么技能，是牌桌上信息量最大的一步，
  * 700ms 里牌面刚飞出去就已经进入下一个人的操作了。
  *
- * 所以按整体节奏放慢一倍多，并压一个下限：即使玩家选了「明快」，
- * 主动出牌也不会快到看不清。
+ * 所以按整体节奏放慢好几倍，并压一个下限：即使玩家选了「明快」，
+ * 主动出牌也不会快到看不清。标准档 700ms → 3080ms。
  */
 export function playActionDelay(aiDelayMs: number): number {
   if (aiDelayMs <= 0) return 0
-  return Math.min(2_400, Math.max(900, Math.round(aiDelayMs * 2.2)))
+  return Math.min(4_800, Math.max(1_800, Math.round(aiDelayMs * 4.4)))
 }

@@ -403,6 +403,17 @@ export interface SkillResolutionState {
   step: string
   requestId: string
   data: Record<string, unknown>
+  /**
+   * 这次发动是否已经播过技能横幅。
+   *
+   * 一个技能问好几步是常态（选牌 → 选目标 → 选选项），而引擎在**每一步**
+   * 得到肯定回答时都会补一条 SkillActivated 兜底。不记这个标记的话，
+   * 一次发动会在牌桌中央连播好几遍同一个技能名——用户报的「重复显示两次」。
+   *
+   * 必须跟着挂起状态一起序列化：多步技能会跨多次 respond，中间 Durable Object
+   * 可能已经休眠过一轮。
+   */
+  announced: boolean
 }
 
 /**
