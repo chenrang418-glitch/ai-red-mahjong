@@ -3,6 +3,10 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
+// 填充角色用张飞而不是马超：马超有了【铁骑】之后，每次出杀都会多一个询问，
+// 把这些测试的响应序列全部打乱。张飞的【咆哮】是纯被动（只放宽出杀次数），
+// 不产生任何请求，才是真正的「无干扰填充」。
+
 /**
  * 借刀杀人与重铸。
  *
@@ -22,7 +26,7 @@ function gameWith(characterIds: (string | null)[], seed = 'knife'): SanguoshaGam
   const identities: Identity[] = ['lord', 'rebel', 'loyalist', 'rebel', 'renegade']
   game.state.players.forEach((player, index) => {
     player.identity = identities[index]
-    player.characterId = characterIds[index] ?? 'machao'
+    player.characterId = characterIds[index] ?? 'zhangfei'
   })
   game.start()
   while (game.state.pendingRequests.length > 0) {

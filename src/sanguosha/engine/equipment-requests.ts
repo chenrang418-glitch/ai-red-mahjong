@@ -1,3 +1,4 @@
+import { performJudgment } from './judgment'
 import { registerSkillRuntime, type SkillHost } from './skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
@@ -515,6 +516,55 @@ registerSkillRuntime({
 })
 
 // 技能 id 直接用武将数据里的那个，`getSkillRuntime` 才查得到
+export const TIEJI_SKILL = 'tieji'
+
+/**
+ * 马超【铁骑】：使用【杀】指定目标后可以判定，为红则该目标不能用【闪】响应。
+ *
+ * 挂在杀的拦截链最前面——它是使用者在「指定目标后」立刻发动的，
+ * 先于雌雄双股剑和目标方的流离。判定放在 resume 里做，因为发不发动要先问。
+ */
+export function askTieji(host: SkillHost, sourceId: PlayerId, targetId: PlayerId): boolean {
+  if (host.state.skillResolution) return false
+  const source = host.state.players.find((player) => player.id === sourceId)
+  if (!source?.alive || !source.characterId) return false
+  if (!skillIdsProvider?.(source.characterId).includes(TIEJI_SKILL)) return false
+  const target = host.state.players.find((player) => player.id === targetId)
+  if (!target?.alive) return false
+
+  host.askSkill({
+    skillId: TIEJI_SKILL,
+    ownerId: sourceId,
+    step: 'ask',
+    data: { targetId },
+    build: (requestId): ChooseOptionRequest => ({
+      id: requestId,
+      kind: 'choose-option',
+      playerId: sourceId,
+      prompt: `发动【铁骑】？判定为红色则 ${target.nickname} 不能用【闪】响应`,
+      timeoutMs: 20_000,
+      optional: true,
+      options: [{ id: 'yes', label: '发动' }, { id: 'no', label: '放弃' }],
+    }),
+  })
+  return true
+}
+
+registerSkillRuntime({
+  id: TIEJI_SKILL,
+  resume(host, ownerId, _resolution, response) {
+    const invoked = (response.payload as { optionId?: string }).optionId === 'yes'
+    if (invoked) {
+      // 走统一的判定入口，判定相关的时机（天妒、鬼才）才对得上
+      const judged = performJudgment(host, ownerId, '铁骑')
+      const resolution = host.state.cardResolution
+      if (judged.color === 'red' && resolution?.kind === 'slash') resolution.noDodge = true
+    }
+    // 无论发不发动，控制权都要交回这次【杀】的结算
+    callbacks?.resumeSlashAfterEquipment(host)
+  },
+})
+
 export const LIULI_SKILL = 'liuli'
 
 /**

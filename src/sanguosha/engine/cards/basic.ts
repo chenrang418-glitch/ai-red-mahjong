@@ -11,7 +11,7 @@ import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
-import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
@@ -233,6 +233,8 @@ function askSlashInterceptors(host: CardEngineHost): boolean {
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return false
   const interceptors: Array<[string, () => boolean]> = [
+    // 铁骑排在最前：它是使用者在「指定目标后」立刻发动的，先于装备和目标方的反应
+    ['tieji', () => askTieji(host, resolution.sourceId, resolution.targetId)],
     ['cixiong', () => askCixiongSword(host, resolution.sourceId, resolution.targetId)],
     ['liuli', () => askSlashTransfer(host, resolution.sourceId, resolution.targetId)],
   ]
@@ -251,6 +253,12 @@ function askSlashInterceptors(host: CardEngineHost): boolean {
 function askSlashDodge(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return
+  // 铁骑判定成功：这一刀根本不问闪，直接走「没闪掉」那条路。
+  // 用 landSlash 而不是直接结算伤害——寒冰剑这类「伤害前」的效果照样要有机会。
+  if (resolution.noDodge) {
+    landSlash(host, resolution)
+    return
+  }
   resolution.stage = 'awaiting-dodge'
   askDodge(host, resolution.targetId, `${player(host.state, resolution.sourceId).nickname}对你使用【杀】，请响应【闪】`, true)
 }

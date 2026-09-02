@@ -150,6 +150,49 @@ registerSkillRuntime({
   },
 })
 
+/*
+ * 郭嘉【天妒】——判定牌生效后可以拿走它。
+ *
+ * 走队列而不是在 JudgeResult 里当场发问：那时候判定还没走完
+ * （延时锦囊的效果、闪电的伤害都在后面），当场插一个请求会打断结算。
+ * 排队之后判定牌已经进了弃牌堆，从那里取回来——和洛神同一个套路。
+ */
+registerSkillRuntime({
+  id: 'tiandu',
+  triggers: [{
+    event: 'JudgeResult',
+    handle(host, ownerId, context) {
+      const payload = context.event.payload as { playerId?: PlayerId; judgeCardId?: CardId }
+      if (payload.playerId !== ownerId) return
+      if (!payload.judgeCardId) return
+      host.queueSkill({ skillId: 'tiandu', ownerId, step: 'ask', data: { judgeCardId: payload.judgeCardId } })
+    },
+  }],
+  startQueued(host, ownerId, prompt) {
+    const judgeCardId = prompt.data.judgeCardId as CardId
+    if (!playerOf(host.state, ownerId).alive) return
+    // 队列里的前提可能已经失效：判定牌可能被别的效果拿走，或者洗回了牌堆
+    if (!host.state.zones.discardPile.includes(judgeCardId)) return
+    const card = host.state.cards[judgeCardId]
+    host.askSkill({
+      skillId: 'tiandu',
+      ownerId,
+      step: 'ask',
+      data: { judgeCardId },
+      build: (requestId) => yesNo(requestId, ownerId, `发动【天妒】？获得判定牌【${card?.name ?? '判定牌'}】`),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (!chose(response, 'yes')) return
+    const judgeCardId = resolution.data.judgeCardId as CardId
+    // 从发问到回答之间牌可能又动了，再确认一次
+    if (!host.state.zones.discardPile.includes(judgeCardId)) return
+    if (!playerOf(host.state, ownerId).alive) return
+    moveCard(host.state, judgeCardId, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
+    host.dispatch('GainCard', { playerId: ownerId, cardIds: [judgeCardId], reason: '天妒' }, { targetId: ownerId, cardIds: [judgeCardId] })
+  },
+})
+
 // —— 夏侯惇【刚烈】——
 registerSkillRuntime({
   id: 'ganglie',
@@ -348,6 +391,9 @@ export const WEI_DAMAGE_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 3,
     pack: 'standard',
-    skills: [{ id: 'yiji', name: '遗计', description: '每当你受到一点伤害后，你可以摸两张牌，然后可以将这两张牌分配给任意角色。' }],
+    skills: [
+      { id: 'tiandu', name: '天妒', description: '每当你的判定牌生效后，你可以获得此牌。' },
+      { id: 'yiji', name: '遗计', description: '每当你受到一点伤害后，你可以摸两张牌，然后可以将这两张牌分配给任意角色。' },
+    ],
   },
 ] as const

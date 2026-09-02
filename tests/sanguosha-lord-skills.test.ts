@@ -3,6 +3,10 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
+// 填充角色用张飞而不是马超：马超有了【铁骑】之后，每次出杀都会多一个询问，
+// 把这些测试的响应序列全部打乱。张飞的【咆哮】是纯被动（只放宽出杀次数），
+// 不产生任何请求，才是真正的「无干扰填充」。
+
 /**
  * 主公技。
  *
@@ -22,7 +26,7 @@ function gameWith(characterIds: (string | null)[], identities: Identity[], seed 
   game.state.players.forEach((player, index) => {
     player.identity = identities[index]
     player.identityRevealed = identities[index] === 'lord'
-    player.characterId = characterIds[index] ?? 'machao'
+    player.characterId = characterIds[index] ?? 'zhangfei'
   })
   game.start()
   while (game.state.pendingRequests.length > 0) {
@@ -63,7 +67,7 @@ function stripCard(game: SanguoshaGame, playerId: PlayerId, cardName: string): v
 describe('主公技', () => {
   it('护驾：主公打不出闪时，魏势力角色被依次询问', () => {
     // p0 曹操主公，p2 司马懿（魏）忠臣
-    const game = gameWith(['caocao', 'machao', 'simayi', 'machao', 'machao'], LORD_FIRST)
+    const game = gameWith(['caocao', 'zhangfei', 'simayi', 'zhangfei', 'zhangfei'], LORD_FIRST)
     stripCard(game, 'p0', '闪')
     const allyDodge = giveCard(game, 'p2', '闪')
     const slash = giveCard(game, 'p1', '杀')
@@ -94,7 +98,7 @@ describe('主公技', () => {
   })
 
   it('护驾：所有魏势力角色都放弃时，伤害照常结算', () => {
-    const game = gameWith(['caocao', 'machao', 'simayi', 'machao', 'machao'], LORD_FIRST)
+    const game = gameWith(['caocao', 'zhangfei', 'simayi', 'zhangfei', 'zhangfei'], LORD_FIRST)
     stripCard(game, 'p0', '闪')
     stripCard(game, 'p2', '闪')
     const slash = giveCard(game, 'p1', '杀')
@@ -117,7 +121,7 @@ describe('主公技', () => {
 
   it('护驾：曹操不是主公时完全不生效', () => {
     // 曹操坐 p2（忠臣），主公是 p0
-    const game = gameWith(['machao', 'machao', 'caocao', 'machao', 'machao'], LORD_ELSEWHERE)
+    const game = gameWith(['zhangfei', 'zhangfei', 'caocao', 'zhangfei', 'zhangfei'], LORD_ELSEWHERE)
     stripCard(game, 'p2', '闪')
     giveCard(game, 'p0', '闪')
     const slash = giveCard(game, 'p1', '杀')
@@ -140,7 +144,7 @@ describe('主公技', () => {
   })
 
   it('救援：吴势力角色的桃让主公多回复一点', () => {
-    const game = gameWith(['sunquan', 'machao', 'ganning', 'machao', 'machao'], LORD_FIRST)
+    const game = gameWith(['sunquan', 'zhangfei', 'ganning', 'zhangfei', 'zhangfei'], LORD_FIRST)
     const lord = game.state.players[0]
     lord.hp = 0
     const peach = giveCard(game, 'p2', '桃')
@@ -161,7 +165,7 @@ describe('主公技', () => {
   })
 
   it('救援：孙权不是主公时只回一点', () => {
-    const game = gameWith(['machao', 'machao', 'sunquan', 'ganning', 'machao'], LORD_ELSEWHERE)
+    const game = gameWith(['zhangfei', 'zhangfei', 'sunquan', 'ganning', 'zhangfei'], LORD_ELSEWHERE)
     const sunquan = game.state.players[2]
     sunquan.hp = 0
     const peach = giveCard(game, 'p3', '桃')
@@ -179,7 +183,7 @@ describe('主公技', () => {
 
 describe('主公武将的普通技能', () => {
   it('制衡：弃几张摸几张，每回合限一次', () => {
-    const game = gameWith(['sunquan', 'machao', 'machao', 'machao', 'machao'], LORD_FIRST)
+    const game = gameWith(['sunquan', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], LORD_FIRST)
     game.state.currentPlayerId = 'p0'
     game.state.phase = 'play'
     const owner = game.state.players[0]
@@ -200,7 +204,7 @@ describe('主公武将的普通技能', () => {
   })
 
   it('仁德：给出两张牌后回复一点体力，同一回合只回一次', () => {
-    const game = gameWith(['liubei', 'machao', 'machao', 'machao', 'machao'], LORD_FIRST)
+    const game = gameWith(['liubei', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], LORD_FIRST)
     game.state.currentPlayerId = 'p0'
     game.state.phase = 'play'
     const owner = game.state.players[0]

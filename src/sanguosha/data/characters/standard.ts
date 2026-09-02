@@ -273,7 +273,10 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'mashu', name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' }],
+    skills: [
+      { id: 'mashu', name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' },
+      { id: 'tieji', name: '铁骑', description: '你使用【杀】指定目标后，可以进行判定，若结果为红色，该角色不能使用【闪】响应。' },
+    ],
   },
   {
     id: 'guanyu',

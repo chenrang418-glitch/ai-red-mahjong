@@ -3,6 +3,10 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
+// 填充角色用张飞而不是马超：马超有了【铁骑】之后，每次出杀都会多一个询问，
+// 把这些测试的响应序列全部打乱。张飞的【咆哮】是纯被动（只放宽出杀次数），
+// 不产生任何请求，才是真正的「无干扰填充」。
+
 /**
  * 需要发问的装备特效。
  *
@@ -24,7 +28,7 @@ function gameWith(seed = 'equip-request'): SanguoshaGame {
     player.identity = identities[index]
     player.identityRevealed = identities[index] === 'lord'
     // 马术是纯锁定技，不会插进来发问
-    player.characterId = 'machao'
+    player.characterId = 'zhangfei'
   })
   game.start()
   game.state.currentPlayerId = 'p0'

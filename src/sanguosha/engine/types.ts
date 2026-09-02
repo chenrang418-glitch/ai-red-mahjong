@@ -150,6 +150,13 @@ export interface SlashResolutionState {
   /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
   dodgeRemaining: number
   /**
+   * 本次目标是否完全不能用【闪】响应（马超【铁骑】判定为红）。
+   *
+   * 和 `dodgeRemaining` 是两回事：那个是「要打出几张闪」，这个是「一张都不许打」。
+   * 每换一个目标都要重置——铁骑是逐个目标判定的。
+   */
+  noDodge?: boolean
+  /**
    * 主公技代打（护驾）的询问进度。
    * 目标自己放弃之后才开始，`null` 表示还没开始或这局用不到。
    */
