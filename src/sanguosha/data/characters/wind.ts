@@ -2,6 +2,7 @@ import { flipCharacter } from '../../engine/character-state'
 // 不屈的运行时单独一个文件：它要动濒死流程和专属牌堆，和风包其他技能是两码事
 import { BUQU } from './wind-zhoutai'
 import { GUIDAO, HUANGTIAN, LEIJI } from './wind-zhangjiao'
+import { YUJI } from './wind-yuji'
 import { getDistance } from '../../engine/distance'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
@@ -506,6 +507,7 @@ export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
       { id: HUANGTIAN, name: '黄天', description: '主公技。其他群雄角色可以在他们各自的出牌阶段中，交给你一张【闪】或【闪电】，每阶段限一次。' },
     ],
   },
+  YUJI,
   {
     id: 'huangzhong',
     name: '黄忠',

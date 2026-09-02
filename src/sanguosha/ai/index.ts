@@ -98,6 +98,11 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       // 主公越危险越该送
       return lord.hp <= 2 ? 12 : 4
     }
+    case 'guhuo': {
+      // 蛊惑不花代价：真声明基本稳赚，假声明要赌没人质疑。
+      // 手牌越多越敢用（被拆穿只亏一张），手上只剩一张时收着点。
+      return me.handCount <= 1 ? 2 : 13
+    }
     case 'houxiao': {
       // 齁笑不花代价，两条分支都不亏；但手里全是好牌时随机交换有风险
       const precious = (me.hand ?? []).filter((card) => cardValue(card.name) >= 8).length
@@ -275,6 +280,14 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 转移伤害通常优于自己硬吃，目标选择分支会再按阵营倾向挑敌方。
       if (options.some((option) => option.id === 'tianxiang-invoke')) {
         return { ...base, payload: { optionId: 'tianxiang-invoke' } }
+      }
+      // ── 于吉【蛊惑】：声明要用哪张牌 ──
+      if (options.some((option) => option.id.startsWith('guhuo-name:'))) {
+        return { ...base, payload: { optionId: declareGuhuo(context, options) } }
+      }
+      // ── 于吉【蛊惑】：要不要质疑 ──
+      if (options.some((option) => option.id === 'guhuo-challenge-yes')) {
+        return { ...base, payload: { optionId: decideChallenge(context, request.prompt) } }
       }
       // ── 奶蛙【齁笑】：被找上的人选一起笑还是绷住 ──
       if (options.some((option) => option.id === 'houxiao-together')) {
@@ -457,6 +470,68 @@ function decideRetrial(context: AIContext, request: ChooseCardsRequest): string[
     // 换牌时优先丢价值低的：一样能翻盘就别拿桃去改判
     .sort((left, right) => cardValue(left.name) - cardValue(right.name))[0]
   return replacement ? [replacement.id] : []
+}
+
+/**
+ * 于吉声明哪张牌。
+ *
+ * 优先**真声明**：手上确实有这张牌时声明它，被质疑反而白赚一次惩罚。
+ * 真声明用不出来才考虑诈——而且只挑「用出来确实有价值」的牌，
+ * 不会把每张垃圾牌都随口说成桃。
+ */
+function declareGuhuo(context: AIContext, options: readonly { id: string }[]): string {
+  const names = options.map((option) => option.id.slice('guhuo-name:'.length))
+  const me = myself(context.view)
+  const hand = me.hand ?? []
+
+  /*
+   * 扣置的那张牌是刚才自己选的，但请求里没告诉 AI 是哪张。
+   * 用「手上还有没有同名牌」近似判断真声明：手里有两张杀时声明杀，
+   * 扣的那张有很大概率就是杀。近似猜错的代价只是被质疑，可以接受。
+   */
+  const truthful = names.filter((name) => hand.some((card) => card.name === name))
+  if (truthful.length > 0) {
+    return `guhuo-name:${truthful.sort((left, right) => cardValue(right) - cardValue(left))[0]}`
+  }
+
+  // 诈：只挑价值高、能立刻产生作用的牌，而且不是每次都诈
+  const bluffable = names.filter((name) => ['杀', '桃', '无中生有', '过河拆桥', '决斗'].includes(name))
+  const pick = bluffable.length > 0 && context.rng.nextInt(3) > 0
+    ? bluffable.sort((left, right) => cardValue(right) - cardValue(left))[0]
+    : names[context.rng.nextInt(names.length)]
+  return `guhuo-name:${pick}`
+}
+
+/**
+ * 要不要质疑于吉。
+ *
+ * 不能 50% 随机。综合几件公开的事：敌我关系、声明牌的价值、于吉的手牌数、
+ * 以及**质疑失败要失去一点体力**——一血的时候基本不该赌。
+ */
+function decideChallenge(context: AIContext, prompt: string): string {
+  const yes = 'guhuo-challenge-yes'
+  const no = 'guhuo-challenge-no'
+  const me = myself(context.view)
+  // 质疑失败会失去一点体力，一血时直接进濒死，除非局势已经很糟否则不赌
+  if (me.hp <= 1) return no
+
+  const yuji = context.view.players.find((player) => player.alive && prompt.includes(player.nickname))
+  // 自己人放的蛊惑没有质疑的道理
+  if (yuji && hostility(context.view, context.suspicion, yuji.id) <= 0) return no
+
+  const declared = /声明【(.+?)】/.exec(prompt)?.[1] ?? ''
+  // 声明越关键越值得拆穿：桃和无懈直接改变局势
+  let chance = 25
+  if (declared === '桃' || declared === '无懈可击') chance += 30
+  else if (declared === '杀' || declared === '决斗') chance += 10
+  // 手牌越多越可能真有那张牌，诈的概率反而低
+  const handCount = yuji?.handCount ?? 0
+  if (handCount >= 4) chance -= 15
+  else if (handCount <= 1) chance += 15
+  // 血厚的时候赌得起
+  if (me.hp >= 4) chance += 10
+
+  return context.rng.nextInt(100) < Math.max(5, Math.min(80, chance)) ? yes : no
 }
 
 /**

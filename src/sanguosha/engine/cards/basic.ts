@@ -69,43 +69,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   // 不能让前端自己猜牌的用途——同一张红牌既可以原样用，也可以当杀，
   // 必须两条动作都在，玩家才选得到用途。
   for (const option of viewAsPlayOptions(state, playerId)) {
-    if (option.asCardName === '杀') {
-      if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) continue
-      for (const target of state.players) {
-        if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
-        actions.push({
-          ...useAction(option.cardId, playerId, '杀', [target.id], `${option.label}，目标${target.nickname}`),
-          id: `play:viewas:${option.cardId}:${target.id}`,
-        })
-      }
-      continue
-    }
-    // 转化成延时锦囊（大乔【国色】）：放进目标判定区，判定时按转化后的牌名结算
-    if (DELAYED_TRICKS.has(option.asCardName)) {
-      for (const target of state.players) {
-        if (!target.alive) continue
-        // 同名延时锦囊不能叠，闪电例外（它会自己往下传）
-        if (option.asCardName !== '闪电' && hasDelayedTrick(state, target.id, option.asCardName)) continue
-        if (isTargetProhibited(state, playerId, target.id, option.asCardName, skillIdsOf)) continue
-        actions.push({
-          ...useAction(option.cardId, playerId, option.asCardName, [target.id], `${option.label}，目标${target.nickname}`),
-          id: `play:viewas:${option.cardId}:${target.id}`,
-        })
-      }
-      continue
-    }
-    // 转化成普通锦囊（甘宁【奇袭】）：目标合法性按转化后的牌名算。
-    // 之前这里只处理【杀】，于是奇袭虽然注册了却永远产生不出动作——
-    // 「服务端支持不等于前端点得到」，这种情况下连服务端都没支持。
-    if (!INSTANT_TRICKS.has(option.asCardName)) continue
-    for (const trick of instantTrickActions(state, playerId, option.cardId, option.asCardName)) {
-      if (trick.kind !== 'use-card') continue
-      actions.push({
-        ...trick,
-        id: `play:viewas:${option.cardId}:${trick.targetIds.join(',') || 'self'}`,
-        label: `${option.label}，${trick.label}`,
-      })
-    }
+    actions.push(...declaredCardActions(state, playerId, option.cardId, option.asCardName, option.label))
   }
 
   // 丈八蛇矛和方天画戟都会产生大量组合（6 张手牌 × 4 个目标就是 60 条动作，
@@ -142,6 +106,72 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     } else if (card.name === '闪电' && !hasDelayedTrick(state, playerId, card.name)) {
       actions.push(useAction(cardId, playerId, card.name, [playerId], '将【闪电】置入自己的判定区'))
     }
+  }
+  return actions
+}
+
+/**
+ * 「把某张牌当作另一张牌用」能产生哪些合法动作。
+ *
+ * 转化技（武圣、龙胆、奇袭、国色）和于吉【蛊惑】的声明牌**共用这一份合法性**：
+ * 出杀次数、攻击范围、距离、禁止目标、同名延时锦囊不能叠……全在这里算一次。
+ * 蛊惑解决的是「实体牌和声明牌不一致」，不是绕开牌规则，所以它必须走这里。
+ *
+ * 返回空数组就表示「现在不能这样用」——调用方据此把这个声明从候选里去掉。
+ */
+export function declaredCardActions(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  cardId: CardId,
+  asCardName: string,
+  label: string,
+): LegalAction[] {
+  const actions: LegalAction[] = []
+  if (asCardName === '杀') {
+    if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) return actions
+    for (const target of state.players) {
+      if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
+      actions.push({
+        ...useAction(cardId, playerId, '杀', [target.id], `${label}，目标${target.nickname}`),
+        id: `play:viewas:${cardId}:${target.id}`,
+      })
+    }
+    return actions
+  }
+  // 转化成延时锦囊（大乔【国色】）：放进目标判定区，判定时按转化后的牌名结算
+  if (DELAYED_TRICKS.has(asCardName)) {
+    for (const target of state.players) {
+      if (!target.alive) continue
+      // 同名延时锦囊不能叠，闪电例外（它会自己往下传）
+      if (asCardName !== '闪电' && hasDelayedTrick(state, target.id, asCardName)) continue
+      if (isTargetProhibited(state, playerId, target.id, asCardName, skillIdsOf)) continue
+      actions.push({
+        ...useAction(cardId, playerId, asCardName, [target.id], `${label}，目标${target.nickname}`),
+        id: `play:viewas:${cardId}:${target.id}`,
+      })
+    }
+    return actions
+  }
+  // 转化成普通锦囊（甘宁【奇袭】）：目标合法性按转化后的牌名算。
+  // 之前这里只处理【杀】，于是奇袭虽然注册了却永远产生不出动作——
+  // 「服务端支持不等于前端点得到」，这种情况下连服务端都没支持。
+  if (INSTANT_TRICKS.has(asCardName)) {
+    for (const trick of instantTrickActions(state, playerId, cardId, asCardName)) {
+      if (trick.kind !== 'use-card') continue
+      actions.push({
+        ...trick,
+        id: `play:viewas:${cardId}:${trick.targetIds.join(',') || 'self'}`,
+        label: `${label}，${trick.label}`,
+      })
+    }
+    return actions
+  }
+  // 基本牌里只有【桃】【酒】能对自己用；【闪】在出牌阶段用不了
+  const owner = player(state, playerId)
+  if (asCardName === '桃' && owner.hp < owner.maxHp) {
+    actions.push(useAction(cardId, playerId, '桃', [playerId], `${label}，回复体力`))
+  } else if (asCardName === '酒' && state.turnUsage.wineUses < 1) {
+    actions.push(useAction(cardId, playerId, '酒', [playerId], `${label}，强化下一张杀`))
   }
   return actions
 }
@@ -491,6 +521,21 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     return
   }
   if (action.kind !== 'use-card') throw new Error('当前不是可执行的出牌动作')
+  executeUseCardAction(host, playerId, action)
+}
+
+/**
+ * 执行一条「使用牌」动作。
+ *
+ * 从 `performPlayAction` 里拆出来，让于吉【蛊惑】在质疑结束之后能够
+ * **重放同一条动作**——那时候 `legalPlayActions` 已经查不到它了
+ * （牌进过私有区、出牌次数也可能变了），但规则上这次使用是成立的。
+ */
+export function executeUseCardAction(
+  host: CardEngineHost,
+  playerId: PlayerId,
+  action: Extract<LegalAction, { kind: 'use-card' }>,
+): void {
   const [cardId] = action.cardIds
   const card = host.state.cards[cardId]
   // 丈八蛇矛会带两张牌，每一张都要确认在自己手上
@@ -526,9 +571,12 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     return
   }
   if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return
-  if (card.name === '桃') {
+  // 这里也要看 effectiveName：转化成【桃】【酒】的牌（于吉【蛊惑】）
+  // 按印刷名字判断会掉进最后那个 throw，等于「转化成桃」根本用不出来。
+  // 装备只可能是它本身，所以那一支仍然按实体牌算。
+  if (effectiveName === '桃') {
     recover(host, playerId, 1, playerId)
-  } else if (card.name === '酒') {
+  } else if (effectiveName === '酒') {
     host.state.turnUsage.wineUses += 1
     host.state.turnUsage.wineDamageBonus = 1
   } else if (card.category === 'equipment' && card.equipmentSlot) {
@@ -536,7 +584,7 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'equipment', playerId, slot: card.equipmentSlot })
     if (replaced) handleEquipmentLost(host, playerId, replaced)
   } else {
-    throw new Error(`尚未实现卡牌：${card.name}`)
+    throw new Error(`尚未实现卡牌：${effectiveName}`)
   }
   finishPhysicalCard(host, playerId, cardId, action.targetIds)
 }
