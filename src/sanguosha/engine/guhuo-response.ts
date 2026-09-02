@@ -238,7 +238,7 @@ function finishGuhuoRespond(host: SkillHost, granted: boolean): void {
   }
 
   const actionId = granted && cardId
-    ? grantedActionId(request, cardId, requiredCardName)
+    ? grantedActionId(host, request, cardId, requiredCardName)
     : declineActionId(request)
   /*
    * 原请求放回去时要把成立后的那条动作补进 actionIds。
@@ -262,12 +262,18 @@ function finishGuhuoRespond(host: SkillHost, granted: boolean): void {
 }
 
 /** 成立时该用哪条动作 id 回答原请求。 */
-function grantedActionId(request: GameRequest, cardId: CardId, requiredCardName: string): string {
+function grantedActionId(host: SkillHost, request: GameRequest, cardId: CardId, requiredCardName: string): string {
   if (request.kind === 'rescue') return `rescue-card:${cardId}`
   if (requiredCardName === '无懈可击') return `respond-nullification:${cardId}`
-  // 锦囊效果里的「打出杀/闪」走 respond-trick，求闪走 respond-dodge
-  const actionIds = 'actionIds' in request ? request.actionIds : []
-  if (actionIds.some((id) => id.startsWith('respond-trick:'))) return `respond-trick:${cardId}`
+  /*
+   * 锦囊效果里的「打出杀/闪」（决斗、南蛮、万箭）走 respond-trick，
+   * 普通求闪走 respond-dodge。**按当前结算状态判断，不看 actionIds**——
+   * 原来是「actionIds 里有没有 respond-trick:」，可于吉正是因为手上没有那张牌
+   * 才发的蛊惑，那时候一条 respond-trick: 都不会有，于是走进求闪那条分支，
+   * 被「响应 action 类型不匹配」打回来。
+   */
+  const resolution = host.state.cardResolution
+  if (resolution?.kind === 'trick' && resolution.stage === 'awaiting-effect') return `respond-trick:${cardId}`
   return `respond-dodge:${cardId}`
 }
 

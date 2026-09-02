@@ -645,3 +645,45 @@ describe('打出模式的界面', () => {
     expect((html.match(/发动【蛊惑】/g) ?? []).length, '只有一个入口').toBe(1)
   })
 })
+
+describe('打出模式：锦囊效果里的求牌', () => {
+  it('决斗要求打出【杀】时也能用蛊惑，且走的是锦囊那条结算路径', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    // p1 对 p0 使用决斗：p0 先被要求打出【杀】
+    game.state.currentPlayerId = 'p1'
+    const duelId = give(game, 'p1', '决斗')
+    const action = game.legalActions('p1').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(duelId) && candidate.targetIds.includes('p0'))
+    game.act('p1', action!.id)
+
+    // 先走完无懈轮询（于吉手上那张牌也能声明无懈，所以他会被问到）
+    let guard = 0
+    while (pending(game)?.kind === 'respond-card'
+      && (pending(game) as { requiredCardName: string }).requiredCardName === '无懈可击') {
+      if (guard++ > 10) throw new Error('无懈轮询没有收敛')
+      answer(game, { actionId: 'respond-pass' })
+    }
+
+    const request = pending(game)
+    expect(request?.playerId).toBe('p0')
+    expect(request?.kind === 'respond-card' && request.requiredCardName).toBe('杀')
+    expect(request?.kind === 'respond-card' && request.actionIds, '手上没有杀，只剩蛊惑和放弃')
+      .toEqual(['guhuo-respond', 'respond-pass'])
+
+    /*
+     * 这一条钉的是一个真踩过的坑：原来「该用 respond-trick 还是 respond-dodge」
+     * 是看请求的 actionIds 里有没有 respond-trick:——而于吉正是因为手上没有那张牌
+     * 才发的蛊惑，那时候一条都不会有，于是走进求闪那条分支被引擎打回来。
+     */
+    answer(game, { actionId: 'guhuo-respond' })
+    answer(game, { cardIds: [cardId] })
+    respondChallenges(game, [])
+
+    // 蛊惑成立：这张牌被当作【杀】打出，决斗继续问 p1
+    expect(game.state.zones.discardPile, '那张牌真的打出去了').toContain(cardId)
+    expect(pending(game)?.playerId, '轮到决斗的发起者接着打').toBe('p1')
+    assertGameInvariants(game.state)
+  })
+})

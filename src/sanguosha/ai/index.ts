@@ -126,6 +126,17 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       return bestTarget > 0 ? 12 : -20
     case 'lijian':
       return bestTarget > 0 ? 14 : -20
+    case 'kongchengji': {
+      // 没手牌时是白摸一张，随时可以发；有手牌时是赌，牌越多亏得越狠，
+      // 但赌赢能摸两张——手牌不多的时候最划算
+      if (me.handCount === 0) return 12
+      if (bestTarget <= 0) return 2
+      return me.handCount <= 3 ? 13 : 5
+    }
+    case 'ganggan':
+      // 血少的时候还不上就要掉血，压低意愿；手牌紧张时才值得加杠杆
+      if (me.hp <= 1) return -100
+      return me.handCount <= 2 ? 14 : 4
     case 'shuajian':
       // 一血时主动邀战风险过高；手牌紧张时才积极发动，避免每回合稳定补牌拖长整局。
       if (me.hp <= 1 || bestTarget <= 0) return -100
@@ -256,6 +267,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     }
 
     case 'choose-targets': {
+      // 【空城计】：让敌人来猜——猜对了牌归他，所以宁可让最不该拿牌的人去赌
+      if (request.prompt.includes('来猜')) {
+        const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, Math.max(request.min, 1)) } }
+      }
       // 【麻麻】认亲：牌多、血厚、关系好的优先
       if (request.prompt.includes('成为你的')) {
         const ranked = [...request.candidateIds].sort((left, right) => pickMamaScore(context, right) - pickMamaScore(context, left))
@@ -319,6 +335,14 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
           .map((player) => player.id)
         const optionIds = options.map((option) => option.id)
         return { ...base, payload: { optionId: decideMamaFollow(context, optionIds, candidates) ?? 'cancel' } }
+      }
+      // ── 许老板【空城计】：猜随机那张是不是基本牌 ──
+      if (options.some((option) => option.id === 'kongchengji-basic')) {
+        return { ...base, payload: { optionId: guessKongchengji(context) } }
+      }
+      // ── 许老板【杠杆】：借几张 ──
+      if (options.some((option) => option.id.startsWith('ganggan-borrow:'))) {
+        return { ...base, payload: { optionId: decideGanggan(context) } }
       }
       // ── 于吉【蛊惑】：声明要用哪张牌 ──
       if (options.some((option) => option.id.startsWith('guhuo-name:'))) {
@@ -619,6 +643,46 @@ function shouldGuhuoRespond(context: AIContext, requiredCardName: string): boole
   if (requiredCardName === '闪') return me.hp <= 2 || context.rng.nextInt(2) === 0
   // 无懈这类不救命的，手牌宽裕时才诈
   return (me.hand?.length ?? 0) >= 3 && context.rng.nextInt(3) === 0
+}
+
+/**
+ * 猜「楼」里随机那张是不是基本牌。
+ *
+ * **看不到扣置的牌，也不去看。** 私有区根本不会下发到猜的人的视图里，
+ * 这里只用公开信息数牌：一副牌里基本牌本来就过半，但已经打出去的基本牌越多，
+ * 剩下的那些就越不可能是基本牌。数的是自己的手牌、弃牌堆、所有人的装备和判定区
+ * ——都是台面上人人可见的东西，属于正常的记牌。
+ */
+function guessKongchengji(context: AIContext): string {
+  const me = myself(context.view)
+  const seen = [
+    ...(me.hand ?? []),
+    ...context.view.discardPile,
+    ...context.view.players.flatMap((player) => [...player.equipment, ...player.judgingArea]),
+  ]
+  const basicSeen = seen.filter((card) => card.category === 'basic').length
+  // 样本太小就用先验：标准牌堆里基本牌略多于一半
+  const basicRatio = seen.length >= 12 ? 1 - basicSeen / seen.length : 0.55
+  // 概率高就猜「有」，但保留一点随机，别变成永远同一个答案让人摸清规律
+  const threshold = basicRatio > 0.5 ? 70 : 30
+  return context.rng.nextInt(100) < threshold ? 'kongchengji-basic' : 'kongchengji-other'
+}
+
+/**
+ * 【杠杆】借几张。
+ *
+ * 借的是下个摸牌阶段的牌，还不上要掉血，所以看两件事：现在有多缺牌、
+ * 掉一点血扛不扛得住。**不偷看牌堆**——借多少只由自己的手牌和体力决定。
+ */
+function decideGanggan(context: AIContext): string {
+  const me = myself(context.view)
+  const existing = me.marks?.debt ?? 0
+  // 正常摸两张，借到三张就注定有一枚债还不上，要掉血
+  const affordable = me.hp >= 3 ? 3 : me.hp >= 2 ? 2 : 1
+  // 已经背着债还借，等于叠着掉血
+  const room = Math.max(1, affordable - existing)
+  const hungry = me.handCount <= 1 ? 3 : me.handCount <= 3 ? 2 : 1
+  return `ganggan-borrow:${Math.max(1, Math.min(room, hungry))}`
 }
 
 /**

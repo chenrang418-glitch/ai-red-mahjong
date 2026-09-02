@@ -9,6 +9,8 @@ import type { CharacterDefinition } from './types'
 import { NAIWA } from './entertainment-naiwa'
 // 牛来的两个技能要动伤害转移和技能内的多步循环，同样单独一个文件
 import { NIULAI_CHARACTER } from './entertainment-niulai'
+// 许老板的两个技能要用私有牌区和摸牌阶段改数量，同样单独一个文件
+import { XULAOBAN } from './entertainment-xulaoban'
 
 /** 好友娱乐包：只放原创且技能完整可玩的武将。 */
 
@@ -225,4 +227,4 @@ export const ENTERTAINMENT_CHARACTERS: readonly CharacterDefinition[] = [{
       description: '每回合限一次，当你成为其他角色使用的【杀】或普通锦囊牌的目标后，你可以展示牌堆顶一张牌：若为方块，取消你作为此牌的目标并弃置之；否则你获得之，且不能响应此牌。',
     },
   ],
-}, NAIWA, NIULAI_CHARACTER] as const
+}, NAIWA, NIULAI_CHARACTER, XULAOBAN] as const

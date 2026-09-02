@@ -257,6 +257,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 12%', scale: 1.35 },
     credit: '用户提供·牛来（原创娱乐武将）',
   },
+  /* 许老板是半身立绘，脸在偏上位置，按娱乐包这几张的惯例给一档放大 */
+  xulaoban: {
+    desktop: { position: '50% 18%', scale: 1.15 },
+    mobile: { position: '50% 16%', scale: 1.3 },
+    credit: '用户提供·许老板（原创娱乐武将）',
+  },
   pingtoufangkuai: {
     desktop: { position: '43% 30%', scale: 1.0 },
     mobile: { position: '43% 28%', scale: 1.15 },

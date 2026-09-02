@@ -36,7 +36,14 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       // 取消之后由技能自己负责把牌补上，引擎不再默认摸两张。
       const context = host.dispatch('DrawPhase', { playerId, count: 2 }, { sourceId: playerId, phase: 'draw' })
       if (context.cancelled) return
-      drawCards(host.state, host.rng, playerId, 2, (name, payload) => { host.dispatch(name, payload) })
+      /*
+       * 不取消、只改数量的技能（许老板【杠杆】还债）就改事件里的 count。
+       * 引擎照最终值摸——写死 2 的话「以该摸牌阶段最终应摸数量为准」就无从谈起，
+       * 而且逼着每个想少摸一张的技能都去接管整个阶段。
+       */
+      const count = Math.max(0, Math.trunc(Number((context.event.payload as { count?: unknown }).count ?? 2)))
+      if (count <= 0) return
+      drawCards(host.state, host.rng, playerId, count, (name, payload) => { host.dispatch(name, payload) })
       return
     }
     case 'play':
