@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import SgsCard from './SgsCard.vue'
 import { getCharacter } from '../data/characters/standard'
+import { characterPortrait } from '../assets/characters/manifest'
 import type { GameRequest, GameResponse } from '../engine/requests'
 import type { PlayerView } from '../engine/view'
 import type { PhysicalCard } from '../engine/types'
@@ -60,6 +61,21 @@ function toggleCard(value: string, max: number): void { selectedCards.value = to
 function toggleTarget(value: string, max: number): void { selectedTargets.value = toggleIn(selectedTargets.value, value, max) }
 
 const cardRequest = computed(() => (props.request.kind === 'choose-cards' ? props.request : null))
+/**
+ * 选将卡的立绘。和座位共用 manifest 的同一份裁切参数——
+ * 选将卡比座位更接近原图比例，所以直接用 desktop 那套即可，不另调一份。
+ * 没登记素材的武将拿不到值，卡片自动回落到原来的纯色底。
+ */
+function portraitStyle(characterId: string): Record<string, string> | undefined {
+  const art = characterPortrait(characterId)
+  if (!art) return undefined
+  return {
+    '--pick-art': `url(${art.src})`,
+    '--pick-pos': art.desktop.position,
+    '--pick-scale': String(art.desktop.scale),
+  }
+}
+
 const cardChoices = computed(() => {
   const request = cardRequest.value
   if (!request) return []
@@ -162,10 +178,12 @@ function withCharacterNames(text: string): string {
           :key="candidate"
           type="button"
           class="sgs-dock__general"
-          :class="{ selected: selectedGeneral === candidate }"
+          :class="{ selected: selectedGeneral === candidate, 'has-art': !!characterPortrait(candidate) }"
+          :style="portraitStyle(candidate)"
           :aria-pressed="selectedGeneral === candidate"
           @click="selectedGeneral = candidate"
         >
+          <i v-if="characterPortrait(candidate)" class="sgs-dock__general-art" aria-hidden="true"></i>
           <strong>{{ getCharacter(candidate)?.name ?? candidate }}</strong>
           <small>体力 {{ getCharacter(candidate)?.maxHp }}</small>
           <span v-for="skill in getCharacter(candidate)?.skills ?? []" :key="skill.id">
@@ -373,7 +391,14 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
 .primary.red { color: #ffb9ae; border-color: #9c4a41; background: linear-gradient(180deg, #6d2f29, #4a1f1b); }
 .ghost { border: 1px solid #3f4d45; background: #16241e; color: #b9c5bd; }
 
-.sgs-dock__generals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+/*
+ * 所有武将卡等大，高度取最高的那张。
+ *
+ * `grid-auto-rows: 1fr` 让每一行都拿到相同高度，行内又默认 stretch，
+ * 于是全部卡片一样大。不这么做的话，技能说明长短不一会让每行高度参差，
+ * 候选从 3 个涨到 10 个之后尤其明显。
+ */
+.sgs-dock__generals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 8px; align-items: stretch; }
 .sgs-dock__general {
   width: 100%; min-height: 0; padding: 9px 10px;
   display: flex; flex-direction: column; gap: 3px; text-align: left;
@@ -385,6 +410,40 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
 .sgs-dock__general small { color: #8f9b90; font-size: 10px; }
 .sgs-dock__general span { color: #a9b5a9; font-size: 10px; line-height: 1.5; }
 .sgs-dock__general-actions { margin-top: 2px; }
+
+/*
+ * B 版：立绘做卡片顶部的横幅，文字在下方的实色区里。
+ *
+ * 和 C 版（满幅 + 描边）的区别在于「谁让位」：选将时要读的是整段技能说明，
+ * 让立绘退到顶部一条，文字就回到纯色底上，不需要描边也读得清。
+ * 代价是每张卡多占 60px 高。
+ */
+.sgs-dock__general.has-art { position: relative; overflow: hidden; padding-top: 68px; }
+.sgs-dock__general-art {
+  /*
+   * 高度 87px = 名字的下端（卡片内边距 68 + 名字高 20），实测量出来的。
+   * 立绘一直铺到名字结束才化完，交界处没有明显的「上图下字」分层。
+   */
+  position: absolute; left: 0; right: 0; top: 0; height: 87px; z-index: 0;
+  background-image: var(--pick-art);
+  background-size: cover;
+  /* 横幅比原图宽得多，纵向只取脸那一条；焦点沿用 manifest 的同一份参数 */
+  background-position: var(--pick-pos, 50% 20%);
+  /*
+   * 上面 30px 原样（和加长之前一致），之后一路化到名字下端。
+   * 34% = 30/87，把不透明段钉在绝对高度上，改横幅高度时这个比例要跟着重算。
+   *
+   * 用 mask 而不是叠一层渐变遮罩：遮罩会把画面压暗，mask 是真的把像素化开，
+   * 立绘该亮的地方还是亮的。
+   */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 34%, rgba(0, 0, 0, .42) 72%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 34%, rgba(0, 0, 0, .42) 72%, transparent 100%);
+}
+.sgs-dock__general.has-art > :not(.sgs-dock__general-art) { position: relative; z-index: 1; }
+/* 名字压在横幅下沿，和立绘接上又不挡脸 */
+/* 名字落在渐隐的尾段上，加一层轻投影保证任何立绘下都读得清 */
+.sgs-dock__general.has-art strong { margin-top: -2px; text-shadow: 0 1px 3px rgba(0, 0, 0, .85); }
+.sgs-dock__general.has-art.selected { border-color: #e7c763; }
 
 .sgs-dock__targets, .sgs-dock__distribute { display: flex; flex-wrap: wrap; gap: 6px; }
 .sgs-dock__row { display: flex; align-items: center; gap: 5px; width: 100%; }

@@ -418,7 +418,15 @@ export class SanguoshaRoomCoordinator {
       seed,
       setup: {
         mode: 'identity',
-        generalChoices: 3,
+        /**
+         * 候选武将数：**按人数平分整个武将池，上限 10**。
+         *
+         * 引擎的公式本来就是 `min(generalChoices, floor(池子 / 人数))`，
+         * 所以这里给上限、平分由那个 min 自动完成。25 名武将下的实际结果：
+         * 5 人各 5 个、6 人各 4 个、7 人各 3 个、8 人各 3 个。
+         * 上限 10 现在碰不到（floor(25/5)=5 已是最大），是给扩包之后留的。
+         */
+        generalChoices: 10,
         players: occupied.map((seat) => ({
           id: playerIdOf(seat.seatId),
           nickname: seat.name,

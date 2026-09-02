@@ -301,7 +301,27 @@ function handleRespond(response: GameResponse): void {
 .sgs-panel__choices button.active { border-color: #d3b463; background: #2c2718; color: #f0d68d; }
 .sgs-panel__note { margin: 0; color: #7f8a84; font-size: 12px; }
 .sgs-panel__start { margin-top: auto; }
-.sgs-panel--choose { justify-content: center; }
+/*
+ * 选将屏从垂直居中改成靠上。
+ *
+ * 候选从 3 个涨到最多 10 个之后，居中会让短列表顶上留一大片空、长列表又贴边；
+ * 靠上排则两种情况都稳定，长了就在内部滚。
+ */
+.sgs-panel--choose { justify-content: flex-start; padding-top: max(10px, env(safe-area-inset-top)); overflow-y: auto; }
+.sgs-panel--choose h1 { margin-bottom: 2px; font-size: 19px; }
+/*
+ * 选将屏里让 dock 铺满剩余高度，滚动发生在方框内部。
+ *
+ * 那个 56dvh 是给牌桌底部面板定的——牌桌上面板必须让出位置给牌局。
+ * 选将屏整屏都归它，卡在 56dvh 只会把留白从顶上挪到底下。
+ * 这里改成 flex:1 吃满剩余空间，武将多了就在框内滚，
+ * 确认按钮靠 dock 自己的 sticky 贴在框底，永远点得到。
+ *
+ * 注意别把 overflow 挪到里面的网格上：网格是 `grid-auto-rows: 1fr`，
+ * 只有在高度自适应时那个 1fr 才等于「对齐到最高的一张」；
+ * 一旦网格自己有了确定高度，1fr 会变成平分容器高度，卡片就不再等大了。
+ */
+.sgs-panel--choose :deep(.sgs-dock) { flex: 1; min-height: 0; max-height: none; }
 .primary {
   min-height: 52px; padding: 0 18px; border: 1px solid #9e7f3c; border-radius: 11px;
   background: linear-gradient(180deg, #6d5527, #4c3b1a); color: #ffe6a8; cursor: pointer; font: inherit; font-weight: 800;
