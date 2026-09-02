@@ -547,9 +547,26 @@ export class SanguoshaRoomCoordinator {
     const aiDelay = choosing ? AI_PICK_GENERAL_MS : AI_STEP_MS
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
-      dueAt: now + (drivenByAI ? aiDelay : this.state.settings.turnSeconds * 1000),
+      dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs()),
       seatId: actorSeatId,
     })
+  }
+
+  /**
+   * 真人这一步有多长时间。
+   *
+   * 默认是房间设置的操作时间；**无懈可击是例外**：它是一个「有没有无懈」的
+   * 判断，没那么难决定，而一张多目标锦囊要问好几轮，30~60 秒一轮会把
+   * 整桌人晾在那里。所以无懈按请求自带的窗口来（3 秒），
+   * 但不会超过房间设置——房主把操作时间调到 15 秒时不该反而变长。
+   */
+  private humanWindowMs(): number {
+    const setting = this.state.settings.turnSeconds * 1000
+    const request = this.state.game?.pendingRequests[0]
+    if (request?.kind === 'respond-card' && request.requiredCardName === '无懈可击') {
+      return Math.min(setting, request.timeoutMs)
+    }
+    return setting
   }
 
   /** 现在轮到哪个座位做决定。没人要做决定时返回 null。 */

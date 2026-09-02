@@ -28,7 +28,7 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | 72 文件 / **689 用例，无 todo** |
+| `npm test` | 74 文件 / **713 用例，无 todo** |
 | `npx playwright test` | **49 通过**（Chromium 45 + WebKit 4） |
 | `npm run sanguosha:soak -- 500` | 5 人局与 8 人局各 500 局全部完成 |
 | `npm run test:online:smoke` | 通过 |
@@ -219,6 +219,20 @@
 我按规则原文做了（用户当时刚确认「典韦按经典火包版」）。
 若用户要去掉代价，改动在 `engine/equipment-requests.ts` 的 `askMengjin`，
 删掉中间那一步即可，`tests/sanguosha-pangde.test.ts` 里有两条相应用例要跟着改。
+
+## 无懈可击的询问规则（2026-09-02 重做）
+
+公共部分在 `engine/nullification.ts`（**只依赖 types 的叶子模块**，
+放进 `cards/tricks.ts` 会让 `judgment.ts` 反向依赖构成 import 环）。
+
+- **只问手上真有无懈的活人。** 锦囊和判定两条路径都走 `nullificationCardIds`。
+- **刚打出无懈的人，下一圈跳过他自己**（`lastNullifierId`）。
+  别人接着无懈之后他又能出手，规则没削。
+- **多目标锦囊有「本轮均不使用」**（`PASS_ROUND_ACTION`），
+  记在 `declinedAllIds` 上，这张牌剩下的目标都不再问他。单目标牌不给这个按钮。
+- 窗口 3 秒（`NULLIFICATION_TIMEOUT_MS`）。`timeoutMs` 原来没有任何消费方，
+  现在联机的真人超时会读它——**但只对无懈生效，且不超过房间设置**。
+- AI 判断要看 `view.cardResolution.currentTargetId`，**不是 `targetIds[0]`**。
 
 ## 本轮新增的公共机制（2026-09-02）
 

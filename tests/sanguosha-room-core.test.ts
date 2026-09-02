@@ -339,3 +339,42 @@ function runToPlaying(room: SanguoshaRoomCoordinator): void {
   }
   throw new Error('没能进入对局')
 }
+
+describe('联机的等待窗口', () => {
+  /**
+   * 无懈可击是个「有没有」的判断，而一张多目标锦囊要问好几轮。
+   * 按房间的操作时间（默认 30 秒）一轮，整桌人会被晾很久，
+   * 所以这一类请求走请求自带的 3 秒窗口。
+   */
+  it('无懈可击的等待窗口比普通操作短得多', () => {
+    const room = started()
+    const settings = room.view(HOST.userId).settings
+    // 内部方法不对外暴露，这里通过「同样的设置下两种请求的到期时间」来验
+    const windowFor = (requiredCardName: string | null): number => {
+      const anyRoom = room as unknown as {
+        state: { game: { pendingRequests: unknown[] } | null }
+        humanWindowMs(): number
+      }
+      const game = anyRoom.state.game
+      if (!game) throw new Error('牌局没有开始')
+      const saved = game.pendingRequests
+      game.pendingRequests = requiredCardName
+        ? [{ kind: 'respond-card', requiredCardName, timeoutMs: 3_000 }]
+        : []
+      const result = anyRoom.humanWindowMs()
+      game.pendingRequests = saved
+      return result
+    }
+
+    expect(windowFor(null), '普通操作用房间设置的时间').toBe(settings.turnSeconds * 1000)
+    expect(windowFor('闪'), '出闪仍然是完整时间').toBe(settings.turnSeconds * 1000)
+    expect(windowFor('无懈可击'), '无懈只给 3 秒').toBe(3_000)
+  })
+
+  it('房主把操作时间调得比 3 秒还短时，不会反而变长', () => {
+    const room = SanguoshaRoomCoordinator.create('ABC235', HOST, normalizeSettings({ playerCount: 5, turnSeconds: 15 }), 1_000)
+    const anyRoom = room as unknown as { state: { settings: { turnSeconds: number } }; humanWindowMs(): number }
+    anyRoom.state.settings.turnSeconds = 1
+    expect(anyRoom.humanWindowMs()).toBe(1_000)
+  })
+})
