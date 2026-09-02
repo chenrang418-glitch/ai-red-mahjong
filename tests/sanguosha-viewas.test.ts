@@ -123,6 +123,9 @@ describe('转化技不能产出无人消费的牌名', () => {
           owner.zones.hand.push(cardId)
         }
       }
+      // 双雄只有在本回合已经完成判定后才开放转化；这里测试的是消费路径，
+      // 因而显式构造一个“判定结果为红色”的合法前置状态。
+      if (character.id === 'yanliangwenchou') owner.marks.shuangxiong = 1
 
       // 有的转化技限定在自己回合内（武圣、奇袭），有的限定在回合外（急救），
       // 两种情形都探一次，只要有一处产出就说明技能是活的

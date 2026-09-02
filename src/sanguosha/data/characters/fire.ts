@@ -1,6 +1,8 @@
 import { resolveDamage } from '../../engine/damage'
 import { canTarget } from '../../engine/distance'
+import { drawCards } from '../../engine/draw'
 import { loseHp } from '../../engine/hp'
+import { performJudgment } from '../../engine/judgment'
 import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
@@ -144,7 +146,75 @@ registerSkillRuntime({
   },
 })
 
+// —— 颜良文丑【双雄】——
+//
+// 经典火包版：摸牌阶段可以改为判定并获得判定牌，本回合可将与判定牌
+// 颜色不同的手牌当【决斗】使用。判定牌颜色只存在当前回合，回合结束清除。
+
+registerSkillRuntime({
+  id: 'shuangxiong',
+  triggers: [
+    {
+      event: 'DrawPhase',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { playerId?: string }
+        if (payload.playerId !== ownerId || host.state.skillResolution) return
+        context.cancel()
+        host.askSkill({
+          skillId: 'shuangxiong', ownerId, step: 'ask',
+          build: (requestId): ChooseOptionRequest => ({
+            id: requestId, kind: 'choose-option', playerId: ownerId,
+            prompt: '发动【双雄】？改为判定并获得判定牌，本回合可将异色手牌当【决斗】使用',
+            timeoutMs: 20_000, optional: false,
+            options: [{ id: 'yes', label: '发动双雄' }, { id: 'no', label: '正常摸两张牌' }],
+          }),
+        })
+      },
+    },
+    {
+      event: 'TurnEnd',
+      handle(host, ownerId) { delete playerOf(host.state, ownerId).marks.shuangxiong },
+    },
+  ],
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step !== 'ask') return
+    const optionId = (response.payload as { optionId: string }).optionId
+    if (optionId !== 'yes') {
+      drawCards(host.state, host.rng, ownerId, 2, (name, payload) => { host.dispatch(name, payload) })
+      return
+    }
+    const judged = performJudgment(host, ownerId, '双雄')
+    const owner = playerOf(host.state, ownerId)
+    if (host.state.zones.discardPile.includes(judged.id)) {
+      moveCard(host.state, judged.id, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
+      host.dispatch('GainCard', { playerId: ownerId, cardIds: [judged.id], reason: '双雄', revealed: true }, { targetId: ownerId, cardIds: [judged.id] })
+    }
+    owner.marks.shuangxiong = judged.color === 'red' ? 1 : 2
+  },
+  viewAs(state, ownerId) {
+    const owner = playerOf(state, ownerId)
+    const judgedColor = owner.marks.shuangxiong === 1 ? 'red' : owner.marks.shuangxiong === 2 ? 'black' : null
+    if (!judgedColor) return []
+    return owner.zones.hand
+      .filter((cardId) => state.cards[cardId]?.color !== judgedColor)
+      .map((cardId) => ({ asCardName: '决斗', cardId, label: `将【${state.cards[cardId].name}】当【决斗】使用` }))
+  },
+})
+
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
+  {
+    id: 'yanliangwenchou',
+    name: '颜良文丑',
+    kingdom: 'qun',
+    gender: 'male',
+    maxHp: 4,
+    pack: 'fire',
+    skills: [{
+      id: 'shuangxiong',
+      name: '双雄',
+      description: '摸牌阶段，你可以改为进行一次判定并获得判定牌；本回合你可以将与判定牌颜色不同的一张手牌当【决斗】使用。',
+    }],
+  },
   {
     id: 'pangde',
     name: '庞德',
