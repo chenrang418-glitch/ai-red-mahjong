@@ -151,6 +151,16 @@ export interface SkillRuntime {
    * 和转化技一样，不能让前端自己猜「现在能不能发动」。
    */
   activeActions?(state: SanguoshaState, ownerId: PlayerId): Array<{ id: string; label: string }>
+  /**
+   * 主公技授权：**拥有者的技能**给**别人**的出牌阶段加一条动作（黄天）。
+   *
+   * `ownerId` 是技能拥有者（主公），`actorId` 是正在出牌的那个人。
+   * 技能自己负责确认「我确实是主公」——主公技只在坐主公位时生效，
+   * 这是规则，不是引擎该猜的事。
+   */
+  grantsPlayActions?(state: SanguoshaState, ownerId: PlayerId, actorId: PlayerId): Array<{ id: string; label: string }>
+  /** 被授权动作的执行。`actorId` 是点这条动作的人，不是技能拥有者。 */
+  invokeGrantedAction?(host: SkillHost, ownerId: PlayerId, actorId: PlayerId, actionId: string): void
   /** 主动技的执行。id 是 activeActions 给出的那一个。 */
   invokeActive?(host: SkillHost, ownerId: PlayerId, actionId: string): void
   /**

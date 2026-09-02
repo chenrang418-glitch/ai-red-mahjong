@@ -1,6 +1,7 @@
 import { flipCharacter } from '../../engine/character-state'
 // 不屈的运行时单独一个文件：它要动濒死流程和专属牌堆，和风包其他技能是两码事
 import { BUQU } from './wind-zhoutai'
+import { GUIDAO, HUANGTIAN, LEIJI } from './wind-zhangjiao'
 import { getDistance } from '../../engine/distance'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
@@ -491,6 +492,19 @@ export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
       name: '不屈',
       description: '锁定技，当你处于濒死状态时，你将牌堆顶的一张牌置于你的武将牌上，称为「创」；若此牌的点数与你武将牌上已有的「创」的点数均不同，则你不会死亡（体力值保持不变，可以为零或更低）。',
     }],
+  },
+  {
+    id: 'zhangjiao',
+    name: '张角',
+    kingdom: 'qun',
+    gender: 'male',
+    maxHp: 3,
+    pack: 'wind',
+    skills: [
+      { id: LEIJI, name: '雷击', description: '每当你使用或打出一张【闪】时，你可以令一名角色进行判定：若结果为黑桃，你对该角色造成两点雷电伤害。' },
+      { id: GUIDAO, name: '鬼道', description: '在一名角色的判定牌生效前，你可以打出一张黑色手牌代替之。' },
+      { id: HUANGTIAN, name: '黄天', description: '主公技。其他群雄角色可以在他们各自的出牌阶段中，交给你一张【闪】或【闪电】，每阶段限一次。' },
+    ],
   },
   {
     id: 'huangzhong',

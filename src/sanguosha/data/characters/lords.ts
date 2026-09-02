@@ -41,7 +41,7 @@ let kingdomLookup: ((characterId: string) => Kingdom | undefined) | null = null
 export function provideKingdomLookup(lookup: (characterId: string) => Kingdom | undefined): void {
   kingdomLookup = lookup
 }
-function kingdomOf(characterId: string): Kingdom | undefined {
+export function kingdomOf(characterId: string): Kingdom | undefined {
   return kingdomLookup?.(characterId)
 }
 

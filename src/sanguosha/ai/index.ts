@@ -88,6 +88,16 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       const cost = hasWeapon ? 2 : (me.hp <= 2 ? 14 : 6)
       return 12 + bestTarget - cost
     }
+    case 'huangtian': {
+      // 黄天是把防御牌送给主公。反贼/内奸没有理由做这件事；
+      // 主公和忠臣也要看自己够不够用——只剩一张闪还送出去等于自杀。
+      const lord = context.view.players.find((player) => player.identity === 'lord' && player.alive)
+      if (!lord || hostility(context.view, context.suspicion, lord.id) > 0) return -100
+      const dodges = me.hand?.filter((card) => card.name === '闪').length ?? 0
+      if (me.hp <= 2 && dodges <= 1) return -100
+      // 主公越危险越该送
+      return lord.hp <= 2 ? 12 : 4
+    }
     case 'kurou':
       // 苦肉在 1 血时直接进濒死，除非已经没别的路，否则不发
       return me.hp <= 1 ? -100 : 6
@@ -261,6 +271,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id === 'tianxiang-invoke')) {
         return { ...base, payload: { optionId: 'tianxiang-invoke' } }
       }
+      if (request.prompt.includes('雷击')) {
+        // 雷击不花任何代价，判定成功就是 2 点雷电伤害——没有不发动的理由。
+        // 打谁由后面的 choose-targets 分支按敌我倾向挑。
+        return { ...base, payload: { optionId: 'yes' } }
+      }
       if (request.prompt.includes('据守')) {
         return { ...base, payload: { optionId: decideJushou(context) ? 'yes' : 'no' } }
       }
@@ -369,6 +384,8 @@ const JUDGE_FAVOURABLE: Record<string, (suit: Suit, rank: number) => boolean> = 
   铁骑: (suit) => suit === 'heart' || suit === 'diamond',
   刚烈: (suit) => suit !== 'heart',
   洛神: (suit) => suit === 'spade' || suit === 'club',
+  // 雷击的判定是张角发起的，黑桃对他是好结果
+  雷击: (suit) => suit === 'spade',
 }
 
 /**

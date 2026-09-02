@@ -53,6 +53,17 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     }
   }
 
+  // 主公技授权（黄天）：动作出现在**别人**的出牌阶段，所以要扫全场的技能，
+  // 而不只是当前玩家自己的。技能 id 记在动作上，执行时才知道回调谁。
+  for (const other of state.players) {
+    if (!other.alive || other.id === playerId) continue
+    for (const runtime of skillsOf(state, other.id, skillIdsOf)) {
+      for (const option of runtime.grantsPlayActions?.(state, other.id, playerId) ?? []) {
+        actions.push({ id: option.id, kind: 'invoke-skill', playerId, label: option.label, skillId: runtime.id, cardIds: [], targetIds: [] })
+      }
+    }
+  }
+
   // 转化技（武圣、龙胆）：把「这张红牌当杀打某人」作为独立动作发出去。
   // 不能让前端自己猜牌的用途——同一张红牌既可以原样用，也可以当杀，
   // 必须两条动作都在，玩家才选得到用途。
@@ -451,7 +462,26 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
     // 装备的主动效果（丈八蛇矛、方天画戟）不在武将技能表里，按 id 全局查
     const runtime = skillsOf(host.state, playerId, skillIdsOf).find((candidate) => candidate.id === action.skillId)
       ?? (action.skillId.startsWith('equip:') ? getSkillRuntime(action.skillId) : undefined)
-    if (!runtime?.invokeActive) throw new Error('技能不可发动')
+
+    // 主公技授权（黄天）：这条动作属于当前玩家，但技能长在别人身上，
+    // 所以在自己的技能表里找不到时再去全场找一遍授权者
+    if (!runtime) {
+      const grantor = host.state.players.find((candidate) => candidate.alive && candidate.id !== playerId
+        && skillsOf(host.state, candidate.id, skillIdsOf)
+          .some((skill) => skill.id === action.skillId
+            && (skill.grantsPlayActions?.(host.state, candidate.id, playerId) ?? []).some((option) => option.id === action.id)))
+      const granted = grantor
+        ? skillsOf(host.state, grantor.id, skillIdsOf).find((skill) => skill.id === action.skillId)
+        : undefined
+      if (!grantor || !granted?.invokeGrantedAction) throw new Error('技能不可发动')
+      host.dispatch('SkillActivated', {
+        skillId: action.skillId, skillName: skillDisplayName(action.skillId), targetIds: action.targetIds,
+      }, { sourceId: playerId })
+      granted.invokeGrantedAction(host, grantor.id, playerId, action.id)
+      return
+    }
+
+    if (!runtime.invokeActive) throw new Error('技能不可发动')
     // 确认技能真的能发动之后再广播，界面才不会为一次失败的点击闪一下技能名
     host.dispatch('SkillActivated', {
       skillId: action.skillId, skillName: skillDisplayName(action.skillId), targetIds: action.targetIds,
