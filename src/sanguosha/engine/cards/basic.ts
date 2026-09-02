@@ -9,7 +9,7 @@ import { performJudgment } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
-import { effectiveCardName, moveCard, setCardAlias } from '../zones'
+import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
@@ -607,7 +607,15 @@ provideEquipmentCallbacks({
     const engineHost = host as CardEngineHost
     // 载体牌在发动技能的人手里，而「使用者」是被指定的那个人——
     // 所以不能直接用 beginPhysicalCard（它会从使用者手上取牌）。
-    moveCard(engineHost.state, cardId, { kind: 'hand', playerId: cardOwnerId }, { kind: 'processingArea' })
+    //
+    // 来源不能写死成手牌：离间的代价是「弃置一张牌」，装备也算，
+    // 写死 hand 会在貂蝉用装备当代价时抛「卡牌不在来源区域」。
+    const from = locateOwnedCard(engineHost.state, cardOwnerId, cardId)
+    if (!from) return
+    moveCard(engineHost.state, cardId, from, { kind: 'processingArea' })
+    if (from.kind === 'equipment') {
+      engineHost.dispatch('LoseEquipment', { playerId: cardOwnerId, cardId, slot: from.slot }, { targetId: cardOwnerId, cardIds: [cardId] })
+    }
     const metadata = { sourceId, targetId, cardIds: [cardId] }
     engineHost.dispatch('CardUsed', { cardId, cardName: asName, targetIds: [targetId] }, metadata)
     engineHost.dispatch('TargetSpecified', { cardId, cardName: asName, targetIds: [targetId] }, metadata)

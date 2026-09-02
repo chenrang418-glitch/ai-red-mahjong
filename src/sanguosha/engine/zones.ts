@@ -71,6 +71,25 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
 }
 
 /** 这张牌当前按什么牌名结算：有转化就用转化后的，否则用牌面上印的。 */
+/**
+ * 找出某张牌现在在这名角色的哪个区。
+ *
+ * 「弃置一张牌」在规则上包含手牌和装备，但调用方往往图省事写死
+ * `{ kind: 'hand' }`——貂蝉【离间】就是这么坏的：用装备当代价时
+ * `moveCard` 直接抛「卡牌不在来源区域」，整局崩掉。
+ * 凡是让玩家从「手牌 + 装备」里挑牌的技能，都该用这个函数定位来源。
+ */
+export function locateOwnedCard(state: SanguoshaState, playerId: PlayerId, cardId: CardId): ZoneRef | null {
+  const owner = state.players.find((candidate) => candidate.id === playerId)
+  if (!owner) return null
+  if (owner.zones.hand.includes(cardId)) return { kind: 'hand', playerId }
+  for (const [slot, equipped] of Object.entries(owner.zones.equipment)) {
+    if (equipped === cardId) return { kind: 'equipment', playerId, slot: slot as EquipmentSlot }
+  }
+  if (owner.zones.judgingArea.includes(cardId)) return { kind: 'judgingArea', playerId }
+  return null
+}
+
 export function effectiveCardName(state: SanguoshaState, cardId: CardId): string {
   return state.cardAliases[cardId] ?? state.cards[cardId]?.name ?? ''
 }

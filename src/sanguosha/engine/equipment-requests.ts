@@ -814,12 +814,20 @@ export function equipmentPlayActions(
   if (!owner?.alive) return []
   const options: Array<{ id: string; label: string; skillId: string }> = []
 
-  if (hasWeapon(state, playerId, '丈八蛇矛') && owner.zones.hand.length >= 2) {
+  // 两条都要先确认「这一刀打得到人」。
+  //
+  // 不查的话会产生一条**什么也不做的合法动作**：invokeActive 发现没有目标就
+  // 静默返回，状态没变，同一条动作下一轮还在——AI 会原地无限点下去。
+  // 压测抓到过一次方天画戟连点 19734 次的死锁，就是这么来的。
+  const canReachSomeone = (slashTargets?.(state, playerId) ?? []).length > 0
+
+  if (hasWeapon(state, playerId, '丈八蛇矛') && owner.zones.hand.length >= 2 && canReachSomeone) {
     options.push({ id: 'skill:zhangba', label: '发动【丈八蛇矛】：两张手牌当一张【杀】使用', skillId: ZHANGBA_SKILL })
   }
   if (hasWeapon(state, playerId, '方天画戟')
     && owner.zones.hand.length === 1
-    && state.cards[owner.zones.hand[0]]?.name === '杀') {
+    && state.cards[owner.zones.hand[0]]?.name === '杀'
+    && canReachSomeone) {
     options.push({ id: 'skill:fangtian', label: '发动【方天画戟】：最后一张【杀】可以指定至多三名角色', skillId: FANGTIAN_SKILL })
   }
   return options

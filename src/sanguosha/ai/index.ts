@@ -60,12 +60,68 @@ function myself(view: PlayerView) {
 /**
  * 出牌阶段选一个动作。返回 null 表示结束出牌。
  */
+/**
+ * 主动技的价值。
+ *
+ * 在此之前 `decidePlayAction` 只看 `use-card`，`invoke-skill` 从来不会被选中——
+ * 也就是说苦肉、制衡、结姻、青囊、反间、离间、强袭全部对 AI 不存在。
+ * 这里给每个主动技一个分数，和出牌放在同一个池子里比较。
+ *
+ * 分数只求「不做蠢事」，不求最优：能一眼看出是自杀或纯亏的一律给负分，
+ * 剩下的给一个中等偏低的分，让 AI 在没有好牌可出时才发动。
+ */
+function skillActionScore(context: AIContext, action: Extract<LegalAction, { kind: 'invoke-skill' }>): number {
+  const me = myself(context.view)
+  const enemies = context.view.players
+    .filter((player) => player.alive && player.id !== me.id)
+    .map((player) => targetScore(context, player.id))
+  const bestTarget = enemies.length > 0 ? Math.max(...enemies) : -Infinity
+
+  switch (action.skillId) {
+    case 'qiangxi': {
+      // 打不到值得打的人就别付代价
+      if (bestTarget <= 0) return -100
+      const hasWeapon = me.equipment.some((card) => card.equipmentSlot === 'weapon')
+      // 没有武器就只能拿血换，1 血换等于自杀
+      if (!hasWeapon && me.hp <= 1) return -100
+      // 血少还硬换很亏；有武器可弃时代价低得多
+      const cost = hasWeapon ? 2 : (me.hp <= 2 ? 14 : 6)
+      return 12 + bestTarget - cost
+    }
+    case 'kurou':
+      // 苦肉在 1 血时直接进濒死，除非已经没别的路，否则不发
+      return me.hp <= 1 ? -100 : 6
+    case 'zhiheng':
+      // 手牌越少换得越值；满手牌时收益有限
+      return me.handCount <= 2 ? 18 : 10
+    case 'qingnang':
+      // 有人受伤才有意义
+      return context.view.players.some((player) => player.alive && player.hp < player.maxHp) ? 16 : -100
+    case 'jieyin':
+      return me.hp < me.maxHp ? 14 : -20
+    case 'fanjian':
+      return bestTarget > 0 ? 12 : -20
+    case 'lijian':
+      return bestTarget > 0 ? 14 : -20
+    default:
+      // 装备的主动效果（丈八蛇矛、方天画戟）等：给个低分，有更好的牌就先出牌
+      return 3
+  }
+}
+
 export function decidePlayAction(context: AIContext, actions: readonly LegalAction[]): LegalAction | null {
   const useActions = actions.filter((action): action is Extract<LegalAction, { kind: 'use-card' }> => action.kind === 'use-card')
-  if (useActions.length === 0) return null
+  const skillActions = actions.filter((action): action is Extract<LegalAction, { kind: 'invoke-skill' }> => action.kind === 'invoke-skill')
+  if (useActions.length === 0 && skillActions.length === 0) return null
 
   const me = myself(context.view)
   let best: { action: LegalAction; score: number } | null = null
+
+  for (const action of skillActions) {
+    let score = skillActionScore(context, action)
+    if (context.difficulty !== 'hard') score += context.rng.nextInt(3)
+    if (!best || score > best.score) best = { action, score }
+  }
 
   for (const action of useActions) {
     let score = 0
@@ -166,8 +222,15 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       return { ...base, payload: { targetIds: pool.slice(0, count) } }
     }
 
-    case 'choose-option':
-      return { ...base, payload: { optionId: context.rng.pick(request.options).id } }
+    case 'choose-option': {
+      // 代价类选择不能瞎选：血少的时候「失去体力」可能直接把自己送进濒死，
+      // 有别的选项就不要碰它。其余选项仍然随机，避免 AI 行为过于死板。
+      const me = myself(context.view)
+      const options = request.options
+      const safe = me.hp <= 2 ? options.filter((option) => option.id !== 'hp' && option.id !== 'lose-hp') : options
+      const pool = safe.length > 0 ? safe : options
+      return { ...base, payload: { optionId: context.rng.pick(pool).id } }
+    }
 
     case 'choose-suit':
       return { ...base, payload: { suit: context.rng.pick(request.suits) } }
