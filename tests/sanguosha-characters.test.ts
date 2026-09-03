@@ -459,12 +459,20 @@ describe('选将流程', () => {
     const game = new SanguoshaGame({ seed: 'self-pick', setup: localSetup })
     game.dealGenerals()
     const human = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === 'p0')!
-    const ai = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === 'p1')!
     expect(human.allCandidates).toEqual(allCharacterIds())
+    /*
+     * 不能写死「p1 的候选」：`generalChoices` 为 1 时每个 AI 只发到一张，
+     * 那一张完全可能正好是娱乐武将（娱乐武将允许多人重复，撞不撞将无从谈起）。
+     * 池子一变顺序就变，写死 p1 迟早翻车——改成挑**任意一个**拿到普通武将的 AI。
+     */
+    const ai = game.state.pendingRequests.find((request) => request.kind === 'choose-general'
+      && request.playerId !== 'p0'
+      && request.candidates.some((id) => !isEntertainmentCharacter(id)))!
+    expect(ai, '至少要有一个 AI 拿到普通武将').toBeTruthy()
     expect(ai.allCandidates).toBeUndefined()
     const selected = ai.candidates.find((id) => !isEntertainmentCharacter(id))!
     game.respond({ requestId: human.id, playerId: 'p0', payload: { characterId: selected } })
-    const remaining = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === 'p1')!
+    const remaining = game.state.pendingRequests.find((request) => request.kind === 'choose-general' && request.playerId === ai.playerId)!
     expect(remaining.candidates).not.toContain(selected)
   })
 

@@ -8,9 +8,9 @@ export type GameEventName =
   | 'SkillActivated'
   | 'CharacterFlip' | 'CharacterChained'
   | 'Recover'
-  | 'LoseHp'
+  | 'LoseHp' | 'MaxHpChange'
   | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'
-  | 'CardMove' | 'LoseCard' | 'GainCard' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
+  | 'CardMove' | 'LoseCard' | 'GainCard' | 'HandSwap' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
 
 export interface GameEvent<TPayload = Record<string, unknown>> {
   id: string

@@ -4,7 +4,7 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { modifiedDamageSource, skillsOf, type SkillHost } from './skills/runtime'
+import { isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
@@ -12,6 +12,7 @@ import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { setChained } from './character-state'
+import { deathCardClaimantOf, holdDeathCards, releaseDeathCards } from './death-claim'
 
 export interface DamageOptions {
   sourceId?: PlayerId | null
@@ -111,13 +112,23 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
     .flatMap((runtime) => runtime.viewAs?.(state, responderId) ?? [])
     .filter((option) => option.asCardName === '桃')
     .map((option) => option.cardId))
+  /*
+   * 贾诩【完杀】这类「不能使用【桃】」的限制统一在这里问一次。
+   *
+   * 限制的是**桃**，不是酒：濒死角色用酒自救是另一条规则，
+   * 不能被顺手一起禁掉。实体桃、转化桃（急救、龙胆之类）和蛊惑声明的桃
+   * 三条路都要挡住，只挡实体牌等于没挡。
+   */
+  const peachProhibited = isCardUseProhibited(state, responderId, '桃', { dyingPlayerId })
   const usable = responder.zones.hand.filter((cardId) => {
     const name = state.cards[cardId]?.name
-    return name === '桃' || viewAsPeach.has(cardId) || (name === '酒' && responderId === dyingPlayerId)
+    if (name === '酒') return responderId === dyingPlayerId
+    if (name === '桃' || viewAsPeach.has(cardId)) return !peachProhibited
+    return false
   })
   const actionIds = [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
   // 于吉【蛊惑】：声明打出一张【桃】救人（含救自己）
-  if (canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  if (!peachProhibited && canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
   return actionIds
 }
 
@@ -204,7 +215,16 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   if (dead.chained) setChained(host, dead.id, 'death', false)
   dead.alive = false
   dead.identityRevealed = true
-  discardOwnedCards(host, dead, true)
+  /*
+   * 清牌之前先问一句「有人要吗」（曹丕【行殇】）。
+   *
+   * 有人认领就把牌暂存到处理区，**不进弃牌堆**——「获得死亡角色的牌」和
+   * 「从弃牌堆捡回来」不是一回事。真正拿不拿由认领者的技能在 Death 之后发问，
+   * 那时候牌局才回到能安全提问的状态。
+   */
+  const claimant = deathCardClaimantOf(host.state, playerId)
+  if (claimant) holdDeathCards(host, dead, claimant)
+  else discardOwnedCards(host, dead, true)
   host.dispatch('Death', { playerId, sourceId, identity: dead.identity }, { sourceId: sourceId ?? undefined, targetId: playerId })
   host.state.dying = null
 
@@ -217,6 +237,9 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
 
   const result = checkIdentityVictory(host.state.players)
   if (result) {
+    // 牌局就此结束，认领的问句永远不会问出去了：暂存的牌立刻归位，
+    // 不能留在处理区变成无主的牌
+    releaseDeathCards(host)
     host.state.result = result
     host.state.status = 'game-over'
     for (const candidate of host.state.players) candidate.identityRevealed = true

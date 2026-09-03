@@ -70,6 +70,14 @@ import { MENGHUO } from './forest-menghuo'
 import { ZHURONG } from './forest-zhurong'
 // 孙坚是多步发问：发动 → 选目标 → 选模式 → 摸 → 弃，状态全部可序列化
 import { SUNJIAN } from './forest-sunjian'
+// 鲁肃两个技能都在搬牌：给牌和原子换手牌都走 engine/hand-transfer.ts
+import { LUSU } from './forest-lusu'
+// 曹丕：行殇接死亡牌认领，放逐复用曹仁那套翻面，颂威挂在判定结果上
+import { CAOPI } from './forest-caopi'
+// 董卓：酒池是转化技，肉林接条件式闪数，崩坏用公共的减上限，暴虐走统一判定
+import { DONGZHUO } from './forest-dongzhuo'
+// 贾诩：完杀接使用禁止，帷幕接目标禁止，乱武是可序列化的多人依次结算
+import { JIAXU } from './forest-jiaxu'
 
 export const FOREST_CHARACTERS: readonly CharacterDefinition[] = [
   {
@@ -88,4 +96,8 @@ export const FOREST_CHARACTERS: readonly CharacterDefinition[] = [
   MENGHUO,
   ZHURONG,
   SUNJIAN,
+  LUSU,
+  CAOPI,
+  DONGZHUO,
+  JIAXU,
 ] as const

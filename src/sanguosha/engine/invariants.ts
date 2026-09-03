@@ -14,7 +14,14 @@ export function assertGameInvariants(state: SanguoshaState): void {
   if (!state.players.some((player) => player.id === state.currentPlayerId)) throw new Error('当前玩家不存在')
 
   for (const candidate of state.players) {
-    if (!Number.isInteger(candidate.hp) || !Number.isInteger(candidate.maxHp) || candidate.maxHp <= 0 || candidate.hp > candidate.maxHp) {
+    /*
+     * 体力上限允许为 0。
+     *
+     * 规则上「体力上限降为 0」就是死亡（董卓【崩坏】一直选减上限能走到这一步），
+     * 这时候体力也是 0、角色进濒死然后阵亡——这是一个合法的终局状态，
+     * 不是坏数据。**负数**才是真的错。
+     */
+    if (!Number.isInteger(candidate.hp) || !Number.isInteger(candidate.maxHp) || candidate.maxHp < 0 || candidate.hp > candidate.maxHp) {
       throw new Error(`玩家体力非法：${candidate.id}`)
     }
     if (!candidate.alive && !candidate.identityRevealed) throw new Error(`死亡角色身份未公开：${candidate.id}`)
@@ -40,6 +47,24 @@ export function assertGameInvariants(state: SanguoshaState): void {
   for (const request of state.pendingRequests) {
     if (!state.players.some((candidate) => candidate.id === request.playerId && candidate.alive)) throw new Error(`Request 响应玩家非法：${request.id}`)
   }
+  /*
+   * 每个待回答的「打出牌」请求都必须有主。
+   *
+   * 无主的请求意味着某个结算状态被覆盖掉了，而请求还挂在那里：玩家点下去
+   * 只会收到「卡牌响应 Request 已经过期」，整局就此卡死。青龙偃月刀的追杀
+   * 覆盖多目标【杀】就是这么翻的车，约一千局出一次，靠肉眼根本看不出来。
+   * 放在不变量里，以后任何一条路径犯同样的错都会在压测里当场暴露。
+   */
+  const claimedRequestIds = new Set<string>()
+  const resolution = state.cardResolution as { requestId?: string | null; effect?: { requestId?: string | null } } | null
+  for (const id of [resolution?.requestId, resolution?.effect?.requestId, (state.judgment as { requestId?: string | null } | null)?.requestId, state.skillResolution?.requestId]) {
+    if (id) claimedRequestIds.add(id)
+  }
+  for (const request of state.pendingRequests) {
+    if (request.kind !== 'respond-card') continue
+    if (!claimedRequestIds.has(request.id)) throw new Error(`无主的卡牌响应 Request：${request.id}`)
+  }
+
   if (state.dying) {
     const target = state.players.find((candidate) => candidate.id === state.dying!.playerId)
     if (!target?.alive || target.hp > 0) throw new Error('DyingState 与目标状态不一致')

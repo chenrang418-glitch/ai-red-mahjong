@@ -161,6 +161,7 @@ describe('转化技不能产出无人消费的牌名', () => {
       杀: '出牌阶段动作',
       闪: 'dodgeViewAsOptions',
       桃: '濒死救援 rescueActionIds',
+      酒: '出牌阶段动作（受 wineUses 每回合一次限制）',
       无懈可击: '即时锦囊与判定无懈响应链',
     }
     const DELAYED_TRICK_NAMES = new Set(['乐不思蜀', '兵粮寸断', '闪电'])

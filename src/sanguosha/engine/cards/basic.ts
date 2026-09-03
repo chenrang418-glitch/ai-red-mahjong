@@ -44,12 +44,12 @@ function hasDelayedTrick(state: SanguoshaState, playerId: PlayerId, name: string
   return player(state, playerId).zones.judgingArea.some((cardId) => effectiveCardName(state, cardId) === name)
 }
 
-function canPlaceDelayedTrick(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, name: string): boolean {
+function canPlaceDelayedTrick(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, name: string, cardId: CardId): boolean {
   const target = player(state, targetId)
   if (!target.alive) return false
   if (name === '闪电') return targetId === sourceId && !hasDelayedTrick(state, targetId, name)
   if (targetId === sourceId || hasDelayedTrick(state, targetId, name)) return false
-  if (isTargetProhibited(state, sourceId, targetId, name, skillIdsOf)) return false
+  if (isTargetProhibited(state, sourceId, targetId, name, skillIdsOf, cardId)) return false
   if (name !== '兵粮寸断') return true
   if (ignoresTrickDistance(state, sourceId)) return true
   return getDistance(state, sourceId, targetId) <= 1 + trickDistanceBonusOf(state, sourceId, targetId, name, skillIdsOf)
@@ -115,14 +115,14 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     } else if (INSTANT_TRICKS.has(card.name)) {
       actions.push(...instantTrickActions(state, playerId, cardId))
     } else if (card.name === '乐不思蜀') {
-      for (const target of state.players.filter((candidate) => canPlaceDelayedTrick(state, playerId, candidate.id, card.name))) {
+      for (const target of state.players.filter((candidate) => canPlaceDelayedTrick(state, playerId, candidate.id, card.name, cardId))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【乐不思蜀】`))
       }
     } else if (card.name === '兵粮寸断') {
-      for (const target of state.players.filter((candidate) => canPlaceDelayedTrick(state, playerId, candidate.id, card.name))) {
+      for (const target of state.players.filter((candidate) => canPlaceDelayedTrick(state, playerId, candidate.id, card.name, cardId))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【兵粮寸断】`))
       }
-    } else if (card.name === '闪电' && canPlaceDelayedTrick(state, playerId, playerId, card.name)) {
+    } else if (card.name === '闪电' && canPlaceDelayedTrick(state, playerId, playerId, card.name, cardId)) {
       actions.push(useAction(cardId, playerId, card.name, [playerId], '将【闪电】置入自己的判定区'))
     }
   }
@@ -162,7 +162,7 @@ export function declaredCardActions(
   // 转化成延时锦囊（大乔【国色】）：放进目标判定区，判定时按转化后的牌名结算
   if (DELAYED_TRICKS.has(asCardName)) {
     for (const target of state.players) {
-      if (!canPlaceDelayedTrick(state, playerId, target.id, asCardName)) continue
+      if (!canPlaceDelayedTrick(state, playerId, target.id, asCardName, cardId)) continue
       actions.push({
         ...useAction(cardId, playerId, asCardName, [target.id], `${label}，目标${target.nickname}`),
         id: `play:viewas:${cardId}:${target.id}`,
@@ -263,7 +263,7 @@ function beginSlash(
     damageNature: card.damageNature ?? 'normal', damageAmount,
     stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [], extraCardIds,
     remainingTargetIds: [...remainingTargetIds],
-    dodgeRemaining: slashDodgeRequirement(host, action.playerId),
+    dodgeRemaining: slashDodgeRequirement(host, action.playerId, targetId),
   }
   enterSlashTarget(host)
 }
@@ -302,8 +302,15 @@ export function beginVirtualSlash(
   if (!source.alive || !target.alive || source.id === target.id) throw new Error('虚拟杀目标非法')
   if (options.cardId) {
     if (!source.zones.hand.includes(options.cardId)) throw new Error('作为载体的【杀】不在手牌里')
-    const carrier = host.state.cards[options.cardId]
-    if (carrier?.name !== '杀') throw new Error('作为载体的牌不是【杀】')
+    /*
+     * 看**有效牌名**而不是印刷名。
+     *
+     * 关羽【武圣】把一张红牌当【杀】用时，实体牌印的仍然是别的名字；
+     * 只认印刷名的话，这类转化杀就永远走不进技能发起的【杀】管线
+     * （贾诩【乱武】逼人出杀时就会漏掉他们）。调用方把别名设好，
+     * 这里按统一口径确认它现在确实是一张【杀】。
+     */
+    if (effectiveCardName(host.state, options.cardId) !== '杀') throw new Error('作为载体的牌不是【杀】')
     const realAction = useAction(options.cardId, source.id, '杀', [target.id], `对${target.nickname}使用【杀】`)
     if (realAction.kind !== 'use-card') throw new Error('技能杀动作构造失败')
     beginSlash(host, realAction, { countUsage: false, consumeWine: false })
@@ -330,8 +337,29 @@ export function beginVirtualSlash(
   beginSlash(host, action, { countUsage: false, consumeWine: false })
 }
 
-function slashDodgeRequirement(host: CardEngineHost, sourceId: PlayerId): number {
-  return Math.max(1, ...skillsOf(host.state, sourceId, skillIdsOf).map((runtime) => runtime.slashDodgeResponses ?? 1))
+/**
+ * 这一次【杀】需要连续打出几张【闪】。
+ *
+ * 两类来源，**都要看**：
+ *
+ * - 出杀方的固定加成（吕布【无双】）：`slashDodgeResponses`；
+ * - 攻守任意一方的条件加成（董卓【肉林】要看对方性别）：`dodgeResponsesFor`。
+ *   肉林在「董卓砍女性」和「女性砍董卓」两个方向都生效，后者技能在**目标**身上，
+ *   所以只查出杀方的技能是不够的。
+ *
+ * 多个来源取 **max 而不是相加**：无双和肉林撞在一起仍然是两张闪，不是四张。
+ * 规则上这类效果是「需要 N 张才能抵消」，不是各自独立叠加。
+ */
+function slashDodgeRequirement(host: CardEngineHost, sourceId: PlayerId, targetId: PlayerId): number {
+  const counts = [1]
+  for (const runtime of skillsOf(host.state, sourceId, skillIdsOf)) {
+    counts.push(runtime.slashDodgeResponses ?? 1)
+    counts.push(runtime.dodgeResponsesFor?.(host.state, sourceId, sourceId, targetId) ?? 1)
+  }
+  for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
+    counts.push(runtime.dodgeResponsesFor?.(host.state, targetId, sourceId, targetId) ?? 1)
+  }
+  return Math.max(...counts)
 }
 
 /**
@@ -397,7 +425,7 @@ function continueSlash(host: CardEngineHost): void {
   resolution.surrogate = null
   resolution.requestId = null
   resolution.stage = 'awaiting-dodge'
-  resolution.dodgeRemaining = slashDodgeRequirement(host, resolution.sourceId)
+  resolution.dodgeRemaining = slashDodgeRequirement(host, resolution.sourceId, resolution.targetId)
   resolution.noDodge = false
   resolution.targetCancelled = false
   enterSlashTarget(host)
@@ -601,8 +629,17 @@ export function performPlayAction(host: CardEngineHost, playerId: PlayerId, acti
   }
   if (action.kind === 'invoke-skill') {
     // 装备的主动效果（丈八蛇矛、方天画戟）不在武将技能表里，按 id 全局查
-    const runtime = skillsOf(host.state, playerId, skillIdsOf).find((candidate) => candidate.id === action.skillId)
+    const own = skillsOf(host.state, playerId, skillIdsOf).find((candidate) => candidate.id === action.skillId)
       ?? (action.skillId.startsWith('equip:') ? getSkillRuntime(action.skillId) : undefined)
+    /*
+     * 自己也有同名技能，**不代表这条动作是自己的主动技**。
+     *
+     * 一桌上出现两个同名武将时（娱乐包允许重复，压测的固定阵容也会造出来），
+     * 被授权方自己那份「黄天」会先按 id 命中，然后卡在下面的
+     * 「技能不可发动」——因为授权类技能只有 `invokeGrantedAction`，没有 `invokeActive`。
+     * 所以命中的这份没有 `invokeActive` 时要当作没找到，继续去找真正的授权者。
+     */
+    const runtime = own?.invokeActive ? own : undefined
 
     // 主公技授权（黄天）：这条动作属于当前玩家，但技能长在别人身上，
     // 所以在自己的技能表里找不到时再去全场找一遍授权者
@@ -982,7 +1019,7 @@ provideEquipmentCallbacks({
       damageAmount: 1,
       stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [],
       extraCardIds: [], remainingTargetIds: [],
-      dodgeRemaining: slashDodgeRequirement(engineHost, sourceId),
+      dodgeRemaining: slashDodgeRequirement(engineHost, sourceId, targetId),
     }
     enterSlashTarget(engineHost)
   },
@@ -994,6 +1031,8 @@ provideEquipmentCallbacks({
     // 换了目标就是一次全新的响应：代打进度清掉，插入点也要对新目标重新问一遍
     resolution.surrogate = null
     resolution.interceptsDone = []
+    // 需要几张闪也要按新目标重算：肉林看的是目标性别，转给别人之后条件可能就不成立了
+    resolution.dodgeRemaining = slashDodgeRequirement(engineHost, resolution.sourceId, newTargetId)
     resolution.noDodge = false
     resolution.targetCancelled = false
     engineHost.dispatch('TargetSpecified', { cardId: resolution.cardId, targetId: newTargetId, reason: '流离' }, {
@@ -1003,8 +1042,15 @@ provideEquipmentCallbacks({
   },
   useExtraSlash(host, sourceId, targetId, cardId) {
     const engineHost = host as CardEngineHost
-    // 先把外层那张【杀】收完，否则 beginSlash 会把它的结算状态覆盖掉
-    continueSlash(engineHost)
+    /*
+     * **调用方必须先把外层那张【杀】彻底收完再进来。**
+     *
+     * 这里原来自己调 `continueSlash`，但多目标【杀】（太史慈【天义】、方天画戟）
+     * 的 `continueSlash` 会推进到下一个目标并**当场发出求闪请求**，
+     * 紧接着下面的 `beginSlash` 就把 `cardResolution` 覆盖掉了——
+     * 那个刚发出去的请求从此没有对应的结算状态，谁回答都会撞上
+     * 「卡牌响应 Request 已经过期」。约一千局出一次，压测抓到过。
+     */
     const target = playerOf(engineHost.state, targetId)
     // 青龙偃月刀的追杀不受距离和次数限制，所以不走 legalPlayActions，
     // 直接构造动作。用完把次数补回去，免得吃掉本回合正常的出杀机会。

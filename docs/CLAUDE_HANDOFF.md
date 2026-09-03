@@ -1,6 +1,6 @@
 # 交接说明：CRPlay（红中麻将 + 三国杀）
 
-更新时间：2026-09-03（林包前四将：徐晃、孟获、祝融、孙坚）。
+更新时间：2026-09-03（**林包八将全部完成**）。
 
 ## 先做什么
 
@@ -28,10 +28,10 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npx vitest run` | 103 文件 / **1145 用例，无 todo** |
+| `npx vitest run` | 110 文件 / **1256 用例，无 todo** |
 | `npx playwright test` | **51 通过**（Chromium 47 + WebKit 4） |
 | `npm run sanguosha:soak -- 500` | 5 人局与 8 人局各 500 局全部完成 |
-| `npm run sanguosha:soak -- 300 --characters=sunjian,zhurong,menghuo,xuhuang` | 各 300 局全部完成，四将机制均有触发 |
+| `npm run sanguosha:soak -- 500 --characters=<林包八将>` | 各 500 局全部完成，八将机制均有触发 |
 | `npm run test:online:smoke` | 通过 |
 | `npm run typecheck` / `typecheck:online` | 通过 |
 | `npm run build` / `build:online` | 通过（Worker dry-run 通过） |
@@ -104,7 +104,16 @@
 
   **不要混进改版**：徐晃没有【截辎】、断粮不是「手牌数不小于你则无距离限制」；
   孙坚【英魂】没有「魂」标记；孟获【再起】是**红桃换血、非红桃进手牌**，别写反。
-  林包普通武将 **4 / 8**，还剩鲁肃、曹丕、董卓、贾诩。
+  | 鲁肃（吴 3 血） | 好施、缔盟 | `data/characters/forest-lusu.ts` |
+  | 曹丕（魏 3 血） | 行殇、放逐、颂威（主公技） | `data/characters/forest-caopi.ts` |
+  | 董卓（群 8 血） | 酒池、肉林、崩坏、暴虐（主公技） | `data/characters/forest-dongzhuo.ts` |
+  | 贾诩（群 3 血） | 完杀、乱武、帷幕 | `data/characters/forest-jiaxu.ts` |
+
+  **林包普通武将 8 / 8，已全部完成。**
+
+  几条最容易写错、务必按原文的地方：**颂威和暴虐的发动者都是「其」——
+  那名魏 / 群势力角色，不是主公自己**；**崩坏是「不是全场最低」才触发，
+  并列最低不触发**；**乱武的杀仍受攻击范围限制**，够不着就只能掉血。
 
   好友娱乐包 5 名：平头方块、奶蛙、牛来、许老板、无亮。许老板当前技能为
   【空城计】【杠杆】【空手套白狼】；【杠杆】在正常摸牌后还债，牌不足只失去 1 点体力，
@@ -195,7 +204,7 @@
    再加武将照 `docs/sanguosha-portraits.md` 做。
    **不要自己去网上抓立绘**——原型阶段用过的无授权素材已按用户决定全部撤除。
 
-7. ~~新增角色~~ ✅ 风包 8/8、火包 8/8、林包 4/8，加好友娱乐武将 5 名，**当前总池 50 名**。
+7. ~~新增角色~~ ✅ 风包 8/8、火包 8/8、**林包 8/8**，加好友娱乐武将 5 名，**当前总池 54 名**。
    首页、选将页和规则页的计数一律读 `ALL_CHARACTERS.length`，**不要写死数字**。
 
 ## 扩包到 32 名（已完成）
@@ -292,6 +301,40 @@
    所以奸雄、刚烈、狂骨、天香、节命拿到的都是改写后的来源。
 3. **结算后归属只在实体牌正要进弃牌堆时询问。** 虚拟牌走的是销毁分支，
    问都问不到它，所以不存在「凭空造一张牌」破坏守恒的路径。
+
+## 林包后四将引入的公共机制（2026-09-03）
+
+| 机制 | 入口 | 谁在用 |
+|---|---|---|
+| 多牌交给（不路过弃牌堆） | `engine/hand-transfer.ts` 的 `giveCards` | 刘备【仁德】、鲁肃【好施】 |
+| 原子交换手牌 | 同上的 `swapHands` | 鲁肃【缔盟】 |
+| 死亡牌认领 | `engine/death-claim.ts` + `SkillRuntime.claimsDeathCards` | 曹丕【行殇】 |
+| 减体力上限 | `engine/hp.ts` 的 `loseMaxHp` | 董卓【崩坏】 |
+| 条件式「需要几张闪」 | `SkillRuntime.dodgeResponsesFor` | 董卓【肉林】 |
+| 使用牌禁止 | `SkillRuntime.prohibitsCardUse` + `isCardUseProhibited` | 贾诩【完杀】 |
+| 目标禁止带实体牌 | `prohibitsTarget` 的 `cardId` 形参 | 贾诩【帷幕】 |
+
+四条改动前必读：
+
+1. **交换手牌必须先快照两边再搬。** 「A 的牌给 B，再把 B 的牌给 A」会让
+   A 拿走全部牌、B 空手。交换也不是弃牌，所以【连营】这类技能不该被触发。
+2. **死亡牌在决定归属前暂存在处理区，不进弃牌堆。** 每一条退出路径都要落到
+   `releaseDeathCards`，否则处理区会留下无主的牌。
+3. **「需要几张闪」多个来源取 max 不是相加**：无双和肉林撞在一起仍然是两张。
+4. **乱武没有新建引擎状态**，用现成的 `skillQueue` 串起来，
+   排队项挂在当前参与者身上而不是贾诩——挂贾诩的话他中途死了后面就全被跳过。
+
+## 一条容易再犯的坑：测试脚手架里的体力上限
+
+很多测试直接给 `player.characterId` 赋值来指定武将，这会**绕过选将流程**，
+而体力上限是在选将的回应里设的。不补一句所有人都停在默认的 4 血，
+董卓（8）和一堆 3 血武将就测不出真实行为。照抄引擎那一条即可：
+
+```ts
+const character = getCharacter(characterIds[index])!
+player.maxHp = character.maxHp + (player.identity === 'lord' ? 1 : 0)
+player.hp = player.maxHp
+```
 
 ## 隐藏信息与多人决定（2026-09-02 新增）
 

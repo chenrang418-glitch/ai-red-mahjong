@@ -136,9 +136,18 @@ export function runSoakGame(options: SoakOptions): SoakResult {
       const playerId = game.state.currentPlayerId
       const action = decidePlayAction(contextFor(playerId), game.legalActions(playerId))
       if (action) {
-        // 转化技产出的动作要单独记一笔：CardUsed 只看得到「用了一张兵粮寸断」，
-        // 分不出这张是实体牌还是断粮换来的
-        if (action.kind === 'use-card' && action.id.startsWith('play:viewas:')) bump(`viewas:${action.asCardName}`)
+        /*
+         * 转化技产出的动作单独记一笔：CardUsed 只看得到「用了一张兵粮寸断」，
+         * 分不出这张是实体牌还是断粮换来的。
+         *
+         * 不能只认 `play:viewas:` 前缀——那只有延时锦囊那一支才会加。
+         * 转化成基本牌时（董卓【酒池】把黑桃当酒）动作 id 和用实体牌完全一样，
+         * 所以真正可靠的判据是「实体牌的名字和这次使用的牌名对不上」。
+         */
+        if (action.kind === 'use-card') {
+          const printed = game.state.cards[action.cardIds[0]]?.name
+          if (action.asCardName && printed && printed !== action.asCardName) bump(`viewas:${action.asCardName}`)
+        }
         game.act(playerId, action.id)
       }
       else {

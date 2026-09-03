@@ -196,6 +196,254 @@ function shouldInvokeYinghun(context: AIContext): boolean {
   ))
 }
 
+/** 手牌最少的其他角色。好施要交牌给他们中的一个。 */
+function fewestHandPlayers(context: AIContext): PlayerId[] {
+  const me = myself(context.view)
+  const others = context.view.players.filter((player) => player.alive && player.id !== me.id)
+  if (others.length === 0) return []
+  const fewest = Math.min(...others.map((player) => player.handCount))
+  return others.filter((player) => player.handCount === fewest).map((player) => player.id)
+}
+
+/**
+ * 【好施】发不发动。
+ *
+ * 多摸两张是稳赚，代价是**手牌过 5 就得交一半出去**——而且交给的是
+ * 「手牌最少的人」，那个人很可能是被打穿了的敌人。所以真正的问题是
+ * 「这一半牌会不会资敌」。
+ *
+ * 摸完是 handCount + 4：不超过 5 张就纯赚，直接发动；
+ * 要交牌时看收牌人是谁，全是敌人就得掂量交出去的张数值不值那两张。
+ */
+function shouldInvokeHaoshi(context: AIContext): boolean {
+  const me = myself(context.view)
+  const after = me.handCount + 4
+  if (after <= 5) return true
+
+  const receivers = fewestHandPlayers(context)
+  if (receivers.length === 0) return true
+  // 只要有一个可能的收牌人是自己人，交牌就不算亏——补队友本来就是好施的用法
+  const hasFriend = receivers.some((playerId) => hostility(context.view, context.suspicion, playerId) <= 0)
+  if (hasFriend) return true
+
+  // 全是敌人：净收益 = 多摸 2 张 - 交出去的一半
+  const given = Math.floor(after / 2)
+  return 2 - given >= 0
+}
+
+/** 好施交给谁：自己人优先，其次是威胁最小的那个敌人。 */
+function haoshiTargetScore(context: AIContext, targetId: PlayerId): number {
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  // 敌意越低越该给；血少的自己人更需要牌
+  return -attitude * 4 + (attitude <= 0 ? Math.max(0, 5 - target.hp) : 0)
+}
+
+/**
+ * 【缔盟】值不值得发动。
+ *
+ * 它的收益来自「把敌人屯的牌搬给自己人」，代价是鲁肃自己按手牌差弃同样多的牌。
+ * 差值越大收益越大、代价也越大，所以要**同时**看这两头：
+ * 找不到一对能改善局面的组合，或者自己根本付不起，就别动。
+ */
+function dimengScore(context: AIContext): number {
+  const me = myself(context.view)
+  const others = context.view.players.filter((player) => player.alive && player.id !== me.id)
+  if (others.length < 2) return -100
+  const pair = bestDimengPair(context, others.map((player) => player.id))
+  if (!pair) return -100
+  const cost = pair.cost
+  // 付不起就别发动：真去选了也只会被服务端挡回来
+  if (cost > me.handCount + 2) return -100
+  return pair.gain - cost * 3
+}
+
+interface DimengPair { targetIds: PlayerId[]; gain: number; cost: number }
+
+/**
+ * 挑最划算的一对。
+ *
+ * 收益按「牌从敌人手里流到自己人手里」算：敌人多的牌被搬走是赚，
+ * 自己人多的牌被搬给敌人是亏。**方向必须算对**——不看敌我只看牌多牌少的话，
+ * 会把队友的牌白送给敌人。
+ */
+function bestDimengPair(context: AIContext, candidateIds: readonly PlayerId[]): DimengPair | null {
+  let best: DimengPair | null = null
+  for (let i = 0; i < candidateIds.length; i += 1) {
+    for (let j = i + 1; j < candidateIds.length; j += 1) {
+      const left = context.view.players.find((player) => player.id === candidateIds[i])
+      const right = context.view.players.find((player) => player.id === candidateIds[j])
+      if (!left?.alive || !right?.alive) continue
+      const cost = Math.abs(left.handCount - right.handCount)
+      const leftEnemy = hostility(context.view, context.suspicion, left.id) > 0
+      const rightEnemy = hostility(context.view, context.suspicion, right.id) > 0
+      // 一敌一友才有意义：同阵营对调等于白弃牌
+      if (leftEnemy === rightEnemy) continue
+      const enemy = leftEnemy ? left : right
+      const friend = leftEnemy ? right : left
+      // 敌人手牌越多、自己人手牌越少，这一换越值
+      const gain = (enemy.handCount - friend.handCount) * 3
+      if (gain <= 0) continue
+      if (!best || gain - cost * 3 > best.gain - best.cost * 3) {
+        best = { targetIds: [left.id, right.id], gain, cost }
+      }
+    }
+  }
+  return best
+}
+
+/** 缔盟真正选人。挑不出划算组合时交空数组＝放弃，不消耗本回合这一次。 */
+function chooseDimengPair(context: AIContext, candidateIds: readonly PlayerId[]): PlayerId[] {
+  return bestDimengPair(context, candidateIds)?.targetIds ?? []
+}
+
+/**
+ * 【放逐】翻谁最划算，顺带回答「值不值得发动」（返回 null 就是不值得）。
+ *
+ * 放逐是**补牌 + 翻面**的双刃：
+ *
+ * - 翻**正面的敌人**：他下个回合整个被跳过，这是主要收益；
+ *   但同时白送他 X 张牌，X 越大越肉疼，所以 X 大时要挑真正值得停一回合的人。
+ * - 翻**背面的自己人**：把队友从「下回合被跳过」里救回来，还顺手补牌，纯赚。
+ * - 翻正面的自己人、翻背面的敌人都是资敌，一律不选。
+ */
+function fangzhuBestTarget(context: AIContext, candidateIds?: readonly PlayerId[]): PlayerId | null {
+  const me = myself(context.view)
+  const x = Math.max(0, me.maxHp - me.hp)
+  const pool = candidateIds ?? context.view.players
+    .filter((player) => player.alive && player.id !== me.id)
+    .map((player) => player.id)
+
+  let best: { playerId: PlayerId; score: number } | null = null
+  for (const playerId of pool) {
+    const target = context.view.players.find((player) => player.id === playerId)
+    if (!target?.alive) continue
+    const enemy = hostility(context.view, context.suspicion, playerId) > 0
+    let score: number
+    if (target.faceDown) {
+      // 已经背面：翻过去就是翻回正面。救自己人值，帮敌人回来是送
+      score = enemy ? -50 : 12 + x * 2
+    } else {
+      // 正面：翻成背面。停敌人一回合值，停自己人是自残
+      score = enemy ? 14 - x * 2 : -50
+    }
+    if (!best || score > best.score) best = { playerId, score }
+  }
+  return best && best.score > 0 ? best.playerId : null
+}
+
+/**
+ * 【颂威】要不要送主公一张牌。
+ *
+ * 决定权在判定的那名魏势力角色手上，所以判断的是**他和主公的关系**：
+ * 忠臣和主公自然乐意，反贼没理由给主公送牌。
+ */
+function shouldInvokeSongwei(context: AIContext): boolean {
+  const lord = context.view.players.find((player) => player.identity === 'lord' && player.alive)
+  if (!lord) return false
+  return hostility(context.view, context.suspicion, lord.id) <= 0
+}
+
+/**
+ * 【崩坏】掉血还是掉上限。
+ *
+ * 董卓 8 血，前期上限比血值不值钱得多，掉血更划算；但**血一旦掉到会进濒死
+ * 就绝不能再掉**——那是当场送命，上限再高也没用。
+ * 上限已经被削得很低时反过来要保上限：上限就是手牌上限的基数，
+ * 削到 2、3 之后每回合都在弃牌，等于慢性死亡。
+ */
+function chooseBenghuai(context: AIContext): string {
+  const me = myself(context.view)
+  const hasPeach = (me.hand ?? []).some((card) => card.name === '桃')
+  // 掉了这一点就进濒死：除非手上有桃，否则一律改削上限
+  if (me.hp <= 1 && !hasPeach) return 'benghuai-lose-max'
+  // 上限已经很低：再削下去手牌上限撑不住，宁可掉血
+  if (me.maxHp <= 3) return me.hp > 1 ? 'benghuai-lose-hp' : 'benghuai-lose-max'
+  // 血比上限紧张时保血
+  return me.hp <= 2 ? 'benghuai-lose-max' : 'benghuai-lose-hp'
+}
+
+/**
+ * 【暴虐】要不要给主公判一次。
+ *
+ * 决定权在造成伤害的那名群势力角色手上，所以看的是**他和主公的关系**。
+ * 主公满血时判了也白判（回不了血），没必要浪费一张判定牌。
+ */
+function shouldInvokeBaonue(context: AIContext): boolean {
+  const lord = context.view.players.find((player) => player.identity === 'lord' && player.alive)
+  if (!lord) return false
+  if (lord.hp >= lord.maxHp) return false
+  return hostility(context.view, context.suspicion, lord.id) <= 0
+}
+
+/**
+ * 这一口酒值不值得喝。
+ *
+ * 三个前提缺一不可：手上还有【杀】、这张【杀】确实有合法目标、本回合还没喝过。
+ * 前两条由这里判断，第三条由引擎的 `wineUses` 挡住（合法动作里本来就不会再出现酒）。
+ *
+ * 分数压在【杀】本身之下：先出杀再喝酒是错的顺序，得让「喝酒」排在「出杀」前面
+ * 才有意义，所以给的分要比一次普通出杀略高一点，但低于桃和无中生有这类稳赚的牌。
+ */
+function wineScore(context: AIContext, actions: readonly LegalAction[]): number {
+  // 还有能打出去的【杀】才谈得上增伤
+  const slashTargets = actions
+    .filter((action): action is Extract<LegalAction, { kind: 'use-card' }> => action.kind === 'use-card' && action.asCardName === '杀')
+    .flatMap((action) => action.targetIds)
+  if (slashTargets.length === 0) return -50
+  // 这一刀得真的打得到人才值
+  const best = Math.max(...slashTargets.map((targetId) => targetScore(context, targetId)), -Infinity)
+  if (!Number.isFinite(best) || best <= 0) return -50
+  return 12 + best
+}
+
+/**
+ * 【乱武】值不值得开。
+ *
+ * 限定技，一局一次，**不能一到出牌阶段就交出去**。它的收益是全场每个人
+ * 要么挨一刀要么掉一血，所以真正的判断是「这一轮伤害落在谁头上更多」：
+ *
+ * - 残血敌人越多越值：很可能直接收割；
+ * - 自己人残血越多越亏：他们同样要掏这一下；
+ * - 贾诩自己 3 血且不参与，所以自身安全不是问题，但**队友会被牵连**。
+ */
+function luanwuScore(context: AIContext): number {
+  const me = myself(context.view)
+  const others = context.view.players.filter((player) => player.alive && player.id !== me.id)
+  if (others.length === 0) return -100
+  let score = 0
+  for (const player of others) {
+    const enemy = hostility(context.view, context.suspicion, player.id) > 0
+    // 残血的人这一下很可能直接倒下，权重给高
+    const fragile = player.hp <= 1 ? 12 : player.hp <= 2 ? 6 : 2
+    score += enemy ? fragile : -fragile
+  }
+  // 收益不明显时留着这张底牌，别为了发动而发动
+  return score >= 8 ? score : -100
+}
+
+/**
+ * 被【乱武】点到时出杀还是掉血。
+ *
+ * 引擎已经保证「有合法目标且手上有能当杀用的牌」才会问到这一步，
+ * 所以只需要比较两边的代价：
+ *
+ * - 目标是敌人 → 出杀几乎总是对的；
+ * - 目标只有自己人 → 砍队友通常比自己掉一血更亏，除非自己也快没血了。
+ */
+function answerLuanwu(context: AIContext): string {
+  const me = myself(context.view)
+  // 一血再掉就进濒死，手上没桃时宁可砍人
+  const hasPeach = (me.hand ?? []).some((card) => card.name === '桃')
+  if (me.hp <= 1 && !hasPeach) return 'luanwu-slash'
+  // 提示语里列的是候选目标，但这里拿不到 id；用「场上还有没有值得砍的敌人」近似
+  const hasEnemy = context.view.players.some((player) => (
+    player.alive && player.id !== me.id && hostility(context.view, context.suspicion, player.id) > 0
+  ))
+  return hasEnemy ? 'luanwu-slash' : 'luanwu-lose-hp'
+}
+
 /** 目标价值：先看阵营敌意，再看血少、手牌少好不好打。 */
 function targetScore(context: AIContext, targetId: PlayerId): number {
   const target = context.view.players.find((player) => player.id === targetId)
@@ -268,6 +516,10 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       const precious = (me.hand ?? []).filter((card) => cardValue(card.name) >= 8).length
       return precious >= 2 ? 6 : 14
     }
+    case 'luanwu':
+      return luanwuScore(context)
+    case 'dimeng':
+      return dimengScore(context)
     case 'kurou':
       // 苦肉在 1 血时直接进濒死，除非已经没别的路，否则不发
       return me.hp <= 1 ? -100 : 6
@@ -434,8 +686,14 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
         }
         break
       case '酒':
-        // 手上没杀就别喝
-        score = -50
+        /*
+         * 喝酒本身不产生任何效果，值不值全看**这一口能不能接上一刀**：
+         * 手上没有能打出去的【杀】就是纯浪费一张牌。
+         *
+         * 原来这里无条件给 -50，等于 AI 永远不喝酒——实体酒和董卓【酒池】
+         * 转化出来的酒都用不出来，专项压测里那条路径覆盖为 0。
+         */
+        score = wineScore(context, actions)
         break
       default:
         // 装备一律先穿上；重铸是把废牌换成新牌，稳赚但优先级低于真正的进攻；
@@ -507,6 +765,18 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
           .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
         return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
       }
+      // 【乱武】被迫出杀时用哪张：留着好牌，先出最不值钱的那张
+      if (request.prompt.startsWith('【乱武】')) {
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
+      }
+      // 【好施】交牌、【缔盟】付代价：都从最不值钱的开始出
+      if (request.prompt.startsWith('【好施】：选') || request.prompt.startsWith('【缔盟】：弃置')) {
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, request.min) } }
+      }
       // 被【英魂】指到时弃自己的牌：一律从最不值钱的开始丢
       if (request.prompt.startsWith('【英魂】：弃置')) {
         const cheapest = [...request.cardIds]
@@ -546,6 +816,26 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.prompt.includes('体力值多于你的角色拼点')) {
         const ranked = [...request.candidateIds].sort((left, right) => quhuTargetScore(context, right) - quhuTargetScore(context, left))
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      // 【乱武】并列最近时挑一个：优先敌人，其次血最少的
+      if (request.prompt.startsWith('【乱武】')) {
+        const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      // 【放逐】翻谁：翻敌人是纯赚，翻已经背面的自己人是把他救回正面
+      if (request.prompt.startsWith('【放逐】')) {
+        const best = fangzhuBestTarget(context, request.candidateIds)
+        return { ...base, payload: { targetIds: best ? [best] : request.candidateIds.slice(0, 1) } }
+      }
+      // 【好施】并列最少时交给谁：能给自己人就给自己人，实在没有才挑威胁最小的敌人
+      if (request.prompt.startsWith('【好施】')) {
+        const ranked = [...request.candidateIds]
+          .sort((left, right) => haoshiTargetScore(context, right) - haoshiTargetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      // 【缔盟】选两个人：让屯了一堆牌的敌人和缺牌的自己人对调
+      if (request.prompt.startsWith('【缔盟】')) {
+        return { ...base, payload: { targetIds: chooseDimengPair(context, request.candidateIds) } }
       }
       // 【英魂】选目标：友军按「摸 X 弃 1」补牌，敌人按「摸 1 弃 X」拆牌，
       // 谁能拿到更大的净收益就选谁
@@ -680,6 +970,33 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 先按提示语匹配会把 yes/no 交给一个只收 yinghun-* 的请求。**先认 option id**。
       if (options.some((option) => option.id.startsWith('yinghun-'))) {
         return { ...base, payload: { optionId: chooseYinghunMode(context, options) } }
+      }
+      // 【乱武】轮到自己：出杀还是掉血
+      if (options.some((option) => option.id === 'luanwu-slash')) {
+        return { ...base, payload: { optionId: answerLuanwu(context) } }
+      }
+      // 【崩坏】是锁定技，只能二选一：掉血会不会要命，比长期上限值钱得多
+      if (options.some((option) => option.id.startsWith('benghuai-'))) {
+        return { ...base, payload: { optionId: chooseBenghuai(context) } }
+      }
+      // 【暴虐】：由造成伤害的那名群势力角色决定要不要给主公判一次
+      if (request.prompt.startsWith('发动【暴虐】')) {
+        return { ...base, payload: { optionId: shouldInvokeBaonue(context) ? 'yes' : 'no' } }
+      }
+      // 【行殇】白捡一堆牌，没有任何代价，没有不发动的理由
+      if (request.prompt.startsWith('发动【行殇】')) {
+        return { ...base, payload: { optionId: 'yes' } }
+      }
+      // 【颂威】：由那名魏势力角色决定要不要送主公一张牌，看他和主公是不是一边的
+      if (request.prompt.startsWith('发动【颂威】')) {
+        return { ...base, payload: { optionId: shouldInvokeSongwei(context) ? 'yes' : 'no' } }
+      }
+      // 【放逐】既补牌又翻面，是双刃的，值不值得要算
+      if (request.prompt.startsWith('发动【放逐】')) {
+        return { ...base, payload: { optionId: fangzhuBestTarget(context) ? 'yes' : 'no' } }
+      }
+      if (request.prompt.startsWith('发动【好施】')) {
+        return { ...base, payload: { optionId: shouldInvokeHaoshi(context) ? 'yes' : 'no' } }
       }
       if (request.prompt.startsWith('发动【英魂】')) {
         return { ...base, payload: { optionId: shouldInvokeYinghun(context) ? 'yes' : 'no' } }

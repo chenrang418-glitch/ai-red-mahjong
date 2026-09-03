@@ -31,3 +31,35 @@ export function loseHp(host: HpEngineHost, playerId: PlayerId, amount: number, r
   // 体力归零交给统一的濒死入口，技能不自己判死
   if (target.hp <= 0) host.enterDying(playerId)
 }
+
+/**
+ * 减体力上限的统一入口。
+ *
+ * **不能只写 `player.maxHp -= 1`**，那样会漏掉三件事：
+ *
+ * 1. **当前体力要跟着裁**。上限降到 4 而体力还是 6 是非法状态，
+ *    不变量会直接报「玩家体力非法」。
+ * 2. **裁到 0 要进濒死**。上限降到 0 意味着体力也是 0，这时候和失去体力一样
+ *    要走统一的濒死入口，技能不自己判死。
+ * 3. **手牌上限跟着变**。上限影响不了手牌上限（那看的是当前体力），
+ *    但体力被裁下来之后手牌上限就变了，弃牌阶段读的是同一个 `maxCardsOf`，
+ *    所以只要体力裁对了这一条自然成立。
+ *
+ * 减上限**不是失去体力**，不触发 LoseHp 挂着的时机；但体力因为裁剪而下降时
+ * 仍然是实打实的变化，所以单独发一条 `MaxHpChange` 让界面和战报跟上。
+ */
+export function loseMaxHp(host: HpEngineHost, playerId: PlayerId, amount: number, reason: string): void {
+  const target = host.state.players.find((player) => player.id === playerId)
+  if (!target?.alive) return
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('减体力上限必须是正整数')
+  const nextMax = Math.max(0, target.maxHp - amount)
+  if (nextMax === target.maxHp) return
+  target.maxHp = nextMax
+  // 体力不能高于上限：超出的部分直接被裁掉，这不是「失去体力」
+  const clamped = Math.min(target.hp, nextMax)
+  const trimmed = target.hp - clamped
+  target.hp = clamped
+  host.dispatch('MaxHpChange', { playerId, maxHp: nextMax, hp: target.hp, amount: -amount, trimmed, reason }, { targetId: playerId })
+  // 上限被削到 0（或体力被裁到 0）时和失去体力一样进濒死，不在这里自己判死
+  if (target.hp <= 0) host.enterDying(playerId)
+}

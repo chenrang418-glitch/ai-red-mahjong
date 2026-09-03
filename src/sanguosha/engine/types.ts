@@ -470,6 +470,13 @@ export interface QueuedSkillPrompt {
   data: Record<string, unknown>
 }
 
+export interface DeathClaimState {
+  deadId: PlayerId
+  claimantId: PlayerId
+  skillId: string
+  cardIds: CardId[]
+}
+
 export interface SanguoshaState {
   rulesetVersion: RulesetVersion
   seed: string
@@ -515,6 +522,13 @@ export interface SanguoshaState {
    * 把同一张闪电反复判下去，一局直接卡死。回合结束时清空。
    */
   judgedDelayedCards: CardId[]
+  /**
+   * 死亡角色的牌正暂存在处理区，等某个技能（曹丕【行殇】）决定要不要拿。
+   *
+   * null 表示没有挂账。**处理区里绝不能留下没人管的牌**，
+   * 所以每一条退出路径都要落到 `releaseDeathCards`。
+   */
+  deathClaim: DeathClaimState | null
   cardResolution: CardResolutionState | null
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]

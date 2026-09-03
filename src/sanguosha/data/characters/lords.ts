@@ -4,6 +4,7 @@ import { recover } from '../../engine/recover'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
+import { giveCards } from '../../engine/hand-transfer'
 import type { CharacterDefinition, Kingdom } from './types'
 
 /**
@@ -114,15 +115,10 @@ registerSkillRuntime({
     const owner = playerOf(host.state, ownerId)
     const target = host.state.players.find((player) => player.id === targetId)
     if (!target?.alive) return
-    const given: CardId[] = []
-    for (const cardId of cardIds) {
-      if (!owner.zones.hand.includes(cardId)) continue
-      moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'hand', playerId: targetId })
-      given.push(cardId)
-    }
+    // 「交给」走公共入口：牌绝不路过弃牌堆，服务端逐张确认还在自己手上。
+    // 鲁肃【好施】用的是同一份，散着写两遍迟早写歪。
+    const given = giveCards(host, ownerId, targetId, cardIds, '仁德')
     if (given.length === 0) return
-    host.dispatch('LoseCard', { playerId: ownerId, cardIds: given, reason: '仁德' }, { sourceId: ownerId, cardIds: given })
-    host.dispatch('GainCard', { playerId: targetId, cardIds: given, reason: '仁德' }, { targetId, cardIds: given })
 
     // 一个回合内累计给出两张才回血，而且只回一次
     const marks = owner.marks

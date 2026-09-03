@@ -144,6 +144,14 @@ export interface SkillRuntime {
   cardEffectInvalid?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null, cardName: string): boolean
   /** 锁定技：在伤害事件产生前改写伤害来源。 */
   modifyDamageSource?(state: SanguoshaState, ownerId: PlayerId, context: DamageSourceContext): PlayerId | null | undefined
+  /**
+   * 锁定「这名角色死亡时，我要认领他的牌」。
+   *
+   * 只是**声明意向**：声明之后引擎会把死者的牌暂存到处理区而不是弃牌堆，
+   * 真正拿不拿由技能自己在 `Death` 之后发问决定。返回 true 的技能有义务
+   * 把挂账收干净（拿走或 `releaseDeathCards`），否则处理区会留下无主的牌。
+   */
+  claimsDeathCards?(state: SanguoshaState, ownerId: PlayerId, deadId: PlayerId): boolean
   /** 牌结算后仍在处理区时，改写实体牌的最终去向。 */
   resolvedCardRecipient?(state: SanguoshaState, ownerId: PlayerId, context: ResolvedCardContext): boolean
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
@@ -190,14 +198,41 @@ export interface SkillRuntime {
   retrial?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): CardId[]
   /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
   cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
-  /** 禁止拥有者成为指定牌的目标；谦逊、空城等统一走这个入口。 */
-  prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string): boolean
+  /**
+   * 禁止拥有者成为指定牌的目标；谦逊、空城、贾诩【帷幕】统一走这个入口。
+   *
+   * `cardId` 是这次要用的**实体牌**，转化技也给（奇袭把黑牌当过河拆桥，
+   * 实体牌仍然是那张黑牌）。帷幕要判「黑色锦囊」，颜色只能从实体牌上取，
+   * 而且必须走 `effectiveCardColor` 这个统一口径，不能读印刷颜色。
+   * 有些调用点（技能生成的虚拟【杀】）没有实体牌，这时是 undefined。
+   */
+  prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string, cardId?: CardId): boolean
+  /**
+   * 禁止**别人**在当前情境下使用某张牌（贾诩【完杀】）。
+   *
+   * 和 `prohibitsTarget` 的方向相反：这里的拥有者是施加限制的那个人，
+   * `userId` 是想用牌的人。濒死救援是目前唯一的调用点，所以上下文里带着
+   * 当前濒死角色——嵌套濒死时读的必须是**当前**那一个，不能锁死在最初那个。
+   */
+  prohibitsCardUse?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    context: { userId: PlayerId; cardName: string; dyingPlayerId: PlayerId | null },
+  ): boolean
   /** 拥有者作为用牌者时，临时禁止其把某名角色设为指定目标。 */
   prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
   /** 成为【杀】或普通锦囊目标后可插入发问；返回 true 表示结算已挂起。 */
   interceptTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /** 拥有者使用【杀】时，目标需要连续打出多少张【闪】。 */
   slashDodgeResponses?: number
+  /**
+   * 条件式的「需要几张【闪】」（董卓【肉林】）。
+   *
+   * 攻守双方的技能都会被问到，所以 `ownerId` 可能是 `sourceId` 也可能是 `targetId`，
+   * 技能自己判断这次是不是自己该管的方向。返回 1 表示不加成。
+   * 多个来源取 max，不相加。
+   */
+  dodgeResponsesFor?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, targetId: PlayerId): number
   /**
    * 锁定技：拥有者对某个目标使用的【杀】不可被【闪】响应。
    *
@@ -321,11 +356,34 @@ export function isTargetProhibited(
   targetId: PlayerId,
   cardName: string,
   skillIdsOf: (characterId: string) => string[],
+  cardId?: CardId,
 ): boolean {
   return skillsOf(state, targetId, skillIdsOf)
-    .some((runtime) => runtime.prohibitsTarget?.(state, targetId, sourceId, cardName) ?? false)
+    .some((runtime) => runtime.prohibitsTarget?.(state, targetId, sourceId, cardName, cardId) ?? false)
     || skillsOf(state, sourceId, skillIdsOf)
       .some((runtime) => runtime.prohibitsSourceTarget?.(state, sourceId, targetId, cardName) ?? false)
+}
+
+/**
+ * 某人现在能不能使用某张牌。
+ *
+ * 遍历**全场存活角色**的技能，因为施加限制的人（贾诩）和被限制的人不是同一个。
+ * 目前只有濒死救援会问到这里，所以上下文里带当前濒死角色。
+ */
+export function isCardUseProhibited(
+  state: SanguoshaState,
+  userId: PlayerId,
+  cardName: string,
+  context: { dyingPlayerId: PlayerId | null },
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      if (runtime.prohibitsCardUse?.(state, owner.id, { userId, cardName, dyingPlayerId: context.dyingPlayerId })) return true
+    }
+  }
+  return false
 }
 
 /**

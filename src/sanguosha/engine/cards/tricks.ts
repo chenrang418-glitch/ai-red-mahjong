@@ -83,7 +83,7 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
   const card = asName ? { ...physical, name: asName } : physical
   const others = state.players.filter((candidate) => candidate.alive && candidate.id !== playerId)
   const actions: LegalAction[] = []
-  const allowed = (targetId: PlayerId) => !isTargetProhibited(state, playerId, targetId, card.name, skillIdsOf)
+  const allowed = (targetId: PlayerId) => !isTargetProhibited(state, playerId, targetId, card.name, skillIdsOf, cardId)
 
   switch (card.name) {
     case '无中生有':

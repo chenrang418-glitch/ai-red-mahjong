@@ -104,6 +104,7 @@ export class SanguoshaGame {
       guhuoResponse: null,
       mamaBonds: {},
       judgedDelayedCards: [],
+      deathClaim: null,
       cardResolution: null,
       skillResolution: null,
       skillQueue: [],

@@ -232,7 +232,32 @@ registerSkillRuntime({
       callbacks?.continueSlash(host)
       return
     }
+    // 先把外层那张【杀】收完，再插自己的追杀
+    callbacks?.continueSlash(host)
+    /*
+     * 外层是多目标【杀】时，`continueSlash` 会推进到下一个目标并当场发出求闪请求。
+     * 这时候**不能**马上开追杀：`beginSlash` 会覆盖掉外层的结算状态，
+     * 把刚发出去的请求变成孤儿。改成排队，等这张【杀】整个结算完、
+     * 牌局回到干净状态再补上——「立即」在规则上指的是同一张杀的结算之内，
+     * 不是插到别的目标中间。
+     */
+    if (host.state.cardResolution || host.state.pendingRequests.length > 0) {
+      host.queueSkill({ skillId: QINGLONGDAO_SKILL, ownerId: facts.sourceId, step: 'extra', data: { ...facts, cardId } })
+      return
+    }
     callbacks?.useExtraSlash(host, facts.sourceId, facts.targetId, cardId)
+  },
+  startQueued(host, _ownerId, prompt) {
+    // 队列排空前牌局又走了一段，前提要重新确认一遍
+    const sourceId = prompt.data.sourceId as PlayerId
+    const targetId = prompt.data.targetId as PlayerId
+    const cardId = prompt.data.cardId as CardId
+    const owner = host.state.players.find((player) => player.id === sourceId)
+    const target = host.state.players.find((player) => player.id === targetId)
+    if (!owner?.alive || !target?.alive) return
+    if (!owner.zones.hand.includes(cardId) || host.state.cards[cardId]?.name !== '杀') return
+    if (host.state.cardResolution) return
+    callbacks?.useExtraSlash(host, sourceId, targetId, cardId)
   },
 })
 

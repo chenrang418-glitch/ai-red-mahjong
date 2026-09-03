@@ -83,6 +83,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '55% 20%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·甄姬',
   },
+  /* 曹丕是半身像，冕旒压着额头，焦点略高才露得出脸 */
+  caopi: {
+    desktop: { position: '50% 18%', scale: 1.0 },
+    mobile: { position: '50% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹丕',
+  },
   /* 徐晃是半身像，头盔顶到画面很上方，焦点要压低一点才不会只看到盔缨 */
   xuhuang: {
     desktop: { position: '48% 20%', scale: 1.0 },
@@ -273,6 +279,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '52% 16%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·孙坚',
   },
+  /* 鲁肃是文士半身像，脸在正中偏上，宽袖占了两侧 */
+  lusu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·鲁肃',
+  },
   // ── 群 ──
   huatuo: {
     desktop: { position: '53% 20%', scale: 1.05 },
@@ -317,6 +329,18 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     desktop: { position: '50% 18%', scale: 1.15 },
     mobile: { position: '50% 16%', scale: 1.3 },
     credit: '用户提供·无亮（原创娱乐武将）',
+  },
+  /* 贾诩是清瘦文士像，脸在正中略偏上 */
+  jiaxu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·贾诩',
+  },
+  /* 董卓是宽体半身像，脸偏上，冠冕占了顶部一条 */
+  dongzhuo: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·董卓',
   },
   pingtoufangkuai: {
     desktop: { position: '43% 30%', scale: 1.0 },
