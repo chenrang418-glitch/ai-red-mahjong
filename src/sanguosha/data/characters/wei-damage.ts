@@ -41,8 +41,13 @@ function chose(response: GameResponse, optionId: string): boolean {
   return (response.payload as { optionId: string }).optionId === optionId
 }
 
-/** 受到伤害时把事实抓进队列。amount 用来支持「每受到 1 点伤害」的技能。 */
-function queueOnDamaged(
+/**
+ * 受到伤害时把事实抓进队列。`perPoint` 用来支持「每受到 1 点伤害」的技能：
+ * 受到 2 点就排两次，而不是一次伤害事件只问一遍。
+ *
+ * 导出给其他包的同类技能复用（荀彧【节命】），不要再复制一份。
+ */
+export function queueOnDamaged(
   skillId: string,
   host: SkillHost,
   ownerId: PlayerId,

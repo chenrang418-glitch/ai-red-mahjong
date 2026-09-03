@@ -126,6 +126,21 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       return bestTarget > 0 ? 12 : -20
     case 'lijian':
       return bestTarget > 0 ? 14 : -20
+    case 'quhu': {
+      /*
+       * 借敌人之手打敌人：赢了对方替我出刀，输了自己挨一刀但能触发节命。
+       *
+       * **没有值得拼的敌人时直接给负分**，不能给一个「低但为正」的分数——
+       * 后面选目标那一步不会交空，硬发动只会拿友军来拼点。
+       */
+      const me2 = myself(context.view)
+      if (me2.hp <= 1) return -100
+      const worthy = context.view.players.some((player) => player.alive && player.id !== me2.id
+        && player.hp > me2.hp && player.handCount > 0
+        && hostility(context.view, context.suspicion, player.id) > 0)
+      if (!worthy) return -100
+      return me2.handCount >= 2 ? 13 : 6
+    }
     case 'kongchengji': {
       // 没手牌时是白摸一张，随时可以发；有手牌时是赌，牌越多亏得越狠，
       // 但赌赢能摸两张——手牌不多的时候最划算
@@ -281,6 +296,28 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     }
 
     case 'choose-targets': {
+      /*
+       * 【驱虎】有两个选目标的窗口，提示词里都带「驱虎」，所以**必须按更具体的
+       * 字样分辨**：先认「攻击范围内」那一个（赢了之后选谁挨打，min 为 1），
+       * 再认拼点对手那一个。认反了会给 min 为 1 的请求交空数组。
+       */
+      if (request.prompt.includes('攻击范围内的一名角色')) {
+        const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, Math.max(request.min, 1)) } }
+      }
+      // 选拼点对手：优先敌人，而且优先手牌少的（拼点更可能赢）。
+      // **不交空**：要不要发动已经在 skillActionScore 里判过了，这里再放弃会让
+      // 「技能还能点」的状态原地打转
+      if (request.prompt.includes('体力值多于你的角色拼点')) {
+        const ranked = [...request.candidateIds].sort((left, right) => quhuTargetScore(context, right) - quhuTargetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      // 【节命】补牌：先补自己，再补缺牌的自己人，绝不给敌人补一大把
+      if (request.prompt.includes('节命')) {
+        const ranked = [...request.candidateIds].sort((left, right) => jiemingScore(context, right) - jiemingScore(context, left))
+        const best = ranked[0]
+        return { ...base, payload: { targetIds: best && jiemingScore(context, best) > 0 ? [best] : [] } }
+      }
       // 【空城计】：让敌人来猜——猜对了牌归他，所以宁可让最不该拿牌的人去赌
       if (request.prompt.includes('来猜')) {
         const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
@@ -685,6 +722,40 @@ function shouldGuhuoRespond(context: AIContext, requiredCardName: string): boole
   if (requiredCardName === '闪') return me.hp <= 2 || context.rng.nextInt(2) === 0
   // 无懈这类不救命的，手牌宽裕时才诈
   return (me.hand?.length ?? 0) >= 3 && context.rng.nextInt(3) === 0
+}
+
+/**
+ * 【驱虎】该找谁拼点。
+ *
+ * 借刀杀人的关键是**别让友军替我打友军**：自己人一律负分。敌人里优先手牌少的
+ * ——拼点比的是点数，手牌越少能翻出大牌的机会越小；再优先攻击范围大的，
+ * 赢了之后他能打到的人才多。
+ */
+function quhuTargetScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  if (attitude <= 0) return -100 + attitude
+  return 20 + attitude * 4 - target.handCount * 3 + target.attackRange * 2
+}
+
+/**
+ * 【节命】补给谁。
+ *
+ * 自己缺牌优先，其次是缺牌的自己人（主公权重最高）。给敌人补一大把牌是纯资敌，
+ * 一律负分。
+ */
+function jiemingScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const gap = Math.max(0, Math.min(target.maxHp, 5) - target.handCount)
+  if (gap <= 0) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  if (targetId === context.view.viewerId) return 40 + gap * 5
+  // 敌人：补得越多越亏
+  if (attitude > 0) return -50 - gap * 5
+  const lordBonus = target.identity === 'lord' ? 15 : 0
+  return 20 + gap * 4 + lordBonus - attitude * 5
 }
 
 /**

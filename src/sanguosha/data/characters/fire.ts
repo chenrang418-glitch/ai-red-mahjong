@@ -207,6 +207,9 @@ registerJudgmentContinuation(SHUANGXIONG_TAG, (host, judged, data) => {
   owner.marks.shuangxiong = judged.color === 'red' ? 1 : 2
 })
 
+// 荀彧要用公共拼点，单独一个文件
+import { XUNYU } from './fire-xunyu'
+
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   {
     id: 'yanliangwenchou',
@@ -247,4 +250,5 @@ export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
       description: '出牌阶段限一次，你可以失去一点体力或弃置一张武器牌，然后对你攻击范围内的一名其他角色造成一点伤害。',
     }],
   },
+  XUNYU,
 ] as const

@@ -212,6 +212,16 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '45% 18%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·典韦',
   },
+  xunyu: {
+    desktop: { position: '48% 18%', scale: 1.0 },
+    mobile: { position: '48% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·荀彧',
+  },
+  taishici: {
+    desktop: { position: '48% 18%', scale: 1.0 },
+    mobile: { position: '48% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·太史慈',
+  },
   pangde: {
     desktop: { position: '48% 18%', scale: 1.0 },
     mobile: { position: '48% 16%', scale: 1.15 },
