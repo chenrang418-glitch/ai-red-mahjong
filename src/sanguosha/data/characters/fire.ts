@@ -211,6 +211,8 @@ registerJudgmentContinuation(SHUANGXIONG_TAG, (host, judged, data) => {
 import { XUNYU } from './fire-xunyu'
 // 太史慈同样是拼点消费者
 import { TAISHICI } from './fire-taishici'
+// 袁绍的乱击是多牌转化，血裔是主公技，同样单独一个文件
+import { YUANSHAO } from './fire-yuanshao'
 
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   {
@@ -254,4 +256,5 @@ export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   },
   XUNYU,
   TAISHICI,
+  YUANSHAO,
 ] as const

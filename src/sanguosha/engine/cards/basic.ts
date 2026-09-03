@@ -660,7 +660,8 @@ export function executeUseCardAction(
   }
   if (INSTANT_TRICKS.has(effectiveName)) {
     if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return
-    beginInstantTrick(host, playerId, cardId, action.targetIds, effectiveName)
+    // 多张实体牌换一张锦囊（袁绍【乱击】）：第一张当主牌，其余跟着一起走
+    beginInstantTrick(host, playerId, cardId, action.targetIds, effectiveName, action.cardIds.slice(1))
     return
   }
   if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return

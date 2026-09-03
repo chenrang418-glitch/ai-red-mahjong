@@ -269,11 +269,27 @@ function askBorrowedKnife(host: CardEngineHost, resolution: TrickResolutionState
 }
 
 /** 把一张即时锦囊推入结算：先给第一个目标问无懈。 */
-export function beginInstantTrick(host: CardEngineHost, sourceId: PlayerId, cardId: CardId, targetIds: PlayerId[], asName?: string): void {
+export function beginInstantTrick(
+  host: CardEngineHost,
+  sourceId: PlayerId,
+  cardId: CardId,
+  targetIds: PlayerId[],
+  asName?: string,
+  extraCardIds: CardId[] = [],
+): void {
   const card = host.state.cards[cardId]
+  // 陪跑的底牌和主牌一起进处理区：结算期间它们都算「已经使用出去的牌」，
+  // 不能留在手上，也不能提前进弃牌堆
+  for (const extra of extraCardIds) {
+    if (host.state.zones.processingArea.includes(extra)) continue
+    const owner = host.state.players.find((candidate) => candidate.zones.hand.includes(extra))
+    if (!owner) continue
+    moveCard(host.state, extra, { kind: 'hand', playerId: owner.id }, { kind: 'processingArea' })
+  }
   host.state.cardResolution = {
     kind: 'trick',
     cardId,
+    extraCardIds: [...extraCardIds],
     // 转化技用的是转化后的牌名，后续结算全部以它为准
     cardName: asName ?? card.name,
     sourceId,
@@ -447,6 +463,13 @@ function finishTrick(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
   const allNullified = new Set([...resolution.nullifiedTargetIds, ...resolution.cancelledTargetIds]).size === resolution.targetIds.length
+  // 陪跑的底牌先落地：即使整张牌被无懈掉，它们也已经是「使用过的牌」，
+  // 按普通用牌规则进弃牌堆，不退回手上
+  for (const extra of resolution.extraCardIds ?? []) {
+    if (host.state.zones.processingArea.includes(extra)) {
+      moveCard(host.state, extra, { kind: 'processingArea' }, { kind: 'discardPile' })
+    }
+  }
   finishPhysicalCard(host, resolution.sourceId, resolution.cardId, resolution.targetIds, allNullified)
   host.state.cardResolution = null
 }

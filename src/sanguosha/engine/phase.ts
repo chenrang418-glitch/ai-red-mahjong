@@ -5,7 +5,7 @@ import { advancePhase } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
-import { fixedMaxCardsOf } from './skills/runtime'
+import { fixedMaxCardsOf, maxCardsBonusOf } from './skills/runtime'
 
 /**
  * 阶段引擎的宿主。
@@ -15,10 +15,22 @@ import { fixedMaxCardsOf } from './skills/runtime'
  */
 export type PhaseEngineHost = JudgmentEngineHost
 
-function maxCards(state: SanguoshaState, playerId: PlayerId): number {
+/**
+ * 手牌上限的统一计算口径。
+ *
+ * 基数是当前体力值；「固定为 N」（许老板【空手套白狼】）优先于基数，
+ * 加成（袁绍【血裔】）在此之上叠加。两类修正互不覆盖，**都从这里走**，
+ * 弃牌阶段和 AI 都读同一个数。
+ */
+export function maxCardsOf(state: SanguoshaState, playerId: PlayerId): number {
   const target = state.players.find((player) => player.id === playerId)
   if (!target) throw new Error(`玩家不存在：${playerId}`)
-  return fixedMaxCardsOf(state, playerId) ?? Math.max(0, target.hp)
+  const base = fixedMaxCardsOf(state, playerId) ?? Math.max(0, target.hp)
+  return Math.max(0, base + maxCardsBonusOf(state, playerId))
+}
+
+function maxCards(state: SanguoshaState, playerId: PlayerId): number {
+  return maxCardsOf(state, playerId)
 }
 
 function enterCurrentPhase(host: PhaseEngineHost): void {

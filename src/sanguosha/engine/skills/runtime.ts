@@ -130,6 +130,13 @@ export interface SkillRuntime {
    */
   fixedMaxCards?(state: SanguoshaState, ownerId: PlayerId): number | null
   /**
+   * 手牌上限**加成**。返回 0 表示不加。
+   *
+   * 和 `fixedMaxCards` 是两件事：那个是「固定为 N」，这个是在基数上叠加，
+   * 多个来源相加，不会互相覆盖（袁绍【血裔】走这一条）。
+   */
+  maxCardsBonus?(state: SanguoshaState, ownerId: PlayerId): number
+  /**
    * 濒死介入：拥有者刚进入濒死时先给技能一次机会（不屈）。
    *
    * 返回 true 表示「这次濒死已经由技能处理掉了」，引擎会直接结束濒死状态，
@@ -251,6 +258,19 @@ export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: 
   return skillIdsOf(player.characterId)
     .map((skillId) => registry.get(skillId))
     .filter((runtime): runtime is SkillRuntime => !!runtime)
+}
+
+/** 技能给出的手牌上限加成之和。 */
+export function maxCardsBonusOf(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  let bonus = 0
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    bonus += Math.trunc(runtime.maxCardsBonus?.(state, playerId) ?? 0)
+  }
+  return bonus
 }
 
 /** 统一计算技能给出的固定手牌上限；没有固定效果时返回 null。 */

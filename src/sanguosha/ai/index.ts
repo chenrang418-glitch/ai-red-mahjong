@@ -126,6 +126,31 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       return bestTarget > 0 ? 12 : -20
     case 'lijian':
       return bestTarget > 0 ? 14 : -20
+    case 'luanji': {
+      /*
+       * 乱击是群体伤害：**敌我一起打**，所以必须先算净收益，不能「有两张同花色就用」。
+       *
+       * 收益 = 打到的敌人数，代价 = 打到的自己人数 + 两张底牌的价值。
+       * 手上有闪的角色多半躲得掉，这里按公开信息估不到别人的手牌，只能按
+       * 「手牌越多越可能有闪」折算。
+       */
+      const me4 = myself(context.view)
+      const others = context.view.players.filter((player) => player.alive && player.id !== me4.id)
+      if (others.length === 0) return -100
+      let gain = 0
+      for (const target of others) {
+        const attitude = hostility(context.view, context.suspicion, target.id)
+        // 手牌越多越可能闪掉；残血的敌人收益更高
+        const likely = target.handCount >= 3 ? 0.5 : 1
+        const worth = target.hp <= 1 ? 2.5 : 1
+        gain += attitude > 0 ? likely * worth * 2 : -likely * 3
+      }
+      // 两张底牌的代价：桃、无懈、闪这些丢了很亏
+      const cheapest = [...(me4.hand ?? [])].sort((left, right) => cardValue(left.name) - cardValue(right.name))
+      const cost = (cardValue(cheapest[0]?.name ?? '') + cardValue(cheapest[1]?.name ?? '')) / 2
+      const score = gain * 3 - cost
+      return score > 4 ? Math.min(16, Math.round(score)) : -100
+    }
     case 'tianyi': {
       /*
        * 赢了才有收益，输了本回合彻底不能出杀——所以**手上完全没有杀就别赌**：
@@ -274,6 +299,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.min === 0 && pool.length === 0) return { ...base, payload: { cardIds: [] } }
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
+      }
+      // 【乱击】选两张同花色的底牌：挑价值最低的那一组，别拿桃和无懈去换
+      if (request.prompt.startsWith('【乱击】')) {
+        return { ...base, payload: { cardIds: chooseLuanjiCards(context, request.cardIds) } }
       }
       // 拼点：统一走公共选牌，技能通过 intent 表达想赢还是想输
       if (request.purpose === 'pindian') {
@@ -756,6 +785,36 @@ function quhuTargetScore(context: AIContext, targetId: PlayerId): number {
   const attitude = hostility(context.view, context.suspicion, targetId)
   if (attitude <= 0) return -100 + attitude
   return 20 + attitude * 4 - target.handCount * 3 + target.attackRange * 2
+}
+
+/**
+ * 【乱击】拿哪两张牌去换万箭。
+ *
+ * 先按花色分组，只看凑得齐两张的那些花色，再在每组里挑**价值最低的两张**，
+ * 最后在各组之间比谁更便宜。绝不为了发动就把桃、无懈、闪丢出去。
+ * 凑不出同花色时返回空数组，等于放弃。
+ */
+function chooseLuanjiCards(context: AIContext, cardIds: readonly string[]): string[] {
+  const me = myself(context.view)
+  const hand = new Map((me.hand ?? []).map((card) => [card.id, card]))
+  const bySuit = new Map<string, string[]>()
+  for (const cardId of cardIds) {
+    const card = hand.get(cardId)
+    if (!card) continue
+    const group = bySuit.get(card.suit) ?? []
+    group.push(cardId)
+    bySuit.set(card.suit, group)
+  }
+  let best: { cards: string[]; cost: number } | null = null
+  for (const group of bySuit.values()) {
+    if (group.length < 2) continue
+    const sorted = [...group].sort((left, right) =>
+      cardValue(hand.get(left)?.name ?? '') - cardValue(hand.get(right)?.name ?? ''))
+    const pick = sorted.slice(0, 2)
+    const cost = pick.reduce((sum, cardId) => sum + cardValue(hand.get(cardId)?.name ?? ''), 0)
+    if (!best || cost < best.cost) best = { cards: pick, cost }
+  }
+  return best?.cards ?? []
 }
 
 /**

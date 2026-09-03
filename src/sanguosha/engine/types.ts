@@ -329,6 +329,14 @@ export interface TrickResolutionState {
   targetIndex: number
   /** 已经被无懈掉的目标，最终 CardResolved 要报告 */
   nullifiedTargetIds: PlayerId[]
+  /**
+   * 一起打出的其余底牌（袁绍【乱击】的第二张）。
+   *
+   * 转化技可能用不止一张实体牌换一张锦囊。主牌走正常的使用流程，其余底牌
+   * 跟着一起进处理区、结算完一起进弃牌堆——【杀】那边的 `extraCardIds`
+   * 是同一件事，这里补上锦囊的那一半。
+   */
+  extraCardIds?: CardId[]
   stage: 'awaiting-intercept' | 'awaiting-nullification' | 'awaiting-effect'
   /** 当前目标已经处理过的“成为目标后”技能，避免恢复时重复发问。 */
   interceptsDone: string[]
