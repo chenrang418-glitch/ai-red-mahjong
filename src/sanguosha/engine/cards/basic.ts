@@ -13,6 +13,8 @@ import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../z
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { PASS_ROUND_ACTION } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
+import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
+import { usedThisTurn } from '../turn-usage'
 import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
@@ -448,6 +450,20 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   // 于吉【蛊惑】：声明打出一张【闪】。入口只是多一条动作 id，
   // 挂起和恢复由 game.respondInner 统一处理
   if (canGuhuoRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  /*
+   * 无亮【忍耐】：本来能响应才给这个入口。
+   *
+   * `actionIds.length > 0` 就是规则说的「若你可以响应」——手上没【闪】、
+   * 被技能禁止响应时这里凑不出任何真响应，自然不能靠「不响应」白拿收益。
+   *
+   * 只给**目标本人**：主公技代打者走的也是这条路，他不是这张【杀】的目标。
+   */
+  const slash = host.state.cardResolution
+  if (slash?.kind === 'slash' && slash.targetId === responderId
+    && canRennai(host.state, responderId, slash.sourceId, actionIds.length > 0,
+      usedThisTurn(host.state, responderId, RENNAI_SKILL), skillIdsOf)) {
+    actionIds.push(RENNAI_ACTION)
+  }
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     // id 必须唯一：主公技代打会在同一个 seq 里连着问好几个人，

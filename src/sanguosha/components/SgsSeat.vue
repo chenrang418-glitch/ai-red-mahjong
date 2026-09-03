@@ -42,7 +42,7 @@ function judgeMark(cardName: string): string {
  * **白名单，不是把 marks 全倒出来**：marks 里还躺着一堆内部记账
  * （耍剑的本回合禁令、奶蛙的出牌计数、妈妈的重放标记），那些不是给玩家看的。
  */
-const VISIBLE_MARKS: Record<string, string> = { debt: '债' }
+const VISIBLE_MARKS: Record<string, string> = { debt: '债', rennai: '忍' }
 const marks = computed(() => (props.player.alive
   ? Object.entries(props.player.marks ?? {})
     .filter(([key, value]) => VISIBLE_MARKS[key] && value > 0)

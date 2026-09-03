@@ -346,6 +346,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const optionIds = options.map((option) => option.id)
         return { ...base, payload: { optionId: decideMamaFollow(context, optionIds, candidates) ?? 'cancel' } }
       }
+      // ── 无亮【夺位】：条件已经由引擎把关，这里只判断值不值 ──
+      if (options.some((option) => option.id === 'duowei-invoke')) {
+        return { ...base, payload: { optionId: shouldSeizeThrone(context) ? 'duowei-invoke' : 'cancel' } }
+      }
       // ── 许老板【空城计】：猜随机那张是不是基本牌 ──
       if (options.some((option) => option.id === 'kongchengji-basic')) {
         return { ...base, payload: { optionId: guessKongchengji(context) } }
@@ -410,6 +414,16 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       return { ...base, payload: { number: request.min } }
 
     case 'respond-card': {
+      /*
+       * 无亮【忍耐】要在「决定怎么响应」**之前**判断。
+       *
+       * 这个技能的字面意思就是「明明响应得了，偏不响应」；引擎也只在真的
+       * 拿得出响应时才给这条入口。放到 preferPlay 后面等于永远轮不到——
+       * 有闪就先出闪了。
+       */
+      if (request.actionIds.includes('rennai') && shouldEndure(context, request.requiredCardName)) {
+        return { ...base, payload: { actionId: 'rennai' } }
+      }
       // 该出闪就出闪、该出无懈看价值。出不起就放弃。
       const played = preferPlay(request.actionIds, 'respond-dodge:')
         ?? preferPlay(request.actionIds, 'respond-trick:')
@@ -667,6 +681,45 @@ function shouldGuhuoRespond(context: AIContext, requiredCardName: string): boole
   if (requiredCardName === '闪') return me.hp <= 2 || context.rng.nextInt(2) === 0
   // 无懈这类不救命的，手牌宽裕时才诈
   return (me.hand?.length ?? 0) >= 3 && context.rng.nextInt(3) === 0
+}
+
+/**
+ * 要不要发动【忍耐】放弃这次响应。
+ *
+ * 忍的收益是一枚「忍」加主公一张牌，代价是实打实挨一下。所以先看**会不会死**：
+ * 这一下可能要命时除非手上还有桃，否则一律正常响应——攒忍攒到把自己攒死是最蠢的。
+ * 剩下的按血量和进度决定：越接近 4 枚越值得赌，血越薄越保守。
+ */
+function shouldEndure(context: AIContext, requiredCardName: string): boolean {
+  const me = myself(context.view)
+  const endured = me.marks?.rennai ?? 0
+  // 已经满了就没有再挨打的理由
+  if (endured >= 4) return false
+  const peaches = (me.hand ?? []).filter((card) => card.name === '桃').length
+  // 决斗要打出【杀】，不打可能连挨好几下；这里按最保守的一下算
+  const lethal = me.hp - 1 <= 0
+  if (lethal && peaches === 0) return false
+  if (me.hp <= 2 && requiredCardName !== '无懈可击') {
+    // 残血时只有临门一脚才值得
+    return endured >= 3 && peaches > 0
+  }
+  // 无懈那种不挨伤害的场合代价最小，放开一点
+  if (requiredCardName === '无懈可击') return true
+  return endured >= 3 || me.hp >= 3
+}
+
+/**
+ * 要不要夺位。
+ *
+ * 发动条件（4 枚忍、主公残血、限定技没用过）由引擎把关，这里只判断值不值。
+ * 成为主公意味着变成全场靶子，所以血太薄时先忍一忍——但机会窗口很窄
+ * （主公随时可能被治好或被打死），所以默认相当积极。
+ */
+function shouldSeizeThrone(context: AIContext): boolean {
+  const me = myself(context.view)
+  // 上去就被秒的局面不划算：等一个回合往往还在
+  if (me.hp <= 1 && me.handCount <= 1) return false
+  return true
 }
 
 /**

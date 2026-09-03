@@ -263,6 +263,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 16%', scale: 1.3 },
     credit: '用户提供·许老板（原创娱乐武将）',
   },
+  /* 无亮同样是半身立绘，脸偏上，沿用娱乐包这几张的裁切惯例 */
+  wuliang: {
+    desktop: { position: '50% 18%', scale: 1.15 },
+    mobile: { position: '50% 16%', scale: 1.3 },
+    credit: '用户提供·无亮（原创娱乐武将）',
+  },
   pingtoufangkuai: {
     desktop: { position: '43% 30%', scale: 1.0 },
     mobile: { position: '43% 28%', scale: 1.15 },

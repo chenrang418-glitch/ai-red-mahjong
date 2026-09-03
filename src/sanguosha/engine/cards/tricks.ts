@@ -10,6 +10,8 @@ import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCar
 import { validateResponse } from '../requests'
 import { NULLIFICATION_TIMEOUT_MS, PASS_ROUND_ACTION, nullificationCardIds } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
+import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
+import { usedThisTurn } from '../turn-usage'
 import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
@@ -394,6 +396,17 @@ export function askNullification(host: CardEngineHost): void {
   // 多目标锦囊才需要「本轮均不使用」：单目标牌只问一轮，多一个按钮反而是噪音
   if (resolution.targetIds.length > 1) actionIds.push(PASS_ROUND_ACTION)
   if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
+  /*
+   * 无亮【忍耐】：**只有当前正在结算的目标是他自己**时才给。
+   *
+   * 无懈轮询会问遍全场，别人被锦囊指定时他也会被问到——那种场合他不是目标，
+   * 忍了也不该有收益。
+   */
+  if (resolution.targetIds[resolution.targetIndex] === responderId
+    && canRennai(host.state, responderId, resolution.sourceId, cardIds.length > 0,
+      usedThisTurn(host.state, responderId, RENNAI_SKILL), skillIdsOf)) {
+    actionIds.push(RENNAI_ACTION)
+  }
   const targetName = playerOf(host.state, resolution.targetIds[resolution.targetIndex]).nickname
   const request: RespondCardRequest = {
     id: `request-trick-${host.state.seq}-${host.state.decisions.length}-${resolution.targetIndex}-${resolution.responderIndex}`,
@@ -488,6 +501,11 @@ function askRespondCard(
   for (const option of responseViewAsOptions(host.state, responderId, requiredCardName)) responseCards.add(option.cardId)
   const actionIds = [...responseCards].map((cardId) => `respond-trick:${cardId}`)
   if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
+  if (canRennai(host.state, responderId, resolution.sourceId, actionIds.length > 0,
+    usedThisTurn(host.state, responderId, RENNAI_SKILL), skillIdsOf)) {
+    actionIds.push(RENNAI_ACTION)
+  }
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     id: `request-effect-${host.state.seq}-${host.state.decisions.length}`,

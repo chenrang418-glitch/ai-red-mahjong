@@ -10,6 +10,8 @@ import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
 import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
+import { RENNAI_ACTION, RENNAI_SKILL, armRennai } from './rennai'
+import { markUsedThisTurn } from './turn-usage'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
@@ -227,6 +229,27 @@ export class SanguoshaGame {
   private respondInner(response: GameResponse): void {
     const request = this.state.pendingRequests.find((candidate) => candidate.id === response.requestId)
     if (!request) throw new Error('Request 不存在或已经处理')
+
+    /*
+     * 无亮【忍耐】：**改写成一次普通的「放弃响应」**，然后记一笔账。
+     *
+     * 放在这里而不是各条求牌路径里，是因为它对结算的影响只有「这次不响应」，
+     * 后面该怎么走还怎么走。翻译成 respond-pass 之后原来那套校验、记录、
+     * 推进全部照旧，不需要在求闪 / 锦囊效果 / 无懈三处各写一遍恢复逻辑。
+     */
+    if ((response.payload as { actionId?: string })?.actionId === RENNAI_ACTION) {
+      if (!('actionIds' in request) || !request.actionIds.includes(RENNAI_ACTION)) {
+        throw new Error('当前请求不能发动忍耐')
+      }
+      markUsedThisTurn(this.state, response.playerId, RENNAI_SKILL)
+      armRennai(this.state, response.playerId)
+      this.dispatch('SkillActivated', {
+        skillId: RENNAI_SKILL, skillName: '忍耐', playerId: response.playerId, result: 'endure',
+        logText: `${this.state.players.find((candidate) => candidate.id === response.playerId)?.nickname ?? ''}发动【忍耐】，放弃这次响应`,
+      }, { sourceId: response.playerId })
+      this.respondInner({ ...response, payload: { actionId: 'respond-pass' } })
+      return
+    }
 
     /*
      * 于吉【蛊惑】的「打出」模式只有这一个入口。

@@ -11,6 +11,8 @@ import { NAIWA } from './entertainment-naiwa'
 import { NIULAI_CHARACTER } from './entertainment-niulai'
 // 许老板的三个技能要用私有牌区、阶段后结算和回合外发动窗口，同样单独一个文件
 import { XULAOBAN } from './entertainment-xulaoban'
+// 无亮要动身份与主公体力上限，同样单独一个文件
+import { WULIANG } from './entertainment-wuliang'
 
 /** 好友娱乐包：只放原创且技能完整可玩的武将。 */
 
@@ -227,4 +229,4 @@ export const ENTERTAINMENT_CHARACTERS: readonly CharacterDefinition[] = [{
       description: '每回合限一次，当你成为其他角色使用的【杀】或普通锦囊牌的目标后，你可以展示牌堆顶一张牌：若为方块，取消你作为此牌的目标并弃置之；否则你获得之，且不能响应此牌。',
     },
   ],
-}, NAIWA, NIULAI_CHARACTER, XULAOBAN] as const
+}, NAIWA, NIULAI_CHARACTER, XULAOBAN, WULIANG] as const

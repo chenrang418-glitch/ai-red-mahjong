@@ -155,6 +155,8 @@ function actionLabel(actionId: string): string {
   if (actionId === 'invoke-bagua') return '发动【八卦阵】'
   // 于吉【蛊惑】的打出模式：点了之后再选扣哪张牌，所以这里不带牌名
   if (actionId === 'guhuo-respond') return '发动【蛊惑】'
+  // 无亮【忍耐】：点它等于放弃这次响应，所以要说清楚代价
+  if (actionId === 'rennai') return '忍：放弃这次响应'
   // 卡牌 id 本身含冒号（ruleset-v1:standard:57），只能按第一个冒号切
   const separator = actionId.indexOf(':')
   const cardId = separator >= 0 ? actionId.slice(separator + 1) : ''
