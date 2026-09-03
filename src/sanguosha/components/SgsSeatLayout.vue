@@ -7,6 +7,7 @@ import { seatSlotsForPlayerCount } from '../composables/useSgsSeatLayout'
 import { displayCharacterName } from '../data/characters/standard'
 import type { GameRequest } from '../engine/requests'
 import type { StagedEvent } from '../composables/useSgsEventStage'
+import type { PresentationEvent } from '../engine/presentation'
 import type { PlayerView } from '../engine/view'
 import { seatEffectFor } from '../presentation/effects'
 
@@ -14,6 +15,7 @@ const props = defineProps<{
   view: PlayerView
   request: GameRequest | null
   staged: StagedEvent | null
+  stickyMessage: PresentationEvent | null
   busy: boolean
   selectableIds: ReadonlySet<string>
   selectedIds: readonly string[]
@@ -72,7 +74,7 @@ const effectFor = (playerId: string) => seatEffectFor(props.staged?.event ?? nul
         <p v-if="bubbles?.[player.id]" class="sgs-seat-layout__bubble" :class="`sgs-seat-layout__bubble--${bubbleSide(slots[index])}`">{{ bubbles[player.id] }}</p>
       </transition>
     </div>
-    <SgsActionStage :view="view" :staged="staged" :request="request" :busy="busy" />
+    <SgsActionStage :view="view" :staged="staged" :sticky-message="stickyMessage" :request="request" :busy="busy" />
     <SgsEffectLayer :staged="staged" />
   </section>
 </template>

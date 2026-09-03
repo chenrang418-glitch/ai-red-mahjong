@@ -11,6 +11,31 @@ import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS, playActionDelay } f
 import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 
+export interface SgsRoomTiming {
+  aiPaceMs: number
+  trivialStepMs: number
+  pickGeneralMs: number
+  playActionMs: (aiPaceMs: number) => number
+  alarmFloorMs: number
+}
+
+export const PRODUCTION_SGS_ROOM_TIMING: SgsRoomTiming = {
+  aiPaceMs: AI_PACE_MS.normal,
+  trivialStepMs: AI_TRIVIAL_STEP_MS,
+  pickGeneralMs: AI_PICK_GENERAL_MS,
+  playActionMs: playActionDelay,
+  alarmFloorMs: 1_000,
+}
+
+/** 由测试显式注入；只去掉真实等待，不改变 AI、seed、事件或规则。 */
+export const TEST_SGS_ROOM_TIMING: SgsRoomTiming = {
+  aiPaceMs: 0,
+  trivialStepMs: 0,
+  pickGeneralMs: 0,
+  playActionMs: () => 0,
+  alarmFloorMs: 1,
+}
+
 /**
  * 三国杀联机房间的纯逻辑核心。
  *
@@ -146,7 +171,7 @@ export class SanguoshaRoomCoordinator {
   /** 引擎实例只在内存里；持久化的永远是 state.game */
   private engine: SanguoshaGame | null = null
 
-  constructor(stored: StoredSgsRoomState) {
+  constructor(stored: StoredSgsRoomState, readonly timing: SgsRoomTiming = PRODUCTION_SGS_ROOM_TIMING) {
     this.state = stored
     // 上一版按座位分组存这份数据，休眠中的房间恢复回来仍是旧形状，取任意一份即可
     const legacy = this.state.presentationEvents as unknown
@@ -156,7 +181,7 @@ export class SanguoshaRoomCoordinator {
     this.state.processedActionIds ??= []
   }
 
-  static create(code: string, host: SgsRoomUser, settings: SgsRoomSettings, now = Date.now()): SanguoshaRoomCoordinator {
+  static create(code: string, host: SgsRoomUser, settings: SgsRoomSettings, now = Date.now(), timing: SgsRoomTiming = PRODUCTION_SGS_ROOM_TIMING): SanguoshaRoomCoordinator {
     const seats = Array.from({ length: settings.playerCount }, (_, index) => emptySeat(index))
     const coordinator = new SanguoshaRoomCoordinator({
       schemaVersion: 1,
@@ -179,7 +204,7 @@ export class SanguoshaRoomCoordinator {
       presentationEvents: [],
       deleteRequested: false,
       processedActionIds: [],
-    })
+    }, timing)
     coordinator.seatUser(host, now)
     return coordinator
   }
@@ -613,7 +638,9 @@ export class SanguoshaRoomCoordinator {
     const seat = this.state.seats.find((candidate) => candidate.seatId === actorSeatId)
     if (!seat) return
 
-    const drivenByAI = seat.kind === 'ai' || seat.trustee || !seat.connected
+    // 断线本身不能立刻等同托管：disconnect-trustee 有 20 秒重连保护期。
+    // 否则测试的 0ms 节奏（生产也可能在竞态下）会在玩家刷新时替他答掉请求。
+    const drivenByAI = seat.kind === 'ai' || seat.trustee
     const choosing = this.state.game.status === 'choosing-general'
     const pending = this.state.game.pendingRequests.find((request) => request.playerId === playerIdOf(actorSeatId))
     const onlyPass = drivenByAI && !choosing && !pending && this.state.game.phase === 'play'
@@ -622,10 +649,10 @@ export class SanguoshaRoomCoordinator {
     // 没有待处理请求 + 出牌阶段 = AI 要主动出一张牌，这一步慢一点让人看清；
     // 有请求的那条路是响应牌（无懈、桃、闪），节奏保持不动
     const playingCard = drivenByAI && !choosing && !pending && this.state.game.phase === 'play' && !onlyPass
-    const aiDelay = choosing ? AI_PICK_GENERAL_MS
-      : ((pending && isTrivialAIRequest(pending)) || onlyPass) ? AI_TRIVIAL_STEP_MS
-        : playingCard ? playActionDelay(AI_PACE_MS.normal)
-          : AI_PACE_MS.normal
+    const aiDelay = choosing ? this.timing.pickGeneralMs
+      : ((pending && isTrivialAIRequest(pending)) || onlyPass) ? this.timing.trivialStepMs
+        : playingCard ? this.timing.playActionMs(this.timing.aiPaceMs)
+          : this.timing.aiPaceMs
     this.pushJob({
       kind: drivenByAI ? 'ai-step' : 'turn-timeout',
       dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs(actorSeatId)),
@@ -675,7 +702,7 @@ export class SanguoshaRoomCoordinator {
   private isAIDriven(seatId: number): boolean {
     const seat = this.state.seats.find((candidate) => candidate.seatId === seatId)
     if (!seat) return false
-    return seat.kind === 'ai' || seat.trustee || !seat.connected
+    return seat.kind === 'ai' || seat.trustee
   }
 
 

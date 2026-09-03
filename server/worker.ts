@@ -7,6 +7,8 @@ import { RoomCoordinator } from './room-core'
 import type { RoomUser, StoredRoomState } from './room-core'
 import {
   SanguoshaRoomCoordinator,
+  PRODUCTION_SGS_ROOM_TIMING,
+  TEST_SGS_ROOM_TIMING,
   normalizeSettings as normalizeSgsSettings,
   type SgsRoomSettings,
   type StoredSgsRoomState,
@@ -26,6 +28,8 @@ interface Env {
   DB: D1Database
   // 通过 wrangler secret 单独配置。没配置时管理接口整体不存在。
   ADMIN_TOKEN?: string
+  /** 仅测试环境显式绑定；生产 wrangler 配置不设置。 */
+  SGS_AI_PACING?: string
 }
 
 interface SocketAttachment extends RoomUser {
@@ -1001,12 +1005,14 @@ export class SanguoshaRoom {
   private coordinator: SanguoshaRoomCoordinator | null = null
   private readonly ready: Promise<void>
   private readonly chatRate = new Map<string, number[]>()
+  private readonly timing
 
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
+    this.timing = env.SGS_AI_PACING === 'instant' ? TEST_SGS_ROOM_TIMING : PRODUCTION_SGS_ROOM_TIMING
     state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     this.ready = state.blockConcurrencyWhile(async () => {
       const stored = await state.storage.get<StoredSgsRoomState>('room')
-      if (stored) this.coordinator = new SanguoshaRoomCoordinator(stored)
+      if (stored) this.coordinator = new SanguoshaRoomCoordinator(stored, this.timing)
     })
   }
 
@@ -1017,7 +1023,7 @@ export class SanguoshaRoom {
     if (url.pathname === '/create' && request.method === 'POST') {
       if (this.coordinator) return json({ error: '房间号已存在' }, 409)
       const body = await request.json<{ code: string; user: RoomUser; settings: SgsRoomSettings }>()
-      this.coordinator = SanguoshaRoomCoordinator.create(body.code, body.user, normalizeSgsSettings(body.settings))
+      this.coordinator = SanguoshaRoomCoordinator.create(body.code, body.user, normalizeSgsSettings(body.settings), Date.now(), this.timing)
       await this.persist()
       await this.syncRoomDirectory()
       return json({ code: body.code }, 201)
@@ -1141,7 +1147,7 @@ export class SanguoshaRoom {
     // 没有玩家操作等待时也保留一次回收 alarm；否则 finished/空闲 lobby 永远不会再醒，
     // `isStale()` 只能在下一次外部请求时才有机会运行。
     const alarmAt = this.coordinator.nextAlarmAt() ?? (this.coordinator.state.updatedAt + 6 * 60 * 60_000)
-    await this.state.storage.setAlarm(Math.max(Date.now() + 1_000, alarmAt))
+    await this.state.storage.setAlarm(Math.max(Date.now() + this.timing.alarmFloorMs, alarmAt))
   }
 
   private async syncRoomDirectory(): Promise<void> {

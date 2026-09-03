@@ -3,6 +3,7 @@ import RootApp from './RootApp.vue'
 import './styles/root.css'
 import { gameAudio } from './composables/useGameAudio'
 import { cleanupLegacyStorage } from './cleanupLegacyStorage'
+import { mountWithFallback } from './bootstrap'
 
 cleanupLegacyStorage()
 
@@ -40,10 +41,5 @@ function renderBootFailure(): void {
   root.append(main)
 }
 
-try {
-  const app = createApp(RootApp)
-  app.config.errorHandler = () => renderBootFailure()
-  app.mount('#app')
-} catch {
-  renderBootFailure()
-}
+const app = createApp(RootApp)
+mountWithFallback(app, '#app', renderBootFailure)

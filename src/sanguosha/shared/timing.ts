@@ -10,9 +10,20 @@ const PRESENTATION_DURATION_MS: Record<PresentationEventKind, number> = {
   'turn-start': 420, draw: 380, discard: 380, equipment: 380, status: 340,
 }
 
+/** 中央文字的阅读寿命；0 表示只播放动画，不占用 sticky 信息位。 */
+const STICKY_PRESENTATION_MS: Record<PresentationEventKind, number> = {
+  death: 2500, dying: 2000, damage: 1500, 'lose-hp': 1500, recover: 1500,
+  judge: 1800, skill: 2200, 'card-use': 1800, 'card-response': 1500,
+  'turn-start': 900, draw: 0, discard: 0, equipment: 0, status: 0,
+}
+
 export function presentationDuration(kind: PresentationEventKind, backlog: number): number {
   const scale = backlog > 6 ? 0.52 : backlog >= 4 ? 0.75 : 1
   return Math.max(220, Math.round(PRESENTATION_DURATION_MS[kind] * scale))
+}
+
+export function stickyPresentationDuration(kind: PresentationEventKind): number {
+  return STICKY_PRESENTATION_MS[kind]
 }
 
 export function phaseDelay(aiDelayMs: number): number {

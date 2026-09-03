@@ -34,4 +34,16 @@ describe('统一 Request 系统', () => {
     const request: GameRequest = { ...base, kind: 'choose-cards', cardIds: [], hiddenCardSlots: ['hidden-0', 'hidden-1'], min: 1, max: 1 }
     expect(validateResponse(request, { requestId: 'r1', playerId: 'p0', payload: { cardIds: ['hidden-1'] } })).toBeNull()
   })
+
+  it('拒绝用重复 cardId 冒充选择多张牌', () => {
+    const request: GameRequest = { ...base, kind: 'choose-cards', cardIds: ['c1', 'c2'], hiddenCardSlots: [], min: 2, max: 2 }
+    expect(validateResponse(request, { requestId: 'r1', playerId: 'p0', payload: { cardIds: ['c1', 'c1'] } })).toContain('非法')
+    expect(validateResponse(request, { requestId: 'r1', playerId: 'p0', payload: { cardIds: ['c1', 'c2'] } })).toBeNull()
+  })
+
+  it('拒绝用重复 targetId 冒充选择多名角色', () => {
+    const request: GameRequest = { ...base, kind: 'choose-targets', candidateIds: ['p1', 'p2'], min: 2, max: 2 }
+    expect(validateResponse(request, { requestId: 'r1', playerId: 'p0', payload: { targetIds: ['p1', 'p1'] } })).toContain('非法')
+    expect(validateResponse(request, { requestId: 'r1', playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })).toBeNull()
+  })
 })

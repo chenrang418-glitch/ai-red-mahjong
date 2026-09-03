@@ -46,6 +46,49 @@ describe('事件有寿命', () => {
   })
 })
 
+describe('中央 sticky 信息', () => {
+  it('技能动画结束后文字继续保留，达到阅读时长后消失', () => {
+    const events = ref<PresentationEvent[]>([])
+    const { staged, stickyMessage } = useSgsEventStage(() => events.value)
+    events.value = [event('skill', { skillName: '奸雄' })]
+    vi.advanceTimersByTime(800)
+    expect(staged.value).toBeNull()
+    expect(stickyMessage.value?.skillName).toBe('奸雄')
+    vi.advanceTimersByTime(1400)
+    expect(stickyMessage.value).toBeNull()
+  })
+
+  it('新的重要消息立即替换旧消息，连续技能不重复播放', () => {
+    const events = ref<PresentationEvent[]>([])
+    const { staged, stickyMessage } = useSgsEventStage(() => events.value)
+    const first = event('skill', { skillName: '奸雄' })
+    events.value = [first]
+    expect(stickyMessage.value?.id).toBe(first.id)
+    vi.advanceTimersByTime(700)
+    const second = event('skill', { skillName: '反馈' })
+    events.value = [...events.value, second]
+    expect(staged.value?.event.id).toBe(second.id)
+    expect(stickyMessage.value?.id).toBe(second.id)
+  })
+
+  it('dying 覆盖 damage，death 不会被普通流水信息顶掉', () => {
+    const events = ref<PresentationEvent[]>([])
+    const { stickyMessage } = useSgsEventStage(() => events.value)
+    events.value = [event('damage')]
+    expect(stickyMessage.value?.kind).toBe('damage')
+    vi.advanceTimersByTime(900)
+    events.value = [...events.value, event('dying')]
+    expect(stickyMessage.value?.kind).toBe('dying')
+    vi.advanceTimersByTime(1050)
+    events.value = [...events.value, event('death')]
+    expect(stickyMessage.value?.kind).toBe('death')
+    vi.advanceTimersByTime(1200)
+    events.value = [...events.value, event('draw'), event('status')]
+    vi.advanceTimersByTime(800)
+    expect(stickyMessage.value?.kind).toBe('death')
+  })
+})
+
 describe('成批到达时逐条播放', () => {
   it('damage → dying：伤害数字不再被吞掉', () => {
     const events = ref<PresentationEvent[]>([])

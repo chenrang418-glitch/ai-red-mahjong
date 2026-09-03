@@ -3,12 +3,16 @@ import { computed } from 'vue'
 import type { GameRequest } from '../engine/requests'
 import type { StagedEvent } from '../composables/useSgsEventStage'
 import type { PlayerView } from '../engine/view'
+import type { PresentationEvent } from '../engine/presentation'
 import { cardGlossary, skillGlossary } from '../glossary'
 import { useSgsGlossary } from '../composables/useSgsGlossary'
 import { displayCharacterName } from '../data/characters/standard'
 
-const props = defineProps<{ view: PlayerView; staged: StagedEvent | null; request: GameRequest | null; busy: boolean }>()
-const event = computed(() => props.staged?.event ?? null)
+const props = withDefaults(defineProps<{ view: PlayerView; staged: StagedEvent | null; stickyMessage?: PresentationEvent | null; request: GameRequest | null; busy: boolean }>(), { stickyMessage: null })
+// 关键 sticky 信息优先于摸牌/弃牌等短动画，后者仍可在座位和特效层播放，
+// 但不能把“濒死/死亡”中央文案一闪顶掉。
+const event = computed(() => props.stickyMessage ?? props.staged?.event ?? null)
+const displayedStage = computed(() => props.staged?.event.id === event.value?.id ? props.staged : null)
 /** 重要的事件给更大的字号和更强的边框，摸牌这类流水账压小，余光就能分辨轻重。 */
 const HEAVY = new Set(['damage', 'lose-hp', 'dying', 'death'])
 const weight = computed(() => {
@@ -41,9 +45,9 @@ const waitingText = computed(() => {
     <div class="sgs-action-stage__phase"><i></i><strong>{{ phaseText }}</strong></div>
     <div
       v-if="event" :key="event.id" class="sgs-action-stage__event"
-      :class="[`sgs-action-stage__event--${event.kind}`, `sgs-action-stage__event--skin-${staged!.skin}`, `sgs-action-stage__event--${weight}`]"
+      :class="[`sgs-action-stage__event--${event.kind}`, displayedStage ? `sgs-action-stage__event--skin-${displayedStage.skin}` : 'sgs-action-stage__event--sticky', `sgs-action-stage__event--${weight}`]"
     >
-      <span v-if="staged!.chainDepth > 1" class="sgs-action-stage__chain">连环第 {{ staged!.chainDepth }} 张</span>
+      <span v-if="displayedStage && displayedStage.chainDepth > 1" class="sgs-action-stage__chain">连环第 {{ displayedStage.chainDepth }} 张</span>
       <button v-if="event.cardName" type="button" @click="glossary?.open(cardGlossary(event.cardName))">{{ event.cardName }}</button>
       <button v-else-if="event.skillName" type="button" @click="glossary?.open(skillGlossary(event.skillName))">{{ event.skillName }}</button>
       <p>{{ event.text }}</p>
@@ -61,6 +65,7 @@ const waitingText = computed(() => {
 .sgs-action-stage__event--heavy button { font-size: 15px; }
 .sgs-action-stage__event--light { padding: 6px 10px; opacity: .82; }
 .sgs-action-stage__event--light p { font-size: 11px; }
+.sgs-action-stage__event--sticky { animation: none; }
 
 /* 皮肤 */
 .sgs-action-stage__event--skin-strike { border-color: rgba(233,88,70,.7); background: linear-gradient(150deg, rgba(62,32,28,.95), rgba(22,13,11,.95)); }

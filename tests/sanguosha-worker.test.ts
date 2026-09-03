@@ -60,6 +60,7 @@ beforeAll(async () => {
       LOBBY: { className: 'MahjongLobby', useSQLite: true },
       SGS_ROOMS: { className: 'SanguoshaRoom', useSQLite: true },
     },
+    bindings: { SGS_AI_PACING: 'instant' },
     d1Databases: { DB: 'sanguosha-worker-db' },
   }] }))
   const db = await mf.getD1Database('DB')
@@ -186,25 +187,19 @@ describe('三国杀 Worker 与 Durable Object', () => {
       side.send({ type: 'respond', requestId: request.id, payload: { characterId: request.candidates[0] } })
     }
 
-    /*
-     * 只让客人托管，房主留着。
-     *
-     * **两个真人全托管现在会让房间自动解散**（没人在打了就不留房），
-     * 所以不能再靠「都托管、等牌局自己跑」来验推进——那正是新规则要拆掉的局面。
-     * 解散那条行为由 room-core 的用例覆盖，那里可以直接快进时间。
-     */
+    await host.waitFor((room) => room.playerView?.status === 'playing')
+    await guest.waitFor((room) => room.playerView?.status === 'playing')
+
+    // 选将本身就是双方各自提交的一次真人 Request；随后开启托管来验证 Worker
+    // 的 AI 自动推进。测试环境显式注入 0ms pacing，不改变生产默认节奏。
     guest.send({ type: 'trustee', enabled: true })
     await guest.waitFor((room) => room.seats.find((seat) => seat.isSelf)?.trustee === true)
+    await host.waitFor((room) => room.seats.some((seat) => seat.trustee))
+    host.send({ type: 'trustee', enabled: true })
+    await host.waitFor((room) => room.seats.find((seat) => seat.isSelf)?.trustee === true)
 
-    // 牌局能不能打完由 room-core 的用例覆盖（那里可以直接快进时间）。
-    // 这里要验的是 Worker 这一层：两个真人都在场时，牌局确实在自己往前走，
-    // 而且谁都没看到过别人的手牌。
-    //
-    // 时限跟着 AI 节奏走：主动出牌放慢之后，推进三个回合需要的真实时间跟着涨。
-    // **这里放宽的是等待时间，不是断言**——真卡住仍然会失败。
-    const advanced = await host.waitFor((room) => (room.playerView?.turnNumber ?? 0) >= 3, 150_000)
-    expect(host.room().seats.find((seat) => seat.isSelf)?.trustee, '房主没托管，房间不该被解散').toBe(false)
-    expect(advanced.phase).toBe('playing')
+    const finished = await host.waitFor((room) => room.phase === 'finished', 25_000)
+    expect(finished.playerView?.status).toBe('game-over')
     expect(guest.room().playerView?.turnNumber).toBeGreaterThanOrEqual(1)
     expect(host.leaked, '别人的手牌一次都不该出现').toBe(0)
     expect(guest.leaked, '别人的手牌一次都不该出现').toBe(0)

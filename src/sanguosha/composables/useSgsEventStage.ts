@@ -1,6 +1,6 @@
 import { getCurrentInstance, onBeforeUnmount, shallowRef, watch } from 'vue'
 import type { PresentationEvent, PresentationEventKind } from '../engine/presentation'
-import { presentationDuration } from '../shared/timing'
+import { presentationDuration, stickyPresentationDuration } from '../shared/timing'
 
 /**
  * 表现事件的播放队列。
@@ -53,14 +53,33 @@ function skinOf(event: PresentationEvent): EventSkin {
 
 export function useSgsEventStage(source: () => readonly PresentationEvent[]) {
   const staged = shallowRef<StagedEvent | null>(null)
+  const stickyMessage = shallowRef<PresentationEvent | null>(null)
   let queue: PresentationEvent[] = []
   let lastSeenId: string | null = null
   let lastSeenSeq = -1
   let timer: ReturnType<typeof setTimeout> | null = null
+  let stickyTimer: ReturnType<typeof setTimeout> | null = null
 
   function stopTimer(): void {
     if (timer !== null) clearTimeout(timer)
     timer = null
+  }
+
+  function stopStickyTimer(): void {
+    if (stickyTimer !== null) clearTimeout(stickyTimer)
+    stickyTimer = null
+  }
+
+  function updateSticky(event: PresentationEvent): void {
+    const duration = stickyPresentationDuration(event.kind)
+    // 摸牌、弃牌等流水信息不应把濒死/死亡等关键消息瞬间顶掉。
+    if (duration <= 0) return
+    stopStickyTimer()
+    stickyMessage.value = event
+    stickyTimer = setTimeout(() => {
+      stickyMessage.value = null
+      stickyTimer = null
+    }, duration)
   }
 
   function compress(): void {
@@ -81,6 +100,7 @@ export function useSgsEventStage(source: () => readonly PresentationEvent[]) {
       ? (previous?.skin === 'nullify' ? previous.chainDepth + 1 : 1)
       : 0
     staged.value = { event, skin, chainDepth }
+    updateSticky(event)
     timer = setTimeout(pump, presentationDuration(event.kind, queue.length + 1))
   }
 
@@ -140,7 +160,12 @@ export function useSgsEventStage(source: () => readonly PresentationEvent[]) {
     // 同步刷新：动画不该比事件慢一个 tick，处理器本身只是给一个 shallowRef 赋值
   }, { immediate: true, flush: 'sync' })
 
-  if (getCurrentInstance()) onBeforeUnmount(stopTimer)
+  function stop(): void {
+    stopTimer()
+    stopStickyTimer()
+  }
 
-  return { staged, skip, stop: stopTimer }
+  if (getCurrentInstance()) onBeforeUnmount(stop)
+
+  return { staged, stickyMessage, skip, stop }
 }

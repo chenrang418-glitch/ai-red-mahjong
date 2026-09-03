@@ -10,6 +10,7 @@ const route = ref(resolveAppRoute(new URL(window.location.href)))
 const activeComponent = shallowRef<Component | null>(null)
 const loading = ref(false)
 const loadError = ref('')
+const fatalRuntimeError = ref('')
 const gameLoader = new LatestGameLoader<{ default: Component }>(15_000)
 
 const activeGame = computed<GameDefinition | null>(() => {
@@ -51,6 +52,7 @@ async function loadActiveGame(game: GameDefinition | null) {
 }
 
 function retryLoad() {
+  fatalRuntimeError.value = ''
   void loadActiveGame(activeGame.value)
 }
 
@@ -65,9 +67,10 @@ onBeforeUnmount(() => {
 watch(activeGame, (game) => { void loadActiveGame(game) }, { immediate: true })
 
 onErrorCaptured((cause) => {
-  loadError.value = import.meta.env.DEV && cause instanceof Error
+  fatalRuntimeError.value = import.meta.env.DEV && cause instanceof Error
     ? `游戏运行异常：${cause.message}`
     : '游戏发生异常，请返回游戏中心后重试。'
+  // 返回 false：错误已经转成 RootApp 的受控状态，不再让全局 handler 手动碰 DOM。
   return false
 })
 </script>
@@ -80,11 +83,11 @@ onErrorCaptured((cause) => {
     <p>正在载入{{ activeGame?.name }}…</p>
   </main>
 
-  <main v-else-if="loadError || !activeComponent" class="root-error">
+  <main v-else-if="fatalRuntimeError || loadError || !activeComponent" class="root-error">
     <section role="alert">
       <span>CR</span>
       <h1>游戏发生异常</h1>
-      <p>{{ loadError || '未找到这个游戏。' }}</p>
+      <p>{{ fatalRuntimeError || loadError || '未找到这个游戏。' }}</p>
       <div>
         <button type="button" @click="retryLoad">重新加载</button>
         <button type="button" @click="returnToPortal">返回游戏中心</button>

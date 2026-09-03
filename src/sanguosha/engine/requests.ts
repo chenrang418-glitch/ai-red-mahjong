@@ -102,11 +102,21 @@ export function validateResponse(request: GameRequest, response: GameResponse): 
     case 'choose-cards': {
       if (!isStringArray(payload.cardIds)) return '卡牌选择格式错误'
       const allowed = new Set([...request.cardIds, ...request.hiddenCardSlots])
-      return payload.cardIds.length >= request.min && payload.cardIds.length <= request.max && payload.cardIds.every((id) => allowed.has(id)) ? null : '卡牌选择非法'
+      return payload.cardIds.length >= request.min
+        && payload.cardIds.length <= request.max
+        && new Set(payload.cardIds).size === payload.cardIds.length
+        && payload.cardIds.every((id) => allowed.has(id))
+        ? null
+        : '卡牌选择非法'
     }
     case 'choose-targets': {
       if (!isStringArray(payload.targetIds)) return '目标选择格式错误'
-      return payload.targetIds.length >= request.min && payload.targetIds.length <= request.max && payload.targetIds.every((id) => request.candidateIds.includes(id)) ? null : '目标选择非法'
+      return payload.targetIds.length >= request.min
+        && payload.targetIds.length <= request.max
+        && new Set(payload.targetIds).size === payload.targetIds.length
+        && payload.targetIds.every((id) => request.candidateIds.includes(id))
+        ? null
+        : '目标选择非法'
     }
     case 'choose-option': return typeof payload.optionId === 'string' && request.options.some((option) => option.id === payload.optionId) ? null : '选项非法'
     case 'choose-suit': return typeof payload.suit === 'string' && request.suits.includes(payload.suit as Suit) ? null : '花色非法'

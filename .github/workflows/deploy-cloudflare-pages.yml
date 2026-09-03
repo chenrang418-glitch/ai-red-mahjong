@@ -11,54 +11,41 @@ permissions:
   deployments: write
 
 jobs:
-  verify:
-    name: Verify production build
+  unit:
+    name: Unit and integration tests
     runs-on: ubuntu-latest
     concurrency:
-      group: cloudflare-pages-verify-${{ github.ref }}
+      group: crplay-unit-${{ github.ref }}
       cancel-in-progress: true
-    # Playwright 首次下载 Chromium/WebKit 及系统依赖可能接近 15 分钟，
-    # 为完整跑完验收与部署预留空间，避免在 UI 测试开始时被强制取消。
-    timeout-minutes: 30
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
+      - run: npm ci
+      - name: Run unit, engine and AI soak tests
         run: npm run test:run
 
-      - name: Install browsers for UI tests
-        # WebKit 只跑四条关键路径的冒烟，但 iOS Safari 的 dvh / safe-area 差异值得盯
-        run: npx playwright install --with-deps chromium webkit
-
-      - name: Run responsive UI tests
-        run: npm run test:e2e
-
-      - name: Run online smoke test
-        run: npm run test:online
-
+  frontend:
+    name: Frontend typecheck and build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: crplay-frontend-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Type-check frontend
         run: npm run typecheck
-
-      - name: Type-check online server
-        run: npm run typecheck:online
-
-      - name: Build and dry-run online server
-        run: npm run build:online
-
-      - name: Build production site
-        run: npm run build
-
+      - name: Build production site without repeating typecheck
+        run: npm run build:frontend
       - name: Upload verified frontend
         uses: actions/upload-artifact@v4
         with:
@@ -66,6 +53,28 @@ jobs:
           path: dist
           if-no-files-found: error
 
+  online:
+    name: Online server verify and build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: crplay-online-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check online server
+        run: npm run typecheck:online
+      - name: Build Worker once
+        run: npm run build:worker
+      - name: Run online smoke against verified Worker
+        run: npm run test:online:prepared
+      - name: Worker production dry-run
+        run: npm run dry-run:online
       - name: Upload verified Worker
         uses: actions/upload-artifact@v4
         with:
@@ -73,32 +82,61 @@ jobs:
           path: server/dist
           if-no-files-found: error
 
+  e2e:
+    name: Chromium and WebKit E2E
+    runs-on: ubuntu-latest
+    concurrency:
+      group: crplay-e2e-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Read Playwright version
+        id: playwright-version
+        shell: bash
+        run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright browser binaries
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium webkit
+      - name: Install Playwright system dependencies
+        run: npx playwright install-deps chromium webkit
+      - name: Run responsive UI tests
+        run: npm run test:e2e
+
   deploy:
     name: Deploy verified build
-    needs: verify
+    needs:
+      - unit
+      - frontend
+      - online
+      - e2e
     runs-on: ubuntu-latest
     concurrency:
       group: cloudflare-pages-production
       cancel-in-progress: false
     timeout-minutes: 15
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-
-      - name: Download verified frontend
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v4
         with:
           name: crplay-pages-${{ github.sha }}
           path: dist
-
-      - name: Download verified Worker
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: crplay-worker-${{ github.sha }}
           path: server/dist
-
-      - name: Deploy online Worker
+      - name: Apply D1 migrations and deploy online Worker
         uses: cloudflare/wrangler-action@v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -106,7 +144,6 @@ jobs:
           wranglerVersion: "4.123.0"
           preCommands: wrangler d1 migrations apply DB --remote --config server/wrangler.jsonc
           command: deploy --config server/wrangler.jsonc
-
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4.0.0
         with:

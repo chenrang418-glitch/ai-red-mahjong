@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SanguoshaRoomCoordinator, normalizeSettings, type SgsRoomUser } from '../server/sanguosha-room-core'
+import { SanguoshaRoomCoordinator, TEST_SGS_ROOM_TIMING, normalizeSettings, type SgsRoomUser } from '../server/sanguosha-room-core'
 import { AI_PACE_MS, AI_TRIVIAL_STEP_MS, phaseDelay, playActionDelay } from '../src/sanguosha/shared/timing'
 
 /**
@@ -71,5 +71,19 @@ describe('AI 节奏', () => {
     const waiting = room.nextAlarmAt()! - room.state.updatedAt
     expect(waiting, 'AI 出牌的等待应当用加长后的那一档').toBe(playActionDelay(AI_PACE_MS.normal))
     expect(waiting, '而且确实比响应牌那一档长').toBeGreaterThan(AI_PACE_MS.normal)
+  })
+
+  it('测试可显式注入 0ms 节奏，且真人请求仍然等待真人', () => {
+    const now = 1_000
+    const room = SanguoshaRoomCoordinator.create('FAST01', HOST, normalizeSettings({ playerCount: 5 }), now, TEST_SGS_ROOM_TIMING)
+    room.handle(HOST.userId, { type: 'toggle-ready' }, now)
+    room.handle(HOST.userId, { type: 'start-game' }, now)
+
+    expect(room.nextAlarmAt()).toBe(now)
+    room.runDueJobs(now)
+    const request = room.view(HOST.userId).playerView?.pendingRequest
+    expect(request?.playerId).toBe('seat-0')
+    // 即便 AI delay=0，真人选将也没有被自动替他提交。
+    expect(request?.kind).toBe('choose-general')
   })
 })

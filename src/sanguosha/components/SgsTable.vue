@@ -122,7 +122,7 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
     </header>
 
     <main class="sgs-table__arena">
-      <SgsSeatLayout :view="view" :request="request" :staged="stage.staged.value" :busy="busy" :selectable-ids="selectableTargetIds" :selected-ids="selectedTargetIds" :statuses="connectionStatuses" :bubbles="bubbles" @select="toggleTarget" />
+      <SgsSeatLayout :view="view" :request="request" :staged="stage.staged.value" :sticky-message="stage.stickyMessage.value" :busy="busy" :selectable-ids="selectableTargetIds" :selected-ids="selectedTargetIds" :statuses="connectionStatuses" :bubbles="bubbles" @select="toggleTarget" />
       <div v-if="view.processingArea.length" class="sgs-table__processing"><SgsCard v-for="card in view.processingArea" :key="card.id" :card="card" compact disabled /></div>
     </main>
 
