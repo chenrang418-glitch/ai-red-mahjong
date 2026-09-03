@@ -4,6 +4,20 @@
   text-rendering: optimizeLegibility;
 
   /*
+   * 全站最底层兜底色，**必须在这份始终加载的样式里**。
+   *
+   * 之前只有 `main.css` 给 body 上了底色，而那份是跟着麻将的 App.vue 懒加载的：
+   * 门户和三国杀页面根本不会加载它，于是 html 和 body 都没有背景，
+   * iOS Safari 露出来的就是浏览器画布的白色——用户看到的「底部白条」正是这个。
+   * 麻将页面看起来正常，也不是因为内容更高，而是进了麻将才把那份 CSS 拉进来。
+   *
+   * `color-scheme: dark` 让浏览器自己的那部分（橡皮筋回弹区、表单控件默认样式）
+   * 也按深色走，这是 iOS 上少数几个能影响画布颜色的开关之一。
+   */
+  color-scheme: dark;
+  background-color: var(--ink-bg-bottom, #0b130f);
+
+  /*
    * 全站配色（墨绿方案）。
    *
    * 定义在这里而不是各组件里，是因为门户、两个游戏的首页、牌桌、弹层
@@ -45,6 +59,24 @@ html, body, #app {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  /*
+   * 三层都铺同一个底色。只给一层是不够的：html 有背景时浏览器画布用 html 的，
+   * 没有才会去取 body 的——两层都留空才是现在露白的直接原因。
+   * 用调色板里最暗的那个墨绿而不是纯黑：它就是页面渐变的收尾色，
+   * 地址栏收放或橡皮筋回弹时露出来和页面底部完全接得上，不会出现一条黑边。
+   */
+  background-color: var(--ink-bg-bottom, #0b130f);
+}
+
+/*
+ * 地址栏收放时 100% 和实际可视高度会短暂对不上，dvh 跟着变，用它兜一下。
+ *
+ * 这里刻意**不**把上面的 height 改成 min-height：整站的布局模型是
+ * 「根节点锁死在视口内，只有页面内部明确指定的区域可以滚动」，
+ * 改成 min-height 会让内容把根节点撑高，反而引出双层滚动。
+ */
+body, #app {
+  min-height: 100dvh;
 }
 
 #app { display: flex; flex-direction: column; }
