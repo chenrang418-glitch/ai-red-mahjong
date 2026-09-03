@@ -377,6 +377,9 @@ export interface DamageChainState {
   sourceId: PlayerId | null
   nature: Exclude<DamageNature, 'normal'>
   amount: number
+  cardId: CardId | null
+  cardName: string | null
+  redirectedBy: string | null
   remainingTargetIds: PlayerId[]
 }
 

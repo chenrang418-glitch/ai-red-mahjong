@@ -46,3 +46,21 @@ export function flipCharacter(
 export function isFaceDown(state: SanguoshaState, playerId: PlayerId): boolean {
   return state.players.find((player) => player.id === playerId)?.faceDown ?? false
 }
+
+/**
+ * 横置 / 重置是一条公共角色状态，不属于铁索连环或庞统私有。
+ * 不给 `chained` 就切换；明确给值则用于死亡、涅槃等重置场景。
+ */
+export function setChained(
+  host: CharacterStateHost,
+  playerId: PlayerId,
+  reason: string,
+  chained?: boolean,
+): void {
+  const target = host.state.players.find((player) => player.id === playerId)
+  if (!target?.alive) return
+  const next = chained ?? !target.chained
+  if (target.chained === next) return
+  target.chained = next
+  host.dispatch('CharacterChained', { playerId, chained: next, reason }, { targetId: playerId })
+}

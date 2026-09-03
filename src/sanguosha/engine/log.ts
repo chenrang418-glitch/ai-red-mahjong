@@ -97,6 +97,12 @@ export function describeEvent(state: SanguoshaState, event: GameEvent, viewerId:
       return `${owner} 将武将牌翻至${faceDown ? '背面' : '正面'}${reason}`
     }
 
+    case 'CharacterChained': {
+      const owner = nameOf(state, (payload.playerId as PlayerId) ?? event.targetId)
+      const reason = payload.reason ? `（${payload.reason}）` : ''
+      return `${owner}${payload.chained === true ? '进入横置状态' : '重置为未横置'}${reason}`
+    }
+
     case 'JudgeResult': {
       // 判定牌是翻开的公开信息
       const judged = cardName(state, payload.judgeCardId as string)

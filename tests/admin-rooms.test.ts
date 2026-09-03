@@ -96,15 +96,16 @@ describe('管理端房间与联机设置', () => {
     const cookie = await loginAs('三国管理房主')
     const created = await api('/api/sanguosha/rooms', {
       method: 'POST', headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ settings: { playerCount: 6 } }),
+      body: JSON.stringify({ settings: { playerCount: 6, difficulty: 'hard', turnSeconds: 45 } }),
     })
     expect(created.status).toBe(201)
     const { code } = await created.json() as { code: string }
 
     const before = await (await api('/api/admin/rooms', { headers: adminHeaders })).json() as {
-      rooms: Array<{ code: string; game: string; capacity: number }>
+      rooms: Array<{ code: string; game: string; capacity: number; difficulty?: string; turnSeconds?: number }>
     }
-    expect(before.rooms.find((room) => room.code === code && room.game === 'sanguosha')).toMatchObject({ capacity: 6 })
+    expect(before.rooms.find((room) => room.code === code && room.game === 'sanguosha'))
+      .toMatchObject({ capacity: 6, difficulty: 'hard', turnSeconds: 45 })
 
     expect((await api(`/api/admin/sanguosha/rooms/${code}`, { method: 'DELETE', headers: adminHeaders })).status).toBe(200)
     const after = await (await api('/api/admin/rooms', { headers: adminHeaders })).json() as { rooms: Array<{ code: string; game: string }> }

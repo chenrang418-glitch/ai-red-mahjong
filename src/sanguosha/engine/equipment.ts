@@ -39,6 +39,18 @@ export function hasArmor(state: SanguoshaState, playerId: PlayerId, armorName: s
   return !!armorId && state.cards[armorId]?.name === armorName
 }
 
+/** 真实装备优先；只有装备槽为空时技能才可提供没有 CardId 的虚拟防具。 */
+export function effectiveArmorName(state: SanguoshaState, playerId: PlayerId): string | null {
+  const owner = playerOf(state, playerId)
+  const realArmorId = owner.zones.equipment.armor
+  if (realArmorId) return state.cards[realArmorId]?.name ?? null
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    const virtual = runtime.virtualArmor?.(state, playerId)
+    if (virtual) return virtual
+  }
+  return null
+}
+
 /** 某人是否装备着指定武器。 */
 export function hasWeapon(state: SanguoshaState, playerId: PlayerId, weaponName: string): boolean {
   const weaponId = playerOf(state, playerId).zones.equipment.weapon
@@ -124,5 +136,5 @@ export function handleEquipmentLost(host: EquipmentHost, playerId: PlayerId, car
 export const BAGUA_ACTION_ID = 'invoke-bagua'
 
 export function canInvokeBagua(state: SanguoshaState, playerId: PlayerId): boolean {
-  return hasArmor(state, playerId, '八卦阵')
+  return effectiveArmorName(state, playerId) === '八卦阵'
 }

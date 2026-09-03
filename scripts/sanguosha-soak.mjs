@@ -3,12 +3,15 @@
  * 这个脚本用于验收前的大批量跑：
  *
  *   node scripts/sanguosha-soak.mjs 500
+ *   node scripts/sanguosha-soak.mjs 200 --characters=pangtong,wolongzhuge
  *
  * 任何一局失败都会打印 seed，用同一个 seed 就能精确复现。
  */
 import { runSoakGame } from '../src/sanguosha/ai/soak.ts'
 
 const perCount = Number(process.argv[2] ?? 100)
+const characterIds = process.argv.find((value) => value.startsWith('--characters='))
+  ?.slice('--characters='.length).split(',').filter(Boolean)
 const counts = [5, 8]
 let failures = 0
 
@@ -19,7 +22,7 @@ for (const playerCount of counts) {
   for (let index = 0; index < perCount; index += 1) {
     const seed = `soak-${playerCount}-${index}`
     try {
-      const result = runSoakGame({ seed, playerCount })
+      const result = runSoakGame({ seed, playerCount, characterIds })
       if (!result.finished) throw new Error('牌局没有正常结束')
       turns.push(result.turns)
       camps[result.winningCamp ?? 'none'] = (camps[result.winningCamp ?? 'none'] ?? 0) + 1
@@ -31,7 +34,7 @@ for (const playerCount of counts) {
   }
   const average = Math.round(turns.reduce((sum, value) => sum + value, 0) / Math.max(turns.length, 1))
   console.log(
-    `${playerCount} 人局 ${perCount} 局：完成 ${turns.length}，平均 ${average} 回合，`
+    `${playerCount} 人局 ${perCount} 局${characterIds?.length ? `（固定 ${characterIds.join('、')}）` : ''}：完成 ${turns.length}，平均 ${average} 回合，`
     + `最长 ${Math.max(...turns, 0)} 回合，阵营 ${JSON.stringify(camps)}，耗时 ${Date.now() - started}ms`,
   )
 }

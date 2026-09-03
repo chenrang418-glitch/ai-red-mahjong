@@ -11,6 +11,7 @@ import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 import { moveCard } from './zones'
+import { setChained } from './character-state'
 
 export interface DamageOptions {
   sourceId?: PlayerId | null
@@ -200,6 +201,7 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   }
   // BeforeDeath 技能必须把角色实际回复到存活体力；仅取消事件不能形成 0 体力悬空状态。
 
+  if (dead.chained) setChained(host, dead.id, 'death', false)
   dead.alive = false
   dead.identityRevealed = true
   discardOwnedCards(host, dead, true)
@@ -256,8 +258,20 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
 
   if (!options.chainTransfer && nature !== 'normal' && target.chained) {
     const remainingTargetIds = chainedTargetsAfter(host.state, target.id)
-    for (const chained of host.state.players.filter((candidate) => candidate.alive && candidate.chained)) chained.chained = false
-    if (remainingTargetIds.length > 0) host.state.damageChain = { sourceId, nature, amount, remainingTargetIds }
+    for (const chained of host.state.players.filter((candidate) => candidate.alive && candidate.chained)) {
+      setChained(host, chained.id, 'elemental-damage', false)
+    }
+    if (remainingTargetIds.length > 0) {
+      host.state.damageChain = {
+        sourceId,
+        nature,
+        amount,
+        cardId,
+        cardName: options.cardName ?? null,
+        redirectedBy: options.redirectedBy ?? null,
+        remainingTargetIds,
+      }
+    }
   }
 
   target.hp -= amount
@@ -291,7 +305,9 @@ export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId:
   // 濒死介入（周泰【不屈】）：技能有机会在求桃之前直接把这次濒死解决掉。
   // 处理成功就**不进入求桃**——不屈撑住的时候没人需要出桃。
   for (const runtime of skillsOf(host.state, playerId, skillIdsOf)) {
-    if (!runtime.dyingIntercept?.(host as unknown as SkillHost, playerId)) continue
+    const result = runtime.dyingIntercept?.(host as unknown as SkillHost, playerId)
+    if (result === 'pending') return
+    if (!result) continue
     host.dispatch('QuitDying', { playerId, hp: target.hp, reason: runtime.id }, { targetId: playerId })
     host.state.dying = null
     return
@@ -320,9 +336,18 @@ export function resumeDamageChain(host: DamageEngineHost): void {
       targetId,
       amount: chain.amount,
       nature: chain.nature,
+      cardId: chain.cardId,
+      cardName: chain.cardName,
+      redirectedBy: chain.redirectedBy,
       chainTransfer: true,
     })
   }
+}
+
+/** 技能在濒死窗口放弃介入后，继续原有求桃顺序。 */
+export function continueDyingRescue(host: DamageEngineHost): void {
+  if (!host.state.dying) return
+  requestCurrentRescuer(host)
 }
 
 export function resolveRescueResponse(host: DamageEngineHost, request: RescueRequest, response: GameResponse): void {

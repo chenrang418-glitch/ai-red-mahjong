@@ -3,7 +3,7 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
-import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, skillIdsOf } from '../../data/characters/standard'
+import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
 import { effectiveCardColor, getSkillRuntime, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
@@ -171,7 +171,11 @@ export function declaredCardActions(
       if (trick.kind !== 'use-card') continue
       actions.push({
         ...trick,
-        id: `play:viewas:${cardId}:${trick.targetIds.join(',') || 'self'}`,
+        // 【连环】转化出的铁索仍要保留“重铸”动作前缀；执行层和 AI 都用
+        // 这个前缀区分“使用锦囊”和“弃牌摸一张”，不能统一改成 viewas。
+        id: trick.id.startsWith('play:recast:')
+          ? `play:recast:viewas:${cardId}`
+          : `play:viewas:${cardId}:${trick.targetIds.join(',') || 'self'}`,
         label: `${label}，${trick.label}`,
       })
     }
@@ -744,7 +748,8 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     // 蛊惑成立的那一瞬间，那张牌被临时报成声明的牌，沿用这里原有的校验
     const granted = guhuoGrantedAs(host.state, response.playerId, responseCardId) === requiredName
     const convertible = granted || (resolution.kind === 'slash'
-      && dodgeViewAsOptions(host.state, response.playerId).some((option) => option.cardId === responseCardId))
+      ? dodgeViewAsOptions(host.state, response.playerId).some((option) => option.cardId === responseCardId)
+      : responseViewAsOptions(host.state, response.playerId, requiredName).some((option) => option.cardId === responseCardId))
     if (!responder.zones.hand.includes(responseCardId) || (heldName !== requiredName && !convertible)) {
       throw new Error(`响应牌不是该玩家持有的${requiredName}`)
     }

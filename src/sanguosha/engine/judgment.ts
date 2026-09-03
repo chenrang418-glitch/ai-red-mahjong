@@ -9,7 +9,7 @@ import { effectiveCardName, moveCard } from './zones'
 import { effectiveCardSuit, skillsOf, type SkillHost } from './skills/runtime'
 import { NULLIFICATION_TIMEOUT_MS, nullificationCardIds } from './nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
-import { skillIdsOf } from '../data/characters/standard'
+import { responseViewAsOptions, skillIdsOf } from '../data/characters/standard'
 
 /**
  * 判定引擎的宿主。
@@ -298,7 +298,10 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
   // 死人、刚打出无懈的人都跳过；**手上没有无懈的人根本不问**——
   // 这里原来是不分青红皂白挨个问一遍，每张延时锦囊都要空转一整圈，
   // 判定阶段因此卡很久（用户报的「太繁琐」）。
-  const cardIds = judgment.lastNullifierId === responderId ? [] : nullificationCardIds(host.state, responderId)
+  const cardIds = judgment.lastNullifierId === responderId ? [] : [...new Set([
+    ...nullificationCardIds(host.state, responderId),
+    ...responseViewAsOptions(host.state, responderId, '无懈可击').map((option) => option.cardId),
+  ])]
   const canGuhuo = judgment.lastNullifierId !== responderId
     && canGuhuoRespond(host.state, responderId, '无懈可击', skillIdsOf)
   if (cardIds.length === 0 && !canGuhuo) {
@@ -360,7 +363,9 @@ export function resolveJudgmentResponse(host: JudgmentEngineHost, request: Respo
     const responder = player(host.state, response.playerId)
     // 蛊惑成立的那一瞬间，那张牌被临时报成【无懈可击】，沿用这里原有的校验
     const granted = guhuoGrantedAs(host.state, response.playerId, cardId) === '无懈可击'
-    if (!responder.zones.hand.includes(cardId) || (!granted && host.state.cards[cardId]?.name !== '无懈可击')) {
+    const converted = responseViewAsOptions(host.state, response.playerId, '无懈可击')
+      .some((option) => option.cardId === cardId)
+    if (!responder.zones.hand.includes(cardId) || (!granted && !converted && host.state.cards[cardId]?.name !== '无懈可击')) {
       throw new Error('响应牌不是该玩家持有的无懈可击')
     }
   }

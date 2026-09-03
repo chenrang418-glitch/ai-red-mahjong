@@ -22,6 +22,8 @@ export interface SoakOptions {
   difficulty?: AIDifficulty
   /** 单局最多推进多少步，防止死循环把测试挂住 */
   maxSteps?: number
+  /** 专项压测时固定前几个座位的武将；其余座位仍走正常随机选将。 */
+  characterIds?: string[]
 }
 
 export interface SoakResult {
@@ -79,6 +81,9 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     const request = game.state.pendingRequests[0]
     game.respond(decideResponse(contextFor(request.playerId), request))
   }
+  options.characterIds?.forEach((characterId, index) => {
+    if (game.state.players[index]) game.state.players[index].characterId = characterId
+  })
   game.start()
 
   let steps = 0

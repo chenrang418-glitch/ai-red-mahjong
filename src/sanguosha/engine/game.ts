@@ -179,6 +179,16 @@ export class SanguoshaGame {
     enterDying(this, playerId)
   }
 
+  resumeAfterDying(): void {
+    if (this.state.dying) return
+    if (continueGuhuoResponseAfterDying(this)) return
+    resumeDamageChain(this)
+    if (!this.state.dying && !this.state.damageChain) {
+      resumeJudgment(this)
+      if (!this.state.judgment) resumeCardResolution(this)
+    }
+  }
+
   beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder'; cardId?: string }): void {
     startVirtualSlash(this, options)
   }
@@ -312,15 +322,7 @@ export class SanguoshaGame {
     }
     if (request.kind === 'rescue') {
       resolveRescueResponse(this, request, response)
-      // 蛊惑质疑者的插入濒死结束后，优先恢复被挂起的蛊惑与原求牌上下文。
-      if (!this.state.dying && continueGuhuoResponseAfterDying(this)) return
-      if (!this.state.dying) {
-        resumeDamageChain(this)
-        if (!this.state.dying && !this.state.damageChain) {
-          resumeJudgment(this)
-          if (!this.state.judgment) resumeCardResolution(this)
-        }
-      }
+      this.resumeAfterDying()
       return
     }
     if (request.kind === 'respond-card') {
@@ -492,6 +494,11 @@ export class SanguoshaGame {
     mutable.state.pindian ??= null
     mutable.state.guhuoResponse ??= null
     mutable.state.mamaBonds ??= {}
+    if (mutable.state.damageChain) {
+      mutable.state.damageChain.cardId ??= null
+      mutable.state.damageChain.cardName ??= null
+      mutable.state.damageChain.redirectedBy ??= null
+    }
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。
     const resolution = mutable.state.cardResolution
     if (resolution?.kind === 'slash' && !Number.isInteger(resolution.dodgeRemaining)) resolution.dodgeRemaining = 1

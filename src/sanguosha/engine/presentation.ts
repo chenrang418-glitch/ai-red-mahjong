@@ -159,6 +159,14 @@ export function buildPresentationEvent(
         text: `${playerName(state, actorId)}武将牌翻至${faceDown ? '背面' : '正面'}`,
       }
     }
+    case 'CharacterChained': {
+      const actorId = (payload.playerId as PlayerId) ?? event.targetId
+      if (!actorId) return null
+      return {
+        id: event.id, seq: event.seq, kind: 'status', targetIds: [actorId],
+        text: `${playerName(state, actorId)}${payload.chained === true ? '进入横置状态' : '解除横置'}`,
+      }
+    }
 
     case 'JudgeResult': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId

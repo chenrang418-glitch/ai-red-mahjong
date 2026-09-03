@@ -63,6 +63,8 @@ export interface SkillHost {
   queueSkill(prompt: QueuedSkillPrompt): void
   /** 技能造成的「失去体力」把人打到 0 时走这里，不允许技能自己判死。 */
   enterDying(playerId: PlayerId): void
+  /** 濒死技能结束后恢复属性链、判定或卡牌结算。 */
+  resumeAfterDying(): void
   /**
    * 技能发起一张无距离和次数限制的【杀】。
    *
@@ -144,7 +146,9 @@ export interface SkillRuntime {
    *
    * 只在拥有者自己濒死时调用，而且在 `EnterDying` 之后、第一次求桃之前。
    */
-  dyingIntercept?(host: SkillHost, ownerId: PlayerId): boolean
+  dyingIntercept?(host: SkillHost, ownerId: PlayerId): boolean | 'pending'
+  /** 无真实防具时提供的虚拟防具牌名（八阵）。 */
+  virtualArmor?(state: SanguoshaState, ownerId: PlayerId): string | null
   /**
    * 锁定技：允许拥有者在体力值 0 或更低时**不处于濒死状态地活着**（不屈）。
    *

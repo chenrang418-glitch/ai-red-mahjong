@@ -18,6 +18,7 @@ import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
 import { effectiveCardSuit, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { skillIdsOf } from '../../data/characters/standard'
+import { setChained } from '../character-state'
 
 /**
  * 即时锦囊。
@@ -389,6 +390,9 @@ export function askNullification(host: CardEngineHost): void {
   const currentTargetId = resolution.targetIds[resolution.targetIndex]
   const skip = !responder.alive
     || (responderId === currentTargetId && resolution.unresponsiveTargetIds.includes(responderId))
+    // 首轮不询问锦囊使用者是否无懈自己的牌；若别人先打出无懈，使用者仍可在
+    // 后续轮次打出反无懈来保护原锦囊。
+    || (resolution.nullificationCount === 0 && responderId === resolution.sourceId)
     // 声明过「本轮均不使用」的人，这张牌剩下的目标都不再问
     || resolution.declinedAllIds.includes(responderId)
     // 刚打出无懈的人不问他自己：对自己的无懈再叠一张，等于两张都没打
@@ -398,7 +402,10 @@ export function askNullification(host: CardEngineHost): void {
     askNullification(host)
     return
   }
-  const cardIds = nullificationCardIds(host.state, responderId)
+  const cardIds = [...new Set([
+    ...nullificationCardIds(host.state, responderId),
+    ...responseViewAsOptions(host.state, responderId, '无懈可击').map((option) => option.cardId),
+  ])]
   // 于吉【蛊惑】可以凭任意手牌声明无懈，所以他即使没有无懈也要问
   const canGuhuo = canGuhuoRespond(host.state, responderId, '无懈可击', skillIdsOf)
   if (cardIds.length === 0 && !canGuhuo) {
@@ -593,7 +600,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       advanceToNextTarget(host)
       return
     case '铁索连环':
-      target.chained = !target.chained
+      setChained(host, target.id, '铁索连环')
       host.dispatch('CardResolved', { cardId: resolution.cardId, cardName: resolution.cardName, targetIds: [targetId], chained: target.chained }, { sourceId: resolution.sourceId, targetId })
       advanceToNextTarget(host)
       return

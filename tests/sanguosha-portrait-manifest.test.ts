@@ -52,6 +52,13 @@ describe('缺素材时的回退', () => {
 })
 
 describe('登记项的形状', () => {
+  it('每名可玩武将都有座位图与独立高清图', () => {
+    expect(Object.keys(CHARACTER_PORTRAITS).sort()).toEqual([...allCharacterIds()].sort())
+    for (const [id, portrait] of Object.entries(CHARACTER_PORTRAITS)) {
+      expect(portrait.fullSrc, `${id} 的艺术集不能回退到座位小图`).not.toBe(portrait.src)
+    }
+  })
+
   it('每一项都要同时给出 PC 和移动端两套裁切参数', () => {
     // 只给一套的话，另一档会退回默认值，脸大概率跑到框外
     for (const [id, portrait] of Object.entries(CHARACTER_PORTRAITS)) {

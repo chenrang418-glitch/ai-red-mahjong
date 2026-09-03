@@ -19,14 +19,14 @@ export interface PortraitFraming {
 
 export interface CharacterPortrait {
   /**
-   * 座位和缩略图用的小图（360×480，约 20~35KB）。
+   * 座位和缩略图用的小图（480×640，约 30~65KB）。
    *
    * 对局里 5~8 个座位同时显示，这个尺寸是按「座位实际渲染尺寸 × 设备像素比」定的，
    * 再大只是白白多传字节。**不要在这里换成高清图**。
    */
   src: string
   /**
-   * 艺术集单张查看用的高清图（1086×1448 原始分辨率，约 80~180KB）。
+   * 艺术集单张查看用的高清图（约 1086×1448 原始分辨率，约 100~270KB）。
    *
    * 只在用户点开某一张时才请求，对局和列表都不会加载它，
    * 所以放大分辨率不会加重日常流量；缺高清图时回退到 `src`。
@@ -59,8 +59,8 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     credit: '用户提供（GPT 生成）·司马懿',
   },
   xiahoudun: {
-    desktop: { position: '45% 22%', scale: 1.0 },
-    mobile: { position: '45% 20%', scale: 1.15 },
+    desktop: { position: '50% 21%', scale: 1.0 },
+    mobile: { position: '50% 19%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·夏侯惇',
   },
   zhangliao: {
@@ -232,6 +232,21 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     desktop: { position: '62% 30%', scale: 1.0 },
     mobile: { position: '62% 28%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·颜良文丑',
+  },
+  yuanshao: {
+    desktop: { position: '55% 19%', scale: 1.0 },
+    mobile: { position: '55% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·袁绍',
+  },
+  pangtong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·庞统',
+  },
+  wolongzhuge: {
+    desktop: { position: '50% 18%', scale: 1.0 },
+    mobile: { position: '50% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·卧龙诸葛',
   },
 
   // ── 群 ──

@@ -6,7 +6,7 @@ export type GameEventName =
   | 'BeforeCardUse' | 'CardUsed' | 'TargetSpecified' | 'TargetConfirmed' | 'CardResolved' | 'AfterCardUse'
   | 'CardResponded' | 'BeforeDamage' | 'DamageCaused' | 'DamageInflicted' | 'Damaged' | 'AfterDamage'
   | 'SkillActivated'
-  | 'CharacterFlip'
+  | 'CharacterFlip' | 'CharacterChained'
   | 'Recover'
   | 'LoseHp'
   | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'

@@ -213,6 +213,8 @@ import { XUNYU } from './fire-xunyu'
 import { TAISHICI } from './fire-taishici'
 // 袁绍的乱击是多牌转化，血裔是主公技，同样单独一个文件
 import { YUANSHAO } from './fire-yuanshao'
+import { PANGTONG } from './fire-pangtong'
+import { WOLONG_ZHUGE } from './fire-wolongzhuge'
 
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   {
@@ -257,4 +259,6 @@ export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   XUNYU,
   TAISHICI,
   YUANSHAO,
+  PANGTONG,
+  WOLONG_ZHUGE,
 ] as const

@@ -20,6 +20,11 @@ interface AdminRoom {
   players: Array<{ nickname: string; kind: string; connected: boolean; trustee: boolean }>
   occupiedSeats: number
   capacity: number
+  mode?: 'finite' | 'endless'
+  initialPoints?: number
+  claimWindowMs?: number
+  difficulty?: 'easy' | 'normal' | 'hard'
+  turnSeconds?: number
   updatedAt: number
 }
 
@@ -56,12 +61,22 @@ const rooms = ref<AdminRoom[]>([])
 const audit = ref<AuditEntry[]>([])
 const settings = ref<ServerSettings | null>(null)
 const tab = ref<'users' | 'rooms' | 'settings'>('users')
+const roomGameFilter = ref<'all' | AdminRoom['game']>('all')
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const apiBase = resolveApiBase()
 
 const sortedUsers = computed(() => [...users.value].sort((left, right) => right.lastSeenAt - left.lastSeenAt))
+const filteredRooms = computed(() => roomGameFilter.value === 'all'
+  ? rooms.value
+  : rooms.value.filter((room) => room.game === roomGameFilter.value))
+const roomStats = computed(() => ({
+  total: rooms.value.length,
+  mahjong: rooms.value.filter((room) => room.game === 'mahjong').length,
+  sanguosha: rooms.value.filter((room) => room.game === 'sanguosha').length,
+  playing: rooms.value.filter((room) => room.phase === 'playing').length,
+}))
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
@@ -88,6 +103,7 @@ async function unlock() {
     sessionStorage.setItem(SESSION_KEY, candidate)
     input.value = ''
     await loadUsers()
+    await loadRooms()
     await loadSettings()
   } catch (cause) {
     token.value = ''
@@ -184,12 +200,21 @@ function lock() {
   sessionStorage.removeItem(SESSION_KEY)
 }
 
-function backToGame() {
+function backToPortal() {
   const url = new URL(window.location.href)
   url.hash = ''
-  url.searchParams.set('game', 'mahjong')
+  url.searchParams.delete('game')
   url.searchParams.delete('room')
   window.location.assign(`${url.pathname}${url.search}`)
+}
+
+function roomDetail(room: AdminRoom): string {
+  if (room.game === 'sanguosha') {
+    const difficulty = room.difficulty === 'hard' ? '困难' : room.difficulty === 'easy' ? '简单' : '普通'
+    return `${room.capacity} 人 · ${difficulty} AI · ${room.turnSeconds ?? 30} 秒回合`
+  }
+  const mode = room.mode === 'endless' ? '无限局' : '定局'
+  return `${mode} · ${room.initialPoints ?? 30} 分 · ${(room.claimWindowMs ?? 4_000) / 1_000} 秒响应`
 }
 
 function formatTime(value: number) {
@@ -205,6 +230,8 @@ async function restoreSession() {
     await call('/api/admin/session', { method: 'POST' })
     authorized.value = true
     await loadUsers()
+    await loadRooms()
+    await loadSettings()
   } catch {
     token.value = ''
     sessionStorage.removeItem(SESSION_KEY)
@@ -227,21 +254,29 @@ void restoreSession()
         <button type="submit" :disabled="busy || !input.trim()">{{ busy ? '校验中…' : '进入' }}</button>
       </form>
       <p v-if="error" class="admin-error">{{ error }}</p>
-      <a href="#" @click.prevent="backToGame">返回游戏</a>
+      <a href="#" @click.prevent="backToPortal">返回 CRPlay</a>
     </section>
 
     <template v-else>
       <header class="admin-header">
-        <div><small>ADMIN</small><h1>服务器管理</h1></div>
+        <div><small>CRPLAY ADMIN</small><h1>双游戏服务器管理</h1></div>
         <div class="admin-actions">
           <button type="button" @click="lock">退出管理</button>
         </div>
       </header>
 
+      <section class="admin-overview" aria-label="服务概览">
+        <article><small>注册用户</small><strong>{{ users.length }}</strong></article>
+        <article><small>全部房间</small><strong>{{ roomStats.total }}</strong></article>
+        <article class="mahjong"><small>红中麻将</small><strong>{{ roomStats.mahjong }}</strong></article>
+        <article class="sanguosha"><small>三国杀</small><strong>{{ roomStats.sanguosha }}</strong></article>
+        <article><small>进行中</small><strong>{{ roomStats.playing }}</strong></article>
+      </section>
+
       <nav class="admin-tabs">
         <button type="button" :class="{ active: tab === 'users' }" @click="switchTab('users')">用户</button>
-        <button type="button" :class="{ active: tab === 'rooms' }" @click="switchTab('rooms')">房间</button>
-        <button type="button" :class="{ active: tab === 'settings' }" @click="switchTab('settings')">联机设置</button>
+        <button type="button" :class="{ active: tab === 'rooms' }" @click="switchTab('rooms')">双游戏房间</button>
+        <button type="button" :class="{ active: tab === 'settings' }" @click="switchTab('settings')">服务设置</button>
       </nav>
 
       <p v-if="error" class="admin-error">{{ error }}</p>
@@ -272,18 +307,24 @@ void restoreSession()
       <div v-else-if="tab === 'rooms'" class="admin-table-wrap">
         <div class="table-actions">
           <button type="button" :disabled="busy" @click="loadRooms">刷新</button>
+          <div class="game-filters" aria-label="按游戏筛选">
+            <button type="button" :class="{ active: roomGameFilter === 'all' }" @click="roomGameFilter = 'all'">全部 {{ roomStats.total }}</button>
+            <button type="button" :class="{ active: roomGameFilter === 'mahjong' }" @click="roomGameFilter = 'mahjong'">麻将 {{ roomStats.mahjong }}</button>
+            <button type="button" :class="{ active: roomGameFilter === 'sanguosha' }" @click="roomGameFilter = 'sanguosha'">三国杀 {{ roomStats.sanguosha }}</button>
+          </div>
           <span class="table-note">解散会把房间里的人直接踢出去，正在进行的牌局也会中断。</span>
         </div>
         <table class="admin-table">
           <thead>
-            <tr><th>游戏</th><th>房间号</th><th>状态</th><th>房主</th><th>座位</th><th>玩家</th><th>最后活动</th><th>操作</th></tr>
+            <tr><th>游戏</th><th>房间号</th><th>状态</th><th>房主</th><th>规则</th><th>座位</th><th>玩家</th><th>最后活动</th><th>操作</th></tr>
           </thead>
           <tbody>
-            <tr v-for="room in rooms" :key="`${room.game}-${room.code}`">
-              <td>{{ room.game === 'sanguosha' ? '三国杀' : '红中麻将' }}</td>
+            <tr v-for="room in filteredRooms" :key="`${room.game}-${room.code}`">
+              <td><span class="game-badge" :class="room.game">{{ room.game === 'sanguosha' ? '三国杀' : '红中麻将' }}</span></td>
               <td class="nickname">{{ room.code }}</td>
               <td><span class="phase" :class="room.phase">{{ room.phase === 'playing' ? '牌局中' : room.phase === 'finished' ? '已结束' : '等待开局' }}</span></td>
               <td>{{ room.hostNickname }}</td>
+              <td class="room-detail">{{ roomDetail(room) }}</td>
               <td>{{ room.occupiedSeats }}/{{ room.capacity }}</td>
               <td class="room-players">
                 <span v-for="player in room.players" :key="`${room.code}-${player.nickname}`" :class="{ ai: player.kind === 'ai' || player.trustee, offline: player.kind !== 'ai' && !player.connected }">
@@ -295,27 +336,27 @@ void restoreSession()
             </tr>
           </tbody>
         </table>
-        <p v-if="!rooms.length && !busy" class="admin-empty">当前没有任何房间。</p>
+        <p v-if="!filteredRooms.length && !busy" class="admin-empty">当前筛选下没有房间。</p>
       </div>
 
       <div v-else class="settings-wrap">
         <section class="settings-card" v-if="settings">
-          <h2>联机设置</h2>
+          <h2>双游戏联机设置</h2>
           <label class="setting-row">
-            <span><b>托管 AI 档位</b><small>玩家掉线后接管座位的 AI。玩家自己改不了，只能在这里调。</small></span>
+            <span><b>麻将托管 AI 档位</b><small>红中麻将玩家掉线后接管座位的 AI；三国杀沿用房间创建时选择的 AI 难度。</small></span>
             <select v-model="settings.trusteeDifficulty">
               <option v-for="(text, value) in DIFFICULTY_TEXT" :key="value" :value="value">{{ text }}</option>
             </select>
           </label>
           <label class="setting-row">
-            <span><b>维护模式</b><small>开启后停止创建新房间；已经在打的牌局和重连都不受影响。</small></span>
+            <span><b>全站维护模式</b><small>同时停止创建红中麻将和三国杀新房间；已有牌局与重连不受影响。</small></span>
             <input v-model="settings.maintenance" type="checkbox">
           </label>
           <label class="setting-row column">
             <span><b>维护提示文案</b><small>玩家点「创建房间」时看到的话。</small></span>
             <input v-model="settings.maintenanceMessage" maxlength="120" placeholder="服务器正在维护更新…">
           </label>
-          <p class="settings-note">房主开房时可以自己选空位 AI 的档位（默认凡人），这里只管托管和维护开关。设置只影响之后新建的房间。</p>
+          <p class="settings-note">两款游戏共用维护开关。麻将房主可另选空位 AI 档位；三国杀的玩家人数、AI 难度和回合时限由各房间创建时确定。</p>
           <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
         </section>
 
@@ -351,6 +392,12 @@ void restoreSession()
 .admin-header { width: min(1100px, 100%); margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
 .admin-header small { color: #8d7a4a; letter-spacing: .24em; font-size: 10px; }
 .admin-header h1 { margin: 4px 0 0; font-size: 22px; }
+.admin-overview { width: min(1100px, 100%); margin: 0 auto 14px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.admin-overview article { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid #2b453d; border-radius: 12px; background: #0d211c; }
+.admin-overview article.mahjong { border-color: #71443f; }
+.admin-overview article.sanguosha { border-color: #75613a; }
+.admin-overview small { color: #7f948d; font-size: 11px; }
+.admin-overview strong { color: #f2ecda; font-size: 22px; }
 .admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-actions button, .row-actions button { min-height: 40px; padding: 9px 14px; border: 1px solid #35524a; border-radius: 9px; background: #14302a; color: #e4dcc4; cursor: pointer; font-size: 13px; }
 .admin-actions button.danger, .row-actions button.danger { border-color: #9a4c45; color: #eba9a2; }
@@ -364,7 +411,13 @@ void restoreSession()
 .table-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b453d; }
 .table-actions button { min-height: 38px; padding: 8px 14px; border: 1px solid #35524a; border-radius: 9px; background: #14302a; color: #e4dcc4; cursor: pointer; font-size: 13px; }
 .table-actions button.danger { border-color: #9a4c45; color: #eba9a2; }
+.game-filters { display: flex; flex-wrap: wrap; gap: 5px; }
+.game-filters button { min-height: 34px; padding: 6px 10px; color: #8ca099; }
+.game-filters button.active { border-color: #c5a957; color: #f0d68a; background: #1b3a31; }
 .table-note { color: #7f948d; font-size: 12px; }
+.game-badge { display: inline-flex; padding: 3px 8px; border: 1px solid #35524a; border-radius: 99px; font-size: 11px; }
+.game-badge.mahjong { border-color: #8e4c46; color: #e8aaa4; }
+.game-badge.sanguosha { border-color: #9a7c3d; color: #f0d68a; }
 .phase { padding: 3px 8px; border-radius: 99px; font-size: 11px; border: 1px solid #35524a; color: #9db4ac; }
 .phase.playing { border-color: #b3944a; color: #f0d68a; }
 .room-players { display: flex; flex-wrap: wrap; gap: 5px; white-space: normal; }
@@ -372,6 +425,7 @@ void restoreSession()
 .room-players span.ai { color: #9db4ac; border-style: dashed; }
 .room-players span.offline { color: #c98f88; }
 .room-players i { margin-left: 4px; font-style: normal; font-size: 9px; color: #8ba49c; }
+.room-detail { color: #9fb0aa; font-size: 12px; }
 .settings-wrap { width: min(1100px, 100%); margin: auto; display: grid; gap: 14px; }
 .settings-card { padding: 18px; border: 1px solid #2b453d; border-radius: 14px; background: #0d211c; }
 .settings-card h2 { margin: 0 0 12px; font-size: 17px; }
@@ -400,6 +454,8 @@ void restoreSession()
 .admin-empty { padding: 20px; color: #718880; font-size: 13px; text-align: center; }
 @media (max-width: 620px) {
   .admin-page { padding: 16px 10px 40px; }
+  .admin-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-overview article:first-child { grid-column: span 2; }
   .admin-table { font-size: 12px; }
 }
 </style>

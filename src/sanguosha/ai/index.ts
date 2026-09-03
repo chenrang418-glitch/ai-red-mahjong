@@ -256,6 +256,22 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
       case '决斗':
         score = 10 + Math.max(...action.targetIds.map((targetId) => targetScore(context, targetId)), 0)
         break
+      case '火攻':
+        score = 11 + Math.max(...action.targetIds.map((targetId) => targetScore(context, targetId)), 0)
+        break
+      case '铁索连环':
+        if (action.id.startsWith('play:recast:')) {
+          score = 5
+        } else {
+          score = action.targetIds.reduce((sum, targetId) => {
+            const target = context.view.players.find((candidate) => candidate.id === targetId)
+            if (!target) return sum
+            const enemy = hostility(context.view, context.suspicion, targetId) > 0
+            // 敌人未横置、友军已横置才值得切换；反向操作应明确扣分。
+            return sum + (enemy === !target.chained ? 9 : -9)
+          }, 0)
+        }
+        break
       case '酒':
         // 手上没杀就别喝
         score = -50
@@ -625,7 +641,13 @@ function nullificationChoice(context: AIContext, actionIds: readonly string[]): 
   // 看**当前**这个目标，不是 targetIds[0]：多目标锦囊逐个结算，
   // 万箭齐发打到第三个人时按第一个人的敌我关系判断是错的
   const targetId = resolution.currentTargetId ?? resolution.targetIds[0]
-  return worthNullifying(context, targetId, resolution.sourceId) ? playable[0] : null
+  if (!worthNullifying(context, targetId, resolution.sourceId)) return null
+  // 看破可能把任意黑牌变成无懈；优先消耗低价值底牌，保留桃和防御牌。
+  return [...playable].sort((left, right) => {
+    const leftId = left.slice('respond-nullification:'.length)
+    const rightId = right.slice('respond-nullification:'.length)
+    return cardValue(cardName(context, leftId)) - cardValue(cardName(context, rightId))
+  })[0]
 }
 
 /** 这张锦囊落在某个目标身上时，值不值得我拦。 */

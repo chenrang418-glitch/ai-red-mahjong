@@ -161,6 +161,7 @@ describe('转化技不能产出无人消费的牌名', () => {
       杀: '出牌阶段动作',
       闪: 'dodgeViewAsOptions',
       桃: '濒死救援 rescueActionIds',
+      无懈可击: '即时锦囊与判定无懈响应链',
     }
     const DELAYED_TRICK_NAMES = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
@@ -174,6 +175,9 @@ describe('转化技不能产出无人消费的牌名', () => {
       // 手上凑齐红黑普通牌，以及闪和杀，覆盖已有的几种转化
       giveCardOfColor(game, 'p0', 'red', '杀')
       giveCardOfColor(game, 'p0', 'black', '过河拆桥')
+      // 庞统【连环】看的是梅花花色，不能只用“任意黑牌”代替这个前置条件。
+      const club = game.state.zones.drawPile.find((id) => game.state.cards[id].suit === 'club' && game.state.cards[id].name !== '铁索连环')
+      if (club) moveCard(game.state, club, { kind: 'drawPile' }, { kind: 'hand', playerId: 'p0' })
       for (const name of ['闪', '杀']) {
         const cardId = game.state.zones.drawPile.find((id) => game.state.cards[id].name === name)
         if (cardId) {

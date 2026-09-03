@@ -74,6 +74,33 @@ function useTrick(game: SanguoshaGame, cardName: string, targetIds: PlayerId[]):
 const FILLER = ['zhangfei', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei']
 
 describe('只问手上真有无懈的人', () => {
+  it('首轮跳过锦囊使用者自己的无懈，别人无懈后仍可反无懈', () => {
+    const game = gameWith(FILLER)
+    stripHands(game)
+    const own = giveNamed(game, 'p0', '无懈可击')
+    const other = giveNamed(game, 'p2', '无懈可击')
+
+    useTrick(game, '无中生有', ['p0'])
+    expect(pending(game)?.playerId, '不能先问使用者要不要无懈自己的锦囊').toBe('p2')
+    game.respond({ requestId: pending(game)!.id, playerId: 'p2', payload: { actionId: `respond-nullification:${other}` } })
+
+    expect(pending(game)?.playerId, '别人无懈后，使用者应能用反无懈保护原锦囊').toBe('p0')
+    expect(pending(game)?.actionIds).toContain(`respond-nullification:${own}`)
+    assertGameInvariants(game.state)
+  })
+
+  it('只有使用者自己持有无懈时直接结算，不弹多余询问', () => {
+    const game = gameWith(FILLER)
+    stripHands(game)
+    giveNamed(game, 'p0', '无懈可击')
+
+    useTrick(game, '无中生有', ['p0'])
+
+    expect(pending(game)).toBeUndefined()
+    expect(game.state.cardResolution).toBeNull()
+    assertGameInvariants(game.state)
+  })
+
   it('全场都没有无懈时，锦囊一路结算完，不发任何询问', () => {
     const game = gameWith(FILLER)
     stripHands(game)

@@ -378,7 +378,7 @@ async function adminRooms(env: Env): Promise<Response> {
     })
 
   const sanguoshaResult = await env.DB.prepare(`
-    SELECT code, phase, host_nickname, players_json, occupied_seats, player_count, updated_at
+    SELECT code, phase, host_nickname, players_json, occupied_seats, player_count, settings_json, updated_at
     FROM sanguosha_room_directory
     ORDER BY updated_at DESC
   `).all<{
@@ -388,14 +388,17 @@ async function adminRooms(env: Env): Promise<Response> {
     players_json: string
     occupied_seats: number
     player_count: number
+    settings_json: string
     updated_at: number
   }>()
   const sanguoshaRooms = sanguoshaResult.results.map((row) => {
     let players: unknown[] = []
+    let settings = normalizeSgsSettings({ playerCount: row.player_count })
     try {
       const parsed = JSON.parse(row.players_json)
       if (Array.isArray(parsed)) players = parsed
     } catch { players = [] }
+    try { settings = normalizeSgsSettings(JSON.parse(row.settings_json) as Partial<SgsRoomSettings>) } catch { /* 旧目录记录按人数兜底 */ }
     return {
       game: 'sanguosha' as const,
       code: row.code,
@@ -404,6 +407,8 @@ async function adminRooms(env: Env): Promise<Response> {
       players,
       occupiedSeats: row.occupied_seats,
       capacity: row.player_count,
+      difficulty: settings.difficulty,
+      turnSeconds: settings.turnSeconds,
       updatedAt: row.updated_at,
     }
   })
