@@ -16,6 +16,13 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4183',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
+    // 全站门槛：没接受过「项目说明」就会先看到首次访问弹窗，挡住所有既有用例
+    // 想直接断言的页面内容。这里统一预置成「已接受」，让旧用例不用逐个改。
+    // project-notice.spec.ts 自己测门槛本身，会用 test.use() 把这项覆盖回空状态。
+    storageState: {
+      cookies: [],
+      origins: [{ origin: 'http://127.0.0.1:4183', localStorage: [{ name: 'crplay_project_notice_v1', value: 'accepted' }] }],
+    },
   },
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4183',

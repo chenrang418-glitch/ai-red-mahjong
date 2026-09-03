@@ -5,6 +5,7 @@ import { gameManifest, playableGames, type GameDefinition } from '@/portal/gameM
 import { buildGameUrl, buildPortalUrl, isAdminRoute, resolveAppRoute } from '@/portal/navigation'
 import { LatestGameLoader } from '@/portal/gameLoader'
 import { useServiceStatus } from '@/composables/useServiceStatus'
+import ProjectNoticeGate from '@/components/ProjectNotice/ProjectNoticeGate.vue'
 import type { Component } from 'vue'
 
 const route = ref(resolveAppRoute(new URL(window.location.href)))
@@ -125,44 +126,51 @@ onErrorCaptured((cause) => {
 
 <template>
   <!--
-    全站停服：整屏只剩管理员那段红字，没有任何进入游戏的入口。
-    这和「维护中不能开新房」是两回事，后者只灰掉一个按钮。
+    全站首次访问门槛必须包在最外层、其它一切之前：门户、麻将、三国杀
+    的自动建房/加房逻辑都在下面这棵树里，用户点「我知道了」之前
+    这棵树根本不会挂载，也就不存在「弹窗还没关就已经在联机了」。
   -->
-  <main v-if="siteClosed" class="site-closed" role="alert">
-    <section>
-      <span class="site-closed__brand">CR</span>
-      <h1>网站维护中</h1>
-      <p>{{ service.status.value.siteClosedMessage || '全站正在维护升级，暂时无法访问，请稍后再来。' }}</p>
-      <small>维护结束后刷新页面即可继续游戏。</small>
-    </section>
-  </main>
+  <ProjectNoticeGate>
+    <!--
+      全站停服：整屏只剩管理员那段红字，没有任何进入游戏的入口。
+      这和「维护中不能开新房」是两回事，后者只灰掉一个按钮。
+    -->
+    <main v-if="siteClosed" class="site-closed" role="alert">
+      <section>
+        <span class="site-closed__brand">CR</span>
+        <h1>网站维护中</h1>
+        <p>{{ service.status.value.siteClosedMessage || '全站正在维护升级，暂时无法访问，请稍后再来。' }}</p>
+        <small>维护结束后刷新页面即可继续游戏。</small>
+      </section>
+    </main>
 
-  <template v-else>
-    <!-- 常驻公告：门户和两款游戏共用这一条，永远在最上方 -->
-    <div v-if="notice" ref="noticeEl" class="admin-notice" role="status">
-      <span class="admin-notice__tag">公告</span>
-      <span>{{ notice }}</span>
-    </div>
-
-    <GamePortal v-if="route.kind === 'portal'" :games="gameManifest" @select="openGame" />
-
-    <main v-else-if="loading" class="root-loading" aria-live="polite">
-    <span>CR</span>
-    <p>正在载入{{ activeGame?.name }}…</p>
-  </main>
-
-    <main v-else-if="fatalRuntimeError || loadError || !activeComponent" class="root-error">
-    <section role="alert">
-      <span>CR</span>
-      <h1>游戏发生异常</h1>
-      <p>{{ fatalRuntimeError || loadError || '未找到这个游戏。' }}</p>
-      <div>
-        <button type="button" @click="retryLoad">重新加载</button>
-        <button type="button" @click="returnToPortal">返回游戏中心</button>
+    <template v-else>
+      <!-- 常驻公告：门户和两款游戏共用这一条，永远在最上方 -->
+      <div v-if="notice" ref="noticeEl" class="admin-notice" role="status">
+        <span class="admin-notice__tag">公告</span>
+        <span>{{ notice }}</span>
       </div>
-    </section>
-  </main>
 
-    <component :is="activeComponent" v-else @back-to-portal="returnToPortal" />
-  </template>
+      <GamePortal v-if="route.kind === 'portal'" :games="gameManifest" @select="openGame" />
+
+      <main v-else-if="loading" class="root-loading" aria-live="polite">
+        <span>CR</span>
+        <p>正在载入{{ activeGame?.name }}…</p>
+      </main>
+
+      <main v-else-if="fatalRuntimeError || loadError || !activeComponent" class="root-error">
+        <section role="alert">
+          <span>CR</span>
+          <h1>游戏发生异常</h1>
+          <p>{{ fatalRuntimeError || loadError || '未找到这个游戏。' }}</p>
+          <div>
+            <button type="button" @click="retryLoad">重新加载</button>
+            <button type="button" @click="returnToPortal">返回游戏中心</button>
+          </div>
+        </section>
+      </main>
+
+      <component :is="activeComponent" v-else @back-to-portal="returnToPortal" />
+    </template>
+  </ProjectNoticeGate>
 </template>

@@ -22,6 +22,9 @@ export interface ServiceStatus {
   siteClosedMessage: string
   /** 常驻公告。空字符串表示不显示横幅——**不要给它兜底默认值**。 */
   notice: string
+  /** 「联系开发者」弹窗用的联系方式，管理员在后台填。空串时调用方自己兜底。 */
+  contactMethod: string
+  contactValue: string
 }
 
 const EMPTY: ServiceStatus = {
@@ -30,6 +33,8 @@ const EMPTY: ServiceStatus = {
   siteClosed: false,
   siteClosedMessage: '',
   notice: '',
+  contactMethod: '',
+  contactValue: '',
 }
 
 /** 多久重新拉一次。管理员改了设置之后，已经打开着页面的人也要跟上。 */
@@ -58,6 +63,8 @@ function normalize(input: Partial<ServiceStatus>): ServiceStatus {
     siteClosed: input.siteClosed === true,
     siteClosedMessage: typeof input.siteClosedMessage === 'string' ? input.siteClosedMessage : '',
     notice: typeof input.notice === 'string' ? input.notice : '',
+    contactMethod: typeof input.contactMethod === 'string' ? input.contactMethod : '',
+    contactValue: typeof input.contactValue === 'string' ? input.contactValue : '',
   }
 }
 

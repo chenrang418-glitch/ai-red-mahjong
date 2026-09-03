@@ -44,6 +44,9 @@ interface ServerSettings {
   siteClosed: boolean
   siteClosedMessage: string
   notice: string
+  /** 「联系开发者」弹窗的联系方式，拆成方式（QQ/微信……）和号码两个字段。 */
+  contactMethod: string
+  contactValue: string
 }
 
 interface AuditEntry {
@@ -409,6 +412,26 @@ void restoreSession()
             <span>{{ settings.notice.trim() }}</span>
           </div>
           <p class="settings-note">公告和上面两个开关互不影响，可以只挂公告不停服，用来提前打招呼。</p>
+          <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
+        </section>
+
+        <section class="settings-card" v-if="settings">
+          <h2>联系开发者</h2>
+          <p class="settings-note">
+            游戏中心 Footer「联系开发者」弹窗展示的号码，不写死在前端代码里，这里改完立刻生效。
+          </p>
+          <label class="setting-row">
+            <span><b>联系方式</b><small>号码前面的标签，例如「QQ」「微信」。</small></span>
+            <input v-model="settings.contactMethod" maxlength="20" placeholder="QQ">
+          </label>
+          <label class="setting-row">
+            <span><b>号码</b><small>点「复制号码」时复制的就是这一串。</small></span>
+            <input v-model="settings.contactValue" maxlength="60" placeholder="1507394636">
+          </label>
+          <div class="notice-preview" v-if="settings.contactMethod.trim() && settings.contactValue.trim()">
+            <span class="notice-preview__tag">预览</span>
+            <span>{{ settings.contactMethod.trim() }}：{{ settings.contactValue.trim() }}</span>
+          </div>
           <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
         </section>
 

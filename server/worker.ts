@@ -66,6 +66,14 @@ export interface ServerSettings {
   siteClosed: boolean
   siteClosedMessage: string
   notice: string
+  /**
+   * 「联系开发者」弹窗展示的联系方式，管理员在后台填，不写死在前端代码里。
+   * 拆成「方式」（QQ / 微信 / 邮箱……这类标签）和「号码」两个字段，
+   * 而不是一整条自由文本——「复制」按钮只该复制号码本身，
+   * 不能把「QQ：」这个标签也一起复制进用户的粘贴板。
+   */
+  contactMethod: string
+  contactValue: string
 }
 
 const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -75,6 +83,8 @@ const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   siteClosed: false,
   siteClosedMessage: '全站正在维护升级，暂时无法访问，请稍后再来。',
   notice: '',
+  contactMethod: 'QQ',
+  contactValue: '1507394636',
 }
 
 /** 公告和提示语都是纯文本，长度设上限，避免管理端塞一整篇进来把界面撑坏。 */
@@ -86,6 +96,8 @@ function sanitizeServerSettings(input: Partial<ServerSettings>): ServerSettings 
   const difficulties = ['beginner', 'standard', 'expert']
   const message = sanitizeText(input.maintenanceMessage, 120)
   const closedMessage = sanitizeText(input.siteClosedMessage, 200)
+  const contactMethod = sanitizeText(input.contactMethod, 20)
+  const contactValue = sanitizeText(input.contactValue, 60)
   return {
     trusteeDifficulty: difficulties.includes(String(input.trusteeDifficulty))
       ? input.trusteeDifficulty as ServerSettings['trusteeDifficulty']
@@ -96,6 +108,9 @@ function sanitizeServerSettings(input: Partial<ServerSettings>): ServerSettings 
     siteClosedMessage: closedMessage || DEFAULT_SERVER_SETTINGS.siteClosedMessage,
     // 公告允许为空：空就是「不显示横幅」，不能像提示语那样回退到默认值
     notice: sanitizeText(input.notice, 200),
+    // 两个都不允许清空：清空会让「联系开发者」弹窗显示不完整
+    contactMethod: contactMethod || DEFAULT_SERVER_SETTINGS.contactMethod,
+    contactValue: contactValue || DEFAULT_SERVER_SETTINGS.contactValue,
   }
 }
 
@@ -705,6 +720,8 @@ async function route(request: Request, env: Env): Promise<Response> {
       siteClosed: server.siteClosed,
       siteClosedMessage: server.siteClosedMessage,
       notice: server.notice,
+      contactMethod: server.contactMethod,
+      contactValue: server.contactValue,
     })
   }
 
