@@ -1,5 +1,6 @@
 import type { GameEventName } from './events'
 import type { SanguoshaState, TurnPhase } from './types'
+import { clearTurnSlashRules } from './slash-rules'
 
 export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'play', 'discard', 'finish']
 
@@ -88,5 +89,7 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
   // 那样散着写漏过一个（青囊），「限一次」直接变成了「一局一次」。
   // 清全场而不只是当前回合角色：回合外也能发动的技能同样按回合计数。
   for (const player of state.players) player.turnUsedSkills = []
+  // 本回合的临时杀规则（太史慈【天义】）同样在这里统一抹掉，技能不各自注册清理
+  clearTurnSlashRules(state)
   beginTurn(state, emit)
 }

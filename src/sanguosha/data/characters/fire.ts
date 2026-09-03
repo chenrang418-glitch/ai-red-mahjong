@@ -209,6 +209,8 @@ registerJudgmentContinuation(SHUANGXIONG_TAG, (host, judged, data) => {
 
 // 荀彧要用公共拼点，单独一个文件
 import { XUNYU } from './fire-xunyu'
+// 太史慈同样是拼点消费者
+import { TAISHICI } from './fire-taishici'
 
 export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
   {
@@ -251,4 +253,5 @@ export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
     }],
   },
   XUNYU,
+  TAISHICI,
 ] as const

@@ -11,6 +11,7 @@ import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
+import { canUseSlash, slashRules, slashTargetLimit } from '../slash-rules'
 import { PASS_ROUND_ACTION } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
@@ -85,9 +86,14 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   for (const cardId of source.zones.hand) {
     const card = state.cards[cardId]
     if (!card) continue
-    if (card.name === '杀' && (state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId))) {
-      for (const target of state.players) {
-        if (canTarget(state, playerId, target.id) && !isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) actions.push(useAction(cardId, playerId, '杀', [target.id], `对${target.nickname}使用【杀】`))
+    if (card.name === '杀' && canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) {
+      for (const combo of slashTargetCombos(state, playerId)) {
+        const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
+        actions.push({
+          ...useAction(cardId, playerId, '杀', combo, `对${names}使用【杀】`),
+          // 多目标那条要有自己的 id，否则和单目标那条撞在一起
+          id: combo.length > 1 ? `play:${cardId}:${combo.join(',')}` : `play:${cardId}:${combo[0]}`,
+        })
       }
     } else if (card.name === '桃' && source.hp < source.maxHp) {
       actions.push(useAction(cardId, playerId, '桃', [playerId], '使用【桃】回复体力'))
@@ -131,12 +137,14 @@ export function declaredCardActions(
 ): LegalAction[] {
   const actions: LegalAction[] = []
   if (asCardName === '杀') {
-    if (state.turnUsage.slashUses >= 1 && !hasUnlimitedSlash(state, playerId)) return actions
-    for (const target of state.players) {
-      if (!canTarget(state, playerId, target.id) || isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) continue
+    // 转化出来的杀同样受本回合的临时规则约束：天义失败时武圣、龙胆、蛊惑
+    // 一律用不出杀，不能只把手牌那条藏起来
+    if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) return actions
+    for (const combo of slashTargetCombos(state, playerId)) {
+      const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
       actions.push({
-        ...useAction(cardId, playerId, '杀', [target.id], `${label}，目标${target.nickname}`),
-        id: `play:viewas:${cardId}:${target.id}`,
+        ...useAction(cardId, playerId, '杀', combo, `${label}，目标${names}`),
+        id: `play:viewas:${cardId}:${combo.join(',')}`,
       })
     }
     return actions
@@ -177,6 +185,38 @@ export function declaredCardActions(
     actions.push(useAction(cardId, playerId, '酒', [playerId], `${label}，强化下一张杀`))
   }
   return actions
+}
+
+/**
+ * 这张【杀】可以指定哪些目标组合。
+ *
+ * 正常是每个合法目标一条单目标动作；本回合有「多指定 N 个目标」时
+ * （太史慈【天义】）再补上多目标的组合。逐目标的规则（藤甲、流离、无双、
+ * 铁骑、烈弓）仍然由 SlashResolution 一个个走，这里只负责列出组合。
+ *
+ * 只生成到 `slashTargetLimit` 为止，且**不做全排列**：多目标是少数情况，
+ * 组合数按人数是 C(n,2)，5~8 人局最多二十来条，够用又不会把动作表撑爆。
+ */
+function slashTargetCombos(state: SanguoshaState, playerId: PlayerId): PlayerId[][] {
+  const rules = slashRules(state, playerId)
+  const legal = state.players
+    .filter((target) => {
+      if (isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) return false
+      // 无距离限制时只剩「不是自己、还活着」两条
+      if (rules.ignoreDistance) return target.alive && target.id !== playerId
+      return canTarget(state, playerId, target.id)
+    })
+    .map((target) => target.id)
+
+  const combos: PlayerId[][] = legal.map((id) => [id])
+  const limit = slashTargetLimit(state, playerId)
+  if (limit < 2) return combos
+  for (let first = 0; first < legal.length; first += 1) {
+    for (let second = first + 1; second < legal.length; second += 1) {
+      combos.push([legal[first], legal[second]])
+    }
+  }
+  return combos
 }
 
 function recordPlayDecision(host: CardEngineHost, playerId: PlayerId, actionId: string): void {
@@ -316,7 +356,17 @@ function applyUndodgeableSkills(host: CardEngineHost, sourceId: PlayerId, target
 function continueSlash(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return
-  const next = resolution.remainingTargetIds.shift()
+  /*
+   * 跳过已经不在场的目标。
+   *
+   * 多目标【杀】（太史慈【天义】）里，前一个目标的结算完全可能顺带带走后一个
+   * ——他死于反馈、刚烈，或者死在濒死流程里。不跳过的话下一轮会对着死人
+   * 走结算，最后在 resolveDamage 抛「不能对死亡角色造成伤害」。
+   */
+  let next = resolution.remainingTargetIds.shift()
+  while (next !== undefined && !host.state.players.find((candidate) => candidate.id === next)?.alive) {
+    next = resolution.remainingTargetIds.shift()
+  }
   if (next === undefined) {
     finishSlash(host, resolution)
     host.state.cardResolution = null
@@ -953,7 +1003,7 @@ provideSkillLookup(skillIdsOf, canTarget)
 
 // 装备的主动效果要按出杀次数和距离筛目标，这些计算在这里，运行时回注
 provideSlashLookup(
-  (state: SanguoshaState, playerId: PlayerId) => state.turnUsage.slashUses < 1 || hasUnlimitedSlash(state, playerId),
+  (state: SanguoshaState, playerId: PlayerId) => canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId)),
   (state: SanguoshaState, playerId: PlayerId) => state.players
     .filter((target) => canTarget(state, playerId, target.id) && !isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf))
     .map((target) => target.id),

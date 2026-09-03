@@ -126,6 +126,20 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
       return bestTarget > 0 ? 12 : -20
     case 'lijian':
       return bestTarget > 0 ? 14 : -20
+    case 'tianyi': {
+      /*
+       * 赢了才有收益，输了本回合彻底不能出杀——所以**手上完全没有杀就别赌**：
+       * 赢了也用不出来，输了还白挨一个禁令。
+       */
+      const me3 = myself(context.view)
+      const slashes = (me3.hand ?? []).filter((card) => card.name === '杀').length
+      if (slashes === 0) return -100
+      const enemies3 = context.view.players.filter((player) => player.alive && player.id !== me3.id
+        && hostility(context.view, context.suspicion, player.id) > 0)
+      if (enemies3.length === 0) return -100
+      // 手上杀越多、值得打的敌人越多，多目标和多一次出杀就越值钱
+      return 10 + Math.min(slashes, 2) * 3 + Math.min(enemies3.length, 2) * 2
+    }
     case 'quhu': {
       /*
        * 借敌人之手打敌人：赢了对方替我出刀，输了自己挨一刀但能触发节命。
@@ -304,6 +318,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.prompt.includes('攻击范围内的一名角色')) {
         const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
         return { ...base, payload: { targetIds: ranked.slice(0, Math.max(request.min, 1)) } }
+      }
+      // 【天义】选拼点对手：手牌越少越可能拼赢，绝不挑自己人
+      if (request.prompt.includes('【天义】')) {
+        const ranked = [...request.candidateIds].sort((left, right) => tianyiTargetScore(context, right) - tianyiTargetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
       // 选拼点对手：优先敌人，而且优先手牌少的（拼点更可能赢）。
       // **不交空**：要不要发动已经在 skillActionScore 里判过了，这里再放弃会让
@@ -737,6 +756,20 @@ function quhuTargetScore(context: AIContext, targetId: PlayerId): number {
   const attitude = hostility(context.view, context.suspicion, targetId)
   if (attitude <= 0) return -100 + attitude
   return 20 + attitude * 4 - target.handCount * 3 + target.attackRange * 2
+}
+
+/**
+ * 【天义】该找谁拼点。
+ *
+ * 拼点比的是点数，手牌越少能翻出大牌的机会越小，所以优先手牌少的；
+ * 自己人一律负分——拿友军拼点没有任何收益，输了还禁自己一回合的杀。
+ */
+function tianyiTargetScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  if (attitude <= 0) return -100 + attitude
+  return 20 + attitude * 3 - target.handCount * 4
 }
 
 /**
