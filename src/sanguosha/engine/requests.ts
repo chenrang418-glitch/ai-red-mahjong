@@ -24,7 +24,7 @@ export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   hiddenCardSlots: string[]
   min: number
   max: number
-  purpose?: 'discard-phase' | 'card-effect' | 'skill' | 'retrial'
+  purpose?: 'discard-phase' | 'card-effect' | 'skill' | 'retrial' | 'pindian'
   /**
    * 改判专用：当前判定牌的公开信息。
    *

@@ -9,6 +9,7 @@ import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAc
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
+import { isPindianRequest, resolvePindianResponse } from './pindian'
 import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
 import { RENNAI_ACTION, RENNAI_SKILL, armRennai } from './rennai'
 import { markUsedThisTurn } from './turn-usage'
@@ -99,6 +100,7 @@ export class SanguoshaGame {
       retrial: null,
       privateZones: [],
       groupDecision: null,
+      pindian: null,
       guhuoResponse: null,
       mamaBonds: {},
       judgedDelayedCards: [],
@@ -263,6 +265,14 @@ export class SanguoshaGame {
         throw new Error('当前请求不能用蛊惑打出')
       }
       beginGuhuoRespond(this, request as unknown as GameRequest)
+      return
+    }
+
+    // 拼点选牌：两边各有一个请求，都交完才揭示
+    if (isPindianRequest(this.state, request.id)) {
+      const validationError = validateResponse(request, response)
+      if (validationError) throw new Error(validationError)
+      resolvePindianResponse(this, request.id, response)
       return
     }
 
@@ -479,6 +489,7 @@ export class SanguoshaGame {
     mutable.state.judgedDelayedCards ??= []
     mutable.state.privateZones ??= []
     mutable.state.groupDecision ??= null
+    mutable.state.pindian ??= null
     mutable.state.guhuoResponse ??= null
     mutable.state.mamaBonds ??= {}
     // 部署前已经持久化的进行中牌局没有多响应计数；按旧规则的一张响应恢复，不能让升级把房间卡成 NaN。

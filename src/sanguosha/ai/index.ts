@@ -246,6 +246,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
+      // 拼点：统一走公共选牌，技能通过 intent 表达想赢还是想输
+      if (request.purpose === 'pindian') {
+        return { ...base, payload: { cardIds: [choosePindianCard(context, request.cardIds, 'win')] } }
+      }
       // 【杠杆】还债：能用低价值牌抵掉就别硬扛体力
       if (request.prompt.startsWith('【杠杆】：还欠')) {
         return { ...base, payload: { cardIds: repayGanggan(context, request.cardIds, request.max) } }
@@ -681,6 +685,32 @@ function shouldGuhuoRespond(context: AIContext, requiredCardName: string): boole
   if (requiredCardName === '闪') return me.hp <= 2 || context.rng.nextInt(2) === 0
   // 无懈这类不救命的，手牌宽裕时才诈
   return (me.hand?.length ?? 0) >= 3 && context.rng.nextInt(3) === 0
+}
+
+/**
+ * 拼点该出哪张牌。
+ *
+ * **公共的**：拼点的技能都调这一个，不要每个武将各写一套。`intent` 表达
+ * 这次是想赢还是想故意输——目前所有消费者都想赢，但接口先留出来，
+ * 免得将来有「输了才有收益」的技能时又去复制一份。
+ */
+export function choosePindianCard(
+  context: AIContext,
+  cardIds: readonly string[],
+  intent: 'win' | 'lose' = 'win',
+): string {
+  const ranked = [...cardIds].sort((left, right) => {
+    const leftCard = context.view.players.find((player) => player.id === context.view.viewerId)?.hand
+      ?.find((card) => card.id === left)
+    const rightCard = context.view.players.find((player) => player.id === context.view.viewerId)?.hand
+      ?.find((card) => card.id === right)
+    const leftRank = leftCard?.rank ?? 0
+    const rightRank = rightCard?.rank ?? 0
+    // 想赢就出大的，想输就出小的；同点数时先出不值钱的
+    if (leftRank !== rightRank) return intent === 'win' ? rightRank - leftRank : leftRank - rightRank
+    return cardValue(leftCard?.name ?? '') - cardValue(rightCard?.name ?? '')
+  })
+  return ranked[0] ?? cardIds[0]
 }
 
 /**

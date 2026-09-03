@@ -67,6 +67,22 @@ export function assertGameInvariants(state: SanguoshaState): void {
       throw new Error(`私有牌区的主人不存在：${zone.id}`)
     }
   }
+  const pindian = state.pindian
+  if (pindian && pindian.stage === 'selecting') {
+    // 还没交牌的那一方必须挂着请求；已经交了的那张必须在他自己的私有区里
+    for (const [playerId, cardId] of [[pindian.initiatorId, pindian.initiatorCardId], [pindian.opponentId, pindian.opponentCardId]] as const) {
+      const zone = (state.privateZones ?? []).find((candidate) => candidate.id === `pindian:${pindian.id}:${playerId}`)
+      if (cardId) {
+        if (!zone?.cards.includes(cardId)) throw new Error(`拼点已选的牌不在私有区：${playerId}`)
+        if (zone.ownerId !== playerId) throw new Error(`拼点私有区的主人不对：${playerId}`)
+      } else {
+        const requestId = pindian.requestIds[playerId]
+        if (!state.pendingRequests.some((request) => request.id === requestId && request.kind === 'choose-cards')) {
+          throw new Error(`拼点缺少对应的选牌 Request：${playerId}`)
+        }
+      }
+    }
+  }
   const decision = state.groupDecision
   if (decision) {
     // 已经收齐还挂着，说明续接没跑；参与者不存在说明状态是脏的
@@ -98,10 +114,10 @@ export function assertGameInvariants(state: SanguoshaState): void {
     /*
      * 结算被**合法地停住**的几种情况，这时候它身上没有请求是正常的：
      * 判定进行中（八卦阵、铁骑）、改判窗口开着（鬼才、鬼道）、
-     * 或者正在收多人决定（于吉【蛊惑】的质疑）。
+     * 正在收多人决定（于吉【蛊惑】的质疑），或者正在拼点。
      * 不排除这几种，「八卦阵判定 + 有人能改判」就会误报成坏状态。
      */
-    const parked = Boolean(state.judgment || state.retrial || state.groupDecision)
+    const parked = Boolean(state.judgment || state.retrial || state.groupDecision || state.pindian)
     // 「成为目标时」那一步挂的是技能 Request，不是求闪 Request
     if (parked) {
       // 停住期间不检查请求，等结算继续时再查

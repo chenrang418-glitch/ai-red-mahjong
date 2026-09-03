@@ -173,6 +173,28 @@ export interface GuhuoResponseState {
   request: unknown
 }
 
+/**
+ * 进行中的拼点；同一时刻最多一次。
+ *
+ * 双方暗选的牌不在这里存明文——牌本身移进各自的私有区，这里只记 cardId，
+ * 而私有区在 `buildPlayerView` 里只发给它的主人。
+ */
+export interface PindianState {
+  id: string
+  initiatorId: PlayerId
+  opponentId: PlayerId
+  initiatorCardId: CardId | null
+  opponentCardId: CardId | null
+  /** 发起技能的 id，用于战报。 */
+  reason: string
+  /** 结束后交给哪个技能续接。 */
+  continuationTag: string
+  /** 技能自带的上下文，原样还给续接。 */
+  data: Record<string, unknown>
+  requestIds: Record<PlayerId, string>
+  stage: 'selecting' | 'revealing'
+}
+
 export interface GameResult {
   winningCamp: 'lord' | 'rebel' | 'renegade'
   winnerIds: PlayerId[]
@@ -459,6 +481,8 @@ export interface SanguoshaState {
   privateZones: PrivateCardZone[]
   /** 进行中的多人同时决定；同一时刻最多一个。 */
   groupDecision: GroupDecisionState | null
+  /** 进行中的拼点；同一时刻最多一次。 */
+  pindian: PindianState | null
   /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
   guhuoResponse: GuhuoResponseState | null
   /**
