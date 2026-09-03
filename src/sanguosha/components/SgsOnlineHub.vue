@@ -5,9 +5,19 @@ import SgsTable from './SgsTable.vue'
 import SgsChatDock from './SgsChatDock.vue'
 import SgsResultDialog from './SgsResultDialog.vue'
 import { useOnlineSanguosha } from '../composables/useOnlineSanguosha'
+import { useServiceStatus } from '@/composables/useServiceStatus'
 import { DEFAULT_SGS_ROOM_SETTINGS } from '../online/protocol'
 
 defineEmits<{ back: [] }>()
+
+/*
+ * 维护态。以前三国杀这边**完全没接**：维护期间「创建房间」照样是亮的，
+ * 点下去才收到服务端 503 弹一个红字，和麻将那边直接灰成「维护中」不一致。
+ * 现在两边读的是同一份 useServiceStatus。
+ */
+const service = useServiceStatus()
+const maintenance = computed(() => service.status.value.maintenance)
+const maintenanceMessage = computed(() => service.status.value.maintenanceMessage)
 
 const online = useOnlineSanguosha()
 const nickname = ref(online.lastNickname.value)
@@ -44,7 +54,10 @@ const bubbleTexts = computed(() => Object.fromEntries(
   Object.entries(online.chatBubbles.value).map(([playerId, bubble]) => [playerId, bubble.text]),
 ))
 
-onMounted(() => { void online.restoreSession() })
+onMounted(() => {
+  service.start()
+  void online.restoreSession()
+})
 
 const shareState = ref<'idle' | 'copied' | 'manual'>('idle')
 const shareLink = computed(() => {
@@ -88,6 +101,7 @@ async function shareRoom(): Promise<void> {
 }
 
 onBeforeUnmount(() => {
+  service.stop()
   if (shareResetTimer !== null) window.clearTimeout(shareResetTimer)
 })
 </script>
@@ -141,7 +155,14 @@ onBeforeUnmount(() => {
         <label><span>人数</span><select v-model.number="settings.playerCount"><option v-for="count in [5, 6, 7, 8]" :key="count" :value="count">{{ count }} 人</option></select></label>
         <label><span>AI 难度</span><select v-model="settings.difficulty"><option value="easy">简单</option><option value="normal">标准</option><option value="hard">困难</option></select></label>
         <label><span>操作时间</span><select v-model.number="settings.turnSeconds"><option :value="15">15 秒</option><option :value="30">30 秒</option><option :value="60">60 秒</option></select></label>
-        <button type="button" class="primary" :disabled="online.busy.value" @click="online.createRoom(settings)">创建房间</button>
+        <button
+          type="button"
+          class="primary"
+          :class="{ 'is-maintenance': maintenance }"
+          :disabled="online.busy.value || maintenance"
+          @click="online.createRoom(settings)"
+        >{{ maintenance ? '维护中' : '创建房间' }}</button>
+        <p v-if="maintenance" class="sgs-online__maintenance">{{ maintenanceMessage }}</p>
       </section>
 
       <section class="sgs-online__panel sgs-online__join">
@@ -238,7 +259,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.sgs-online { height: 100dvh; overflow: hidden; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(300px, 1.2fr); grid-template-rows: auto auto 1fr 1fr; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 70% 10%, rgba(207, 164, 86, .22), transparent 44%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
+.sgs-online__maintenance { margin: 6px 0 0; color: #ff9d94; font-size: 12px; line-height: 1.6; }
+/* 维护中的按钮要一眼看出来是「不能点」，不是「按钮坏了」——和麻将大厅同一套观感 */
+.primary.is-maintenance { border-color: #4a3f3d; background: linear-gradient(180deg, #2a201f, #1b1413); color: #b58e8a; }
+.sgs-online { height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(300px, 1.2fr); grid-template-rows: auto auto 1fr 1fr; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 70% 10%, rgba(207, 164, 86, .22), transparent 44%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .sgs-online__bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 .sgs-online__bar > button { width: 38px; height: 38px; border: 1px solid #465049; border-radius: 9px; background: #15201a; color: #eee2ca; font-size: 22px; }
 .sgs-online__bar div { display: grid; }.sgs-online__bar small { color: #89968e; }.sgs-online__bar > span { margin-left: auto; color: #8f8278; font-size: 12px; white-space: nowrap; }.sgs-online__bar > span.live { color: #79b68d; }

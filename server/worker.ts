@@ -44,29 +44,58 @@ interface SessionRecord extends RoomUser {
 const SESSION_COOKIE = 'mahjong_session'
 
 
-// 全局设置：托管 AI 档位、维护模式开关和提示文案。
-// 放在 LOBBY 这个单例 Durable Object 里——建房时要读它，D1 每次都走网络太慢。
+/**
+ * 全局设置：托管 AI 档位、两级维护开关和公告文案。
+ * 放在 LOBBY 这个单例 Durable Object 里——建房时要读它，D1 每次都走网络太慢。
+ *
+ * **两级维护是两件事，不要合并：**
+ *
+ * - `maintenance`（轻）：只拦「开新房」。正在打的牌局和重连不受影响，
+ *   中途被掐断太难受了。两款游戏共用这一个开关。
+ * - `siteClosed`（重）：整站停服。玩家打开网址只看到一段红色提示，
+ *   所有玩家接口一律 503。**管理接口和 /api/service 必须继续放行**，
+ *   否则开关一开就再也关不掉了。
+ *
+ * `notice` 是常驻公告，和上面两个开关**互不依赖**：非空就一直显示在
+ * 游戏中心和两款游戏的顶部，用来提前预告维护时间之类。
+ */
 export interface ServerSettings {
   trusteeDifficulty: 'beginner' | 'standard' | 'expert'
   maintenance: boolean
   maintenanceMessage: string
+  siteClosed: boolean
+  siteClosedMessage: string
+  notice: string
 }
 
 const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   trusteeDifficulty: 'beginner',
   maintenance: false,
   maintenanceMessage: '服务器正在维护更新，暂时无法创建新房间，请稍后再来。',
+  siteClosed: false,
+  siteClosedMessage: '全站正在维护升级，暂时无法访问，请稍后再来。',
+  notice: '',
+}
+
+/** 公告和提示语都是纯文本，长度设上限，避免管理端塞一整篇进来把界面撑坏。 */
+function sanitizeText(input: unknown, limit: number): string {
+  return typeof input === 'string' ? input.trim().slice(0, limit) : ''
 }
 
 function sanitizeServerSettings(input: Partial<ServerSettings>): ServerSettings {
   const difficulties = ['beginner', 'standard', 'expert']
-  const message = typeof input.maintenanceMessage === 'string' ? input.maintenanceMessage.trim().slice(0, 120) : ''
+  const message = sanitizeText(input.maintenanceMessage, 120)
+  const closedMessage = sanitizeText(input.siteClosedMessage, 200)
   return {
     trusteeDifficulty: difficulties.includes(String(input.trusteeDifficulty))
       ? input.trusteeDifficulty as ServerSettings['trusteeDifficulty']
       : DEFAULT_SERVER_SETTINGS.trusteeDifficulty,
     maintenance: input.maintenance === true,
     maintenanceMessage: message || DEFAULT_SERVER_SETTINGS.maintenanceMessage,
+    siteClosed: input.siteClosed === true,
+    siteClosedMessage: closedMessage || DEFAULT_SERVER_SETTINGS.siteClosedMessage,
+    // 公告允许为空：空就是「不显示横幅」，不能像提示语那样回退到默认值
+    notice: sanitizeText(input.notice, 200),
   }
 }
 
@@ -463,7 +492,8 @@ async function adminRoute(request: Request, env: Env, url: URL): Promise<Respons
     const incoming = sanitizeServerSettings(await request.json<Partial<ServerSettings>>())
     await writeServerSettings(env, incoming)
     await recordAudit(env, 'update-settings', null,
-      `托管档位=${incoming.trusteeDifficulty} 维护=${incoming.maintenance ? '开' : '关'}`)
+      `托管档位=${incoming.trusteeDifficulty} 维护=${incoming.maintenance ? '开' : '关'}`
+      + ` 全站停服=${incoming.siteClosed ? '开' : '关'} 公告=${incoming.notice ? '有' : '无'}`)
     return json(incoming)
   }
   const roomMatch = url.pathname.match(/^\/api\/admin\/rooms\/([A-Z0-9]{6})$/)
@@ -669,8 +699,23 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET' && url.pathname === '/api/health') return json({ ok: true })
   if (request.method === 'GET' && url.pathname === '/api/service') {
     const server = await readServerSettings(env)
-    return json({ maintenance: server.maintenance, maintenanceMessage: server.maintenanceMessage })
+    return json({
+      maintenance: server.maintenance,
+      maintenanceMessage: server.maintenanceMessage,
+      siteClosed: server.siteClosed,
+      siteClosedMessage: server.siteClosedMessage,
+      notice: server.notice,
+    })
   }
+
+  /*
+   * 全站停服。放在这里——**在所有玩家接口之前，在管理接口之后**。
+   *
+   * `/api/admin/*` 已经在上面 return 掉了，`/api/service` 和 `/api/health` 也在上面，
+   * 所以停服期间管理员仍然进得去、仍然关得掉，健康检查也不会误报整站挂掉。
+   */
+  const server = await readServerSettings(env)
+  if (server.siteClosed) return json({ error: server.siteClosedMessage, siteClosed: true }, 503)
   if (request.method === 'POST' && url.pathname === '/api/session') return login(request, env)
   if (request.method === 'GET' && url.pathname === '/api/session') return currentSession(request, env)
   if (request.method === 'DELETE' && url.pathname === '/api/session') return logout(request, env)

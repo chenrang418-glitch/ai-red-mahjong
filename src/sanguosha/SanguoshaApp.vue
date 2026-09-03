@@ -266,7 +266,7 @@ function handleRespond(response: GameResponse): void {
 
 <style scoped>
 .sgs-app {
-  width: 100%; height: 100dvh; overflow: hidden; color: var(--ink-text);
+  width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; color: var(--ink-text);
   /* 三国杀主色是金色，和门户上那张卡片的强调色一致；麻将那边保持红色 */
   background: radial-gradient(circle at 75% 20%, rgba(207, 164, 86, .24), transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }

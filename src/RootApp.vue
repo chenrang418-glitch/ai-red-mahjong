@@ -1,12 +1,39 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onErrorCaptured, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onErrorCaptured, onMounted, ref, shallowRef, watch } from 'vue'
 import GamePortal from '@/portal/GamePortal.vue'
 import { gameManifest, playableGames, type GameDefinition } from '@/portal/gameManifest'
-import { buildGameUrl, buildPortalUrl, resolveAppRoute } from '@/portal/navigation'
+import { buildGameUrl, buildPortalUrl, isAdminRoute, resolveAppRoute } from '@/portal/navigation'
 import { LatestGameLoader } from '@/portal/gameLoader'
+import { useServiceStatus } from '@/composables/useServiceStatus'
 import type { Component } from 'vue'
 
 const route = ref(resolveAppRoute(new URL(window.location.href)))
+const adminRoute = ref(isAdminRoute(new URL(window.location.href)))
+
+/*
+ * 全站停服和常驻公告都在这一层处理，而不是各游戏里各写一份：
+ * 门户、麻将、三国杀共用同一个入口，才不会出现「门户说在维护、
+ * 三国杀大厅说没在维护」这种自相矛盾的界面。
+ */
+const service = useServiceStatus()
+const noticeEl = ref<HTMLElement | null>(null)
+let noticeObserver: ResizeObserver | null = null
+
+/** 管理页永远放行——停服开关就是在那里关掉的。 */
+const siteClosed = computed(() => service.status.value.siteClosed && !adminRoute.value)
+const notice = computed(() => (siteClosed.value ? '' : service.status.value.notice.trim()))
+
+/**
+ * 把横幅的实际高度写回 `--app-viewport-offset`。
+ *
+ * 不能写死一个常数：公告文案在手机上会换行，写死就会让牌桌高度算错，
+ * 手机上直接多出一条可以滚动的空白。没有公告时必须清成 0px，
+ * 否则每个 100dvh 的容器都会平白矮一截。
+ */
+function syncNoticeOffset(): void {
+  const height = noticeEl.value?.offsetHeight ?? 0
+  document.documentElement.style.setProperty('--app-viewport-offset', `${height}px`)
+}
 const activeComponent = shallowRef<Component | null>(null)
 const loading = ref(false)
 const loadError = ref('')
@@ -19,7 +46,11 @@ const activeGame = computed<GameDefinition | null>(() => {
 })
 
 function syncRoute() {
-  route.value = resolveAppRoute(new URL(window.location.href))
+  const url = new URL(window.location.href)
+  route.value = resolveAppRoute(url)
+  adminRoute.value = isAdminRoute(url)
+  // 从管理页切走时可能刚好赶上停服，重新问一次比等下一次轮询及时
+  void service.refresh()
 }
 
 function navigate(url: URL) {
@@ -58,10 +89,27 @@ function retryLoad() {
 
 window.addEventListener('popstate', syncRoute)
 window.addEventListener('hashchange', syncRoute)
+
+onMounted(() => {
+  service.start()
+  noticeObserver = new ResizeObserver(syncNoticeOffset)
+})
+
 onBeforeUnmount(() => {
   gameLoader.dispose()
+  service.stop()
+  noticeObserver?.disconnect()
+  noticeObserver = null
+  document.documentElement.style.removeProperty('--app-viewport-offset')
   window.removeEventListener('popstate', syncRoute)
   window.removeEventListener('hashchange', syncRoute)
+})
+
+// 横幅出现或消失时接上/断开测量，并立刻同步一次高度
+watch(noticeEl, (el) => {
+  noticeObserver?.disconnect()
+  if (el) noticeObserver?.observe(el)
+  syncNoticeOffset()
 })
 
 watch(activeGame, (game) => { void loadActiveGame(game) }, { immediate: true })
@@ -76,14 +124,34 @@ onErrorCaptured((cause) => {
 </script>
 
 <template>
-  <GamePortal v-if="route.kind === 'portal'" :games="gameManifest" @select="openGame" />
+  <!--
+    全站停服：整屏只剩管理员那段红字，没有任何进入游戏的入口。
+    这和「维护中不能开新房」是两回事，后者只灰掉一个按钮。
+  -->
+  <main v-if="siteClosed" class="site-closed" role="alert">
+    <section>
+      <span class="site-closed__brand">CR</span>
+      <h1>网站维护中</h1>
+      <p>{{ service.status.value.siteClosedMessage || '全站正在维护升级，暂时无法访问，请稍后再来。' }}</p>
+      <small>维护结束后刷新页面即可继续游戏。</small>
+    </section>
+  </main>
 
-  <main v-else-if="loading" class="root-loading" aria-live="polite">
+  <template v-else>
+    <!-- 常驻公告：门户和两款游戏共用这一条，永远在最上方 -->
+    <div v-if="notice" ref="noticeEl" class="admin-notice" role="status">
+      <span class="admin-notice__tag">公告</span>
+      <span>{{ notice }}</span>
+    </div>
+
+    <GamePortal v-if="route.kind === 'portal'" :games="gameManifest" @select="openGame" />
+
+    <main v-else-if="loading" class="root-loading" aria-live="polite">
     <span>CR</span>
     <p>正在载入{{ activeGame?.name }}…</p>
   </main>
 
-  <main v-else-if="fatalRuntimeError || loadError || !activeComponent" class="root-error">
+    <main v-else-if="fatalRuntimeError || loadError || !activeComponent" class="root-error">
     <section role="alert">
       <span>CR</span>
       <h1>游戏发生异常</h1>
@@ -95,5 +163,6 @@ onErrorCaptured((cause) => {
     </section>
   </main>
 
-  <component :is="activeComponent" v-else @back-to-portal="returnToPortal" />
+    <component :is="activeComponent" v-else @back-to-portal="returnToPortal" />
+  </template>
 </template>

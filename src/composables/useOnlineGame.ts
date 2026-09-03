@@ -1,4 +1,5 @@
 import { onBeforeUnmount, ref } from 'vue'
+import { refreshServiceStatus, useServiceStatus } from './useServiceStatus'
 import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE } from '@/online/types'
 import type {
   ChatMessage,
@@ -73,6 +74,7 @@ export function useOnlineGame() {
   const pendingAction = ref<OnlinePendingAction | null>(null)
   const chatBubbles = ref<Record<number, { id: string; text: string }>>({})
   const maintenance = ref<{ active: boolean; message: string }>({ active: false, message: '' })
+  const { status: serviceStatus } = useServiceStatus()
   let socket: WebSocket | null = null
   let directorySocket: WebSocket | null = null
   let roomCode = ''
@@ -185,14 +187,13 @@ export function useOnlineGame() {
     }
   }
 
-  // 大厅要知道服务器是不是在维护，好把「创建房间」按钮灰掉并说明原因
+  // 大厅要知道服务器是不是在维护，好把「创建房间」按钮灰掉并说明原因。
+  // 状态本身走公共的 useServiceStatus——门户的公告横幅、三国杀大厅读的是同一份，
+  // 各自再发一次请求会出现「这边说在维护、那边说没有」。
   async function refreshService() {
-    try {
-      const result = await request<{ maintenance: boolean; maintenanceMessage: string }>('/api/service')
-      maintenance.value = { active: result.maintenance, message: result.maintenanceMessage }
-    } catch {
-      maintenance.value = { active: false, message: '' }
-    }
+    await refreshServiceStatus()
+    const current = serviceStatus.value
+    maintenance.value = { active: current.maintenance, message: current.maintenanceMessage }
   }
 
   async function refreshRooms() {

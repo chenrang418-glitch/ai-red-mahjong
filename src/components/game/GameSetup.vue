@@ -46,7 +46,7 @@ function submit() {
 </template>
 
 <style scoped>
-.setup-page { width: 100%; height: 100dvh; display: grid; place-items: center; overflow: hidden; padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); background: radial-gradient(circle at 50% 0, #2f5741, transparent 46%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); color: var(--ink-text); }
+.setup-page { width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); display: grid; place-items: center; overflow: hidden; padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); background: radial-gradient(circle at 50% 0, #2f5741, transparent 46%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); color: var(--ink-text); }
 .setup-card { width: min(520px, 100%); padding: 28px; border: 1px solid rgba(220,187,96,.25); border-radius: 24px; background: rgba(13,34,28,.96); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
 header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin-bottom: 24px; }
 h1 { margin: 0; color: #f2d47c; font-size: 26px; }

@@ -33,7 +33,7 @@ defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
 
 <style scoped>
 .mode-home {
-  width: 100%; height: 100dvh; overflow: hidden; color: var(--ink-text);
+  width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; color: var(--ink-text);
   /* 麻将主色保持红色 */
   background: radial-gradient(circle at 70% 18%, rgba(190, 90, 76, .26), transparent 44%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }

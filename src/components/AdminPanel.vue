@@ -28,10 +28,22 @@ interface AdminRoom {
   updatedAt: number
 }
 
+/**
+ * 服务端设置。**两级维护是两件事，不要合并成一个开关：**
+ *
+ * - `maintenance`（轻）只拦「开新房」，正在打的牌局和重连照常；
+ * - `siteClosed`（重）整站停服，玩家打开网址只看到一段红字。
+ *
+ * `notice` 是常驻公告，和这两个开关互不依赖：非空就一直显示在
+ * 游戏中心和两款游戏顶部，可以用来提前预告维护时间。
+ */
 interface ServerSettings {
   trusteeDifficulty: 'beginner' | 'standard' | 'expert'
   maintenance: boolean
   maintenanceMessage: string
+  siteClosed: boolean
+  siteClosedMessage: string
+  notice: string
 }
 
 interface AuditEntry {
@@ -360,6 +372,46 @@ void restoreSession()
           <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
         </section>
 
+        <section class="settings-card settings-card--danger" v-if="settings">
+          <h2>全站停服</h2>
+          <label class="setting-row">
+            <span>
+              <b>暂停整个网站</b>
+              <small>打开后玩家访问任何页面都只看到下面这段红字，单机和联机一起停；管理页不受影响，随时可以关掉。</small>
+            </span>
+            <input v-model="settings.siteClosed" type="checkbox">
+          </label>
+          <label class="setting-row column">
+            <span><b>停服提示语</b><small>玩家打开网址时看到的整屏文案。</small></span>
+            <textarea v-model="settings.siteClosedMessage" maxlength="200" rows="2" placeholder="全站正在维护升级，暂时无法访问…"></textarea>
+          </label>
+          <p v-if="settings.siteClosed" class="settings-danger">
+            全站停服正在生效中。玩家现在进不来，记得维护完关掉这个开关。
+          </p>
+          <p class="settings-note">
+            这条比「全站维护模式」重得多：维护模式只是不让开新房，正在打的牌局照常；
+            停服是所有人都进不来。
+          </p>
+          <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
+        </section>
+
+        <section class="settings-card" v-if="settings">
+          <h2>常驻公告</h2>
+          <label class="setting-row column">
+            <span>
+              <b>公告内容</b>
+              <small>非空就一直显示在游戏中心和两款游戏的最上方，红色横幅。留空表示不显示。</small>
+            </span>
+            <textarea v-model="settings.notice" maxlength="200" rows="2" placeholder="例：今晚 23:00 起维护约 30 分钟"></textarea>
+          </label>
+          <div class="notice-preview" v-if="settings.notice.trim()">
+            <span class="notice-preview__tag">公告</span>
+            <span>{{ settings.notice.trim() }}</span>
+          </div>
+          <p class="settings-note">公告和上面两个开关互不影响，可以只挂公告不停服，用来提前打招呼。</p>
+          <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
+        </section>
+
         <section class="settings-card">
           <h2>操作记录</h2>
           <p class="settings-note">删除和解散都不可撤销，这里留个底，方便回头查是什么时候做的。</p>
@@ -378,7 +430,13 @@ void restoreSession()
 </template>
 
 <style scoped>
-.admin-page { height: 100dvh; overflow-y: auto; padding: 24px clamp(14px, 4vw, 48px) 60px; color: #f2ecda; background: #091410; }
+.settings-card--danger { border-color: #7f2a26; }
+.settings-danger { margin: 0; padding: 8px 10px; border: 1px solid #7f2a26; border-radius: 10px; background: rgba(109, 31, 28, .35); color: #ffb8b1; font-size: 12px; line-height: 1.7; }
+.setting-row.column textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--ink-line, #3d5347); border-radius: 10px; background: #0d1a15; color: #f2ecda; font: inherit; line-height: 1.6; resize: vertical; }
+/* 公告预览按玩家实际看到的样子渲染，省得改完要切出去看一眼 */
+.notice-preview { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 12px; border: 1px solid #7f2a26; border-radius: 10px; background: linear-gradient(180deg, #6d1f1c, #4e1512); color: #ffe3df; font-size: 13px; font-weight: 700; line-height: 1.45; text-align: center; word-break: break-word; }
+.notice-preview__tag { flex: none; padding: 1px 7px; border-radius: 999px; background: rgba(0, 0, 0, .32); font-size: 11px; letter-spacing: .5px; }
+.admin-page { height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow-y: auto; padding: 24px clamp(14px, 4vw, 48px) 60px; color: #f2ecda; background: #091410; }
 .admin-gate { width: min(420px, 100%); margin: 12vh auto 0; padding: 28px; border: 1px solid #3a544a; border-radius: 18px; background: #0e241e; text-align: center; }
 .admin-gate small { color: #8d7a4a; letter-spacing: .24em; font-size: 10px; }
 .admin-gate h1 { margin: 8px 0 6px; font-size: 24px; }

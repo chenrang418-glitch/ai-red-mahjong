@@ -29,9 +29,9 @@ html, body, #app {
   overflow: hidden;
 }
 body {
-  height: 100vh;
+  height: calc(100vh - var(--app-viewport-offset, 0px));
   /* dvh 跟着地址栏收放变化，iOS 上比 vh 准 */
-  height: 100dvh;
+  height: calc(100dvh - var(--app-viewport-offset, 0px));
   background: #091410;
 }
 #app { display: flex; flex-direction: column; }
@@ -43,7 +43,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: #0a1b16; }
 ::-webkit-scrollbar-thumb { background: #355249; border-radius: 99px; }
-.game-page { flex: 1; min-height: 0; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 50% -20%, #2f5741 0, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
+.game-page { flex: 1; min-height: 0; height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 50% -20%, #2f5741 0, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .topbar { min-height: 66px; padding: 0 18px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid #263d36; background: rgba(7,20,16,.94); position: sticky; top: 0; z-index: 20; }
 .topbar:has(.topbar-menu .menu-mask) { z-index: 88; }
 .brand { display: flex; align-items: center; gap: 9px; min-width: 190px; }
@@ -64,7 +64,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .game-layout {
   /* 下限不能顶到 680：笔记本和小窗口的可视高度常常只有六百多，
      牌桌一旦比屏幕高，顶上的对家就被推出屏幕，得滚动才能看全。 */
-  --table-height: clamp(430px, calc(100dvh - 172px), 900px);
+  --table-height: clamp(430px, calc(100dvh - 172px - var(--app-viewport-offset, 0px)), 900px);
   display: grid;
   grid-template-columns: minmax(168px, 180px) minmax(0, 1fr) minmax(185px, 205px);
   grid-template-rows: calc(var(--table-height) + 76px);
@@ -337,7 +337,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .topbar nav { gap: 3px; }
   .topbar nav button { min-height: 36px; padding: 6px 7px; font-size: 10px; }
   .game-layout {
-    --table-height: max(240px, calc(100dvh - 120px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+    --table-height: max(240px, calc(100dvh - 120px - var(--app-viewport-offset, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     /* 横屏也让牌桌铺满：两侧常驻面板会吃掉三成宽度，
        信息改成点「战况」从右边滑出来 */
     grid-template-columns: minmax(0, 1fr);
@@ -407,12 +407,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .game-layout {
     /* 手机上一屏就是一桌：牌桌拿掉顶栏和操作条之后的全部高度，页面不出现滚动条。
        积分和牌局记录不再排在牌桌下面，改成点「战况」滑出来的抽屉。 */
-    --table-height: calc(100dvh - 150px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    --table-height: calc(100dvh - 150px - var(--app-viewport-offset, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     grid-template-areas: "table";
     gap: 0;
-    height: calc(100dvh - 57px);
+    height: calc(100dvh - 57px - var(--app-viewport-offset, 0px));
     padding: 6px max(7px, env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) max(7px, env(safe-area-inset-left));
   }
   .status-pill { display: none; }
@@ -483,7 +483,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .game-page.immersive .score-panel,
 .game-page.immersive .event-panel { display: none; }
 .game-page.immersive .game-layout {
-  --table-height: calc(100dvh - 66px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  --table-height: calc(100dvh - 66px - var(--app-viewport-offset, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "table";
@@ -675,7 +675,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   @keyframes drawer-up { from { transform: translateY(100%); } }
 
   .rules-backdrop { z-index: 70; display: block; padding: 0; background: #0b1a15; }
-  .rules-card { width: 100%; height: 100dvh; max-height: none; overflow: hidden; display: flex; flex-direction: column; padding: max(16px, env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom)); border: 0; border-radius: 0; background: #0b1a15; box-shadow: none; }
+  .rules-card { width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); max-height: none; overflow: hidden; display: flex; flex-direction: column; padding: max(16px, env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom)); border: 0; border-radius: 0; background: #0b1a15; box-shadow: none; }
   .rules-card header { flex: none; justify-content: flex-start; gap: 12px; min-height: 46px; }
   .rules-card header h2 { margin: 0; color: #f3d67c; font-size: 23px; }
   .rules-card header .rules-back { width: 38px; height: 38px; border-radius: 11px; font-size: 28px; }
@@ -708,7 +708,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .action-dock button { min-height: 36px; font-size: 13px; }
   .action-dock .discard-button { min-height: 52px; font-size: 16px; }
   .mobile-table-notice { bottom: calc(72px + env(safe-area-inset-bottom)); font-size: 11px; }
-  .mobile-info-panel { top: 0; left: auto; right: 0; bottom: 0; width: min(58vw, 520px); height: 100dvh; border: 0; border-left: 1px solid #35524a; border-radius: 16px 0 0 16px; animation: drawer-left .22s ease; }
+  .mobile-info-panel { top: 0; left: auto; right: 0; bottom: 0; width: min(58vw, 520px); height: calc(100dvh - var(--app-viewport-offset, 0px)); border: 0; border-left: 1px solid #35524a; border-radius: 16px 0 0 16px; animation: drawer-left .22s ease; }
   .mobile-info-tabs { padding: 8px 10px; gap: 6px; }
   .mobile-info-tabs button { min-height: 36px; font-size: 11px; }
   .mobile-info-body { padding: 10px; }

@@ -18,6 +18,18 @@
   background-color: var(--ink-bg-bottom, #0b130f);
 
   /*
+   * 管理员公告横幅占掉的高度。
+   *
+   * 全站所有「撑满一屏」的容器都要从 100dvh 里扣掉它，否则挂上横幅之后
+   * 页面会整体多出一条，手机上直接变成可滚动的——响应式测试专门守着这一条。
+   *
+   * **默认必须是 0px**：没有公告时所有 calc 的结果和加这个变量之前完全一样，
+   * 等于对正常情况零影响。实际高度由 RootApp 量出来后写回这里（文案会换行，
+   * 高度不是固定值）。
+   */
+  --app-viewport-offset: 0px;
+
+  /*
    * 全站配色（墨绿方案）。
    *
    * 定义在这里而不是各组件里，是因为门户、两个游戏的首页、牌桌、弹层
@@ -113,3 +125,77 @@ body, #app {
 .root-error h1 { margin: 16px 0 0; }
 .root-error div { display: flex; justify-content: center; gap: 10px; margin-top: 22px; }
 .root-error button { min-height: 42px; padding: 0 16px; border: 1px solid #6f654a; border-radius: 9px; color: #f2e5c9; background: #283129; cursor: pointer; }
+
+
+/*
+ * 管理员公告横幅。
+ *
+ * 放在全局样式里而不是某个组件里：门户、麻将、三国杀三处都要用同一条，
+ * 各写一份必然会长歪。红色是用户明确要求的——这是「请注意」而不是装饰。
+ */
+.admin-notice {
+  position: relative;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px max(12px, env(safe-area-inset-right)) 7px max(12px, env(safe-area-inset-left));
+  border-bottom: 1px solid #7f2a26;
+  background: linear-gradient(180deg, #6d1f1c, #4e1512);
+  color: #ffe3df;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: center;
+  /* 公告可能很长，允许换行；高度变化由 RootApp 的 ResizeObserver 同步回变量 */
+  word-break: break-word;
+}
+
+.admin-notice__tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .32);
+  font-size: 11px;
+  letter-spacing: .5px;
+}
+
+/* 全站停服：整屏只剩这一段话，没有任何入口 */
+.site-closed {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 22px max(24px, env(safe-area-inset-bottom));
+  background: radial-gradient(circle at 50% 0, #2f5741, transparent 46%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
+  color: var(--ink-text);
+}
+
+.site-closed section {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  padding: 30px 24px;
+  border: 1px solid #7f2a26;
+  border-radius: 18px;
+  background: rgba(20, 12, 11, .72);
+  text-align: center;
+}
+
+.site-closed__brand {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid var(--ink-line);
+  border-radius: 14px;
+  background: var(--ink-panel);
+  color: var(--ink-text);
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.site-closed h1 { margin: 0; font-size: 20px; color: #ff9d94; }
+.site-closed p { margin: 0; color: #ffe3df; font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
+.site-closed small { color: var(--ink-text-muted); font-size: 12px; }

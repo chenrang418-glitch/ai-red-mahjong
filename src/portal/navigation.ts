@@ -6,8 +6,18 @@ export type AppRoute =
 
 const GAME_IDS = new Set<GameId>(['mahjong', 'sanguosha'])
 
+/**
+ * 这是不是管理页。
+ *
+ * 全站停服时**必须放行管理页**，否则开关一旦打开就再也关不掉了——
+ * 管理面板本身挂在麻将 App 的 `#admin` 下面，所以停服拦截不能只看 route.kind。
+ */
+export function isAdminRoute(url: URL): boolean {
+  return url.hash === '#admin'
+}
+
 export function resolveAppRoute(url: URL): AppRoute {
-  if (url.hash === '#admin') return { kind: 'game', gameId: 'mahjong' }
+  if (isAdminRoute(url)) return { kind: 'game', gameId: 'mahjong' }
 
   const game = url.searchParams.get('game')
   if (game && GAME_IDS.has(game as GameId)) return { kind: 'game', gameId: game as GameId }

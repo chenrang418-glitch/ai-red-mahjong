@@ -541,7 +541,7 @@ function sendChat(text: string, quick: boolean) {
 </template>
 
 <style scoped>
-.online-lobby-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: clamp(14px, 3vh, 28px) clamp(18px, 6vw, 70px); color: var(--ink-text); background: radial-gradient(circle at 15% 0, #2f5741, transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
+.online-lobby-page { height: calc(100dvh - var(--app-viewport-offset, 0px)); display: flex; flex-direction: column; overflow: hidden; padding: clamp(14px, 3vh, 28px) clamp(18px, 6vw, 70px); color: var(--ink-text); background: radial-gradient(circle at 15% 0, #2f5741, transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .lobby-header { width: min(1100px, 100%); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .lobby-header > button { padding: 9px 12px; border: 1px solid #345047; border-radius: 9px; background: #10251f; color: #d8dfda; cursor: pointer; }
 .lobby-room-code { display: grid; text-align: center; }
@@ -708,6 +708,6 @@ function sendChat(text: string, quick: boolean) {
   .online-seats { grid-column: 2; grid-row: 1 / 3; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr; margin: 0; }
   .lobby-card footer { grid-column: 1; grid-row: 2; }
   .lobby-rules { justify-content: flex-start; }
-  .online-right-panel.mobile-open { top: 0; left: auto; right: 0; bottom: 0; width: min(58vw, 520px); height: 100dvh; border: 0; border-left: 1px solid #35524a; border-radius: 16px 0 0 16px; }
+  .online-right-panel.mobile-open { top: var(--app-viewport-offset, 0px); left: auto; right: 0; bottom: 0; width: min(58vw, 520px); height: calc(100dvh - var(--app-viewport-offset, 0px)); border: 0; border-left: 1px solid #35524a; border-radius: 16px 0 0 16px; }
 }
 </style>

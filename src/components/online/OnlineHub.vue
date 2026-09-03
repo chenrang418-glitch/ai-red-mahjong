@@ -92,7 +92,14 @@ function back() { if (online.room.value) leaveRoom(); else emit('back') }
           <label v-if="settings.mode === 'finite'">初始积分<input v-model.number="settings.initialPoints" type="number" min="1" max="9999"></label>
           <label>AI 难度<select v-model="settings.aiDifficulty"><option v-for="(label, value) in DIFFICULTY_LABELS" :key="value" :value="value">{{ label }}</option></select></label>
         </div>
-        <button class="primary" type="button" :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active" @click="createRoom">{{ online.maintenance.value.active ? '维护中' : '创建房间' }}</button>
+        <button
+          class="primary"
+          type="button"
+          :class="{ 'is-maintenance': online.maintenance.value.active }"
+          :disabled="online.busy.value || online.connecting.value || online.maintenance.value.active"
+          @click="createRoom"
+        >{{ online.maintenance.value.active ? '维护中' : '创建房间' }}</button>
+        <p v-if="online.maintenance.value.active" class="hub-maintenance">{{ online.maintenance.value.message }}</p>
       </article>
 
       <article class="join-card">
@@ -124,7 +131,10 @@ function back() { if (online.room.value) leaveRoom(); else emit('back') }
 </template>
 
 <style scoped>
-.online-hub { width: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 10% 0, #2f5741, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
+.hub-maintenance { margin: 6px 0 0; color: #ff9d94; font-size: 12px; line-height: 1.6; }
+/* 和三国杀大厅同一套：维护中的按钮压暗，一眼看出是「不能点」 */
+.primary.is-maintenance { border-color: #4a3f3d; background: linear-gradient(180deg, #2a201f, #1b1413); color: #b58e8a; }
+.online-hub { width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); display: flex; flex-direction: column; overflow: hidden; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 10% 0, #2f5741, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .hub-header { width: min(1160px, 100%); min-height: 48px; margin: 0 auto 14px; display: grid; grid-template-columns: 80px 1fr 80px; align-items: center; }
 .hub-header h1 { margin: 0; color: #f1d078; font-size: 24px; text-align: center; }
 button { min-height: 42px; border: 1px solid #345248; border-radius: 10px; background: #112b24; color: #e9dfc4; cursor: pointer; font-weight: 800; }
