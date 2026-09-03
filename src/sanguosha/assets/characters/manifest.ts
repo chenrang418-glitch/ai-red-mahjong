@@ -83,6 +83,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '55% 20%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·甄姬',
   },
+  /* 徐晃是半身像，头盔顶到画面很上方，焦点要压低一点才不会只看到盔缨 */
+  xuhuang: {
+    desktop: { position: '48% 20%', scale: 1.0 },
+    mobile: { position: '48% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·徐晃',
+  },
   // ── 蜀 ──
   liubei: {
     desktop: { position: '50% 17%', scale: 1.0 },
@@ -118,6 +124,18 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     desktop: { position: '46% 22%', scale: 1.12 },
     mobile: { position: '46% 20%', scale: 1.3 },
     credit: '用户提供（GPT 生成）·黄月英',
+  },
+  /* 孟获是半身像，脸略偏右，藤甲肩甲很占画面，焦点抬到脸上 */
+  menghuo: {
+    desktop: { position: '55% 19%', scale: 1.0 },
+    mobile: { position: '55% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·孟获',
+  },
+  /* 祝融是动态半身像，脸偏右上，握匕首的手在左边，焦点跟着脸走 */
+  zhurong: {
+    desktop: { position: '62% 20%', scale: 1.0 },
+    mobile: { position: '62% 18%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·祝融',
   },
   // ── 吴 ──
   sunquan: {
@@ -249,6 +267,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     credit: '用户提供（GPT 生成）·卧龙诸葛',
   },
 
+  /* 孙坚是半身像，红披风占了两侧，脸在正中偏上一点 */
+  sunjian: {
+    desktop: { position: '52% 18%', scale: 1.0 },
+    mobile: { position: '52% 16%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·孙坚',
+  },
   // ── 群 ──
   huatuo: {
     desktop: { position: '53% 20%', scale: 1.05 },

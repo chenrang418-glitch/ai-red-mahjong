@@ -424,7 +424,9 @@ describe('质疑的隐私与边界', () => {
 })
 
 describe('蛊惑的界面', () => {
-  it('声明列表按牌名列出，每一项都是一条可点的选项', async () => {
+  // 这条要在测试进程里现场编译 Vue SSR，机器负载高时会顶到默认的 5s 上限。
+  // 断言本身很快，给足余量只是为了不在并行跑全量时误红。
+  it('声明列表按牌名列出，每一项都是一条可点的选项', { timeout: 30_000 }, async () => {
     const { createSSRApp } = await import('vue')
     const { renderToString } = await import('vue/server-renderer')
     const SgsRequestDock = (await import('@/sanguosha/components/SgsRequestDock.vue')).default

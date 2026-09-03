@@ -12,6 +12,22 @@ export interface TargetedCardContext {
   category: CardCategory
 }
 
+export interface DamageSourceContext {
+  sourceId: PlayerId | null
+  targetId: PlayerId
+  cardId: CardId | null
+  cardName: string | null
+  chainTransfer: boolean
+}
+
+export interface ResolvedCardContext {
+  sourceId: PlayerId
+  cardId: CardId
+  cardName: string
+  targetIds: PlayerId[]
+  cancelled: boolean
+}
+
 /**
  * 技能运行时。
  *
@@ -122,6 +138,14 @@ export interface SkillRuntime {
   unlimitedSlash?: boolean
   /** 锁定技：使用锦囊时无视距离限制（奇才）。 */
   ignoresTrickDistance?: boolean
+  /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
+  trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
+  /** 锁定技：指定牌对拥有者无效。和“不能成为目标”是两个不同规则。 */
+  cardEffectInvalid?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null, cardName: string): boolean
+  /** 锁定技：在伤害事件产生前改写伤害来源。 */
+  modifyDamageSource?(state: SanguoshaState, ownerId: PlayerId, context: DamageSourceContext): PlayerId | null | undefined
+  /** 牌结算后仍在处理区时，改写实体牌的最终去向。 */
+  resolvedCardRecipient?(state: SanguoshaState, ownerId: PlayerId, context: ResolvedCardContext): boolean
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
   /**
@@ -330,6 +354,61 @@ export function effectiveCardColor(
 ): 'red' | 'black' {
   const suit = effectiveCardSuit(state, ownerId, cardId, skillIdsOf)
   return suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
+}
+
+/** 统一计算某张有距离限制的锦囊可增加多少使用距离。 */
+export function trickDistanceBonusOf(
+  state: SanguoshaState,
+  sourceId: PlayerId,
+  targetId: PlayerId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  return skillsOf(state, sourceId, skillIdsOf)
+    .reduce((total, runtime) => total + Math.trunc(runtime.trickDistanceBonus?.(state, sourceId, targetId, cardName) ?? 0), 0)
+}
+
+/** 返回让牌对目标无效的第一个技能；顺序固定为武将技能登记顺序。 */
+export function cardEffectInvalidBy(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  sourceId: PlayerId | null,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): SkillRuntime | null {
+  return skillsOf(state, targetId, skillIdsOf)
+    .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName) ?? false) ?? null
+}
+
+/** 按座次稳定地应用第一个伤害来源改写技能。 */
+export function modifiedDamageSource(
+  state: SanguoshaState,
+  context: DamageSourceContext,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): { sourceId: PlayerId | null; ownerId: PlayerId; skillId: string } | null {
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      const sourceId = runtime.modifyDamageSource?.(state, owner.id, context)
+      if (sourceId !== undefined && sourceId !== context.sourceId) return { sourceId, ownerId: owner.id, skillId: runtime.id }
+    }
+  }
+  return null
+}
+
+/** 按座次寻找结算后应获得实体牌的技能拥有者。 */
+export function resolvedCardRecipientOf(
+  state: SanguoshaState,
+  context: ResolvedCardContext,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): { playerId: PlayerId; skillId: string } | null {
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      if (runtime.resolvedCardRecipient?.(state, owner.id, context)) return { playerId: owner.id, skillId: runtime.id }
+    }
+  }
+  return null
 }
 
 /**

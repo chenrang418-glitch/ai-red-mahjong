@@ -4,9 +4,9 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { skillsOf, type SkillHost } from './skills/runtime'
+import { modifiedDamageSource, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
-import { skillIdsOf } from '../data/characters/standard'
+import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
@@ -231,8 +231,36 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   if (host.state.damageChain && !options.chainTransfer) throw new Error('属性伤害传导尚未结束')
   const target = player(host.state, options.targetId)
   if (!target.alive) throw new Error('不能对死亡角色造成伤害')
-  const sourceId = options.sourceId ?? null
+  let sourceId = options.sourceId ?? null
   if (sourceId) player(host.state, sourceId)
+
+  /*
+   * 伤害来源改写（孟获【祸首】）。
+   *
+   * 必须在**所有**伤害时机之前完成，否则奸雄、刚烈、狂骨、天香、节命
+   * 看到的来源就是原使用者，规则上全错。
+   *
+   * 只改伤害来源，**不改这张牌的使用者**：牌仍然是曹操用的那张【南蛮入侵】，
+   * 无懈、使用日志、CardMove、奸雄「获得造成伤害的牌」依赖的都是使用者，
+   * 整体改掉会连锁出一批错误。
+   */
+  const override = modifiedDamageSource(host.state, {
+    sourceId,
+    targetId: target.id,
+    cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null,
+    chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (override) {
+    const attributed = override.sourceId ? player(host.state, override.sourceId) : null
+    const skillName = skillDisplayName(host.state, override.ownerId, override.skillId)
+    host.dispatch('SkillActivated', {
+      skillId: override.skillId, skillName, playerId: override.ownerId, targetIds: [target.id], result: 'damage-source',
+      logText: `【${skillName}】${target.nickname}受到的这次伤害，来源视为${attributed?.nickname ?? '无'}`,
+    }, { sourceId: override.sourceId ?? undefined, targetId: target.id })
+    sourceId = override.sourceId
+  }
+
   const nature = options.nature ?? 'normal'
   let amount = options.amount ?? 1
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('伤害值必须是正整数')

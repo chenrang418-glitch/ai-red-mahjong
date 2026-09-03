@@ -1,5 +1,5 @@
 import type { EventContext, GameEvent, GameEventName } from './events'
-import { skillsOf } from './skills/runtime'
+import { cardEffectInvalidBy, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { DamageNature, PlayerId, SanguoshaState } from './types'
 
@@ -62,6 +62,13 @@ export function hasWeapon(state: SanguoshaState, playerId: PlayerId, weaponName:
  *
  * - 仁王盾：黑色的【杀】对你无效。
  * - 藤甲：【南蛮入侵】【万箭齐发】和普通【杀】对你无效；但火焰伤害会 +1，见 fireDamageBonus。
+ * - 技能侧的锁定技（孟获【祸首】、祝融【巨象】的「南蛮入侵对你无效」）走
+ *   `SkillRuntime.cardEffectInvalid`，和装备汇到这**同一个**入口。
+ *
+ * 「效果无效」和「不能成为目标」是两件事，不要混：无效的角色**仍然是这张牌的
+ * 合法目标**，仍然出现在目标列表和战报里，只是这张牌对他不产生任何效果。
+ * 「不能成为目标」是 `prohibitsTarget`，在生成动作时就把人排除掉。
+ * 把孟获直接从南蛮的 targets 数组里删掉是错的——祸首的伤害归属就没了依据。
  */
 export function isCardIneffective(
   state: SanguoshaState,
@@ -69,7 +76,9 @@ export function isCardIneffective(
   cardName: string,
   cardColor: 'red' | 'black' | null,
   damageNature: DamageNature,
+  sourceId: PlayerId | null = null,
 ): boolean {
+  if (cardEffectInvalidBy(state, targetId, sourceId, cardName)) return true
   if (cardName === '杀') {
     if (hasArmor(state, targetId, '仁王盾') && cardColor === 'black') return true
     // 藤甲只挡普通杀，火杀雷杀照样打得进来

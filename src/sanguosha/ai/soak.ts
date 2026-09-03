@@ -36,6 +36,15 @@ export interface SoakResult {
   survivors: number
   /** 失败 seed 复现时直接给出阵容，避免再次插桩。 */
   characterIds: string[]
+  /**
+   * 这一局里各类机制出现了多少次。
+   *
+   * 专项压测要回答的是「这个技能真的被跑到了吗」——只看「600 局都没崩」
+   * 是证明不了的：AI 一次都没发动的技能同样不会崩。计数器是**通用**的，
+   * 按 `skill:<技能id>` / `card:<牌名>` / `viewas:<牌名>` / `skip:<阶段>` 归类，
+   * 加新武将不需要再改这里。
+   */
+  counters: Record<string, number>
 }
 
 function setupFor(playerCount: number): GameSetup {
@@ -61,6 +70,26 @@ export function runSoakGame(options: SoakOptions): SoakResult {
   for (const name of ['Damaged', 'Recover'] as const) {
     game.events.on(name, (context) => { observeEvent(suspicion, game.viewFor('p0'), context.event) })
   }
+
+  const counters: Record<string, number> = {}
+  const bump = (key: string, amount = 1): void => { counters[key] = (counters[key] ?? 0) + amount }
+  game.events.on('SkillActivated', (context) => {
+    const skillId = (context.event.payload as { skillId?: unknown }).skillId
+    if (typeof skillId === 'string') bump(`skill:${skillId}`)
+  })
+  game.events.on('CardUsed', (context) => {
+    const cardName = (context.event.payload as { cardName?: unknown }).cardName
+    if (typeof cardName === 'string') bump(`card:${cardName}`)
+  })
+  game.events.on('Recover', (context) => {
+    const amount = (context.event.payload as { amount?: unknown }).amount
+    bump('recover', typeof amount === 'number' ? amount : 1)
+  })
+  // 阶段跳过没有自己的事件；skippedPhases 每回合开始会被清空，
+  // 所以在回合结束时读一次是唯一不漏的时机。
+  game.events.on('TurnEnd', () => {
+    for (const phase of game.state.skippedPhases) bump(`skip:${phase}`)
+  })
 
   const contextFor = (playerId: string): AIContext => ({
     view: game.viewFor(playerId),
@@ -106,7 +135,12 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     if (game.state.phase === 'play' && currentPlayer?.alive) {
       const playerId = game.state.currentPlayerId
       const action = decidePlayAction(contextFor(playerId), game.legalActions(playerId))
-      if (action) game.act(playerId, action.id)
+      if (action) {
+        // 转化技产出的动作要单独记一笔：CardUsed 只看得到「用了一张兵粮寸断」，
+        // 分不出这张是实体牌还是断粮换来的
+        if (action.kind === 'use-card' && action.id.startsWith('play:viewas:')) bump(`viewas:${action.asCardName}`)
+        game.act(playerId, action.id)
+      }
       else {
         const pass = game.legalActions(playerId).find((candidate) => candidate.kind === 'pass')
         if (!pass) fail('出牌阶段既没有可用动作也没有结束动作', steps)
@@ -133,6 +167,7 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     winningCamp: game.state.result?.winningCamp ?? null,
     survivors: game.state.players.filter((player) => player.alive).length,
     characterIds: game.state.players.map((player) => player.characterId ?? ''),
+    counters,
   }
 }
 

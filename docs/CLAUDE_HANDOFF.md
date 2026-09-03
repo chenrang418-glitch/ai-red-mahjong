@@ -1,6 +1,6 @@
 # 交接说明：CRPlay（红中麻将 + 三国杀）
 
-更新时间：2026-09-03（火包补齐 + 全武将高清立绘 + 双游戏管理页）。
+更新时间：2026-09-03（林包前四将：徐晃、孟获、祝融、孙坚）。
 
 ## 先做什么
 
@@ -28,18 +28,22 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | 78 文件 / **798 用例，无 todo** |
-| `npx playwright test` | **49 通过**（Chromium 45 + WebKit 4） |
+| `npx vitest run` | 103 文件 / **1145 用例，无 todo** |
+| `npx playwright test` | **51 通过**（Chromium 47 + WebKit 4） |
 | `npm run sanguosha:soak -- 500` | 5 人局与 8 人局各 500 局全部完成 |
+| `npm run sanguosha:soak -- 300 --characters=sunjian,zhurong,menghuo,xuhuang` | 各 300 局全部完成，四将机制均有触发 |
 | `npm run test:online:smoke` | 通过 |
 | `npm run typecheck` / `typecheck:online` | 通过 |
 | `npm run build` / `build:online` | 通过（Worker dry-run 通过） |
 
-规模：三国杀引擎约 5000 行，测试约 8300 行。
+**专项压测要看机制计数**，不能只看「没崩」——AI 一次都没发动的技能同样不会崩。
+带 `--characters=` 时脚本会打印一行 `机制计数：skill:xxx=N viewas:xxx=N skip:xxx=N`，
+关键机制是 0 就说明这轮压根没测到它，等于白跑。
 
 端口约定：麻将目录 dev 5180 / e2e 4173；本目录 dev **5190** / e2e **4183**。
-`preview_start` 读的是**麻将目录**的 `.claude/launch.json`，配置名要用 `sgs`（5190），
-用 `web` 会起到麻将项目（5180）。这个坑踩过两次。
+`preview_start` 读的是**会话主目录**（`C:\Users\cr\Documents\Claude Work`）的
+`.claude/launch.json`，配置名要用 `sgs`（5190）；那里的 `web` 指向麻将项目（5180）。
+这个坑踩过三次。本目录自己也有一份 `.claude/launch.json`，但 `preview_start` 不读它。
 
 **每次开预览前先确认 5190 没被上一次会话的 vite 进程占着**——
 这个坑到 2026-09-02 已经第三次了：
@@ -88,6 +92,19 @@
   | 火 | 卧龙诸葛 | 八阵 + 火计 + 看破 | `data/characters/fire-wolongzhuge.ts` |
   | 风 | 小乔 | 天香（伤害转移）+ 红颜（统一有效花色入口） | `data/characters/wind.ts` |
   | 风 | 夏侯渊 | 神速（跳判定摸牌或弃装备跳出牌，使用无距离虚拟杀） | `data/characters/wind.ts` |
+
+  林包 4 名（2026-09-03 新增，**一律经典「神话再临·林」首版**）：
+
+  | 武将 | 技能 | 文件 |
+  |---|---|---|
+  | 徐晃（魏 4 血） | 断粮（黑色基本/装备牌当兵粮，距离 2 以内） | `data/characters/forest.ts` |
+  | 孟获（蜀 4 血） | 祸首、再起 | `data/characters/forest-menghuo.ts` |
+  | 祝融（蜀 4 血） | 巨象、烈刃 | `data/characters/forest-zhurong.ts` |
+  | 孙坚（吴 4 血） | 英魂 | `data/characters/forest-sunjian.ts` |
+
+  **不要混进改版**：徐晃没有【截辎】、断粮不是「手牌数不小于你则无距离限制」；
+  孙坚【英魂】没有「魂」标记；孟获【再起】是**红桃换血、非红桃进手牌**，别写反。
+  林包普通武将 **4 / 8**，还剩鲁肃、曹丕、董卓、贾诩。
 
   好友娱乐包 5 名：平头方块、奶蛙、牛来、许老板、无亮。许老板当前技能为
   【空城计】【杠杆】【空手套白狼】；【杠杆】在正常摸牌后还债，牌不足只失去 1 点体力，
@@ -178,7 +195,8 @@
    再加武将照 `docs/sanguosha-portraits.md` 做。
    **不要自己去网上抓立绘**——原型阶段用过的无授权素材已按用户决定全部撤除。
 
-7. ~~新增角色~~ ✅ 风包与火包普通武将均 8/8 完成；另有好友娱乐武将 5 名，当前总池 46 名。
+7. ~~新增角色~~ ✅ 风包 8/8、火包 8/8、林包 4/8，加好友娱乐武将 5 名，**当前总池 50 名**。
+   首页、选将页和规则页的计数一律读 `ALL_CHARACTERS.length`，**不要写死数字**。
 
 ## 扩包到 32 名（已完成）
 
@@ -252,6 +270,28 @@
 | 主公技授权别人的动作 | `SkillRuntime.grantsPlayActions` / `invokeGrantedAction` | 张角【黄天】 |
 | 不可闪避 | `SkillRuntime.slashUndodgeable` | 马超【铁骑】、黄忠【烈弓】 |
 | 有效花色 | `effectiveCardSuit` | 小乔【红颜】 |
+
+## 林包引入的公共机制（2026-09-03）
+
+| 机制 | 入口 | 谁在用 |
+|---|---|---|
+| 延时锦囊使用距离修正 | `SkillRuntime.trickDistanceBonus` → `trickDistanceBonusOf` | 徐晃【断粮】 |
+| 牌效果无效（成为目标但无效） | `SkillRuntime.cardEffectInvalid` → `equipment.ts` 的 `isCardIneffective` | 孟获【祸首】、祝融【巨象】 |
+| 伤害来源改写 | `SkillRuntime.modifyDamageSource` → `damage.ts` 的 `resolveSingleDamage` | 孟获【祸首】 |
+| 结算后实体牌归属 | `SkillRuntime.resolvedCardRecipient` → `cards/host.ts` 的 `finishPhysicalCard` | 祝融【巨象】 |
+| 批量亮牌 | `engine/draw.ts` 的 `revealTopCards` | 孟获【再起】 |
+| 挑别人一张牌（手牌只给占位槽） | `engine/card-pick.ts` | 庞德【猛进】、祝融【烈刃】 |
+
+三条改动前必读：
+
+1. **「效果无效」不是「不能成为目标」。** 前者是 `cardEffectInvalid`（仍是合法目标，
+   仍进战报，只是这张牌对他没效果），后者是 `prohibitsTarget`（生成动作时就被排除）。
+   把孟获从南蛮的 targets 数组里删掉是错的——祸首的伤害归属会失去依据。
+2. **伤害来源改写只改 source，绝不改牌的使用者。** 牌仍然是那个人用的，
+   无懈、使用日志、CardMove、奸雄依赖的都是使用者。改写在**所有伤害时机之前**完成，
+   所以奸雄、刚烈、狂骨、天香、节命拿到的都是改写后的来源。
+3. **结算后归属只在实体牌正要进弃牌堆时询问。** 虚拟牌走的是销毁分支，
+   问都问不到它，所以不存在「凭空造一张牌」破坏守恒的路径。
 
 ## 隐藏信息与多人决定（2026-09-02 新增）
 

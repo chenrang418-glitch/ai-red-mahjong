@@ -39,6 +39,163 @@ export function cardValue(name: string): number {
   }
 }
 
+/**
+ * 延时锦囊（【乐不思蜀】【兵粮寸断】）的价值。
+ *
+ * 这是**公共评分**，不是给某个武将写的：实体牌和转化出来的（徐晃【断粮】）
+ * 走同一条。以前两者都掉进 default 拿 8 分，等于「见到就随便扔给谁」。
+ *
+ * 三件事决定分数：
+ *
+ * 1. **目标值不值得限**。用 targetScore，自己人和主公会被判 -Infinity 直接否掉。
+ * 2. **对方靠不靠摸牌**。兵粮断的是摸牌阶段，对方手牌越少越难受；
+ *    乐断的是出牌阶段，对方手牌越多、能打的越多才越值得乐。
+ * 3. **付出的牌值不值**。转化（`play:viewas:`）要拿一张真牌去换，
+ *    拿【桃】【闪】换一张兵粮是纯亏——这一条正是「不要见黑牌就断粮」。
+ *    装备区的牌还要额外算上脱装备的代价。
+ */
+function delayedTrickScore(
+  context: AIContext,
+  action: Extract<LegalAction, { kind: 'use-card' }>,
+): number {
+  const [targetId] = action.targetIds
+  const value = targetScore(context, targetId)
+  if (!Number.isFinite(value)) return -100
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target) return -100
+
+  // 兵粮：手牌越少越依赖摸牌，断了最疼；乐：手牌越多越可惜他这个出牌阶段
+  const pressure = action.asCardName === '兵粮寸断'
+    ? 8 - Math.min(target.handCount, 6)
+    : Math.min(target.handCount, 6)
+  let score = 12 + value + pressure
+
+  if (action.id.startsWith('play:viewas:')) {
+    const me = myself(context.view)
+    const [cardId] = action.cardIds
+    const paid = (me.hand ?? []).find((card) => card.id === cardId)
+    // 找不到就说明这张牌在装备区：拆自己的装备去断粮，代价明显更高
+    score -= paid ? cardValue(paid.name) : 12
+  }
+  return score
+}
+
+/**
+ * 【再起】发不发动。
+ *
+ * 拿「亮 X 张、红桃换血其余进手牌」去换掉确定的两张牌，所以要算期望：
+ * 红桃约占四分之一，X 张里大约 0.75X 张进手牌、0.25X 点回血。
+ *
+ * - X=1：期望不到一张牌，明显亏于稳摸两张——只有快死了、那 25% 的回血
+ *   比牌更值钱时才赌。
+ * - X=2：牌上打平，回血是净赚，但血量还宽裕时不值得为半点期望回血放弃确定收益。
+ * - X≥3：牌和血都占优，没有不发动的理由。
+ */
+function shouldZaiqi(me: { hp: number; maxHp: number }): boolean {
+  const lost = Math.max(0, me.maxHp - me.hp)
+  if (lost >= 3) return true
+  if (lost === 2) return me.hp <= 2
+  return me.hp <= 1
+}
+
+/** 装备值不值得抢：防具和武器远比马重要，抢错了等于白赢一次拼点。 */
+const EQUIPMENT_PRIORITY: Readonly<Record<string, number>> = {
+  诸葛连弩: 9, 贯石斧: 7, 青龙偃月刀: 7, 丈八蛇矛: 7, 方天画戟: 7, 雌雄双股剑: 6,
+  麒麟弓: 6, 寒冰剑: 6, 古锭刀: 5, 八卦阵: 8, 仁王盾: 8, 藤甲: 8, 白银狮子: 7,
+}
+
+/**
+ * 【烈刃】赢了之后拿哪张。
+ *
+ * 装备区是公开的，拿得到确定价值；手牌是盲的，期望值只有「一张平均牌」。
+ * 所以只要对方有**值得抢的**装备就抢装备，否则再去盲抽手牌。
+ * 马的价值低于一张未知手牌，不为了「看得见」就去抢一匹马。
+ */
+function chooseStolenCard(context: AIContext, publicIds: readonly string[], hiddenSlots: readonly string[]): string {
+  const best = [...publicIds]
+    .map((cardId) => ({ cardId, score: EQUIPMENT_PRIORITY[cardName(context, cardId)] ?? 0 }))
+    .sort((left, right) => right.score - left.score)[0]
+  // 4 是「一张未知手牌」的粗略估值：比马高，比防具和主流武器低
+  if (best && best.score >= 4) return best.cardId
+  if (hiddenSlots.length > 0) return context.rng.pick([...hiddenSlots])
+  return publicIds[0] ?? hiddenSlots[0]
+}
+
+/**
+ * 要不要发动【烈刃】。
+ *
+ * 代价是一张手牌（拼点牌赢输都会弃掉），收益是对方一张牌，所以本质是
+ * 「用一张牌赌换一张牌 + 一次点数比拼」。**点数够大才划算**——
+ * 手上最大只有 5 点还去拼，等于白送一张。
+ *
+ * 引擎已经保证「双方都有手牌」，这里不用再判一次。
+ */
+function shouldInvokeLieren(context: AIContext): boolean {
+  const me = myself(context.view)
+  const best = Math.max(0, ...(me.hand ?? []).map((card) => card.rank ?? 0))
+  if (best >= 10) return true
+  // 牌多的时候可以拿一张中等点数去赌；手牌紧张就别折腾
+  return best >= 8 && me.handCount >= 3
+}
+
+/**
+ * 【英魂】对某个候选目标能榨出多少收益。
+ *
+ * 这个技能**两头都能用**，所以先分敌我再算净牌差，绝不能只看「谁好打」：
+ *
+ * - 自己人走「摸 X 弃 1」，净赚 X-1 张；
+ * - 敌人走「摸 1 弃 X」，净亏 X-1 张，但**最多只能拆到他没牌**，
+ *   所以要按他实际有多少牌封顶，否则会高估拆一个空手敌人的价值。
+ *
+ * X=1 时两种模式都是净 0 张，只剩「换一张牌」的过牌价值，所以分数很低。
+ */
+function yinghunScore(context: AIContext, targetId: PlayerId): number {
+  const me = myself(context.view)
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const x = Math.max(0, me.maxHp - me.hp)
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  if (attitude > 0) {
+    // 拆敌人：摸 1 弃 X，实际能拆掉的张数受他手上有多少牌限制
+    const stripped = Math.min(x, target.handCount + 1) - 1
+    return stripped * 3 + attitude
+  }
+  // 帮自己人：摸 X 弃 1，缺牌的队友优先
+  return (x - 1) * 3 + Math.max(0, 4 - target.handCount)
+}
+
+/**
+ * 选哪一项。
+ *
+ * **这是最容易资敌的一步**：X=3 的时候对只剩一张牌的敌人用「摸 3 弃 1」，
+ * 等于白送他两张。所以规则很硬——敌人一律拆牌，自己人一律补牌，
+ * 目标是谁由选项 id 尾巴上带的那一段决定，不去猜提示语里的昵称。
+ */
+function chooseYinghunMode(context: AIContext, options: readonly { id: string }[]): string {
+  const drawMany = options.find((option) => option.id.startsWith('yinghun-draw-many'))
+  const discardMany = options.find((option) => option.id.startsWith('yinghun-discard-many'))
+  const targetId = (drawMany ?? discardMany)?.id.split(':')[1] ?? ''
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  const picked = attitude > 0 ? discardMany : drawMany
+  return (picked ?? options[0]).id
+}
+
+/**
+ * 要不要发动【英魂】。
+ *
+ * 没有代价，唯一的理由是「发动了也没意义」：X=1 时两种模式都是净 0 张，
+ * 只有帮自己人过一张牌还算有点用，对敌人则完全是白忙。
+ */
+function shouldInvokeYinghun(context: AIContext): boolean {
+  const me = myself(context.view)
+  const x = Math.max(0, me.maxHp - me.hp)
+  if (x <= 0) return false
+  if (x >= 2) return true
+  return context.view.players.some((player) => (
+    player.alive && player.id !== me.id && hostility(context.view, context.suspicion, player.id) <= 0
+  ))
+}
+
 /** 目标价值：先看阵营敌意，再看血少、手牌少好不好打。 */
 function targetScore(context: AIContext, targetId: PlayerId): number {
   const target = context.view.players.find((player) => player.id === targetId)
@@ -253,6 +410,10 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
         }, 0)
         break
       }
+      case '乐不思蜀':
+      case '兵粮寸断':
+        score = delayedTrickScore(context, action)
+        break
       case '决斗':
         score = 10 + Math.max(...action.targetIds.map((targetId) => targetScore(context, targetId)), 0)
         break
@@ -346,6 +507,16 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
           .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
         return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
       }
+      // 被【英魂】指到时弃自己的牌：一律从最不值钱的开始丢
+      if (request.prompt.startsWith('【英魂】：弃置')) {
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, request.min) } }
+      }
+      // 【烈刃】赢了拿对方一张牌：公开的装备优先，看不见的手牌只能盲抽
+      if (request.prompt.startsWith('【烈刃】')) {
+        return { ...base, payload: { cardIds: [chooseStolenCard(context, request.cardIds, request.hiddenCardSlots)] } }
+      }
       // 弃牌阶段挑价值最低的丢；其余场合挑第一张够用
       const sorted = request.purpose === 'discard-phase'
         ? [...request.cardIds].sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
@@ -374,6 +545,12 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 「技能还能点」的状态原地打转
       if (request.prompt.includes('体力值多于你的角色拼点')) {
         const ranked = [...request.candidateIds].sort((left, right) => quhuTargetScore(context, right) - quhuTargetScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      // 【英魂】选目标：友军按「摸 X 弃 1」补牌，敌人按「摸 1 弃 X」拆牌，
+      // 谁能拿到更大的净收益就选谁
+      if (request.prompt.includes('【英魂】')) {
+        const ranked = [...request.candidateIds].sort((left, right) => yinghunScore(context, right) - yinghunScore(context, left))
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
       // 【节命】补牌：先补自己，再补缺牌的自己人，绝不给敌人补一大把
@@ -498,6 +675,20 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       }
       if (request.prompt.includes('据守')) {
         return { ...base, payload: { optionId: decideJushou(context) ? 'yes' : 'no' } }
+      }
+      // 顺序要紧：选模式那一问的提示语里同样带「英魂」两个字，
+      // 先按提示语匹配会把 yes/no 交给一个只收 yinghun-* 的请求。**先认 option id**。
+      if (options.some((option) => option.id.startsWith('yinghun-'))) {
+        return { ...base, payload: { optionId: chooseYinghunMode(context, options) } }
+      }
+      if (request.prompt.startsWith('发动【英魂】')) {
+        return { ...base, payload: { optionId: shouldInvokeYinghun(context) ? 'yes' : 'no' } }
+      }
+      if (request.prompt.includes('烈刃')) {
+        return { ...base, payload: { optionId: shouldInvokeLieren(context) ? 'yes' : 'no' } }
+      }
+      if (request.prompt.includes('再起')) {
+        return { ...base, payload: { optionId: shouldZaiqi(me) ? 'yes' : 'no' } }
       }
       if (options.some((option) => option.id === 'shensu-judge')) {
         return { ...base, payload: { optionId: 'shensu-judge' } }

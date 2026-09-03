@@ -14,6 +14,7 @@ import { SHU_CHARACTERS } from './shu'
 import { WU_CHARACTERS } from './wu'
 import { WIND_CHARACTERS } from './wind'
 import { FIRE_CHARACTERS } from './fire'
+import { FOREST_CHARACTERS } from './forest'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -362,6 +363,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...STANDARD_CHARACTERS,
   ...WIND_CHARACTERS,
   ...FIRE_CHARACTERS,
+  ...FOREST_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 
@@ -376,6 +378,18 @@ export function getCharacter(characterId: string): CharacterDefinition | undefin
 
 export function skillIdsOf(characterId: string): string[] {
   return BY_ID.get(characterId)?.skills.map((skill) => skill.id) ?? []
+}
+
+/**
+ * 技能的中文显示名。
+ *
+ * 引擎里由公共机制代播的横幅（伤害来源改写、结算后获得牌）需要它——
+ * 那些地方只拿得到 skillId，直接把 id 打进战报会出现「【huoshou】」这种文案。
+ */
+export function skillDisplayName(state: SanguoshaState, ownerId: PlayerId, skillId: string): string {
+  const characterId = state.players.find((candidate) => candidate.id === ownerId)?.characterId
+  const found = characterId ? BY_ID.get(characterId)?.skills.find((skill) => skill.id === skillId) : undefined
+  return found?.name ?? skillId
 }
 
 provideSkillIdsLookup(skillIdsOf)
@@ -411,9 +425,14 @@ export function displayCharacterName(
   return `${character.name}${DUPLICATE_INDEX[index] ?? `（${index + 1}）`}`
 }
 
-/** 这名玩家使用锦囊时是否无视距离（奇才）。 */
+/**
+ * 这名玩家使用锦囊时是否无视距离（奇才）。
+ *
+ * 读运行时的 `ignoresTrickDistance` 标志，**不写死技能 id**——
+ * 以前这里是 `includes('qicai')`，等于把某个武将的技能名钉进了规则层，
+ * 再来一个同类锁定技就必须改这一行。徐晃【断粮】那种「只加距离、不取消限制」
+ * 的修正走另一个入口 `trickDistanceBonus`，两者互不干扰。
+ */
 export function ignoresTrickDistance(state: SanguoshaState, playerId: PlayerId): boolean {
-  const player = state.players.find((candidate) => candidate.id === playerId)
-  if (!player?.characterId) return false
-  return skillIdsOf(player.characterId).includes('qicai')
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.ignoresTrickDistance === true)
 }

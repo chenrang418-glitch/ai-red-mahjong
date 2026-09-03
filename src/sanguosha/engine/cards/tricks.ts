@@ -477,7 +477,7 @@ function finishTrick(host: CardEngineHost): void {
       moveCard(host.state, extra, { kind: 'processingArea' }, { kind: 'discardPile' })
     }
   }
-  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, resolution.targetIds, allNullified)
+  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, resolution.targetIds, allNullified, resolution.cardName)
   host.state.cardResolution = null
 }
 
@@ -606,7 +606,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       return
     case '南蛮入侵': {
       // 藤甲让南蛮/万箭完全无效：不问响应，也不造成伤害
-      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal')) {
+      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId)) {
         advanceToNextTarget(host)
         return
       }
@@ -620,7 +620,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       return
     }
     case '万箭齐发': {
-      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal')) {
+      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId)) {
         advanceToNextTarget(host)
         return
       }

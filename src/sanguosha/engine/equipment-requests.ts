@@ -4,7 +4,7 @@ import { registerSkillRuntime, type SkillHost } from './skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 import { hasWeapon } from './equipment'
-import { hiddenHandSlot } from './cards/host'
+import { hasPickableCards, movePickedCard, pickableCardsOf, resolvePickedCard } from './card-pick'
 import { locateOwnedCard, moveCard } from './zones'
 
 /**
@@ -656,8 +656,10 @@ registerSkillRuntime({
       }
       const target = host.state.players.find((player) => player.id === facts.targetId)
       if (!target?.alive) return bail()
-      const equipment = Object.values(target.zones.equipment).filter((id): id is CardId => Boolean(id))
-      if (target.zones.hand.length === 0 && equipment.length === 0) return bail()
+      if (!hasPickableCards(host.state, facts.targetId)) return bail()
+      // 手牌是暗的，只给占位槽——不能让庞德先看见点数花色再挑。
+      // 这条隐私规则由 engine/card-pick.ts 统一负责，烈刃用的是同一份。
+      const pickable = pickableCardsOf(host.state, facts.targetId)
       host.askSkill({
         skillId: MENGJIN_SKILL,
         ownerId: facts.sourceId,
@@ -671,9 +673,8 @@ registerSkillRuntime({
           timeoutMs: 20_000,
           optional: false,
           purpose: 'skill',
-          // 手牌是暗的，只给占位槽——不能让庞德先看见点数花色再挑（和反馈同一条纪律）
-          cardIds: equipment,
-          hiddenCardSlots: target.zones.hand.map((_, index) => hiddenHandSlot(facts.targetId, index)),
+          cardIds: pickable.cardIds,
+          hiddenCardSlots: pickable.hiddenCardSlots,
           min: 1,
           max: 1,
         }),
@@ -685,15 +686,8 @@ registerSkillRuntime({
       const target = host.state.players.find((player) => player.id === facts.targetId)
       if (!target?.alive) return bail()
       const [picked] = (response.payload as { cardIds: string[] }).cardIds
-      const hiddenIndex = target.zones.hand.findIndex((_, index) => hiddenHandSlot(facts.targetId, index) === picked)
-      const realId = hiddenIndex >= 0 ? target.zones.hand[hiddenIndex] : picked
-      const from = locateOwnedCard(host.state, facts.targetId, realId)
-      if (from) {
-        moveCard(host.state, realId, from, { kind: 'discardPile' })
-        if (from.kind === 'equipment') {
-          host.dispatch('LoseEquipment', { playerId: facts.targetId, cardId: realId, slot: from.slot }, { targetId: facts.targetId, cardIds: [realId] })
-        }
-      }
+      const realId = resolvePickedCard(host.state, facts.targetId, picked)
+      if (realId) movePickedCard(host, facts.targetId, realId, { kind: 'discardPile' })
       return bail()
     }
   },

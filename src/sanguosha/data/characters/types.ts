@@ -6,10 +6,10 @@ export type Gender = 'male' | 'female'
 /**
  * 武将包。**只注册技能全部实现完的武将，不放空壳。**
  *
- * `wind` / `fire` 是神话再临的风包和火包。加包时要同时更新
+ * `wind` / `fire` / `forest` 是神话再临的风包、火包和林包。加包时要同时更新
  * `ALL_CHARACTERS` 的汇入，否则新武将进不了候选池。
  */
-export type CharacterPack = 'standard' | 'wind' | 'fire' | 'entertainment'
+export type CharacterPack = 'standard' | 'wind' | 'fire' | 'forest' | 'entertainment'
 
 export interface CharacterSkillInfo {
   id: string

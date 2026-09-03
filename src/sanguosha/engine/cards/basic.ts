@@ -4,7 +4,7 @@ import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
-import { effectiveCardColor, getSkillRuntime, isTargetProhibited, skillsOf } from '../skills/runtime'
+import { effectiveCardColor, getSkillRuntime, isTargetProhibited, skillsOf, trickDistanceBonusOf } from '../skills/runtime'
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
@@ -42,6 +42,17 @@ function viewAsPlayOptions(state: SanguoshaState, playerId: PlayerId) {
 
 function hasDelayedTrick(state: SanguoshaState, playerId: PlayerId, name: string): boolean {
   return player(state, playerId).zones.judgingArea.some((cardId) => effectiveCardName(state, cardId) === name)
+}
+
+function canPlaceDelayedTrick(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, name: string): boolean {
+  const target = player(state, targetId)
+  if (!target.alive) return false
+  if (name === '闪电') return targetId === sourceId && !hasDelayedTrick(state, targetId, name)
+  if (targetId === sourceId || hasDelayedTrick(state, targetId, name)) return false
+  if (isTargetProhibited(state, sourceId, targetId, name, skillIdsOf)) return false
+  if (name !== '兵粮寸断') return true
+  if (ignoresTrickDistance(state, sourceId)) return true
+  return getDistance(state, sourceId, targetId) <= 1 + trickDistanceBonusOf(state, sourceId, targetId, name, skillIdsOf)
 }
 
 /** 只从当前公开规则状态生成操作；客户端不自行推断距离或卡牌用途。 */
@@ -104,15 +115,14 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     } else if (INSTANT_TRICKS.has(card.name)) {
       actions.push(...instantTrickActions(state, playerId, cardId))
     } else if (card.name === '乐不思蜀') {
-      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && !isTargetProhibited(state, playerId, candidate.id, card.name, skillIdsOf) && !hasDelayedTrick(state, candidate.id, card.name))) {
+      for (const target of state.players.filter((candidate) => canPlaceDelayedTrick(state, playerId, candidate.id, card.name))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【乐不思蜀】`))
       }
     } else if (card.name === '兵粮寸断') {
-      const ignoreDistance = ignoresTrickDistance(state, playerId)
-      for (const target of state.players.filter((candidate) => candidate.alive && candidate.id !== playerId && !isTargetProhibited(state, playerId, candidate.id, card.name, skillIdsOf) && (ignoreDistance || getDistance(state, playerId, candidate.id) <= 1) && !hasDelayedTrick(state, candidate.id, card.name))) {
+      for (const target of state.players.filter((candidate) => canPlaceDelayedTrick(state, playerId, candidate.id, card.name))) {
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【兵粮寸断】`))
       }
-    } else if (card.name === '闪电' && !hasDelayedTrick(state, playerId, card.name)) {
+    } else if (card.name === '闪电' && canPlaceDelayedTrick(state, playerId, playerId, card.name)) {
       actions.push(useAction(cardId, playerId, card.name, [playerId], '将【闪电】置入自己的判定区'))
     }
   }
@@ -152,10 +162,7 @@ export function declaredCardActions(
   // 转化成延时锦囊（大乔【国色】）：放进目标判定区，判定时按转化后的牌名结算
   if (DELAYED_TRICKS.has(asCardName)) {
     for (const target of state.players) {
-      if (!target.alive) continue
-      // 同名延时锦囊不能叠，闪电例外（它会自己往下传）
-      if (asCardName !== '闪电' && hasDelayedTrick(state, target.id, asCardName)) continue
-      if (isTargetProhibited(state, playerId, target.id, asCardName, skillIdsOf)) continue
+      if (!canPlaceDelayedTrick(state, playerId, target.id, asCardName)) continue
       actions.push({
         ...useAction(cardId, playerId, asCardName, [target.id], `${label}，目标${target.nickname}`),
         id: `play:viewas:${cardId}:${target.id}`,
@@ -241,7 +248,7 @@ function beginSlash(
   const [cardId, ...extraCardIds] = action.cardIds
   const [targetId, ...remainingTargetIds] = action.targetIds
   const card = host.state.cards[cardId]
-  if (!beginPhysicalCard(host, action.playerId, cardId, action.targetIds)) return
+  if (!beginActionPhysicalCard(host, action.playerId, cardId, action.targetIds, '杀')) return
   // 丈八蛇矛：第二张牌和主牌一起进处理区，结算结束时一起弃掉
   for (const extra of extraCardIds) {
     moveCard(host.state, extra, { kind: 'hand', playerId: action.playerId }, { kind: 'processingArea' })
@@ -259,6 +266,15 @@ function beginSlash(
     dodgeRemaining: slashDodgeRequirement(host, action.playerId),
   }
   enterSlashTarget(host)
+}
+
+/** 支持转化技从装备区使用牌，并保证装备离场时机只走一次。 */
+function beginActionPhysicalCard(host: CardEngineHost, playerId: PlayerId, cardId: CardId, targetIds: PlayerId[], cardName: string): boolean {
+  const from = locateOwnedCard(host.state, playerId, cardId)
+  if (!from || from.kind === 'judgingArea') throw new Error('卡牌不属于出牌玩家的手牌区或装备区')
+  const started = beginPhysicalCard(host, playerId, cardId, targetIds, cardName, from)
+  if (from.kind === 'equipment') handleEquipmentLost(host, playerId, cardId)
+  return started
 }
 
 /**
@@ -329,7 +345,7 @@ function enterSlashTarget(host: CardEngineHost): void {
   if (resolution?.kind !== 'slash') return
   const card = host.state.cards[resolution.cardId]
   const slashColor = card.virtual ? null : effectiveCardColor(host.state, resolution.sourceId, card.id, skillIdsOf)
-  if (isCardIneffective(host.state, resolution.targetId, '杀', slashColor, card.damageNature ?? 'normal')) {
+  if (isCardIneffective(host.state, resolution.targetId, '杀', slashColor, card.damageNature ?? 'normal', resolution.sourceId)) {
     continueSlash(host)
     return
   }
@@ -389,7 +405,7 @@ function continueSlash(host: CardEngineHost): void {
 
 /** 结束一次【杀】的结算：主牌和一起打出的额外牌都进弃牌堆。 */
 function finishSlash(host: CardEngineHost, resolution: SlashResolutionState): void {
-  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId])
+  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, [resolution.targetId], false, '杀')
   discardExtras(host, resolution.extraCardIds)
 }
 
@@ -569,11 +585,11 @@ function askLordSurrogate(host: CardEngineHost, resolution: SlashResolutionState
 function placeDelayedTrick(host: CardEngineHost, action: Extract<LegalAction, { kind: 'use-card' }>): void {
   const [cardId] = action.cardIds
   const [targetId] = action.targetIds
-  if (!beginPhysicalCard(host, action.playerId, cardId, [targetId])) return
+  if (!beginActionPhysicalCard(host, action.playerId, cardId, [targetId], action.asCardName)) return
   // 转化过来的延时锦囊要把「当作什么用」记下来，判定时才按它结算
   if (action.asCardName) setCardAlias(host.state, cardId, action.asCardName)
   moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: targetId })
-  finishPhysicalCard(host, action.playerId, cardId, [targetId])
+  finishPhysicalCard(host, action.playerId, cardId, [targetId], false, action.asCardName)
 }
 
 export function performPlayAction(host: CardEngineHost, playerId: PlayerId, actionId: string): void {
@@ -636,8 +652,10 @@ export function executeUseCardAction(
   const [cardId] = action.cardIds
   const card = host.state.cards[cardId]
   // 丈八蛇矛会带两张牌，每一张都要确认在自己手上
-  const hand = player(host.state, playerId).zones.hand
-  if (!card || action.cardIds.some((id) => !hand.includes(id))) throw new Error('卡牌不属于出牌玩家')
+  if (!card || action.cardIds.some((id) => {
+    const zone = locateOwnedCard(host.state, playerId, id)
+    return !zone || zone.kind === 'judgingArea'
+  })) throw new Error('卡牌不属于出牌玩家')
 
   // 重铸：弃掉这张牌摸一张，不算「使用」，所以不进处理区、没有无懈窗口
   if (action.id.startsWith('play:recast:')) {
@@ -663,12 +681,12 @@ export function executeUseCardAction(
     return
   }
   if (INSTANT_TRICKS.has(effectiveName)) {
-    if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return
+    if (!beginActionPhysicalCard(host, playerId, cardId, action.targetIds, effectiveName)) return
     // 多张实体牌换一张锦囊（袁绍【乱击】）：第一张当主牌，其余跟着一起走
     beginInstantTrick(host, playerId, cardId, action.targetIds, effectiveName, action.cardIds.slice(1))
     return
   }
-  if (!beginPhysicalCard(host, playerId, cardId, action.targetIds)) return
+  if (!beginActionPhysicalCard(host, playerId, cardId, action.targetIds, effectiveName)) return
   // 这里也要看 effectiveName：转化成【桃】【酒】的牌（于吉【蛊惑】）
   // 按印刷名字判断会掉进最后那个 throw，等于「转化成桃」根本用不出来。
   // 装备只可能是它本身，所以那一支仍然按实体牌算。
@@ -684,7 +702,7 @@ export function executeUseCardAction(
   } else {
     throw new Error(`尚未实现卡牌：${effectiveName}`)
   }
-  finishPhysicalCard(host, playerId, cardId, action.targetIds)
+  finishPhysicalCard(host, playerId, cardId, action.targetIds, false, effectiveName)
 }
 
 function removeResponseRequest(state: SanguoshaState, requestId: string): void {

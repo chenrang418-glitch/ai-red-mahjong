@@ -19,6 +19,7 @@ for (const playerCount of counts) {
   const started = Date.now()
   const turns = []
   const camps = {}
+  const counters = {}
   for (let index = 0; index < perCount; index += 1) {
     const seed = `soak-${playerCount}-${index}`
     try {
@@ -26,6 +27,7 @@ for (const playerCount of counts) {
       if (!result.finished) throw new Error('牌局没有正常结束')
       turns.push(result.turns)
       camps[result.winningCamp ?? 'none'] = (camps[result.winningCamp ?? 'none'] ?? 0) + 1
+      for (const [key, value] of Object.entries(result.counters ?? {})) counters[key] = (counters[key] ?? 0) + value
     } catch (cause) {
       failures += 1
       console.error(`失败：seed=${seed} 人数=${playerCount}`)
@@ -37,6 +39,13 @@ for (const playerCount of counts) {
     `${playerCount} 人局 ${perCount} 局${characterIds?.length ? `（固定 ${characterIds.join('、')}）` : ''}：完成 ${turns.length}，平均 ${average} 回合，`
     + `最长 ${Math.max(...turns, 0)} 回合，阵营 ${JSON.stringify(camps)}，耗时 ${Date.now() - started}ms`,
   )
+  // 专项压测时把机制计数打出来：某个关键机制 0 次就说明这轮压根没测到它
+  if (characterIds?.length) {
+    const shown = Object.entries(counters)
+      .filter(([key]) => key.startsWith('skill:') || key.startsWith('viewas:') || key.startsWith('skip:') || key === 'recover')
+      .sort((left, right) => right[1] - left[1])
+    console.log(`  机制计数：${shown.map(([key, value]) => `${key}=${value}`).join(' ') || '（无）'}`)
+  }
 }
 
 if (failures > 0) {
