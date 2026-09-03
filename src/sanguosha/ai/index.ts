@@ -783,6 +783,24 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
           .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
         return { ...base, payload: { cardIds: cheapest.slice(0, request.min) } }
       }
+      // 【护犊】把“是否发动”和弃牌代价合在一个可取消请求里：只救友方，
+      // 并从最不值钱的牌开始付代价。
+      if (request.prompt.includes('是否发动【护犊】')) {
+        const nickname = /令(.+?)回复1点体力/.exec(request.prompt)?.[1]
+        const target = nickname ? context.view.players.find((player) => player.nickname === nickname) : undefined
+        if (target && hostility(context.view, context.suspicion, target.id) > 0) {
+          return { ...base, payload: { cardIds: [] } }
+        }
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
+      }
+      // 禁酒额外代价：通常保住已经投入的【酒】，但只弃最低价值牌。
+      if (request.prompt.startsWith('使用【酒】须额外弃置')) {
+        const cheapest = [...request.cardIds]
+          .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
+        return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
+      }
       // 【烈刃】赢了拿对方一张牌：公开的装备优先，看不见的手牌只能盲抽
       if (request.prompt.startsWith('【烈刃】')) {
         return { ...base, payload: { cardIds: [chooseStolenCard(context, request.cardIds, request.hiddenCardSlots)] } }
@@ -887,6 +905,27 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 有别的选项就不要碰它。其余选项仍然随机，避免 AI 行为过于死板。
       const me = myself(context.view)
       const options = request.options
+      if (options.some((option) => option.id === 'wine') && options.some((option) => option.id === 'none')) {
+        const enemies = context.view.players.filter((player) => player.alive && player.id !== me.id
+          && hostility(context.view, context.suspicion, player.id) > 0)
+        const wineEnemies = enemies.filter((player) => player.characterId === 'shanshui').length
+        const weighted = [
+          ...Array(Math.max(1, wineEnemies * 3)).fill('wine'),
+          ...Array(Math.max(1, enemies.length)).fill('limit'),
+          ...Array(Math.max(1, Math.floor(enemies.length / 2))).fill('study'),
+          'none',
+        ] as string[]
+        const allowed = new Set(options.map((option) => option.id))
+        const candidates = weighted.filter((id) => allowed.has(id))
+        return { ...base, payload: { optionId: context.rng.pick(candidates.length > 0 ? candidates : ['none']) } }
+      }
+      if (options.some((option) => option.id === 'slash') && request.prompt.startsWith('【群怒】')) {
+        const nickname = /对(.+?)出【杀】/.exec(request.prompt)?.[1]
+        const target = nickname ? context.view.players.find((player) => player.nickname === nickname) : undefined
+        const targetIsEnemy = target ? hostility(context.view, context.suspicion, target.id) > 0 : true
+        const optionId = targetIsEnemy || me.hp <= 1 ? 'slash' : 'lose-hp'
+        return { ...base, payload: { optionId } }
+      }
       if (options.some((option) => option.id === 'fadai-invoke')) {
         const hasDodge = me.hand?.some((card) => card.name === '闪') ?? false
         // 没闪时发动只有收益；一血且有闪时保留确定的防御，避免赌失败后无法响应。

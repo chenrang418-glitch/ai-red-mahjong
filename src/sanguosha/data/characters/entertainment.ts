@@ -13,6 +13,8 @@ import { NIULAI_CHARACTER } from './entertainment-niulai'
 import { XULAOBAN } from './entertainment-xulaoban'
 // 无亮要动身份与主公体力上限，同样单独一个文件
 import { WULIANG } from './entertainment-wuliang'
+import { YIXING } from './entertainment-yixing'
+import { SHANSHUI } from './entertainment-shanshui'
 
 /** 好友娱乐包：只放原创且技能完整可玩的武将。 */
 
@@ -229,4 +231,4 @@ export const ENTERTAINMENT_CHARACTERS: readonly CharacterDefinition[] = [{
       description: '每回合限一次，当你成为其他角色使用的【杀】或普通锦囊牌的目标后，你可以展示牌堆顶一张牌：若为方块，取消你作为此牌的目标并弃置之；否则你获得之，且不能响应此牌。',
     },
   ],
-}, NAIWA, NIULAI_CHARACTER, XULAOBAN, WULIANG] as const
+}, NAIWA, NIULAI_CHARACTER, XULAOBAN, WULIANG, YIXING, SHANSHUI] as const

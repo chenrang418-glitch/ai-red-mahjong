@@ -4,7 +4,7 @@ import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
-import { effectiveCardColor, getSkillRuntime, isTargetProhibited, skillsOf, trickDistanceBonusOf } from '../skills/runtime'
+import { effectiveCardColor, getSkillRuntime, isCardUseProhibited, isTargetProhibited, skillsOf, trickDistanceBonusOf } from '../skills/runtime'
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
@@ -61,9 +61,11 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   const source = player(state, playerId)
   if (!source.alive) return []
   const actions: LegalAction[] = [{ id: 'play:pass', kind: 'pass', playerId, label: '结束出牌', requestId: `play-${state.turnNumber}` }]
+  const allCardUseBlocked = isCardUseProhibited(state, playerId, '', { dyingPlayerId: null }, skillIdsOf)
 
   // 主动技（苦肉等）：技能自己报告现在能不能发动，前端不猜
   for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    if (allCardUseBlocked && runtime.activeActionUsesCard) continue
     for (const option of runtime.activeActions?.(state, playerId) ?? []) {
       actions.push({ id: option.id, kind: 'invoke-skill', playerId, label: option.label, skillId: runtime.id, cardIds: [], targetIds: [] })
     }
@@ -90,8 +92,10 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   // 丈八蛇矛和方天画戟都会产生大量组合（6 张手牌 × 4 个目标就是 60 条动作，
   // 界面上选中一张牌会冒出 20 个按钮，手机上根本没法用）。
   // 改成和主动技一样的两步交互：一个按钮，然后选牌、选目标。
-  for (const option of equipmentPlayActions(state, playerId)) {
-    actions.push({ id: option.id, kind: 'invoke-skill', playerId, label: option.label, skillId: option.skillId, cardIds: [], targetIds: [] })
+  if (!allCardUseBlocked) {
+    for (const option of equipmentPlayActions(state, playerId)) {
+      actions.push({ id: option.id, kind: 'invoke-skill', playerId, label: option.label, skillId: option.skillId, cardIds: [], targetIds: [] })
+    }
   }
 
   for (const cardId of source.zones.hand) {
@@ -126,7 +130,8 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
       actions.push(useAction(cardId, playerId, card.name, [playerId], '将【闪电】置入自己的判定区'))
     }
   }
-  return actions
+  return actions.filter((action) => action.kind !== 'use-card'
+    || !isCardUseProhibited(state, playerId, action.asCardName, { dyingPlayerId: null }, skillIdsOf))
 }
 
 /**
@@ -210,11 +215,13 @@ export function declaredCardActions(
  */
 function slashTargetCombos(state: SanguoshaState, playerId: PlayerId): PlayerId[][] {
   const rules = slashRules(state, playerId)
+  const skillIgnoreDistance = skillsOf(state, playerId, skillIdsOf)
+    .some((runtime) => runtime.slashIgnoresDistance?.(state, playerId) ?? false)
   const legal = state.players
     .filter((target) => {
       if (isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) return false
       // 无距离限制时只剩「不是自己、还活着」两条
-      if (rules.ignoreDistance) return target.alive && target.id !== playerId
+      if (rules.ignoreDistance || skillIgnoreDistance) return target.alive && target.id !== playerId
       return canTarget(state, playerId, target.id)
     })
     .map((target) => target.id)
@@ -246,9 +253,17 @@ function beginSlash(
   options: { countUsage?: boolean; consumeWine?: boolean } = {},
 ): void {
   const [cardId, ...extraCardIds] = action.cardIds
-  const [targetId, ...remainingTargetIds] = action.targetIds
+  let targetIds = [...action.targetIds]
+  const candidateIds = host.state.players
+    .filter((target) => target.alive && target.id !== action.playerId && !targetIds.includes(target.id)
+      && !isTargetProhibited(host.state, action.playerId, target.id, '杀', skillIdsOf, cardId))
+    .map((target) => target.id)
+  for (const runtime of skillsOf(host.state, action.playerId, skillIdsOf)) {
+    targetIds = runtime.modifySlashTargets?.(host, action.playerId, targetIds, candidateIds) ?? targetIds
+  }
+  const [targetId, ...remainingTargetIds] = targetIds
   const card = host.state.cards[cardId]
-  if (!beginActionPhysicalCard(host, action.playerId, cardId, action.targetIds, '杀')) return
+  if (!beginActionPhysicalCard(host, action.playerId, cardId, targetIds, '杀')) return
   // 丈八蛇矛：第二张牌和主牌一起进处理区，结算结束时一起弃掉
   for (const extra of extraCardIds) {
     moveCard(host.state, extra, { kind: 'hand', playerId: action.playerId }, { kind: 'processingArea' })
@@ -685,6 +700,7 @@ export function executeUseCardAction(
   host: CardEngineHost,
   playerId: PlayerId,
   action: Extract<LegalAction, { kind: 'use-card' }>,
+  options: { skipPlayInterceptors?: boolean } = {},
 ): void {
   const [cardId] = action.cardIds
   const card = host.state.cards[cardId]
@@ -693,6 +709,22 @@ export function executeUseCardAction(
     const zone = locateOwnedCard(host.state, playerId, id)
     return !zone || zone.kind === 'judgingArea'
   })) throw new Error('卡牌不属于出牌玩家')
+  if (isCardUseProhibited(host.state, playerId, action.asCardName, { dyingPlayerId: null }, skillIdsOf)) {
+    /*
+     * 多步技能可能在动作合法时开始、跨过若干 Request 后才真正续接到这里。
+     * 期间若【限行】已经封住用牌，这条旧动作应安全失效，不能绕过限制，
+     * 更不能抛错把整个联机房间打断。普通出牌仍由 legalPlayActions 提前隐藏。
+     */
+    return
+  }
+  if (!options.skipPlayInterceptors) {
+    for (const owner of host.state.players) {
+      if (!owner.alive) continue
+      for (const runtime of skillsOf(host.state, owner.id, skillIdsOf)) {
+        if (runtime.interceptPlayAction?.(host, owner.id, action)) return
+      }
+    }
+  }
 
   // 重铸：弃掉这张牌摸一张，不算「使用」，所以不进处理区、没有无懈窗口
   if (action.id.startsWith('play:recast:')) {

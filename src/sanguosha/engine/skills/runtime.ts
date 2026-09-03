@@ -1,5 +1,6 @@
 
 import type { EventContext, GameEvent, GameEventName } from '../events'
+import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
 import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit } from '../types'
@@ -134,8 +135,20 @@ export interface SkillRuntime {
   announcesSelf?: boolean
   /** 挂到事件总线上的触发技。 */
   triggers?: SkillTrigger[]
+  /**
+   * 主动用牌真正进入处理区之前的可挂起拦截点。
+   * 返回 true 表示技能已经发出可序列化 Request，原动作暂不继续。
+   */
+  interceptPlayAction?(host: SkillHost, ownerId: PlayerId, action: Extract<LegalAction, { kind: 'use-card' }>): boolean
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
+  /** 条件式无距离使用【杀】；状态必须来自可序列化牌局数据。 */
+  slashIgnoresDistance?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /**
+   * 【杀】实际开始前由服务器补充目标。候选已经过存活、自身和禁止目标检查；
+   * 随机选择必须使用 host.rng。
+   */
+  modifySlashTargets?(host: SkillHost, ownerId: PlayerId, targetIds: PlayerId[], candidateIds: PlayerId[]): PlayerId[]
   /** 锁定技：使用锦囊时无视距离限制（奇才）。 */
   ignoresTrickDistance?: boolean
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
@@ -247,6 +260,8 @@ export interface SkillRuntime {
    * 和转化技一样，不能让前端自己猜「现在能不能发动」。
    */
   activeActions?(state: SanguoshaState, ownerId: PlayerId): Array<{ id: string; label: string }>
+  /** 该主动入口最终会使用一张牌；被【限行】等规则封牌后不再展示。 */
+  activeActionUsesCard?: boolean
   /**
    * 主公技授权：**拥有者的技能**给**别人**的出牌阶段加一条动作（黄天）。
    *

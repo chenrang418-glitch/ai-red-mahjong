@@ -330,6 +330,18 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 16%', scale: 1.3 },
     credit: '用户提供·无亮（原创娱乐武将）',
   },
+  /* 奕星为上半身文士像，冠帽较高，焦点略微上移 */
+  yixing: {
+    desktop: { position: '50% 18%', scale: 1.05 },
+    mobile: { position: '50% 16%', scale: 1.2 },
+    credit: '用户提供·奕星（原创娱乐武将）',
+  },
+  /* 善水手持器物向前，脸在正中偏上，保留手部动作 */
+  shanshui: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·善水（原创娱乐武将）',
+  },
   /* 贾诩是清瘦文士像，脸在正中略偏上 */
   jiaxu: {
     desktop: { position: '50% 19%', scale: 1.0 },

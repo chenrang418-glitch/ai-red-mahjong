@@ -73,6 +73,7 @@ export function validateLuanjiCards(state: SanguoshaState, ownerId: PlayerId, ca
 registerSkillRuntime({
   id: LUANJI,
   announcesSelf: true,
+  activeActionUsesCard: true,
 
   activeActions(state, ownerId) {
     // 经典乱击**没有次数限制**，只要凑得出两张同花色就能再来一次

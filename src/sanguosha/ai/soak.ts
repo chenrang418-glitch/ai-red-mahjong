@@ -116,12 +116,18 @@ export function runSoakGame(options: SoakOptions): SoakResult {
   game.start()
 
   let steps = 0
+  const recentSteps: string[] = []
+  const remember = (entry: string): void => {
+    recentSteps.push(entry)
+    if (recentSteps.length > 12) recentSteps.shift()
+  }
   while (game.state.status === 'playing') {
-    if (steps++ > maxSteps) fail('牌局没有在步数上限内结束，疑似死锁', steps)
+    if (steps++ > maxSteps) fail(`牌局没有在步数上限内结束，疑似死锁；最近步骤：${recentSteps.join(' -> ')}`, steps)
 
     // 有待处理请求就先处理：这是唯一可能卡住的地方
     const request = game.state.pendingRequests[0]
     if (request) {
+      remember(`request:${request.kind}:${request.playerId}`)
       const before = game.state.seq
       game.respond(decideResponse(contextFor(request.playerId), request))
       if (game.state.seq === before && game.state.pendingRequests[0]?.id === request.id) {
@@ -136,6 +142,7 @@ export function runSoakGame(options: SoakOptions): SoakResult {
       const playerId = game.state.currentPlayerId
       const action = decidePlayAction(contextFor(playerId), game.legalActions(playerId))
       if (action) {
+        remember(`action:${action.id}:${playerId}`)
         /*
          * 转化技产出的动作单独记一笔：CardUsed 只看得到「用了一张兵粮寸断」，
          * 分不出这张是实体牌还是断粮换来的。
@@ -148,17 +155,23 @@ export function runSoakGame(options: SoakOptions): SoakResult {
           const printed = game.state.cards[action.cardIds[0]]?.name
           if (action.asCardName && printed && printed !== action.asCardName) bump(`viewas:${action.asCardName}`)
         }
+        const before = game.state.seq
         game.act(playerId, action.id)
+        if (game.state.seq === before && game.legalActions(playerId).some((candidate) => candidate.id === action.id)) {
+          fail(`Action ${action.id} 执行后没有推进`, steps)
+        }
       }
       else {
         const pass = game.legalActions(playerId).find((candidate) => candidate.kind === 'pass')
         if (!pass) fail('出牌阶段既没有可用动作也没有结束动作', steps)
+        remember(`action:${pass!.id}:${playerId}`)
         game.act(playerId, pass!.id)
       }
     } else {
       // 当前玩家可能在自己回合里死掉（苦肉掉到零没人救、决斗输了、自己的闪电劈到自己）。
       // 引擎正确地不给死人发动作，推进回合是驱动层的责任——
       // 联机那边由 Durable Object 的 alarm 做同一件事。
+      remember(`advance:${game.state.phase}:${game.state.currentPlayerId}`)
       game.advancePhase()
     }
 

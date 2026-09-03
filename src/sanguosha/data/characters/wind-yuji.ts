@@ -86,6 +86,7 @@ function hasAnyDeclaration(state: SanguoshaState, ownerId: PlayerId): boolean {
 
 registerSkillRuntime({
   id: GUHUO,
+  activeActionUsesCard: true,
   // 扣牌、声明、质疑各有自己的横幅文案，引擎那条通用的会和它撞在一起
   announcesSelf: true,
 

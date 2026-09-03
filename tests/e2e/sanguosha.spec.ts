@@ -19,6 +19,8 @@ const CUSTOM_CHARACTERS = ALL_CHARACTERS.filter((character) => character.pack ==
 
 const PORTRAIT = { width: 393, height: 852 }
 const LANDSCAPE = { width: 852, height: 393 }
+const DESKTOP = { width: 1280, height: 800 }
+const WIDE_LANDSCAPE = { width: 932, height: 430 }
 
 async function expectNoPageScroll(page: Page) {
   const scroll = await page.evaluate(() => ({
@@ -59,7 +61,7 @@ async function enterTable(page: Page, playerCount?: number) {
   await expect(page.locator('.sgs-table')).toBeVisible({ timeout: 15_000 })
 }
 
-for (const viewport of [PORTRAIT, LANDSCAPE]) {
+for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
   const label = `${viewport.width}x${viewport.height}`
 
   test(`${label} 单机牌桌一屏可玩`, async ({ page }) => {
@@ -186,7 +188,9 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   const customCards = page.locator('.sgs-dock__general--custom')
   await expect(customCards).toHaveCount(CUSTOM_CHARACTERS.length)
   for (const name of CUSTOM_CHARACTERS) {
-    await expect(customCards.filter({ hasText: name })).toHaveCount(1)
+    // 技能说明可能提到另一名娱乐武将（例如善水的【醉闹】会写到平头方块），
+    // 所以只检查卡片标题，不能拿整张卡的全文做包含匹配。
+    await expect(customCards.locator(':scope > strong').filter({ hasText: name })).toHaveCount(1)
   }
 
   await page.getByRole('button', { name: '自选', exact: true }).click()
