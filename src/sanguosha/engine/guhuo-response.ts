@@ -61,7 +61,10 @@ export function canGuhuoRespond(
   requiredCardName: string,
   skillIdsOf: (characterId: string) => string[],
 ): boolean {
-  if (state.guhuoResponse) return false
+  // granted/declined 只存在于同步重放原响应的最后一瞬间。无双可能在这次重放
+  // 内立刻生成“第二张闪/杀”请求；新请求应当带上下一次蛊惑入口，但真正提交
+  // 要等当前调用返回，此时旧状态已经清空，所以不会形成嵌套质疑。
+  if (state.guhuoResponse && !['granted', 'declined'].includes(state.guhuoResponse.stage)) return false
   if (state.groupDecision) return false
   if (!hasGuhuo(state, playerId, skillIdsOf)) return false
   // 声明的必须是基本牌或非延时锦囊——求牌场合本来也只会要这几种
@@ -101,9 +104,17 @@ export function beginGuhuoRespond(host: SkillHost, request: GameRequest): void {
     requiredCardName,
     cardId: null,
     stage: 'declaring',
+    penaltyPlayerIds: [],
+    grantedAfterPenalties: false,
+    suspendedDying: request.kind === 'rescue' && host.state.dying
+      ? structuredClone(host.state.dying)
+      : null,
     // 原请求原样存着：质疑结束之后要把它放回去再重放一次回答
     request: structuredClone(request),
   }
+  // 求桃本身就是一条濒死流程。质疑期间若有人因失去体力进入濒死，
+  // 必须让新的流程暂时占用 state.dying，原流程跟随蛊惑上下文序列化挂起。
+  if (request.kind === 'rescue' && host.state.dying) host.state.dying = null
   host.askSkill({
     skillId: GUHUO,
     ownerId,
@@ -196,21 +207,60 @@ registerGroupDecision(CHALLENGE_TAG, (host, decision) => {
     declaredName: pending.requiredCardName, truthful, challengerIds: [...challengers],
   }, { sourceId: ownerId, cardIds: [cardId] })
 
-  for (const challengerId of challengers) {
+  pending.stage = 'penalizing'
+  pending.penaltyPlayerIds = [...challengers]
+  pending.grantedAfterPenalties = truthful && realCard.suit === 'heart'
+  continueGuhuoResponseAfterDying(skillHost, truthful)
+})
+
+/**
+ * 依次结算质疑者。若某人因失去体力进入濒死，就把剩余名单留在状态中；
+ * 该濒死流程结束后由 Game 重新调用这里，能够跨 DO 休眠与断线恢复。
+ */
+export function continueGuhuoResponseAfterDying(host: SkillHost, truthfulOverride?: boolean): boolean {
+  const pending = host.state.guhuoResponse
+  if (!pending || pending.stage !== 'penalizing') return false
+  const cardId = pending.cardId
+  const realCard = cardId ? host.state.cards[cardId] : null
+  const truthful = truthfulOverride ?? Boolean(realCard && realCard.name === pending.requiredCardName)
+  const remaining = pending.penaltyPlayerIds ?? []
+
+  while (!host.state.dying && remaining.length > 0 && host.state.status === 'playing') {
+    const challengerId = remaining.shift()!
     const challenger = playerOf(host.state, challengerId)
     if (!challenger?.alive) continue
-    // 失去体力，不是伤害——奸雄、遗计、刚烈、狂骨都不该被触发
-    if (truthful) loseHp(skillHost, challengerId, 1, GUHUO)
-    else {
-      drawCards(host.state, skillHost.rng, challengerId, 1, (name, payload) => {
-        skillHost.dispatch(name, { ...payload, reason: GUHUO })
+    if (truthful) {
+      // 失去体力，不是伤害；若进入濒死，循环会停在这里等待完整救援。
+      loseHp(host, challengerId, 1, GUHUO)
+    } else {
+      drawCards(host.state, host.rng, challengerId, 1, (name, payload) => {
+        host.dispatch(name, { ...payload, reason: GUHUO })
       })
     }
   }
 
-  // 被质疑的牌一律弃置且不再生效，唯一例外是红桃且为真
-  finishGuhuoRespond(skillHost, truthful && realCard.suit === 'heart')
-})
+  if (host.state.dying) return true
+  if (host.state.status !== 'playing') {
+    abortGuhuoRespond(host)
+    return true
+  }
+  finishGuhuoRespond(host, Boolean(pending.grantedAfterPenalties))
+  return true
+}
+
+/**
+ * 质疑惩罚可能直接令牌局结束。此时原请求已经没有继续结算的意义，不能再把它
+ * 放回队列，否则结束后的状态里会残留一条永远无法回答的请求。
+ */
+function abortGuhuoRespond(host: SkillHost): void {
+  const pending = host.state.guhuoResponse
+  if (!pending) return
+  if (pending.cardId && privateZoneCards(host.state, ZONE_ID).includes(pending.cardId)) {
+    moveOutOfPrivateZone(host.state, pending.cardId, ZONE_ID, { kind: 'discardPile' })
+  }
+  closePrivateZone(host.state, ZONE_ID)
+  host.state.guhuoResponse = null
+}
 
 /**
  * 收尾：把原请求放回去，再替于吉重放一次回答。
@@ -251,6 +301,8 @@ function finishGuhuoRespond(host: SkillHost, granted: boolean): void {
   if (Array.isArray(replayRequest.actionIds) && !replayRequest.actionIds.includes(actionId)) {
     replayRequest.actionIds = [...replayRequest.actionIds, actionId]
   }
+  // 若原请求是求桃，先恢复它所属的那条濒死流程，再把原请求原样放回去。
+  if (pending.suspendedDying) host.state.dying = structuredClone(pending.suspendedDying)
   host.state.pendingRequests.push(replayRequest)
   const response: GameResponse = { requestId: request.id, playerId: ownerId, payload: { actionId } }
   const replay = host as unknown as { respondInner(response: GameResponse): void }

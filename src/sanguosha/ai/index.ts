@@ -258,7 +258,13 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       }
       // 蛊惑扣掉的牌不管真假都花出去了，所以挑手上最不值钱的那张
       if (request.prompt.startsWith('【蛊惑】')) {
-        const cheapest = [...request.cardIds]
+        const declaredName = /当作【(.+?)】打出/.exec(request.prompt)?.[1]
+        const truthfulCards = declaredName
+          ? request.cardIds.filter((cardId) => cardName(context, cardId) === declaredName)
+          : []
+        // AI 已决定“真蛊惑”时，必须真的扣同名牌；否则才拿低价值牌诈。
+        const candidates = truthfulCards.length > 0 ? truthfulCards : request.cardIds
+        const cheapest = [...candidates]
           .sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
         return { ...base, payload: { cardIds: cheapest.slice(0, 1) } }
       }
@@ -348,6 +354,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id.startsWith('ganggan-borrow:'))) {
         return { ...base, payload: { optionId: decideGanggan(context) } }
       }
+      // ── 许老板【空手套白狼】：只按公开手牌数和自身险情判断 ──
+      if (options.some((option) => option.id === 'kongshou-invoke')) {
+        return { ...base, payload: { optionId: decideKongshou(context) ? 'kongshou-invoke' : 'cancel' } }
+      }
       // ── 于吉【蛊惑】：声明要用哪张牌 ──
       if (options.some((option) => option.id.startsWith('guhuo-name:'))) {
         return { ...base, payload: { optionId: declareGuhuo(context, options) } }
@@ -405,6 +415,12 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         ?? preferPlay(request.actionIds, 'respond-trick:')
         ?? (request.requiredCardName === '无懈可击' ? nullificationChoice(context, request.actionIds) : null)
         ?? (request.actionIds.includes('invoke-bagua') ? 'invoke-bagua' : null)
+      // 有真牌时也偶尔选择真蛊惑，而不是永远走普通响应。随后选牌分支会确保
+      // 扣下的确实是同名牌；简单难度仍保持更直接的打法。
+      if (played && request.actionIds.includes('guhuo-respond')
+        && context.difficulty !== 'easy' && context.rng.nextInt(5) === 0) {
+        return { ...base, payload: { actionId: 'guhuo-respond' } }
+      }
       if (played) return { ...base, payload: { actionId: played } }
       /*
        * 于吉【蛊惑】打出模式：手上真的没有这张牌时才诈一次。
@@ -432,6 +448,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 敌意为负说明是自己人（尤其是主公），一定要救
       const worthSaving = savingSelf || hostility(context.view, context.suspicion, request.dyingPlayerId) <= 0
       if (!worthSaving) return { ...base, payload: { actionId: 'rescue-pass' } }
+      if (playable.length > 0 && request.actionIds.includes('guhuo-respond')
+        && context.difficulty !== 'easy' && context.rng.nextInt(6) === 0) {
+        return { ...base, payload: { actionId: 'guhuo-respond' } }
+      }
       if (playable.length > 0) return { ...base, payload: { actionId: playable[0] } }
       // 没有真桃，才轮到于吉【蛊惑】赌一把
       if (request.actionIds.includes('guhuo-respond') && shouldGuhuoRespond(context, '桃')) {
@@ -679,30 +699,38 @@ function guessKongchengji(context: AIContext): string {
  * 血厚时才愿意留牌硬扛。抵债一律先出手上最不值钱的牌。
  */
 function repayGanggan(context: AIContext, cardIds: readonly string[], max: number): string[] {
-  const me = myself(context.view)
   const cheapest = [...cardIds].sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))
-  // 掉这些血会要命：牌全押上也要还
-  if (me.hp <= max) return cheapest.slice(0, max)
-  // 血还算宽裕：手牌紧张时留一张，其余照还
-  const keep = me.handCount <= 2 ? 1 : 0
-  return cheapest.slice(0, Math.max(0, Math.min(max, cheapest.length - keep)))
+  // 新版债务在牌足够时必须还清，没有“留牌硬扛”的合法选项。
+  return cheapest.slice(0, max)
 }
 
 /**
  * 【杠杆】借几张。
  *
- * 借的是下个摸牌阶段的牌，还不上要掉血，所以看两件事：现在有多缺牌、
- * 掉一点血扛不扛得住。**不偷看牌堆**——借多少只由自己的手牌和体力决定。
+ * 借的是下一摸牌阶段结束后的偿还能力，所以看当前资源、体力和已有债。
+ * **不偷看牌堆**——借多少只由自己的公开视图决定。
  */
 function decideGanggan(context: AIContext): string {
   const me = myself(context.view)
   const existing = me.marks?.debt ?? 0
-  // 正常摸两张，借到三张就注定有一枚债还不上，要掉血
-  const affordable = me.hp >= 3 ? 3 : me.hp >= 2 ? 2 : 1
-  // 已经背着债还借，等于叠着掉血
-  const room = Math.max(1, affordable - existing)
-  const hungry = me.handCount <= 1 ? 3 : me.handCount <= 3 ? 2 : 1
-  return `ganggan-borrow:${Math.max(1, Math.min(room, hungry))}`
+  if (me.hp <= 1) return 'ganggan-borrow:1'
+  if (existing >= 3) return 'ganggan-borrow:1'
+  if (me.handCount <= 1) return `ganggan-borrow:${me.hp >= 3 ? 3 : 2}`
+  if (me.handCount <= 3) return 'ganggan-borrow:2'
+  return 'ganggan-borrow:1'
+}
+
+/**
+ * 【空手套白狼】只看每名角色公开的手牌数量，绝不读取其具体手牌。
+ * 可取牌的人越多越愿意发动；残血时空手的危险更高，稍微提高意愿。
+ */
+function decideKongshou(context: AIContext): boolean {
+  const me = myself(context.view)
+  const targets = context.view.players.filter((player) => player.alive && player.id !== me.id && player.handCount > 0).length
+  if (targets <= 0 || me.handCount > 0) return false
+  const base = targets >= 3 ? 85 : targets === 2 ? 55 : 20
+  const danger = me.hp <= 1 ? 15 : me.hp === 2 ? 8 : 0
+  return context.rng.nextInt(100) < Math.min(95, base + danger)
 }
 
 /**
@@ -732,7 +760,9 @@ function decideNiulai(context: AIContext, prompt: string): string {
  * 不会把每张垃圾牌都随口说成桃。
  */
 function declareGuhuo(context: AIContext, options: readonly { id: string }[]): string {
-  const names = options.map((option) => option.id.slice('guhuo-name:'.length))
+  const names = options
+    .filter((option) => option.id.startsWith('guhuo-name:'))
+    .map((option) => option.id.slice('guhuo-name:'.length))
   const me = myself(context.view)
   const hand = me.hand ?? []
 

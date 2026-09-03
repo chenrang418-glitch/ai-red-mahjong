@@ -157,7 +157,13 @@ export interface GuhuoResponseState {
   requiredCardName: string
   /** 扣置的实体牌；还没选牌时为 null。**其他人的视图里看不到它。** */
   cardId: CardId | null
-  stage: 'declaring' | 'granted' | 'declined'
+  stage: 'declaring' | 'penalizing' | 'granted' | 'declined'
+  /** 质疑者按座次等待结算；可能被其中一人的濒死流程暂时打断。 */
+  penaltyPlayerIds?: PlayerId[]
+  /** 所有质疑惩罚完成后，这次声明是否仍然成立。 */
+  grantedAfterPenalties?: boolean
+  /** 以蛊惑响应求桃时，原濒死流程在这里挂起，质疑者濒死结束后再恢复。 */
+  suspendedDying?: DyingState | null
   /**
    * 存下来待重放的原请求。
    *

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { assertCardConservation, moveCard } from '@/sanguosha/engine/zones'
-import { GANGGAN, KONGCHENGJI, debtOf } from '@/sanguosha/data/characters/entertainment-xulaoban'
+import {
+  GANGGAN, KONGCHENGJI, KONGSHOUTAOBAILANG, KONGSHOU_LIMIT_TURN_MARK, KONGSHOU_USED_MARK, debtOf,
+} from '@/sanguosha/data/characters/entertainment-xulaoban'
 import { getCharacter } from '@/sanguosha/data/characters/standard'
 import { privateZoneCards } from '@/sanguosha/engine/private-zone'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
@@ -47,6 +49,10 @@ function answer(game: SanguoshaGame, payload: Record<string, unknown>): void {
   game.respond({ requestId: request.id, playerId: request.playerId, payload })
 }
 
+function declineKongshouIfAsked(game: SanguoshaGame): void {
+  if (pending(game)?.prompt.includes('空手套白狼')) answer(game, { optionId: 'cancel' })
+}
+
 function clearHand(game: SanguoshaGame, playerId: PlayerId): void {
   const owner = game.state.players.find((player) => player.id === playerId)!
   game.state.zones.discardPile.push(...owner.zones.hand)
@@ -74,12 +80,12 @@ function towerAndTarget(game: SanguoshaGame, targetId: PlayerId = 'p1'): void {
 }
 
 describe('许老板的基础信息', () => {
-  it('群势力、4 体力、两个技能、娱乐包', () => {
+  it('群势力、4 体力、三个技能、娱乐包', () => {
     const character = getCharacter('xulaoban')!
     expect(character.kingdom).toBe('qun')
     expect(character.maxHp).toBe(4)
     expect(character.pack).toBe('entertainment')
-    expect(character.skills.map((skill) => skill.id)).toEqual([KONGCHENGJI, GANGGAN])
+    expect(character.skills.map((skill) => skill.id)).toEqual([KONGCHENGJI, GANGGAN, KONGSHOUTAOBAILANG])
   })
 })
 
@@ -240,7 +246,7 @@ describe('杠杆：还债', () => {
   /**
    * 让 p0 走一次完整的摸牌阶段。
    *
-   * 摸牌阶段结束后如果还欠债，会停在「弃牌抵债」的询问上——那一步由各用例
+   * 摸牌阶段先照常摸牌，结束后会停在「弃牌抵债」的询问上——那一步由各用例
    * 自己回答，这里不替它决定。
    */
   function runDrawPhase(game: SanguoshaGame): void {
@@ -259,40 +265,43 @@ describe('杠杆：还债', () => {
     answer(game, { cardIds })
   }
 
-  it('2 债遇上正常摸 2：摸 0 张，债清空且不掉血（测试 7）', () => {
+  it('借 2 张：下个摸牌阶段正常摸 2，再自选弃 2（测试 7）', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
     game.state.players[0].marks.debt = 2
     const hpBefore = game.state.players[0].hp
 
     runDrawPhase(game)
+    expect(game.state.players[0].zones.hand, '正常摸两张').toHaveLength(2)
+    expect(debtOf(game.state, 'p0'), '选择弃牌前债仍在').toBe(2)
+    repay(game, [...game.state.players[0].zones.hand])
 
-    expect(game.state.players[0].zones.hand, '一张都摸不到').toHaveLength(0)
-    expect(debtOf(game.state, 'p0'), '两枚债正好还清').toBe(0)
+    expect(game.state.players[0].zones.hand).toHaveLength(0)
+    expect(debtOf(game.state, 'p0')).toBe(0)
     expect(game.state.players[0].hp, '还清了就不掉血').toBe(hpBefore)
+    declineKongshouIfAsked(game)
     expect(pending(game), '债已经还完，不该再问弃牌').toBeUndefined()
     assertCardConservation(game.state)
     assertGameInvariants(game.state)
   })
 
-  it('3 债遇上正常摸 2：摸 0 张，剩 1 债，不还就失去 1 点体力（测试 8）', () => {
+  it('4 债但摸牌后只有 3 张可弃牌：全部弃置且只失去 1 点体力（测试 8）', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
     give(game, 'p0', '桃')
-    game.state.players[0].marks.debt = 3
+    game.state.players[0].marks.debt = 4
     const hpBefore = game.state.players[0].hp
 
     runDrawPhase(game)
-    // 摸牌阶段一张都摸不到，手上只剩本来那张桃
-    expect(game.state.players[0].zones.hand).toHaveLength(1)
-    repay(game, [])
-
-    expect(game.state.players[0].hp, '不还就失去一点体力').toBe(hpBefore - 1)
-    expect(debtOf(game.state, 'p0'), '剩下的债一笔勾销').toBe(0)
+    expect(game.state.players[0].zones.hand, '不足时三张全部自动弃掉').toHaveLength(0)
+    expect(game.state.players[0].hp, '无论差几张都只失去一点体力').toBe(hpBefore - 1)
+    expect(debtOf(game.state, 'p0')).toBe(0)
+    declineKongshouIfAsked(game)
+    expect(pending(game), '没有选择空间时不弹空请求').toBeUndefined()
     assertGameInvariants(game.state)
   })
 
-  it('剩 1 债时弃一张牌就能还清，不掉血', () => {
+  it('3 债且有 3 张可弃牌：必须自选弃 3，不掉血', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
     const kept = give(game, 'p0', '桃')
@@ -300,35 +309,38 @@ describe('杠杆：还债', () => {
     const hpBefore = game.state.players[0].hp
 
     runDrawPhase(game)
-    repay(game, [kept])
+    expect(game.state.players[0].zones.hand).toHaveLength(3)
+    repay(game, [...game.state.players[0].zones.hand])
 
     expect(game.state.players[0].hp, '还清了就不掉血').toBe(hpBefore)
-    expect(game.state.players[0].zones.hand, '那张牌真的弃掉了').toHaveLength(0)
+    expect(game.state.players[0].zones.hand, '三张牌都弃掉了').toHaveLength(0)
     expect(game.state.zones.discardPile).toContain(kept)
     expect(debtOf(game.state, 'p0')).toBe(0)
     assertCardConservation(game.state)
     assertGameInvariants(game.state)
   })
 
-  it('剩 2 债只还 1 张：另一枚照样扣 1 点体力', () => {
+  it('牌足够时请求必须精确选择债数，不能主动少还', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
-    const first = give(game, 'p0', '桃')
+    give(game, 'p0', '桃')
     give(game, 'p0', '闪')
     game.state.players[0].marks.debt = 4
     const hpBefore = game.state.players[0].hp
 
     runDrawPhase(game)
     const request = pending(game)
-    expect(request?.kind === 'choose-cards' && request.max, '最多按剩下的债数弃牌').toBe(2)
-    repay(game, [first])
+    expect(request?.kind === 'choose-cards' && request.min).toBe(4)
+    expect(request?.kind === 'choose-cards' && request.max).toBe(4)
+    expect(() => repay(game, game.state.players[0].zones.hand.slice(0, 1))).toThrow('卡牌选择非法')
+    repay(game, [...game.state.players[0].zones.hand])
 
-    expect(game.state.players[0].hp, '少还一枚就掉一点').toBe(hpBefore - 1)
+    expect(game.state.players[0].hp).toBe(hpBefore)
     expect(debtOf(game.state, 'p0')).toBe(0)
     assertGameInvariants(game.state)
   })
 
-  it('还不上的债有几枚就掉几点体力', () => {
+  it('不足债数量时无论差几张都只失去 1 点体力', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
     game.state.players[0].marks.debt = 5
@@ -336,8 +348,10 @@ describe('杠杆：还债', () => {
 
     // 手上一张牌都没有，连问都不该问，直接按还不上处理
     runDrawPhase(game)
+    declineKongshouIfAsked(game)
     expect(pending(game), '没牌可弃就不弹窗').toBeUndefined()
-    expect(game.state.players[0].hp, '剩 3 枚还不上，掉 3 点').toBe(hpBefore - 3)
+    expect(game.state.players[0].zones.hand, '正常摸到的两张也要全部弃置').toHaveLength(0)
+    expect(game.state.players[0].hp, '差三张仍只掉一点').toBe(hpBefore - 1)
     expect(debtOf(game.state, 'p0')).toBe(0)
     assertGameInvariants(game.state)
   })
@@ -353,7 +367,7 @@ describe('杠杆：还债', () => {
     runDrawPhase(game)
     const request = pending(game)
     expect(request?.kind === 'choose-cards' && request.cardIds, '装备在可弃列表里').toContain(weapon)
-    repay(game, [weapon])
+    repay(game, [weapon, ...game.state.players[0].zones.hand])
 
     expect(game.state.players[0].hp, '用装备还清了就不掉血').toBe(hpBefore)
     expect(game.state.players[0].zones.equipment.weapon).toBeNull()
@@ -361,12 +375,15 @@ describe('杠杆：还债', () => {
     assertGameInvariants(game.state)
   })
 
-  it('1 债遇上正常摸 2：还是摸到 1 张', () => {
+  it('1 债遇上正常摸 2：先摸足 2 张，再弃 1 张', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
     game.state.players[0].marks.debt = 1
     runDrawPhase(game)
-    expect(game.state.players[0].zones.hand, '少摸一张，不是一张都不摸').toHaveLength(1)
+    expect(game.state.players[0].zones.hand, '正常摸足两张').toHaveLength(2)
+    expect(debtOf(game.state, 'p0')).toBe(1)
+    repay(game, [game.state.players[0].zones.hand[0]])
+    expect(game.state.players[0].zones.hand).toHaveLength(1)
     expect(debtOf(game.state, 'p0')).toBe(0)
     expect(game.state.players[0].hp).toBe(4)
   })
@@ -406,7 +423,7 @@ describe('杠杆：还债', () => {
     game.state.phase = 'judge'
     game.advancePhase()
     game.advancePhase()
-    // 手上一张牌都没有，不会问弃牌，直接按还不上处理
+    // 正常摸两张，但不足三债，自动全弃并失去一点体力
 
     expect(game.state.players[0].hp).toBe(3)
     expect(damaged, '失去体力不是伤害——奸雄、遗计、刚烈都不该被触发').toEqual([])
@@ -426,12 +443,144 @@ describe('杠杆：还债', () => {
     restored.state.phase = 'judge'
     restored.advancePhase()
     restored.advancePhase()
-    // 没牌可弃，直接按还不上处理
+    // 正常摸两张但不足三债，自动按还不上处理
+    declineKongshouIfAsked(restored)
     expect(restored.state.pendingRequests).toEqual([])
 
     expect(restored.state.players[0].zones.hand).toHaveLength(0)
     expect(restored.state.players[0].hp, '只结算一次').toBe(3)
     expect(debtOf(restored.state, 'p0')).toBe(0)
+    assertGameInvariants(restored.state)
+  })
+})
+
+describe('空手套白狼', () => {
+  function openWindow(game: SanguoshaGame, currentPlayerId: PlayerId = 'p1'): void {
+    const target = game.state.players.find((player) => player.id === currentPlayerId)!
+    const previous = game.state.players[(target.seat - 1 + game.state.players.length) % game.state.players.length]
+    game.state.currentPlayerId = previous.id
+    game.state.phase = 'finish'
+    game.advancePhase()
+    expect(game.state.currentPlayerId).toBe(currentPlayerId)
+  }
+
+  function invoke(game: SanguoshaGame): void {
+    const request = pending(game)
+    expect(request?.kind).toBe('choose-option')
+    expect(request?.playerId).toBe('p0')
+    expect(request?.prompt).toContain('空手套白狼')
+    answer(game, { optionId: 'kongshou-invoke' })
+  }
+
+  it('有手牌时不能发动', () => {
+    const game = gameWith(FILLER)
+    expect(game.state.players[0].zones.hand.length).toBeGreaterThan(0)
+    openWindow(game)
+    expect(pending(game)).toBeUndefined()
+  })
+
+  it('0 手牌且其他角色有牌时，可在其他角色回合的安全窗口发动', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    openWindow(game, 'p1')
+    invoke(game)
+
+    expect(game.state.players[0].zones.hand).toHaveLength(4)
+    expect(game.state.players[0].marks[KONGSHOU_USED_MARK]).toBe(1)
+    expect(game.state.players[0].marks[KONGSHOU_LIMIT_TURN_MARK]).toBe(game.state.turnNumber)
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
+  })
+
+  it('从每名有手牌的其他存活角色处各随机获得一张', () => {
+    const game = gameWith(FILLER, 'kongshou-four-targets')
+    clearHand(game, 'p0')
+    const before = game.state.players.slice(1).map((player) => player.zones.hand.length)
+    openWindow(game)
+    invoke(game)
+
+    expect(game.state.players[0].zones.hand).toHaveLength(4)
+    game.state.players.slice(1).forEach((player, index) => {
+      expect(player.zones.hand).toHaveLength(before[index] - 1)
+    })
+    assertCardConservation(game.state)
+  })
+
+  it('没有手牌的角色会被跳过，随机结果由 seed 确定', () => {
+    const run = () => {
+      const game = gameWith(FILLER, 'kongshou-deterministic')
+      clearHand(game, 'p0')
+      clearHand(game, 'p2')
+      openWindow(game)
+      invoke(game)
+      return game.state.players[0].zones.hand.map((id) => game.state.cards[id].name)
+    }
+    expect(run()).toEqual(run())
+    expect(run()).toHaveLength(3)
+  })
+
+  it('不会向无关观察者泄露其他角色剩余手牌或取得牌的 cardId', () => {
+    const game = gameWith(FILLER, 'kongshou-hidden')
+    clearHand(game, 'p0')
+    const p2Before = [...game.state.players[2].zones.hand]
+    openWindow(game)
+    invoke(game)
+
+    const stolenFromP2 = p2Before.find((id) => !game.state.players[2].zones.hand.includes(id))!
+    const observerView = JSON.stringify(game.viewFor('p1'))
+    expect(observerView).not.toContain(stolenFromP2)
+    for (const cardId of game.state.players[2].zones.hand) expect(observerView).not.toContain(cardId)
+  })
+
+  it('发动后当前回合手牌上限固定为 2，回合结束恢复正常', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    openWindow(game, 'p0')
+    invoke(game)
+    expect(game.state.players[0].zones.hand).toHaveLength(4)
+
+    game.state.phase = 'play'
+    game.advancePhase()
+    const discard = pending(game)
+    expect(discard?.kind).toBe('choose-cards')
+    expect(discard?.kind === 'choose-cards' && discard.purpose).toBe('discard-phase')
+    expect(discard?.kind === 'choose-cards' && discard.min, '固定上限 2，应弃两张').toBe(2)
+    answer(game, { cardIds: game.state.players[0].zones.hand.slice(0, 2) })
+
+    game.state.phase = 'finish'
+    game.advancePhase()
+    expect(game.state.players[0].marks[KONGSHOU_LIMIT_TURN_MARK]).toBeUndefined()
+  })
+
+  it('卡牌结算中不会插入发问，结算结束后才出现合法窗口', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const slash = give(game, 'p0', '杀')
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))!
+    game.act('p0', action.id)
+
+    expect(game.state.cardResolution).not.toBeNull()
+    expect(game.state.pendingRequests.some((request) => request.playerId === 'p0' && request.prompt.includes('空手套白狼'))).toBe(false)
+    answer(game, { actionId: 'respond-pass' })
+
+    expect(game.state.cardResolution).toBeNull()
+    expect(pending(game)?.prompt).toContain('空手套白狼')
+  })
+
+  it('限定技整局只能发动一次，序列化重连后也不能重复', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    openWindow(game)
+    invoke(game)
+
+    const restored = SanguoshaGame.restore(JSON.parse(JSON.stringify(game.serialize())))
+    expect(restored.state.players[0].marks[KONGSHOU_USED_MARK]).toBe(1)
+    clearHand(restored, 'p0')
+    restored.state.currentPlayerId = 'p2'
+    restored.state.phase = 'prepare'
+    restored.advancePhase()
+    expect(restored.state.pendingRequests).toEqual([])
+    assertCardConservation(restored.state)
     assertGameInvariants(restored.state)
   })
 })

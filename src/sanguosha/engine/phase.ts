@@ -5,6 +5,7 @@ import { advancePhase } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
+import { fixedMaxCardsOf } from './skills/runtime'
 
 /**
  * 阶段引擎的宿主。
@@ -17,7 +18,7 @@ export type PhaseEngineHost = JudgmentEngineHost
 function maxCards(state: SanguoshaState, playerId: PlayerId): number {
   const target = state.players.find((player) => player.id === playerId)
   if (!target) throw new Error(`玩家不存在：${playerId}`)
-  return Math.max(0, target.hp)
+  return fixedMaxCardsOf(state, playerId) ?? Math.max(0, target.hp)
 }
 
 function enterCurrentPhase(host: PhaseEngineHost): void {

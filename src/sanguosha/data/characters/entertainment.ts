@@ -9,7 +9,7 @@ import type { CharacterDefinition } from './types'
 import { NAIWA } from './entertainment-naiwa'
 // 牛来的两个技能要动伤害转移和技能内的多步循环，同样单独一个文件
 import { NIULAI_CHARACTER } from './entertainment-niulai'
-// 许老板的两个技能要用私有牌区和摸牌阶段改数量，同样单独一个文件
+// 许老板的三个技能要用私有牌区、阶段后结算和回合外发动窗口，同样单独一个文件
 import { XULAOBAN } from './entertainment-xulaoban'
 
 /** 好友娱乐包：只放原创且技能完整可玩的武将。 */

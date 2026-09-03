@@ -123,6 +123,13 @@ export interface SkillRuntime {
   /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
   distanceModifier?: { toOthers?: number; fromOthers?: number }
   /**
+   * 固定手牌上限。返回 null 表示沿用通常的“当前体力值”。
+   *
+   * 这是“固定为 N”而不是普通加减修正，所以 1 体力时返回 2 仍然是 2。
+   * 临时效果必须把有效期写进可序列化状态，不能依赖计时器或闭包。
+   */
+  fixedMaxCards?(state: SanguoshaState, ownerId: PlayerId): number | null
+  /**
    * 濒死介入：拥有者刚进入濒死时先给技能一次机会（不屈）。
    *
    * 返回 true 表示「这次濒死已经由技能处理掉了」，引擎会直接结束濒死状态，
@@ -244,6 +251,19 @@ export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: 
   return skillIdsOf(player.characterId)
     .map((skillId) => registry.get(skillId))
     .filter((runtime): runtime is SkillRuntime => !!runtime)
+}
+
+/** 统一计算技能给出的固定手牌上限；没有固定效果时返回 null。 */
+export function fixedMaxCardsOf(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number | null {
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    const value = runtime.fixedMaxCards?.(state, playerId)
+    if (value != null) return Math.max(0, Math.trunc(value))
+  }
+  return null
 }
 
 /** 服务端生成合法操作时统一检查目标限制，客户端不自行推断。 */

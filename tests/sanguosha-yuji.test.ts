@@ -3,7 +3,7 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { GUHUO, declarableCardNames } from '@/sanguosha/data/characters/wind-yuji'
 import { privateZoneCards } from '@/sanguosha/engine/private-zone'
-import { moveCard } from '@/sanguosha/engine/zones'
+import { assertCardConservation, moveCard } from '@/sanguosha/engine/zones'
 import type { ChooseOptionRequest } from '@/sanguosha/engine/requests'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
@@ -117,6 +117,25 @@ describe('可以声明哪些牌', () => {
 })
 
 describe('声明仍然受正常用牌规则约束', () => {
+  it('选定手牌后、公开声明前可以取消，牌仍在手中且不发起质疑', () => {
+    const game = gameWith(FILLER)
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '杀')
+
+    game.act('p0', guhuoAction(game)!.id)
+    answer(game, { cardIds: [cardId] })
+    const request = pending(game) as ChooseOptionRequest
+    expect(request.options).toContainEqual({ id: 'cancel', label: '取消蛊惑' })
+    answer(game, { optionId: 'cancel' })
+
+    expect(game.state.players[0].zones.hand).toContain(cardId)
+    expect(privateZoneCards(game.state, 'guhuo')).toEqual([])
+    expect(game.state.groupDecision).toBeNull()
+    expect(game.state.pendingRequests).toEqual([])
+    expect(guhuoAction(game), '取消后仍可重新发动').toBeDefined()
+    assertCardConservation(game.state)
+  })
+
   it('本回合已经用过杀，就不能再声明杀', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')
@@ -427,9 +446,11 @@ describe('蛊惑的界面', () => {
     expect(html).toContain('声明【桃】')
     expect(html, '装备不能声明').not.toContain('声明【赤兔】')
     expect(html, '延时锦囊不能声明').not.toContain('声明【乐不思蜀】')
-    // 选项数量就是候选数量，UI 不自己增删
+    // 每个声明候选都有按钮，另有一个不计入声明数量的取消按钮
     const rendered = (html.match(/声明【/g) ?? []).length
-    expect(rendered).toBe((request as { options: unknown[] }).options.length)
+    const declarationCount = (request as ChooseOptionRequest).options.filter((option) => option.id.startsWith('guhuo-name:')).length
+    expect(rendered).toBe(declarationCount)
+    expect(html).toContain('取消蛊惑')
   })
 
   it('质疑面板只有两个按钮，看不到别人的选择', async () => {
@@ -543,6 +564,45 @@ describe('打出模式：求闪', () => {
     expect(view, '别人的视图里不该出现这张牌的 id').not.toContain(cardId)
     assertGameInvariants(game.state)
   })
+
+  it('质疑阶段序列化重连后仍恢复原求闪并只结算一次', () => {
+    const game = gameWith(FILLER, 'guhuo-response-reconnect')
+    clearHand(game, 'p0')
+    const cardId = give(game, 'p0', '无中生有')
+    slashAtOwner(game)
+    const hpBefore = game.state.players[0].hp
+    declareRespond(game, cardId)
+
+    const restored = SanguoshaGame.restore(JSON.parse(JSON.stringify(game.serialize())))
+    expect(restored.state.guhuoResponse?.request).toBeTruthy()
+    expect(privateZoneCards(restored.state, 'guhuo-respond')).toEqual([cardId])
+    respondChallenges(restored, [])
+
+    expect(restored.state.players[0].hp).toBe(hpBefore)
+    expect(restored.state.zones.discardPile.filter((id) => id === cardId)).toHaveLength(1)
+    expect(restored.state.guhuoResponse).toBeNull()
+    assertGameInvariants(restored.state)
+  })
+
+  it('无双要求两张闪时，每次响应分别蛊惑并准确递减计数', () => {
+    const game = gameWith(['yuji', 'lvbu', 'zhangfei', 'zhangfei', 'zhangfei'], 'guhuo-wushuang')
+    clearHand(game, 'p0')
+    const first = give(game, 'p0', '无中生有')
+    const second = give(game, 'p0', '桃')
+    slashAtOwner(game)
+    const hpBefore = game.state.players[0].hp
+
+    declareRespond(game, first)
+    respondChallenges(game, [])
+    expect(game.state.cardResolution?.kind === 'slash' && game.state.cardResolution.dodgeRemaining).toBe(1)
+    expect(pending(game)?.kind === 'respond-card' && pending(game)?.actionIds).toContain('guhuo-respond')
+
+    declareRespond(game, second)
+    respondChallenges(game, [])
+    expect(game.state.players[0].hp).toBe(hpBefore)
+    expect(game.state.cardResolution).toBeNull()
+    assertGameInvariants(game.state)
+  })
 })
 
 describe('打出模式：濒死求桃', () => {
@@ -567,6 +627,30 @@ describe('打出模式：濒死求桃', () => {
 
     expect(game.state.players[0].alive, '桃成立，救回来了').toBe(true)
     expect(game.state.players[0].hp).toBe(1)
+    assertGameInvariants(game.state)
+  })
+
+  it('救 A 时质疑者 B 进入濒死：先完整救 B，再恢复原求桃上下文', () => {
+    const game = gameWith(FILLER, 'guhuo-nested-dying')
+    for (const player of game.state.players) clearHand(game, player.id)
+    const peach = give(game, 'p0', '桃', 'heart')
+    const nestedPeach = give(game, 'p2', '桃')
+    game.state.players[1].hp = 1
+    game.state.players[4].hp = 0
+    game.enterDying('p4')
+
+    expect(pending(game)?.playerId, '原濒死先问到于吉').toBe('p0')
+    declareRespond(game, peach)
+    respondChallenges(game, ['p1'])
+
+    expect(game.state.dying?.playerId, '质疑者先进入插入的濒死流程').toBe('p1')
+    expect(pending(game)?.playerId).toBe('p2')
+    answer(game, { actionId: `rescue-card:${nestedPeach}` })
+
+    expect(game.state.players[1].hp, 'B 被救回').toBe(1)
+    expect(game.state.players[4].hp, '恢复原求桃后 A 被蛊惑桃救回').toBe(1)
+    expect(game.state.dying).toBeNull()
+    expect(game.state.guhuoResponse).toBeNull()
     assertGameInvariants(game.state)
   })
 })
@@ -647,6 +731,65 @@ describe('打出模式的界面', () => {
 })
 
 describe('打出模式：锦囊效果里的求牌', () => {
+  it('南蛮入侵要求【杀】时，蛊惑成立后只完成当前目标的响应', () => {
+    const game = gameWith(FILLER, 'guhuo-nanman-success')
+    for (const player of game.state.players) clearHand(game, player.id)
+    const hiddenCard = give(game, 'p0', '无中生有')
+    const invasion = give(game, 'p1', '南蛮入侵')
+    game.state.currentPlayerId = 'p1'
+    const action = game.legalActions('p1').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(invasion))
+    game.act('p1', action!.id)
+
+    let guard = 0
+    while (!(pending(game)?.playerId === 'p0'
+      && pending(game)?.kind === 'respond-card'
+      && pending(game)?.requiredCardName === '杀')) {
+      if (guard++ > 30) throw new Error('南蛮入侵没有轮询到于吉')
+      answer(game, { actionId: 'respond-pass' })
+    }
+
+    const hpBefore = game.state.players[0].hp
+    declareRespond(game, hiddenCard)
+    respondChallenges(game, [])
+
+    expect(game.state.players[0].hp, '蛊惑杀成立，于吉免受本次南蛮伤害').toBe(hpBefore)
+    expect(game.state.zones.discardPile).toContain(hiddenCard)
+    while (pending(game)) answer(game, { actionId: 'respond-pass' })
+    expect(game.state.cardResolution, '南蛮原结算应当正常收尾').toBeNull()
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
+  })
+
+  it('南蛮入侵中的假【杀】被质疑后，按原结算受到伤害', () => {
+    const game = gameWith(FILLER, 'guhuo-nanman-fail')
+    for (const player of game.state.players) clearHand(game, player.id)
+    const hiddenCard = give(game, 'p0', '无中生有')
+    const invasion = give(game, 'p1', '南蛮入侵')
+    game.state.currentPlayerId = 'p1'
+    const action = game.legalActions('p1').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(invasion))
+    game.act('p1', action!.id)
+
+    let guard = 0
+    while (!(pending(game)?.playerId === 'p0'
+      && pending(game)?.kind === 'respond-card'
+      && pending(game)?.requiredCardName === '杀')) {
+      if (guard++ > 30) throw new Error('南蛮入侵没有轮询到于吉')
+      answer(game, { actionId: 'respond-pass' })
+    }
+
+    const hpBefore = game.state.players[0].hp
+    declareRespond(game, hiddenCard)
+    respondChallenges(game, ['p1'])
+
+    expect(game.state.players[0].hp, '蛊惑杀失败后仍由原南蛮结算伤害').toBe(hpBefore - 1)
+    while (pending(game)) answer(game, { actionId: 'respond-pass' })
+    expect(game.state.cardResolution).toBeNull()
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
+  })
+
   it('决斗要求打出【杀】时也能用蛊惑，且走的是锦囊那条结算路径', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')

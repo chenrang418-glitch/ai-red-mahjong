@@ -24,7 +24,9 @@ export function assertGameInvariants(state: SanguoshaState): void {
     const survivesAtZero = candidate.characterId
       ? skillsOf(state, candidate.id, skillIdsOf).some((runtime) => runtime.survivesAtZeroHp?.(state, candidate.id))
       : false
-    if (candidate.alive && candidate.hp <= 0 && state.dying?.playerId !== candidate.id && !survivesAtZero) {
+    const suspendedDyingPlayerId = state.guhuoResponse?.suspendedDying?.playerId
+    if (candidate.alive && candidate.hp <= 0 && state.dying?.playerId !== candidate.id
+      && suspendedDyingPlayerId !== candidate.id && !survivesAtZero) {
       throw new Error(`存活角色处于非濒死的非正体力：${candidate.id}`)
     }
     for (const slot of EQUIPMENT_SLOTS) {

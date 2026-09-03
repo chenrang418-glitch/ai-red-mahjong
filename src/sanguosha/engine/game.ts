@@ -9,7 +9,7 @@ import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAc
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
-import { GUHUO_RESPOND_ACTION, beginGuhuoRespond } from './guhuo-response'
+import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
@@ -279,6 +279,8 @@ export class SanguoshaGame {
     }
     if (request.kind === 'rescue') {
       resolveRescueResponse(this, request, response)
+      // 蛊惑质疑者的插入濒死结束后，优先恢复被挂起的蛊惑与原求牌上下文。
+      if (!this.state.dying && continueGuhuoResponseAfterDying(this)) return
       if (!this.state.dying) {
         resumeDamageChain(this)
         if (!this.state.dying && !this.state.damageChain) {

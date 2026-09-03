@@ -145,8 +145,11 @@ registerSkillRuntime({
           playerId: ownerId,
           prompt: '【蛊惑】：声明你要使用的牌',
           timeoutMs: 20_000,
-          optional: false,
-          options: names.map((name) => ({ id: `guhuo-name:${name}`, label: `声明【${name}】` })),
+          optional: true,
+          options: [
+            ...names.map((name) => ({ id: `guhuo-name:${name}`, label: `声明【${name}】` })),
+            { id: 'cancel', label: '取消蛊惑' },
+          ],
         }),
       })
       return
@@ -155,6 +158,8 @@ registerSkillRuntime({
     if (resolution.step === 'name') {
       const cardId = String(resolution.data.cardId ?? '')
       const optionId = (response.payload as { optionId: string }).optionId
+      // 牌还留在手里，声明也尚未公开；这是最后一个可以无代价退出的时点。
+      if (optionId === 'cancel') return
       if (!optionId.startsWith('guhuo-name:')) throw new Error('蛊惑声明非法')
       const declaredName = optionId.slice('guhuo-name:'.length)
       const actions = actionsFor(host.state, ownerId, cardId, declaredName)
