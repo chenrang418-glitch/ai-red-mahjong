@@ -2777,3 +2777,34 @@ B 空手——这一条单独有用例守着。交换也不是弃牌，不发 Lo
 两处相对规则文本的明确取舍，都记在 `docs/sanguosha-ruleset-v1.md`：
 武魂梦魇并列最多时取顺时针第一名（发问给已阵亡玩家会违反请求归属不变式）；
 神关羽死在别的判定中间时武魂排队结算，此时胜负判定可能先一步结束牌局。
+
+## 2026-09-04 势力角标字体自带
+
+手机上势力角标显示成普通字体，电脑上是书法体。**不是浏览器不兼容**：
+`SgsFactionBadge.vue` 的字体栈里只有「STXingkai / 华文行楷 / FZShuTi / 方正舒体 / KaiTi」
+这些**本机系统字体**，Windows 装着，iOS / Android 一个都没有，
+退到 generic 的 `cursive`，中文下就是默认字体。
+
+改为自带一份：开源的 Ma Shan Zheng（马善政毛笔楷书，SIL OFL 1.1），
+**只子集角标真正用到的六个字**「魏蜀吴群晋神」，woff2 之后 3948 字节，
+被 Vite 内联成 base64 直接进三国杀的 CSS，不额外发请求，也没进麻将的包。
+
+- 必须自托管：Google Fonts CDN 在国内打不开，用 CDN 正好对使用者本人失效。
+- `unicode-range` 框死在这六个字上，页面别处的文字不会被这个字体接管。
+- 系统字体仍排在自带字体前面，**电脑端的华文行楷保持不变**；只有没装这些字体的设备才会用到自带的那份。
+
+重新生成子集（需要 `fonttools` 和 `brotli`）：
+
+```powershell
+curl -sL "https://raw.githubusercontent.com/google/fonts/main/ofl/mashanzheng/MaShanZheng-Regular.ttf" -o MaShanZheng.ttf
+python -m fontTools.subset MaShanZheng.ttf --text="魏蜀吴群晋神" `
+  --output-file=src/sanguosha/assets/fonts/mashanzheng-faction-subset.woff2 `
+  --flavor=woff2 --layout-features="" --no-hinting --desubroutinize
+```
+
+`tests/e2e/faction-font.spec.ts` 守住两件事：字体确实随包发出去且能加载；
+`unicode-range` 之外的字没被接管。注意 **CJK 字形全是全角等宽，量文字宽度分不出字体**，
+这条测试比的是 canvas 渲染出来的像素——第一版用宽度判断，六个字宽度完全相同，测了个寂寞。
+
+验证：`typecheck` 通过；`test:run` 130 文件 / 1568 用例通过；`test:e2e` **71 项**通过；
+`build` 通过，字体只出现在 `SanguoshaApp-*.css`，麻将与主包均为 0。

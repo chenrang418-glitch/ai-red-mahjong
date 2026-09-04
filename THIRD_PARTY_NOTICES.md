@@ -29,3 +29,17 @@
 ### 规则数据资料
 
 `ruleset-v1` 的标准包与军争篇逐张牌表依据三国杀 BWIKI 对应页面核对。该事实数据在本项目中按自身 TypeScript 数据结构重新录入；页面链接与版本边界见 `docs/sanguosha-ruleset-v1.md`。
+
+### Ma Shan Zheng（马善政毛笔楷书）
+
+- 项目：[google/fonts — ofl/mashanzheng](https://github.com/google/fonts/tree/main/ofl/mashanzheng)
+- 版本：Version 2.003
+- 许可证：SIL Open Font License 1.1
+- 上游版权声明：`Copyright 2018 The Ma Shan Zheng Project Authors (https://github.com/googlefonts/mashanzheng)`
+
+用于三国杀势力角标（`src/sanguosha/assets/fonts/mashanzheng-faction-subset.woff2`）。
+原字体只写了「华文行楷」这类本机系统字体，手机上没有、会退成普通字体，因此改为自带。
+
+**该文件是子集**：只保留角标用到的「魏蜀吴群晋神」六个字形，转为 woff2，3.9 KB。
+OFL 1.1 允许在保留本声明的前提下嵌入、子集化与再分发；字体本身未被出售，
+也未使用 Reserved Font Name（子集内部名称仍为 Ma Shan Zheng，未做改名分发）。
