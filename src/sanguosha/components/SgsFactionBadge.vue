@@ -34,7 +34,8 @@ const badgeVars = computed(() => ({
 @font-face {
   font-family: "SgsFactionScript";
   src: url("../assets/fonts/mashanzheng-faction-subset.woff2") format("woff2");
-  font-weight: 400; font-style: normal;
+  font-weight: 400;
+  font-style: normal;
   /* 字体没到位时先用兜底字体显示，不留空白 */
   font-display: swap;
   unicode-range: U+9B4F, U+8700, U+5434, U+7FA4, U+664B, U+795E;
@@ -44,7 +45,12 @@ const badgeVars = computed(() => ({
   box-sizing: border-box; min-width: 24px; height: 22px; display: inline-grid; place-items: center;
   padding: 0 7px; border: 1px solid var(--faction-border); border-radius: 7px;
   background: var(--faction-color); color: var(--faction-text);
-  box-shadow: 0 1px 5px rgba(0, 0, 0, .38); font: 600 13px/1 "STXingkai", "华文行楷", "FZShuTi", "方正舒体", "SgsFactionScript", KaiTi, cursive;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .38);
+  font-family: "SgsFactionScript", cursive;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
   letter-spacing: .06em; white-space: nowrap; pointer-events: none;
 }
 .sgs-faction-badge--pick { font-size: 15px; }
