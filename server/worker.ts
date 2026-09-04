@@ -1116,6 +1116,8 @@ export class SanguoshaRoom {
       const [client, server] = Object.values(pair)
       server.serializeAttachment({ ...user } satisfies SocketAttachment)
       this.state.acceptWebSocket(server, [`user:${user.userId}`])
+      // 新连接已经生效，再关旧的：反过来会让 webSocketClose 把玩家误判成掉线
+      this.closeSupersededSockets(user.userId, server)
       await this.persist()
       this.state.waitUntil(this.syncRoomDirectory())
       this.broadcastState()
@@ -1194,7 +1196,22 @@ export class SanguoshaRoom {
         this.broadcastState()
       }
     } catch (cause) {
-      console.error('三国杀房间定时唤醒失败', cause)
+      /*
+       * 走到这里说明 runDueJobs 之外还有未知异常。
+       *
+       * 只 persist 是不够的：如果此时房间已经没有推进任务，`nextAlarmAt()`
+       * 会退化成「6 小时后的回收 alarm」，牌局就等于永久卡死。
+       * 所以要显式让协调器补一个近期的自检任务再落盘。
+       */
+      console.error('[sanguosha][alarm-recovery]', JSON.stringify({
+        roomCode: this.coordinator?.state.code,
+        status: this.coordinator?.state.game?.status,
+        errorMessage: cause instanceof Error ? cause.message : String(cause),
+        errorStack: cause instanceof Error ? cause.stack : undefined,
+      }))
+      try { this.coordinator?.ensureRecoveryJob() } catch (nested) {
+        console.error('[sanguosha][alarm-recovery-failed]', nested)
+      }
       await this.persist()
     }
   }
@@ -1294,6 +1311,14 @@ export class SanguoshaRoom {
     this.chatRate.set(userId, recent)
   }
 
+  /**
+   * 广播必须**按连接隔离**。
+   *
+   * 一个坏掉的 socket（半断开、缓冲区满、已被对端重置）在 `send` 时抛异常，
+   * 原来会让整个 for 循环当场中断，排在它后面的玩家一个都收不到状态——
+   * 表现就是「有人卡住了，另一些人还能玩」。现在每条连接各自 try/catch，
+   * 坏连接就地关掉，不影响其他人。
+   */
   private broadcastState(): void {
     if (!this.coordinator) return
     for (const socket of this.state.getWebSockets()) {
@@ -1311,8 +1336,43 @@ export class SanguoshaRoom {
     for (const socket of this.state.getWebSockets()) this.send(socket, message)
   }
 
+  /**
+   * 往一条连接发消息。**绝不向外抛异常。**
+   *
+   * 权威状态已经推进成功这件事，不该因为某个玩家的 socket 发送失败而被判定为失败。
+   * 发不出去就把这条连接关掉，让客户端走正常重连拿全量状态。
+   */
   private send(socket: WebSocket, message: unknown): void {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+    if (socket.readyState !== WebSocket.OPEN) return
+    try {
+      socket.send(JSON.stringify(message))
+    } catch (cause) {
+      const user = (() => {
+        try { return socket.deserializeAttachment() as SocketAttachment | null } catch { return null }
+      })()
+      console.error('[sanguosha][socket-send-error]', JSON.stringify({
+        roomCode: this.coordinator?.state.code,
+        userId: user?.userId,
+        errorMessage: cause instanceof Error ? cause.message : String(cause),
+      }))
+      try { socket.close(1011, 'send failed') } catch { /* 已经断了就算了 */ }
+    }
+  }
+
+  /**
+   * 同一个用户重连时，关掉他之前那条连接。
+   *
+   * **顺序很重要**：必须等新连接 accept 完成之后再关旧的。反过来的话，
+   * 旧连接的 `webSocketClose` 会在新连接建立之前跑，那时
+   * `getWebSockets(user:X)` 里一条有效连接都没有，于是把玩家误判为掉线并进托管。
+   */
+  private closeSupersededSockets(userId: string, keep: WebSocket): void {
+    for (const socket of this.state.getWebSockets(`user:${userId}`)) {
+      if (socket === keep) continue
+      try {
+        socket.close(1000, 'superseded by newer connection')
+      } catch { /* 已经关掉的连接忽略 */ }
+    }
   }
 }
 

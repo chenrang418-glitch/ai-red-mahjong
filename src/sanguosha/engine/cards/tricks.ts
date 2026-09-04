@@ -42,6 +42,25 @@ function alive(state: SanguoshaState): PlayerId[] {
   return state.players.filter((candidate) => candidate.alive).map((candidate) => candidate.id)
 }
 
+/**
+ * 从某名角色起、按座次顺时针的存活角色顺序。
+ *
+ * 多目标锦囊的结算次序是**从使用者开始**，不是牌桌数组的原始顺序。
+ * 直接用 `state.players` 的顺序，等于按 p0、p1、p2……的固定次序结算——
+ * 使用者坐在 p3 时，【五谷丰登】会变成 p0 先挑牌，使用者反而最后挑，
+ * 这是明显的规则错误（用户实测报的就是这个）。
+ */
+function aliveOrderFrom(state: SanguoshaState, fromId: PlayerId): PlayerId[] {
+  const from = state.players.find((candidate) => candidate.id === fromId)
+  if (!from) return alive(state)
+  const result: PlayerId[] = []
+  for (let offset = 0; offset < state.players.length; offset += 1) {
+    const candidate = state.players[(from.seat + offset) % state.players.length]
+    if (candidate.alive) result.push(candidate.id)
+  }
+  return result
+}
+
 /** 从当前回合角色起的存活座次顺序：问无懈和结算多目标都按这个次序。 */
 export function aliveOrderFromCurrent(state: SanguoshaState): PlayerId[] {
   const current = playerOf(state, state.currentPlayerId)
@@ -90,13 +109,13 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return [useAction(cardId, playerId, card.name, [playerId], '使用【无中生有】摸两张牌')]
     case '桃园结义':
       // 目标是所有存活角色（含自己），已满体力的人也算目标，只是回复无效
-      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【桃园结义】，全场回复一点体力', 'fixed')]
+      return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter(allowed), '使用【桃园结义】，全场回复一点体力', 'fixed')]
     case '南蛮入侵':
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【南蛮入侵】', 'fixed')]
+      return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter((id) => id !== playerId).filter(allowed), '使用【南蛮入侵】', 'fixed')]
     case '万箭齐发':
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, others.map((candidate) => candidate.id).filter(allowed), '使用【万箭齐发】', 'fixed')]
+      return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter((id) => id !== playerId).filter(allowed), '使用【万箭齐发】', 'fixed')]
     case '决斗':
       for (const target of others) {
         if (!allowed(target.id)) continue
@@ -121,7 +140,8 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       return actions
     case '五谷丰登':
       // 目标是所有存活角色，亮出等量的牌轮流挑
-      return [useAction(cardId, playerId, card.name, alive(state).filter(allowed), '使用【五谷丰登】', 'fixed')]
+      // 结算次序从使用者开始：使用者先挑牌，然后按座次顺时针轮下去
+      return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter(allowed), '使用【五谷丰登】', 'fixed')]
     case '火攻':
       for (const target of others) {
         if (!allowed(target.id)) continue

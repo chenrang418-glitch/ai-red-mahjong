@@ -69,9 +69,52 @@ interface SgsSeat {
   nextRoundReady: boolean
 }
 
-type SgsJobKind = 'ai-step' | 'turn-timeout' | 'disconnect-trustee' | 'next-round-timeout' | 'all-trustee-dissolve'
+type SgsJobKind = 'ai-step' | 'turn-timeout' | 'disconnect-trustee' | 'next-round-timeout' | 'all-trustee-dissolve' | 'health-watchdog'
+
+/**
+ * Job 失败后的重试退避。
+ *
+ * 有上限是必须的：确定性的程序 BUG 会每次都抛，无限重试等于把 Worker CPU 烧光。
+ * 用完之后放弃这个 Job，但**必须**留下 health-watchdog——房间可以少走一步，
+ * 不能没有任何推进机制。
+ */
+const JOB_RETRY_DELAYS = [1_000, 2_000, 5_000] as const
+
+/**
+ * 健康自检间隔。
+ *
+ * 只在牌局真正需要推进时才排（playing / choosing-general），
+ * 大厅和已结束的房间不排，Durable Object 照常休眠。
+ * 15 秒是「卡住之后最多多久能自愈」和「唤醒次数」之间的折中。
+ */
+const HEALTH_WATCHDOG_INTERVAL_MS = 15_000
+
+/**
+ * 不受局面指纹约束的任务：它们和牌桌局面无关，局面变了也照样该执行。
+ * health-watchdog 必须在内——它排下去的时候局面指纹一定和到期时不一样。
+ */
+function isStageAgnostic(kind: SgsJobKind): boolean {
+  return kind === 'disconnect-trustee' || kind === 'all-trustee-dissolve' || kind === 'health-watchdog'
+}
+
+/** Job 执行失败时回滚用的快照。只放真正会被 Engine Step 改到的字段。 */
+interface SgsRestorePoint {
+  game: SanguoshaState | null
+  jobs: SgsJob[]
+  stageKey: string
+  version: number
+  updatedAt: number
+  aiRngState: number
+  suspicion: SuspicionMap
+  log: Record<string, string[]>
+  presentationEvents: PresentationEvent[]
+  seats: SgsSeat[]
+  processedActionIds: string[] | undefined
+}
 
 interface SgsJob {
+  /** 已经失败过几次。0 或缺省表示第一次执行。 */
+  attempt?: number
   id: string
   kind: SgsJobKind
   dueAt: number
@@ -711,7 +754,16 @@ export class SanguoshaRoomCoordinator {
     return Math.min(...this.state.jobs.map((job) => job.dueAt))
   }
 
-  /** 跑完所有到期任务。返回是否有状态变化。 */
+  /**
+   * 跑完所有到期任务。返回是否有状态变化。
+   *
+   * **一个 Job 抛异常不能让它永久消失。** 原来的写法是「先从 jobs 删掉、再执行」，
+   * 于是 AI 决策、技能 hook、事件处理里任何一处 throw，都会变成：
+   * 任务没了、`scheduleNext` 没跑、新任务没建，牌局仍是 playing 却再也没有推进任务——
+   * 这正是「联机玩一段时间突然卡死」最可能的成因。
+   *
+   * 现在的做法是执行前留一份可回滚的快照，失败时整体回滚再按退避重排。
+   */
   runDueJobs(now = Date.now()): boolean {
     let changed = false
     for (let guard = 0; guard < 200; guard += 1) {
@@ -719,13 +771,188 @@ export class SanguoshaRoomCoordinator {
         .filter((job) => job.dueAt <= now)
         .sort((left, right) => left.dueAt - right.dueAt)[0]
       if (!due) break
-      this.state.jobs = this.state.jobs.filter((job) => job.id !== due.id)
 
-      // 局面已经变了的超时任务直接作废，否则会误伤新局面
-      if (due.kind !== 'disconnect-trustee' && due.kind !== 'all-trustee-dissolve' && due.stageKey !== this.state.stageKey) continue
-      changed = this.runJob(due, now) || changed
+      // 局面已经变了的超时任务直接作废，否则会误伤新局面。
+      // 这一步不需要快照：只是丢弃一个过期任务，没有任何副作用。
+      if (!isStageAgnostic(due.kind) && due.stageKey !== this.state.stageKey) {
+        this.state.jobs = this.state.jobs.filter((job) => job.id !== due.id)
+        continue
+      }
+
+      /*
+       * 快照必须在**移除任务之前**取：回滚时 due 要跟着一起回来，
+       * 才谈得上重试。
+       */
+      const restorePoint = this.captureRestorePoint()
+      this.state.jobs = this.state.jobs.filter((job) => job.id !== due.id)
+      try {
+        changed = this.runJob(due, now) || changed
+      } catch (cause) {
+        /*
+         * game.act() 可能已经改了一半引擎状态，后面的 hook 才抛异常。
+         * 只把任务塞回去会让下一次重试重复扣血、重复摸牌、重复触发技能，
+         * 所以必须整体回滚到执行前的合法状态（含 RNG、战报、表现事件）。
+         */
+        this.restoreTo(restorePoint)
+        this.retryFailedJob(due, now, cause)
+        changed = true
+        // 本次唤醒不再继续跑别的任务，等退避后的 alarm
+        break
+      }
     }
+    // 无论成功失败，离开前都要保证这个房间还有推进机制
+    this.ensureHealthWatchdog(now)
     return changed
+  }
+
+  /**
+   * 执行 Job 前的可回滚快照。
+   *
+   * 只覆盖 Engine Step 真正会改的那些字段——game、jobs、stageKey、version
+   * 之外，**RNG、身份推断、战报、表现事件也必须一起回滚**，否则会出现
+   * 「牌局回滚了但随机数没回滚」「动作失败了但前端收到一次技能特效」
+   * 这种状态与副作用对不上的情况。
+   */
+  private captureRestorePoint(): SgsRestorePoint {
+    // 引擎在内存里可能已经领先于 state.game，先同步再拍
+    if (this.engine) this.state.game = this.engine.serialize()
+    return {
+      game: this.state.game ? structuredClone(this.state.game) : null,
+      jobs: structuredClone(this.state.jobs),
+      stageKey: this.state.stageKey,
+      version: this.state.version,
+      updatedAt: this.state.updatedAt,
+      aiRngState: this.state.aiRngState,
+      suspicion: structuredClone(this.state.suspicion),
+      log: structuredClone(this.state.log),
+      presentationEvents: structuredClone(this.state.presentationEvents ?? []),
+      seats: structuredClone(this.state.seats),
+      processedActionIds: [...(this.state.processedActionIds ?? [])],
+    }
+  }
+
+  private restoreTo(point: SgsRestorePoint): void {
+    this.state.game = point.game
+    this.state.jobs = point.jobs
+    this.state.stageKey = point.stageKey
+    this.state.version = point.version
+    this.state.updatedAt = point.updatedAt
+    this.state.aiRngState = point.aiRngState
+    this.state.suspicion = point.suspicion
+    this.state.log = point.log
+    this.state.presentationEvents = point.presentationEvents
+    this.state.seats = point.seats
+    this.state.processedActionIds = point.processedActionIds
+    // 内存里的引擎已经被污染了，丢掉；下一次 game() 会从回滚后的 state.game 重新 hydrate
+    this.engine = null
+  }
+
+  /** 失败的 Job：按退避重排；用完重试次数就放弃它，但保留 watchdog。 */
+  private retryFailedJob(job: SgsJob, now: number, cause: unknown): void {
+    const attempt = (job.attempt ?? 0) + 1
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+    const pending = this.state.game?.pendingRequests ?? []
+    // 只输出公开信息：不能把手牌、牌堆、隐藏身份写进 Cloudflare 日志
+    console.error('[sanguosha][job-error]', JSON.stringify({
+      roomCode: this.state.code,
+      jobKind: job.kind,
+      jobId: job.id,
+      attempt,
+      seatId: job.seatId,
+      jobStageKey: job.stageKey,
+      currentStageKey: this.state.stageKey,
+      gameSeq: this.state.game?.seq,
+      version: this.state.version,
+      status: this.state.game?.status,
+      phase: this.state.game?.phase,
+      currentPlayerId: this.state.game?.currentPlayerId,
+      pendingCount: pending.length,
+      pendingKinds: pending.map((request) => request.kind),
+      pendingPlayerIds: pending.map((request) => request.playerId),
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack,
+    }))
+
+    this.state.jobs = this.state.jobs.filter((candidate) => candidate.id !== job.id)
+    const delay = JOB_RETRY_DELAYS[attempt - 1]
+    if (delay === undefined) {
+      // 连续失败到上限：不再重试这个任务，交给 watchdog 去重建调度
+      console.error('[sanguosha][job-abandoned]', JSON.stringify({
+        roomCode: this.state.code, jobKind: job.kind, jobId: job.id, attempt,
+      }))
+      return
+    }
+    console.error('[sanguosha][job-retry]', JSON.stringify({
+      roomCode: this.state.code, jobKind: job.kind, jobId: job.id, attempt, delay,
+    }))
+    this.state.jobs.push({ ...job, attempt, dueAt: now + delay })
+  }
+
+  /**
+   * 给 alarm 的最外层兜底用：确保需要推进的房间一定还排着近期任务。
+   *
+   * alarm() 里出了未知异常时调用。不修牌局、不改规则，只保证
+   * nextAlarmAt() 不会退化成「6 小时后的回收 alarm」。
+   */
+  ensureRecoveryJob(now = Date.now()): void {
+    this.ensureHealthWatchdog(now)
+  }
+
+  /** 这个房间现在还需要服务器自动推进吗。 */
+  private needsProgress(): boolean {
+    const status = this.state.game?.status
+    return status === 'playing' || status === 'choosing-general'
+  }
+
+  /**
+   * 保证需要推进的房间始终排着一个 health-watchdog。
+   *
+   * 大厅、已结束的房间不排——那些应该正常休眠。
+   */
+  private ensureHealthWatchdog(now: number): void {
+    const existing = this.state.jobs.find((job) => job.kind === 'health-watchdog')
+    if (!this.needsProgress()) {
+      // 牌局结束或还没开始：撤掉高频自检，恢复低负载
+      if (existing) this.state.jobs = this.state.jobs.filter((job) => job.kind !== 'health-watchdog')
+      return
+    }
+    if (existing) return
+    this.pushJob({ kind: 'health-watchdog', dueAt: now + HEALTH_WATCHDOG_INTERVAL_MS })
+  }
+
+  /**
+   * 健康自检：牌局需要推进却没有任何推进任务时，重建调度。
+   *
+   * **只修调度，绝不碰规则**——不会替玩家答请求、不会跳过阶段、不会判负。
+   * 返回是否真的修过。
+   */
+  private repairScheduling(now: number): boolean {
+    if (!this.needsProgress()) return false
+    const gameplay = this.state.jobs.filter((job) => job.kind === 'ai-step' || job.kind === 'turn-timeout')
+    const fresh = gameplay.filter((job) => job.stageKey === this.state.stageKey)
+    if (fresh.length > 0) return false
+
+    const reason = gameplay.length > 0 ? 'stale-gameplay-jobs' : 'missing-gameplay-job'
+    const before = gameplay.map((job) => ({ kind: job.kind, dueAt: job.dueAt, seatId: job.seatId, stageKey: job.stageKey, attempt: job.attempt }))
+    // 局面指纹对不上的旧任务清掉，再按当前局面重新安排
+    this.state.jobs = this.state.jobs.filter((job) => job.kind !== 'ai-step' && job.kind !== 'turn-timeout')
+    this.scheduleNext(now)
+    const after = this.state.jobs
+      .filter((job) => job.kind === 'ai-step' || job.kind === 'turn-timeout')
+      .map((job) => ({ kind: job.kind, dueAt: job.dueAt, seatId: job.seatId, stageKey: job.stageKey, attempt: job.attempt }))
+    console.error('[sanguosha][watchdog-repair]', JSON.stringify({
+      roomCode: this.state.code,
+      status: this.state.game?.status,
+      phase: this.state.game?.phase,
+      currentPlayerId: this.state.game?.currentPlayerId,
+      stageKey: this.state.stageKey,
+      gameSeq: this.state.game?.seq,
+      repairReason: reason,
+      jobsBefore: before,
+      jobsAfter: after,
+    }))
+    return after.length > 0
   }
 
   private runJob(job: SgsJob, now: number): boolean {
@@ -752,6 +979,12 @@ export class SanguoshaRoomCoordinator {
         if (this.state.game?.status !== 'game-over') return false
         this.startGame(now)
         return true
+      }
+
+      case 'health-watchdog': {
+        // 自检本身不算「牌局有变化」，除非它真的修好了什么。
+        // 下一轮 watchdog 由 runDueJobs 收尾时的 ensureHealthWatchdog 排。
+        return this.repairScheduling(now)
       }
 
       case 'ai-step':

@@ -444,3 +444,44 @@ describe('即时锦囊', () => {
     assertCardConservation(game.state)
   })
 })
+
+describe('多目标锦囊的结算次序从使用者开始', () => {
+  /**
+   * 用户实测报的问题：【五谷丰登】使用后不是由使用者先挑牌。
+   *
+   * 根因是目标列表直接用了 `state.players` 的座位表原序（p0、p1、p2……），
+   * 与使用者坐在哪里无关——使用者坐在 p3 时，p0 会先挑。
+   * 规则是**从使用者开始按座次顺时针**。
+   */
+  function targetsOf(game: SanguoshaGame, playerId: string, cardName: string): string[] {
+    // 复用本文件已有的出牌阶段牌局工厂
+    const cardId = Object.values(game.state.cards).find((card) => card.name === cardName)!.id
+    const owner = game.state.players.find((player) => player.id === playerId)!
+    game.state.zones.drawPile = game.state.zones.drawPile.filter((id) => id !== cardId)
+    game.state.zones.discardPile = game.state.zones.discardPile.filter((id) => id !== cardId)
+    for (const player of game.state.players) player.zones.hand = player.zones.hand.filter((id) => id !== cardId)
+    owner.zones.hand.push(cardId)
+    game.state.currentPlayerId = playerId
+    game.state.phase = 'play'
+    const action = game.legalActions(playerId).find((candidate) => (
+      candidate.kind === 'use-card' && candidate.asCardName === cardName
+    ))
+    return action ? (action as { targetIds: string[] }).targetIds : []
+  }
+
+  it('五谷丰登：使用者排在第一个，其余按座次顺时针', () => {
+    const game = playPhaseGame('wugu-order')
+    expect(targetsOf(game, 'p3', '五谷丰登'), '坐在 p3 用五谷，应当自己先挑').toEqual(['p3', 'p4', 'p0', 'p1', 'p2'])
+    expect(targetsOf(game, 'p0', '五谷丰登')).toEqual(['p0', 'p1', 'p2', 'p3', 'p4'])
+  })
+
+  it('桃园结义同样从使用者开始', () => {
+    const game = playPhaseGame('taoyuan-order')
+    expect(targetsOf(game, 'p2', '桃园结义')).toEqual(['p2', 'p3', 'p4', 'p0', 'p1'])
+  })
+
+  it('南蛮入侵不含使用者，从使用者的下家开始', () => {
+    const game = playPhaseGame('nanman-order')
+    expect(targetsOf(game, 'p2', '南蛮入侵')).toEqual(['p3', 'p4', 'p0', 'p1'])
+  })
+})
