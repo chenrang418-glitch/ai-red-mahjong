@@ -8,6 +8,7 @@ import { isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } f
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
+import { DAWU_STATE, KUANGFENG_STATE, applyTargetStateDamage, clearTargetStatesOf } from './target-state'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 import { moveCard } from './zones'
@@ -225,6 +226,11 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   const claimant = deathCardClaimantOf(host.state, playerId)
   if (claimant) holdDeathCards(host, dead, claimant)
   else discardOwnedCards(host, dead, true)
+  /*
+   * 死亡时收掉临时状态：既收挂在他身上的，也收**由他施加**的——
+   * 施加者死了就再也不会有「他的下一个回合」，留着等于永久生效。
+   */
+  clearTargetStatesOf(host.state, playerId)
   host.dispatch('Death', { playerId, sourceId, identity: dead.identity }, { sourceId: sourceId ?? undefined, targetId: playerId })
   host.state.dying = null
 
@@ -297,6 +303,28 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
     if (source?.marks.luoyi) amount += 1
   }
   amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null)
+  /*
+   * 临时角色状态的伤害修正（神诸葛亮【狂风】加火伤、【大雾】防非雷伤）。
+   *
+   * 放在这里而不是各张牌里：杀、决斗、南蛮、万箭、火攻、业炎、连环传导的
+   * 二次伤害走的都是这一条管线，挂在这里就自然全都覆盖到，
+   * 也不需要给每个状态在牌效果里写一遍特判。
+   */
+  const stateEffect = applyTargetStateDamage(host.state, target.id, amount, nature)
+  if (stateEffect.preventedBy) {
+    host.dispatch('SkillActivated', {
+      skillId: stateEffect.preventedBy, playerId: target.id, result: 'damage-prevented',
+      logText: `【${stateEffect.preventedBy === DAWU_STATE ? '大雾' : stateEffect.preventedBy}】防止了${target.nickname}受到的伤害`,
+    }, { targetId: target.id })
+    return
+  }
+  if (stateEffect.amplifiedBy) {
+    host.dispatch('SkillActivated', {
+      skillId: stateEffect.amplifiedBy, playerId: target.id, result: 'damage-amplified',
+      logText: `【${stateEffect.amplifiedBy === KUANGFENG_STATE ? '狂风' : stateEffect.amplifiedBy}】令${target.nickname}受到的火焰伤害 +1`,
+    }, { targetId: target.id })
+  }
+  amount = stateEffect.amount
   if (amount <= 0) return
 
   const cardId = options.cardId ?? null
@@ -365,6 +393,25 @@ export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId:
   }
 
   requestCurrentRescuer(host)
+}
+
+/**
+ * 让某名角色**直接死亡**，不经过濒死求桃。
+ *
+ * 神关羽【武魂】的判定失败就是这一种：规则说的是「该角色死亡」，
+ * 不是「受到足以致死的伤害」——所以既不能伪造一次伤害（那会触发
+ * 奸雄、刚烈、天香这些「受到伤害后」的技能，还会被藤甲、大雾挡掉），
+ * 也不能走濒死（那会给别人求桃的机会）。
+ *
+ * 体力先归零再走统一死亡管线，于是行殇、遗计、身份胜负判定这些
+ * 「死亡后」的时机全都照常。
+ */
+export function killPlayer(host: DamageEngineHost, playerId: PlayerId, sourceId: PlayerId | null, reason: string): void {
+  const target = host.state.players.find((candidate) => candidate.id === playerId)
+  if (!target?.alive) return
+  target.hp = Math.min(target.hp, 0)
+  host.dispatch('LoseHp', { playerId, amount: 0, reason }, { targetId: playerId })
+  resolveDeath(host, playerId, sourceId)
 }
 
 export function resolveDamage(host: DamageEngineHost, options: DamageOptions): void {

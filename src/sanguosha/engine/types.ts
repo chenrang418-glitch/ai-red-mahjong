@@ -73,6 +73,14 @@ export interface PlayerState {
    * 这里放的是真实的 CardId，牌是从牌堆真移动过来的，不是复制出来的牌面。
    */
   characterPiles: Record<string, CardId[]>
+  /**
+   * 哪些专属牌堆是**扣置**的（只有主人看得到牌面，别人只看得到数量）。
+   *
+   * 周泰的「创」是亮出来的，所以默认公开；神诸葛亮的「星」是扣置的，
+   * 必须登记在这里，`buildPlayerView` 才知道要对别人裁掉牌面。
+   * **不要靠「牌堆名叫什么」去猜可见性**——那样加一个新堆就得改 view.ts。
+   */
+  hiddenCharacterPiles?: string[]
   marks: Record<string, number>
   /** 限定技：**一局一次**，永不重置。 */
   usedLimitedSkills: string[]
@@ -556,6 +564,24 @@ export interface ExtraTurnEntry {
   sourcePlayerId?: PlayerId
 }
 
+/** 见 `engine/target-state.ts`。放在这里是为了让 SanguoshaState 不反向依赖那个模块。 */
+export interface TargetState {
+  name: string
+  ownerId: PlayerId
+  /**
+   * 失效时机。
+   *
+   * `source-next-turn-start`：持续到**施加者**的下一个回合开始前
+   * （狂风、大雾都是这一种）。判据是施加者的回合又开始了一次，
+   * 所以必须记住施加者是谁、以及施加时的回合数。
+   */
+  expiry: 'source-next-turn-start'
+  appliedTurn: number
+  /** 施加者。`source-next-turn-start` 靠它判断什么时候到期，规则层要读。 */
+  sourceId: PlayerId
+  skillId?: string
+}
+
 export interface SanguoshaState {
   rulesetVersion: RulesetVersion
   seed: string
@@ -577,6 +603,14 @@ export interface SanguoshaState {
   normalTurnPlayerId: PlayerId
   /** 排队中的额外回合，先进先出。轮到时已经死亡的直接丢弃。 */
   extraTurns: ExtraTurnEntry[]
+  /**
+   * 临时角色状态（狂风、大雾）。见 `engine/target-state.ts`。
+   *
+   * 和 `player.marks` 分开：marks 是计数，这里是**带失效时机的具名状态**，
+   * 而且会参与伤害结算。放在牌局状态里而不是玩家身上，
+   * 是因为失效判定要看全局回合数。
+   */
+  targetStates: TargetState[]
   /** 当前回合是正常回合还是插队的额外回合。决定下一个正常回合从哪里数起。 */
   currentTurnKind: 'normal' | 'extra'
   turnNumber: number

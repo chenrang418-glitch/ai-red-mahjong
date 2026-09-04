@@ -102,7 +102,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     const card = state.cards[cardId]
     if (!card) continue
     if (card.name === '杀' && canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) {
-      for (const combo of slashTargetCombos(state, playerId)) {
+      for (const combo of slashTargetCombos(state, playerId, cardId)) {
         const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
         actions.push({
           ...useAction(cardId, playerId, '杀', combo, `对${names}使用【杀】`),
@@ -155,7 +155,7 @@ export function declaredCardActions(
     // 转化出来的杀同样受本回合的临时规则约束：天义失败时武圣、龙胆、蛊惑
     // 一律用不出杀，不能只把手牌那条藏起来
     if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) return actions
-    for (const combo of slashTargetCombos(state, playerId)) {
+    for (const combo of slashTargetCombos(state, playerId, cardId)) {
       const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
       actions.push({
         ...useAction(cardId, playerId, '杀', combo, `${label}，目标${names}`),
@@ -213,10 +213,11 @@ export function declaredCardActions(
  * 只生成到 `slashTargetLimit` 为止，且**不做全排列**：多目标是少数情况，
  * 组合数按人数是 C(n,2)，5~8 人局最多二十来条，够用又不会把动作表撑爆。
  */
-function slashTargetCombos(state: SanguoshaState, playerId: PlayerId): PlayerId[][] {
+function slashTargetCombos(state: SanguoshaState, playerId: PlayerId, cardId?: CardId): PlayerId[][] {
   const rules = slashRules(state, playerId)
+  // 载体牌要传下去：武神只对红桃当的【杀】免距离，真【杀】仍然讲距离
   const skillIgnoreDistance = skillsOf(state, playerId, skillIdsOf)
-    .some((runtime) => runtime.slashIgnoresDistance?.(state, playerId) ?? false)
+    .some((runtime) => runtime.slashIgnoresDistance?.(state, playerId, cardId) ?? false)
   const legal = state.players
     .filter((target) => {
       if (isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) return false

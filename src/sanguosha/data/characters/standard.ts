@@ -17,6 +17,7 @@ import { WIND_CHARACTERS } from './wind'
 import { FIRE_CHARACTERS } from './fire'
 import { FOREST_CHARACTERS } from './forest'
 import { MOUNTAIN_CHARACTERS } from './mountain'
+import { GOD_CHARACTERS } from './god'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -367,6 +368,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...FIRE_CHARACTERS,
   ...FOREST_CHARACTERS,
   ...MOUNTAIN_CHARACTERS,
+  ...GOD_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 

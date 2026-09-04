@@ -1374,8 +1374,18 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.prompt.includes('再起')) {
         return { ...base, payload: { optionId: shouldZaiqi(me) ? 'yes' : 'no' } }
       }
+      /*
+       * 【神速】第一段：跳过判定和摸牌阶段，换一次无距离【杀】。
+       *
+       * **手牌快空了就别换。** 原来是无条件发动，于是出现过这样的死局：
+       * 夏侯渊每回合都跳摸牌去出一刀，对面刘禅【享乐】要求攻击者弃一张基本牌
+       * 才让杀生效——他因为一直不摸牌永远拿不出基本牌，每一刀都被作废，
+       * 两个人 2600 回合谁也打不死谁（压测 seed=balance-5-50 抓到）。
+       * 摸两张牌本身就是收益，手上没牌时它明显比一次注定落空的杀更值。
+       */
       if (options.some((option) => option.id === 'shensu-judge')) {
-        return { ...base, payload: { optionId: 'shensu-judge' } }
+        const starving = me.handCount <= 1
+        return { ...base, payload: { optionId: starving ? 'no' : 'shensu-judge' } }
       }
       if (options.some((option) => option.id === 'shensu-play')) {
         // 装备代价已经由请求前置条件保证存在；标准/困难会积极换成一次无距离杀，

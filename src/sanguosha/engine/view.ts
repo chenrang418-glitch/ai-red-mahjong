@@ -33,7 +33,16 @@ export interface PlayerPublicView {
    * 武将专属牌堆。「创」这类牌是**亮出来**的，所以对所有人公开，
    * 直接下发牌面；将来若出现暗置的专属牌堆，要在这里按观看者裁剪。
    */
+  /**
+   * 武将专属牌堆。
+   *
+   * 亮出的堆（周泰「创」、邓艾「田」）对所有人下发牌面；
+   * **扣置的堆（神诸葛亮「星」）只给主人下发牌面**，别人这里拿到空数组，
+   * 张数看 `characterPileCounts`。
+   */
   characterPiles: Record<string, PhysicalCard[]>
+  /** 每个专属牌堆的张数。扣置的堆别人也看得到数量，只是看不到是哪些牌。 */
+  characterPileCounts: Record<string, number>
   handCount: number
   hand: PhysicalCard[] | null
   equipment: Array<PhysicalCard>
@@ -130,7 +139,16 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         chained: player.chained,
         faceDown: player.faceDown,
         characterPiles: Object.fromEntries(
-          Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [pile, cards(state, ids)]),
+          Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [
+            pile,
+            // 扣置的堆对别人裁成空数组：不是「发了再让前端别显示」，是根本不下发
+            (player.hiddenCharacterPiles ?? []).includes(pile) && player.id !== viewerId
+              ? []
+              : cards(state, ids),
+          ]),
+        ),
+        characterPileCounts: Object.fromEntries(
+          Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [pile, ids.length]),
         ),
         // 私有区只发给它的主人，别人拿到 null
         privateCards: player.id === viewerId

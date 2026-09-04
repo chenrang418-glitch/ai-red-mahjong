@@ -17,7 +17,9 @@ describe('三国杀六势力基础数据', () => {
   })
 
   it('当前全部武将都显式拥有且只拥有一个合法势力', () => {
-    expect(ALL_CHARACTERS).toHaveLength(64)
+    // **不写死总数**：每加一名武将都要来改一次数字是纯噪音，
+    // 而且这条测试要守的是「每个人都有且只有一个合法势力」，不是池子多大。
+    expect(ALL_CHARACTERS.length).toBeGreaterThan(0)
     expect(new Set(ALL_CHARACTERS.map((character) => character.id)).size).toBe(ALL_CHARACTERS.length)
     for (const character of ALL_CHARACTERS) {
       expect(Object.prototype.hasOwnProperty.call(character, 'kingdom'), `${character.id} 缺少 kingdom`).toBe(true)

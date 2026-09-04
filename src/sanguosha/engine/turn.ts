@@ -1,6 +1,7 @@
 import type { GameEventName } from './events'
 import type { SanguoshaState, TurnPhase } from './types'
 import { clearTurnSlashRules } from './slash-rules'
+import { expireTargetStates } from './target-state'
 
 export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'play', 'discard', 'finish']
 
@@ -136,6 +137,12 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   }
 
   state.phase = 'prepare'
+  /*
+   * 临时状态（狂风、大雾）在**施加者的下一个回合开始前**失效。
+   * 统一在这里清，技能不各自注册清理——散着写迟早漏一个，
+   * 然后某个玩家身上挂着一个永远不消失的大雾。
+   */
+  expireTargetStates(state, state.currentPlayerId)
   return true
 }
 

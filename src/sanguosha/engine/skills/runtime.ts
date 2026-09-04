@@ -193,8 +193,15 @@ export interface SkillRuntime {
   }
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
-  /** 条件式无距离使用【杀】；状态必须来自可序列化牌局数据。 */
-  slashIgnoresDistance?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /**
+   * 条件式无距离使用【杀】；状态必须来自可序列化牌局数据。
+   *
+   * `cardId` 是这次要用的**载体实体牌**，转化技也给。
+   * 神关羽【武神】只对**红桃**牌当的【杀】免距离，手上一张真的黑桃【杀】
+   * 仍然要讲距离——所以不能只按「这个人有没有这个技能」判断，
+   * 必须看具体是哪张牌。没有载体的调用点（纯虚拟杀）传 undefined。
+   */
+  slashIgnoresDistance?(state: SanguoshaState, ownerId: PlayerId, cardId?: CardId): boolean
   /**
    * 【杀】实际开始前由服务器补充目标。候选已经过存活、自身和禁止目标检查；
    * 随机选择必须使用 host.rng。

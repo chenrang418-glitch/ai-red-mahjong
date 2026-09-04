@@ -406,6 +406,12 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·左慈',
   },
+  /* ── 神将 ── 竖构图半身像，按规程基准值登记，再对着浏览器复核焦点 */
+  shenguanyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·神关羽',
+  },
 }
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

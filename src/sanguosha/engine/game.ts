@@ -96,6 +96,7 @@ export class SanguoshaGame {
       normalTurnPlayerId: lord.id,
       extraTurns: [],
       currentTurnKind: 'normal',
+      targetStates: [],
       turnNumber: 0,
       phase: 'prepare',
       skippedPhases: [],
@@ -543,6 +544,8 @@ export class SanguoshaGame {
     mutable.state.extraTurns ??= []
     mutable.state.normalTurnPlayerId ??= mutable.state.currentPlayerId
     mutable.state.currentTurnKind ??= 'normal'
+    // 临时角色状态是后加的字段，进行中的旧房间里没有
+    mutable.state.targetStates ??= []
     mutable.state.mamaBonds ??= {}
     if (mutable.state.damageChain) {
       mutable.state.damageChain.cardId ??= null
