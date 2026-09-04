@@ -12,8 +12,11 @@ import type { CharacterDefinition } from './types'
 import { SHENGUANYU } from './god-shenguanyu'
 // 神吕蒙：涉猎走「取消 DrawPhase」的摸牌阶段替代约定；攻心靠「请求只发给本人」实现看牌隐私
 import { SHENLVMENG } from './god-shenlvmeng'
+// 神周瑜：琴音复用弃牌溯源账本；业炎是限定技，火焰伤害走统一伤害管线
+import { SHENZHOUYU } from './god-shenzhouyu'
 
 export const GOD_CHARACTERS: readonly CharacterDefinition[] = [
   SHENGUANYU,
   SHENLVMENG,
+  SHENZHOUYU,
 ] as const

@@ -101,10 +101,16 @@ registerSkillRuntime({
     if (resolution.step !== 'ask' || (response.payload as { optionId?: string }).optionId !== 'yes') return
     const characterId = gainRandomHuashen(host, ownerId)
     if (!characterId) return
+    /*
+     * 受到 2 点伤害时【新生】会**分两次**发动（每 1 点一次），
+     * 两条横幅文案一模一样就会在牌桌中央连播两遍同一句话。
+     * 带上当前化身牌数，两次发动的文案自然不同，也更有信息量。
+     */
+    const total = host.state.huashen?.owners[ownerId]?.characterIds.length ?? 0
     host.dispatch('SkillActivated', {
       playerId: ownerId, skillId: XINSHENG, skillName: '新生', result: 'gain-huashen',
       // 新化身牌是隐藏信息，公开事件和日志不携带 characterId / name / skills。
-      logText: `${playerOf(host.state, ownerId)?.nickname ?? ''}发动【新生】，获得一张新的化身牌`,
+      logText: `${playerOf(host.state, ownerId)?.nickname ?? ''}发动【新生】，获得一张新的化身牌（共 ${total} 张）`,
     }, { sourceId: ownerId })
   },
 })

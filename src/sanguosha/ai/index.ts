@@ -629,6 +629,9 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
   const bestTarget = enemies.length > 0 ? Math.max(...enemies) : -Infinity
 
   switch (action.skillId) {
+    case 'yeyan':
+      // 限定技，一局一次：场上有值得烧的敌人才交，血太少不冒险走大业炎那条
+      return bestTarget > 4 && me.hp >= 2 ? 20 : -100
     case 'gongxin':
       // 看牌本身没有代价，能顺手拆掉一张红桃桃 / 闪就是纯赚
       return bestTarget > 0 ? 12 : 4
@@ -1112,6 +1115,28 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
       /*
+       * 【业炎】选目标。**绝不交空数组**——和攻心、挑衅同一类坑：
+       * 取消不消耗限定技，交空之后技能仍然可用，AI 立刻再发动一次就死循环
+       * （seed=balance-5-26）。发不发动已经在 skillActionScore 里判过了。
+       * 只打敌人，血最少的优先，最多三个。
+       */
+      if (request.prompt.startsWith('【业炎】：选择')) {
+        /*
+         * **必须选满** `min(3, max)` 个：敌人优先，不够就用剩下的候选补齐。
+         *
+         * 3 点要分完，而「对任意一人分到 ≥2 点」必须弃四张不同花色手牌
+         * 并失去 3 点体力。付不起代价时唯一合法的分配是「三人各 1 点」，
+         * 少选一个就凑不出合法分配，技能静默作废又留在那里被反复发动
+         * （死循环：seed=ci-5-28 / balance-5-26 / soak-5-6）。
+         * 只按敌意过滤会在「敌人不足三个」时选不满，所以要补齐。
+         */
+        const ranked = [...request.candidateIds].sort((left, right) => {
+          const enemy = (id: PlayerId): number => (hostility(context.view, context.suspicion, id) > PROTECTED ? 1 : 0)
+          return (enemy(right) - enemy(left)) || (targetScore(context, right) - targetScore(context, left))
+        })
+        return { ...base, payload: { targetIds: ranked.slice(0, Math.min(3, request.max)) } }
+      }
+      /*
        * 【攻心】看谁的手牌。**绝不交空数组**：取消不消耗「出牌阶段限一次」，
        * 交空之后技能仍然可用，AI 会立刻再发动一次，压测里直接死循环
        * （seed=ci-5-15）。要不要发动已经在 skillActionScore 里判过了，
@@ -1344,6 +1369,24 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
        */
       if (request.prompt.startsWith('发动【屯田】')) {
         return { ...base, payload: { optionId: 'yes' } }
+      }
+      /*
+       * 【业炎】怎么分配这 3 点。
+       *
+       * 只选了一个目标时选项里既有「1 点 / 2 点 / 3 点」，带「需付代价」的
+       * 那些要弃四张不同花色手牌并失去 3 点体力——血不够就会把自己烧死。
+       * 保守起见：血量撑得住才考虑大业炎，否则挑不需要代价的最大那一档。
+       */
+      if (request.prompt.startsWith('【业炎】：分配')) {
+        const affordable = options.filter((option) => !option.label.includes('需付代价'))
+        const me2 = myself(context.view)
+        const pool = me2.hp > 3 && options.length > affordable.length ? options : (affordable.length > 0 ? affordable : options)
+        return { ...base, payload: { optionId: pool[pool.length - 1].id } }
+      }
+      // 【琴音】：自己受伤就全体回血，否则全体掉血（自己满血时净赚）
+      if (options.some((option) => option.id === 'qinyin-recover')) {
+        const me2 = myself(context.view)
+        return { ...base, payload: { optionId: me2.hp < me2.maxHp ? 'qinyin-recover' : 'qinyin-lose' } }
       }
       // 【涉猎】：放弃摸两张换「亮五张、每种花色各拿一张」，期望 2~4 张，一律发动
       if (request.prompt.startsWith('发动【涉猎】')) {
