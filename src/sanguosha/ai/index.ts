@@ -571,6 +571,25 @@ function fangquanScore(context: AIContext, targetId: PlayerId): number {
   return 20 - attitude * 4 + Math.min(target.handCount, 6) + target.hp
 }
 
+/** 攻心看谁：敌人优先，手牌多的更可能藏着桃 / 闪。 */
+function gongxinScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  return attitude * 6 + Math.min(target.handCount, 6)
+}
+
+/**
+ * 攻心抓到一张红桃之后怎么处置。
+ *
+ * 弃置是立刻少他一张牌；置顶是把这张红桃塞回牌堆顶，下一个摸牌的人会摸到它——
+ * 轮到自己人摸时才划算，否则就是白送。默认弃掉，那是稳定的负收益转移。
+ */
+function decideGongxinDispose(context: AIContext): string {
+  const me = myself(context.view)
+  return me.handCount <= 1 ? 'gongxin-topdeck' : 'gongxin-discard'
+}
+
 /** 目标价值：先看阵营敌意，再看血少、手牌少好不好打。 */
 function targetScore(context: AIContext, targetId: PlayerId): number {
   const target = context.view.players.find((player) => player.id === targetId)
@@ -610,6 +629,9 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
   const bestTarget = enemies.length > 0 ? Math.max(...enemies) : -Infinity
 
   switch (action.skillId) {
+    case 'gongxin':
+      // 看牌本身没有代价，能顺手拆掉一张红桃桃 / 闪就是纯赚
+      return bestTarget > 0 ? 12 : 4
     case 'zhijian':
       // 直谏不亏牌：把装备交给队友后自己补一张，场上有可用目标就积极发动。
       return 17
@@ -1090,6 +1112,17 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
       /*
+       * 【攻心】看谁的手牌。**绝不交空数组**：取消不消耗「出牌阶段限一次」，
+       * 交空之后技能仍然可用，AI 会立刻再发动一次，压测里直接死循环
+       * （seed=ci-5-15）。要不要发动已经在 skillActionScore 里判过了，
+       * 到这一步就必须选一个人。
+       */
+      if (request.prompt.startsWith('【攻心】')) {
+        const ranked = [...request.candidateIds]
+          .sort((left, right) => gongxinScore(context, right) - gongxinScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      /*
        * 【挑衅】选谁。**绝不交空数组**：取消不消耗「出牌阶段限一次」，
        * 于是技能仍然可以发动，AI 会立刻再发动一次，压测里直接死循环
        * （6 人局 20002 步就是这么卡住的）。要不要发动已经在
@@ -1311,6 +1344,14 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
        */
       if (request.prompt.startsWith('发动【屯田】')) {
         return { ...base, payload: { optionId: 'yes' } }
+      }
+      // 【涉猎】：放弃摸两张换「亮五张、每种花色各拿一张」，期望 2~4 张，一律发动
+      if (request.prompt.startsWith('发动【涉猎】')) {
+        return { ...base, payload: { optionId: 'yes' } }
+      }
+      // 【攻心】抓到红桃之后：置顶还是弃掉
+      if (options.some((option) => option.id === 'gongxin-topdeck')) {
+        return { ...base, payload: { optionId: decideGongxinDispose(context) } }
       }
       // 【志继】觉醒二选一：受伤了就回血，没受伤摸两张更实在
       if (options.some((option) => option.id.startsWith('zhiji-'))) {

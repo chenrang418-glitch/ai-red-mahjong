@@ -10,7 +10,10 @@ import type { CharacterDefinition } from './types'
 
 // 神关羽：武神走公共 viewAs + 按载体牌的免距离；武魂用公共 marks + 直接死亡入口
 import { SHENGUANYU } from './god-shenguanyu'
+// 神吕蒙：涉猎走「取消 DrawPhase」的摸牌阶段替代约定；攻心靠「请求只发给本人」实现看牌隐私
+import { SHENLVMENG } from './god-shenlvmeng'
 
 export const GOD_CHARACTERS: readonly CharacterDefinition[] = [
   SHENGUANYU,
+  SHENLVMENG,
 ] as const

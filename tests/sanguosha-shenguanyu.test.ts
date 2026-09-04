@@ -343,11 +343,17 @@ describe('武魂：死亡后的惩罚', () => {
     // 神关羽自己也挂上梦魇，验证他不会成为候选
     playerOf(game, 'p0').marks[NIGHTMARE_MARK] = 9
 
+    // 判定牌顶成非桃，让被选中的人一定死，便于观察选了谁
+    stackJudgment(game, findCard(game, (card) => card.name === '杀'))
     killShenguanyu(game)
-    const request = game.state.pendingRequests[0]
-    expect(request?.kind, '并列时要问神关羽选谁').toBe('choose-targets')
-    expect(request.playerId).toBe('p0')
-    expect(request.candidateIds.sort()).toEqual(['p1', 'p2'])
-    expect(request.candidateIds, '候选里不该有神关羽自己').not.toContain('p0')
+
+    /*
+     * 规则上由神关羽指定，但他这时已经死了，引擎不允许把 Request 发给
+     * 阵亡玩家，所以实现取「从神关羽座位起顺时针的第一个」作为确定性结果。
+     * p0 的下家是 p1，所以并列时应当是 p1 被判定。
+     */
+    expect(playerOf(game, 'p1').alive, '并列时取顺时针第一个：p1').toBe(false)
+    expect(playerOf(game, 'p2').alive, 'p2 不受影响').toBe(true)
+    expect(playerOf(game, 'p0').marks[NIGHTMARE_MARK], '神关羽自己的梦魇不参与比较').toBe(9)
   })
 })

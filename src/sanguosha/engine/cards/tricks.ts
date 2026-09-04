@@ -341,6 +341,19 @@ function enterTrickTarget(host: CardEngineHost): void {
     return
   }
   const targetId = resolution.targetIds[resolution.targetIndex]
+  /*
+   * 目标可能在这张牌结算途中死掉。
+   *
+   * 正常情况下多目标锦囊逐个结算时没人会中途阵亡，但**死亡连锁**会：
+   * 神关羽【武魂】在自己死亡后可以直接杀死另一名角色，而那个人可能正好
+   * 排在这张【南蛮入侵】后面还没结算。继续走下去会一路走到 resolveDamage
+   * 抛「不能对死亡角色造成伤害」，整局崩掉（压测 seed=soak-8-59 抓到）。
+   * 死人不再是合法目标，直接跳到下一个。
+   */
+  if (!host.state.players.find((player) => player.id === targetId)?.alive) {
+    advanceToNextTarget(host)
+    return
+  }
   const card = host.state.cards[resolution.cardId]
   for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
     if (!runtime.interceptTarget) continue

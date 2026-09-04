@@ -1,6 +1,5 @@
 import { killPlayer } from '../../engine/damage'
 import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
-import type { ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, type ViewAsOption } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { effectiveCardSuit } from '../../engine/skills/runtime'
@@ -143,26 +142,26 @@ registerSkillRuntime({
           beginWuhunJudgment(host, ownerId, tied[0].id)
           return
         }
-        // 并列最多时由神关羽指定；他已经死了，但这是他的技能，仍然由他的座位决定
-        host.askSkill({
-          skillId: WUHUN, ownerId, step: 'pick',
-          build: (requestId): ChooseTargetsRequest => ({
-            id: requestId, kind: 'choose-targets', playerId: ownerId,
-            prompt: '【武魂】：选择一名「梦魇」最多的角色进行判定',
-            timeoutMs: 20_000, optional: false,
-            candidateIds: tied.map((player) => player.id), min: 1, max: 1,
-          }),
+        /*
+         * 并列最多。
+         *
+         * 规则上由神关羽指定，但**他这时已经死了**，而引擎的不变量禁止把
+         * Request 发给已阵亡的玩家（`invariants.ts` 的「Request 响应玩家非法」，
+         * 压测 seed=soak-8-71 抓到）。所以这里按**从神关羽座位起顺时针**
+         * 取第一个作为确定性结果——可序列化、可复现，不会因为死人无法作答
+         * 而把整局卡住。这是本实现相对规则文本的一处明确取舍，已记在 ruleset。
+         */
+        const owner = playerOf(host.state, ownerId)
+        const ordered = [...tied].sort((left, right) => {
+          const base = owner?.seat ?? 0
+          const total = host.state.players.length
+          return ((left.seat - base + total) % total) - ((right.seat - base + total) % total)
         })
+        beginWuhunJudgment(host, ownerId, ordered[0].id)
       },
     },
   ],
 
-  resume(host, ownerId, resolution, response) {
-    if (resolution.step !== 'pick') return
-    const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds ?? []
-    if (!targetId || !playerOf(host.state, targetId)?.alive) return
-    beginWuhunJudgment(host, ownerId, targetId)
-  },
 })
 
 function beginWuhunJudgment(host: Parameters<NonNullable<Parameters<typeof registerSkillRuntime>[0]['resume']>>[0], ownerId: PlayerId, targetId: PlayerId): void {
