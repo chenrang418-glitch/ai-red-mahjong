@@ -17,10 +17,19 @@ import { DENGAI } from './mountain-dengai'
 import { JIANGWEI } from './mountain-jiangwei'
 // 刘禅：放权复用公共 offerPhaseSkip + 新建的额外回合队列，若愚觉醒后复用刘备的激将
 import { LIUSHAN } from './mountain-liushan'
+// 孙策：激昂走标准目标事件，魂姿复用觉醒/动态技能，制霸复用公共拼点
+import { SUNCE } from './mountain-sunce'
+import { ZHANGZHAOZHANGHONG } from './mountain-zhangzhaozhanghong'
+import { CAIWENJI } from './mountain-caiwenji'
+import { ZUOCI } from './mountain-zuoci'
 
 export const MOUNTAIN_CHARACTERS: readonly CharacterDefinition[] = [
   ZHANGHE,
   DENGAI,
   JIANGWEI,
   LIUSHAN,
+  SUNCE,
+  ZHANGZHAOZHANGHONG,
+  CAIWENJI,
+  ZUOCI,
 ] as const

@@ -129,7 +129,13 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     if (request) {
       remember(`request:${request.kind}:${request.playerId}`)
       const before = game.state.seq
-      game.respond(decideResponse(contextFor(request.playerId), request))
+      const response = decideResponse(contextFor(request.playerId), request)
+      try {
+        game.respond(response)
+      } catch (cause) {
+        const reason = cause instanceof Error ? cause.message : String(cause)
+        fail(`${reason}；请求=${JSON.stringify(request)}；响应=${JSON.stringify(response)}`, steps)
+      }
       if (game.state.seq === before && game.state.pendingRequests[0]?.id === request.id) {
         fail(`Request ${request.kind} 响应后没有推进`, steps)
       }
@@ -176,8 +182,14 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     }
 
     // 每一步都校验不变量：牌张守恒、体力合法、装备槽正确
-    assertCardConservation(game.state)
-    assertGameInvariants(game.state)
+    try {
+      assertCardConservation(game.state)
+      assertGameInvariants(game.state)
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause)
+      const hp = game.state.players.map((player) => `${player.id}:${player.hp}/${player.maxHp}:${player.alive ? 'alive' : 'dead'}`).join(',')
+      fail(`${reason}；最近步骤=${recentSteps.join(' -> ')}；体力=${hp}`, steps)
+    }
   }
 
   return {

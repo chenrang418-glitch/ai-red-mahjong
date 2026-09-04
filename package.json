@@ -27,6 +27,7 @@
     "test:run": "vitest run --configLoader runner",
     "test:sanguosha": "vitest run sanguosha --configLoader runner",
     "sanguosha:soak": "vite-node scripts/sanguosha-soak.mjs --",
+    "sanguosha:huashen-audit": "vite-node scripts/huashen-audit.mjs",
     "test:e2e": "playwright test",
     "test:online": "npm run test:online:smoke",
     "test:online:smoke": "npm run build:worker && npm run test:online:prepared",

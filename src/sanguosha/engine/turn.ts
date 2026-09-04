@@ -153,7 +153,9 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
 export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   if (state.status !== 'playing') throw new Error('牌局尚未进入进行状态')
   if (state.pendingRequests.length > 0) throw new Error('仍有待处理 Request，不能推进阶段')
+  const endingPhase = state.phase
   emit('PhaseEnd', { playerId: state.currentPlayerId, phase: state.phase })
+  if (endingPhase === 'discard') state.discardPhaseLedger = null
 
   // 回合角色在自己回合里死掉（自己的闪电劈到自己、决斗输了、被反伤……）时，
   // 剩下的阶段不能继续跑——那会让摸牌、出牌、弃牌发生在一个死人身上。
@@ -176,5 +178,26 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   for (const player of state.players) player.turnUsedSkills = []
   // 本回合的临时杀规则（太史慈【天义】）同样在这里统一抹掉，技能不各自注册清理
   clearTurnSlashRules(state)
+  // TurnEnd 触发的技能必须先完整结算，不能先发下一名角色的 TurnStart。
+  // 断点进入 State，回应结束或重连恢复后由 Game.settle 续接。
+  if (
+    state.skillQueue.length > 0
+    || state.pendingRequests.length > 0
+    || state.skillResolution !== null
+    || state.dying !== null
+    || state.damageChain !== null
+    || state.cardResolution !== null
+    || state.judgment !== null
+  ) {
+    state.turnTransitionPending = true
+    return false
+  }
+  return beginTurn(state, emit)
+}
+
+/** TurnEnd 技能全部结清后，从可序列化断点开始下一回合。 */
+export function resumeTurnTransition(state: SanguoshaState, emit: EmitTurnEvent): boolean {
+  if (!state.turnTransitionPending) return false
+  state.turnTransitionPending = false
   return beginTurn(state, emit)
 }

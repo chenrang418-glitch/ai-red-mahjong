@@ -1,7 +1,7 @@
 import { drawCards } from './draw'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import { validateResponse } from './requests'
-import { advancePhase } from './turn'
+import { advancePhase, resumeTurnTransition } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
@@ -15,6 +15,24 @@ import { skillIdsOf } from '../data/characters/standard'
  * 而判定现在可能挂起等改判、结束后还要继续发问，需要完整的 SkillHost 能力。
  */
 export type PhaseEngineHost = JudgmentEngineHost
+
+/**
+ * 把一次明确标记为 discard 的移动写入当前弃牌阶段账本。
+ * 调用方必须提供原牌区；使用牌、判定、死亡清理等进入弃牌堆的移动不得伪装成 discard。
+ */
+export function recordDiscardPhaseMove(state: SanguoshaState, payload: Record<string, unknown>, enteredDiscardAt: number): void {
+  const ledger = state.discardPhaseLedger
+  if (!ledger || state.phase !== 'discard' || payload.reason !== 'discard') return
+  if (payload.phaseInstanceId !== undefined && payload.phaseInstanceId !== ledger.phaseInstanceId) return
+  const sourcePlayerId = typeof payload.sourcePlayerId === 'string' ? payload.sourcePlayerId : null
+  const originalZone = payload.originalZone === 'hand' || payload.originalZone === 'equipment' ? payload.originalZone : null
+  const cardIds = Array.isArray(payload.cardIds) ? payload.cardIds.filter((id): id is string => typeof id === 'string') : []
+  if (!sourcePlayerId || !originalZone) return
+  for (const cardId of cardIds) {
+    if (!state.zones.discardPile.includes(cardId) || ledger.records.some((record) => record.cardId === cardId)) continue
+    ledger.records.push({ cardId, sourcePlayerId, originalZone, moveReason: 'discard', enteredDiscardAt })
+  }
+}
 
 /**
  * 手牌上限的统一计算口径。
@@ -64,6 +82,11 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       host.dispatch('PlayPhase', { playerId }, { sourceId: playerId, phase: 'play' })
       return
     case 'discard': {
+      host.state.discardPhaseLedger = {
+        phaseInstanceId: `discard-${host.state.turnNumber}-${host.state.seq}`,
+        ownerPlayerId: playerId,
+        records: [],
+      }
       const context = host.dispatch('DiscardPhase', { playerId }, { sourceId: playerId, phase: 'discard' })
       // 克己等技能可以在阶段入口生成自己的 Request 并接管默认弃牌。
       if (context.cancelled || host.state.pendingRequests.length > 0) return
@@ -154,6 +177,12 @@ export function advanceGamePhase(host: PhaseEngineHost): void {
   beginPhaseEntry(host)
 }
 
+/** TurnEnd 技能结清后开始下一回合，并进入新的准备阶段公共窗口。 */
+export function continueTurnTransition(host: PhaseEngineHost): void {
+  const entered = resumeTurnTransition(host.state, (name, payload) => { host.dispatch(name, payload) })
+  if (entered) beginPhaseEntry(host)
+}
+
 export function resolveDiscardPhaseResponse(host: PhaseEngineHost, request: ChooseCardsRequest, response: GameResponse): void {
   if (host.state.phase !== 'discard' || host.state.currentPlayerId !== request.playerId) throw new Error('弃牌阶段 Request 已经过期')
   const validationError = validateResponse(request, response)
@@ -163,6 +192,13 @@ export function resolveDiscardPhaseResponse(host: PhaseEngineHost, request: Choo
   if (selected.some((cardId) => !owner.zones.hand.includes(cardId))) throw new Error('弃置牌不属于当前玩家')
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
   for (const cardId of selected) moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'discardPile' })
+  const ledger = host.state.discardPhaseLedger
+  if (ledger?.ownerPlayerId === owner.id) {
+    host.dispatch('CardMove', {
+      cardIds: selected, sourcePlayerId: owner.id, originalZone: 'hand', destinationZone: 'discardPile',
+      reason: 'discard', phaseInstanceId: ledger.phaseInstanceId,
+    }, { sourceId: owner.id, cardIds: selected, phase: 'discard' })
+  }
   host.dispatch('LoseCard', { playerId: owner.id, cardIds: selected, reason: 'discard-phase' }, { sourceId: owner.id, cardIds: selected, phase: 'discard' })
   host.state.decisions.push({
     index: host.state.decisions.length,

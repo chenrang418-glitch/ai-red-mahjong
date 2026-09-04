@@ -3,7 +3,7 @@ import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
-import { dodgeViewAsOptions, getCharacter, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
+import { dodgeViewAsOptions, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
 import { effectiveCardColor, getSkillRuntime, isCardUseProhibited, isTargetProhibited, skillsOf, trickDistanceBonusOf } from '../skills/runtime'
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
@@ -16,7 +16,7 @@ import { PASS_ROUND_ACTION } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
 import { usedThisTurn } from '../turn-usage'
-import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, provideGenderLookup, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
+import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
 import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
@@ -1118,7 +1118,6 @@ provideEquipmentCallbacks({
 
 
 // 性别表在武将数据那边，运行时回注，引擎不反向依赖 data 层
-provideGenderLookup((characterId) => getCharacter(characterId)?.gender)
 
 
 // 流离要按攻击范围找可转移的目标，技能表和距离计算都在别处，运行时回注

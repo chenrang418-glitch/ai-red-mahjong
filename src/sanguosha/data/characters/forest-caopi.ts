@@ -4,7 +4,7 @@ import { drawCards } from '../../engine/draw'
 import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
 import type { PlayerId, SanguoshaState } from '../../engine/types'
-import { kingdomOf } from './lords'
+import { effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -186,6 +186,7 @@ registerSkillRuntime({
  */
 registerSkillRuntime({
   id: SONGWEI,
+  lord: true,
   triggers: [{
     event: 'JudgeResult',
     handle(host, ownerId, context) {
@@ -198,7 +199,7 @@ registerSkillRuntime({
       if (payload.color !== 'black') return
       const judging = playerOf(host.state, judgingId)
       if (!judging?.alive || !judging.characterId) return
-      if (kingdomOf(judging.characterId) !== 'wei') return
+      if (effectiveKingdomOf(host.state, judging.id) !== 'wei') return
       // 判定的效果还没结算完，这里只抓事实排队
       host.queueSkill({ skillId: SONGWEI, ownerId, step: 'ask', data: { judgingId } })
     },

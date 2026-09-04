@@ -123,6 +123,8 @@ export interface SkillHost {
 
 export interface SkillTrigger {
   event: GameEventName
+  /** 死亡事件中允许刚刚阵亡的技能拥有者完成遗言类技能。 */
+  allowDeadOwner?: boolean
   /** 数字越大越先执行，和 GameEventBus 的排序一致。 */
   priority?: number
   handle(host: SkillHost, ownerId: PlayerId, context: EventContext): void
@@ -140,6 +142,11 @@ export interface ViewAsOption {
 
 export interface SkillRuntime {
   id: string
+  /** 供化身资格判断使用，不能靠技能 id 黑名单。 */
+  limited?: boolean
+  lord?: boolean
+  /** 选将完成并进入 playing 后初始化本技能的可序列化局内资源。 */
+  onGameStart?(host: SkillHost, ownerId: PlayerId): void
   /** 见上方说明：这个技能每次发动都自己播横幅，引擎不补兜底那条。 */
   announcesSelf?: boolean
   /** 挂到事件总线上的触发技。 */
@@ -399,10 +406,12 @@ export function ownedSkillIds(
 ): string[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player?.characterId) return []
+  if (player.characterSkillsDisabled) return []
   // 提到闭包外面：TS 在 filter 的回调里丢掉 characterId 的非空收窄
   const own = skillIdsOf(player.characterId)
   const granted = player.grantedSkills ?? []
-  return [...own, ...granted.filter((id) => !own.includes(id))]
+  const temporary = (player.temporaryGrantedSkills ?? []).map((entry) => entry.skillId)
+  return [...new Set([...own, ...granted, ...temporary])]
 }
 
 /**
@@ -419,6 +428,40 @@ export function grantSkill(state: SanguoshaState, playerId: PlayerId, skillId: s
   if (player.grantedSkills.includes(skillId)) return false
   player.grantedSkills.push(skillId)
   return true
+}
+
+/** 同一来源只保留一个临时技能，替换对序列化状态是原子的。 */
+export function replaceTemporarySkill(state: SanguoshaState, playerId: PlayerId, source: string, skillId: string | null): void {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player) return
+  player.temporaryGrantedSkills ??= []
+  const removedSkillIds = new Set(player.temporaryGrantedSkills
+    .filter((entry) => entry.source === source)
+    .map((entry) => entry.skillId))
+  player.temporaryGrantedSkills = player.temporaryGrantedSkills.filter((entry) => entry.source !== source)
+  if (removedSkillIds.size > 0) {
+    state.skillQueue = state.skillQueue.filter((prompt) => prompt.ownerId !== playerId || !removedSkillIds.has(prompt.skillId))
+  }
+  if (skillId) player.temporaryGrantedSkills.push({ source, skillId })
+}
+
+/**
+ * 移除技能后重新检查“非正体力仍存活”的依据。
+ * 典型场景是左慈换掉【不屈】或被【断肠】剥夺技能；不能留下 0 血活人，也不能把武将名写进伤害管线。
+ */
+export function recheckZeroHpAfterSkillLoss(host: SkillHost, playerId: PlayerId): void {
+  const player = host.state.players.find((candidate) => candidate.id === playerId)
+  if (!player?.alive || player.hp > 0) return
+  const survives = ownedSkillIds(host.state, playerId).some((skillId) => getSkillRuntime(skillId)?.survivesAtZeroHp?.(host.state, playerId))
+  if (!survives) host.enterDying(playerId)
+}
+
+/** 选将完成后的技能初始化；只调用当前实际拥有技能的角色。 */
+export function initializeGameSkills(host: SkillHost, skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf): void {
+  for (const player of host.state.players) {
+    if (!player.alive || !player.characterId) continue
+    for (const runtime of skillsOf(host.state, player.id, skillIdsOf)) runtime.onGameStart?.(host, player.id)
+  }
 }
 
 /** 某名玩家当前拥有的技能运行时。武将没选定时返回空。 */
@@ -590,7 +633,7 @@ export function registerSkillTriggers(
       on(trigger.event, (context) => {
         // 只有真正拥有这个技能的人才会被触发；觉醒后获得的技能也算拥有
         for (const player of host.state.players) {
-          if (!player.alive || !player.characterId) continue
+          if ((!player.alive && !trigger.allowDeadOwner) || !player.characterId) continue
           if (!ownedSkillIds(host.state, player.id, skillIdsOf).includes(runtime.id)) continue
           trigger.handle(host, player.id, context)
         }

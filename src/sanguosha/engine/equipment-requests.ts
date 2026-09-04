@@ -6,6 +6,7 @@ import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 import { hasWeapon } from './equipment'
 import { hasPickableCards, movePickedCard, pickableCardsOf, resolvePickedCard } from './card-pick'
 import { locateOwnedCard, moveCard } from './zones'
+import { effectiveGenderOf } from './huashen'
 
 /**
  * 需要向玩家发问、并且要动引擎内部状态的效果。
@@ -452,8 +453,8 @@ export function askCixiongSword(host: SkillHost, sourceId: PlayerId, targetId: P
   const source = host.state.players.find((player) => player.id === sourceId)
   const target = host.state.players.find((player) => player.id === targetId)
   if (!source?.alive || !target?.alive) return false
-  const sourceGender = genderOf(source.characterId)
-  const targetGender = genderOf(target.characterId)
+  const sourceGender = effectiveGenderOf(host.state, sourceId)
+  const targetGender = effectiveGenderOf(host.state, targetId)
   // 性别未知（武将还没定）时不触发，宁可不生效也不猜
   if (!sourceGender || !targetGender || sourceGender === targetGender) return false
 
@@ -478,17 +479,6 @@ export function askCixiongSword(host: SkillHost, sourceId: PlayerId, targetId: P
     }),
   })
   return true
-}
-
-let genderLookup: ((characterId: string) => 'male' | 'female' | undefined) | null = null
-
-/** 性别表在武将数据那边，运行时回注，避免引擎反向依赖 data 层。 */
-export function provideGenderLookup(lookup: (characterId: string) => 'male' | 'female' | undefined): void {
-  genderLookup = lookup
-}
-
-function genderOf(characterId: string | null): 'male' | 'female' | undefined {
-  return characterId ? genderLookup?.(characterId) : undefined
 }
 
 registerSkillRuntime({
@@ -943,7 +933,7 @@ registerSkillRuntime({
 function maleTargets(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
   return state.players
     .filter((player) => player.alive && player.id !== ownerId)
-    .filter((player) => genderOf(player.characterId) === 'male')
+    .filter((player) => effectiveGenderOf(state, player.id) === 'male')
     .map((player) => player.id)
 }
 

@@ -3,6 +3,9 @@ import type { GameRequest } from './requests'
 import type { LegalAction } from './actions'
 import { legalPlayActions } from './cards/basic'
 import { getAttackRange, getDistance } from './distance'
+import { effectiveGenderOf, effectiveKingdomOf } from './huashen'
+import { ownedSkillIds } from './skills/runtime'
+import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 
 export interface PlayerPublicView {
   id: PlayerId
@@ -12,6 +15,16 @@ export interface PlayerPublicView {
   identity: Identity | null
   identityHidden: boolean
   characterId: string | null
+  kingdom: 'wei' | 'shu' | 'wu' | 'qun' | null
+  gender: 'male' | 'female' | null
+  characterSkillsDisabled: boolean
+  skills: Array<{ id: string; name: string }>
+  huashen: {
+    activeCharacterId: string | null
+    activeSkillId: string | null
+    /** 只在化身拥有者自己的视图中出现。 */
+    ownedCharacterIds?: string[]
+  } | null
   hp: number
   maxHp: number
   chained: boolean
@@ -94,6 +107,7 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
     players: state.players.map((player) => {
       const maySeeIdentity = player.id === viewerId || player.identity === 'lord' || player.identityRevealed || state.status === 'game-over'
       const ownHand = player.id === viewerId ? cards(state, player.zones.hand) : null
+      const huashen = state.huashen?.owners[player.id]
       return {
         id: player.id,
         seat: player.seat,
@@ -102,6 +116,15 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         identity: maySeeIdentity ? player.identity : null,
         identityHidden: !maySeeIdentity,
         characterId: player.characterId,
+        kingdom: effectiveKingdomOf(state, player.id) ?? null,
+        gender: effectiveGenderOf(state, player.id) ?? null,
+        characterSkillsDisabled: Boolean(player.characterSkillsDisabled),
+        skills: ownedSkillIds(state, player.id, skillIdsOf).map((id) => ({ id, name: skillDisplayName(state, player.id, id) })),
+        huashen: huashen ? {
+          activeCharacterId: player.characterSkillsDisabled ? null : huashen.activeCharacterId,
+          activeSkillId: player.characterSkillsDisabled ? null : huashen.activeSkillId,
+          ...(player.id === viewerId ? { ownedCharacterIds: [...huashen.characterIds] } : {}),
+        } : null,
         hp: player.hp,
         maxHp: player.maxHp,
         chained: player.chained,

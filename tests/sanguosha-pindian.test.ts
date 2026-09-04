@@ -3,7 +3,8 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { assertCardConservation, moveCard } from '@/sanguosha/engine/zones'
 import {
-  abortPindian, canPindian, pindianRank, registerPindianContinuation, startPindian, type PindianResult,
+  abortPindian, canPindian, claimPindianCards, finishPindianSettlement, pindianRank,
+  registerPindianContinuation, startPindian, type PindianResult,
 } from '@/sanguosha/engine/pindian'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
@@ -20,8 +21,13 @@ import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
  */
 
 const TAG = 'test-pindian'
+const DEFER_TAG = 'test-pindian-defer'
 let lastResult: PindianResult | null = null
 registerPindianContinuation(TAG, (_host, result) => { lastResult = result })
+registerPindianContinuation(DEFER_TAG, (_host, result) => {
+  lastResult = result
+  return 'defer-settlement'
+})
 
 afterEach(() => { lastResult = null })
 
@@ -279,6 +285,46 @@ describe('可序列化与中止', () => {
     expect(game.state.pendingRequests, '对手那条请求也撤掉').toEqual([])
     assertCardConservation(game.state)
     assertGameInvariants(game.state)
+  })
+})
+
+describe('拼点牌去向', () => {
+  function beginDeferred(game: SanguoshaGame, initiatorRank = 13, opponentRank = 7) {
+    clearHand(game, 'p0')
+    clearHand(game, 'p1')
+    const initiatorCard = giveRank(game, 'p0', initiatorRank)
+    const opponentCard = giveRank(game, 'p1', opponentRank)
+    startPindian(game, {
+      id: `defer-${game.state.seq}`, initiatorId: 'p0', opponentId: 'p1', reason: 'test', continuationTag: DEFER_TAG,
+    })
+    submit(game, 'p0', initiatorCard)
+    submit(game, 'p1', opponentCard)
+    return { initiatorCard, opponentCard }
+  }
+
+  it('续接明确延后时两张实体牌留在处理区，认领者可直接获得', () => {
+    const game = gameWith('pindian-claim')
+    const { initiatorCard, opponentCard } = beginDeferred(game)
+    expect(game.state.pindian).toBeNull()
+    expect(game.state.pindianSettlement?.cardIds).toEqual([initiatorCard, opponentCard])
+    expect(game.state.zones.processingArea).toEqual(expect.arrayContaining([initiatorCard, opponentCard]))
+    expect(game.state.zones.discardPile).not.toEqual(expect.arrayContaining([initiatorCard, opponentCard]))
+
+    expect(claimPindianCards(game, 'p2', [initiatorCard, opponentCard])).toEqual([initiatorCard, opponentCard])
+    expect(game.state.players[2].zones.hand).toEqual(expect.arrayContaining([initiatorCard, opponentCard]))
+    expect(game.state.pindianSettlement).toBeNull()
+    assertGameInvariants(game.state)
+  })
+
+  it('延后状态可序列化恢复，放弃认领后才进入弃牌堆', () => {
+    const game = gameWith('pindian-defer-restore')
+    const { initiatorCard, opponentCard } = beginDeferred(game)
+    const restored = SanguoshaGame.restore(JSON.parse(JSON.stringify(game.serialize())))
+    expect(restored.state.pindianSettlement?.cardIds).toEqual([initiatorCard, opponentCard])
+    finishPindianSettlement(restored)
+    expect(restored.state.zones.discardPile).toEqual(expect.arrayContaining([initiatorCard, opponentCard]))
+    expect(restored.state.zones.processingArea).not.toEqual(expect.arrayContaining([initiatorCard, opponentCard]))
+    assertGameInvariants(restored.state)
   })
 })
 

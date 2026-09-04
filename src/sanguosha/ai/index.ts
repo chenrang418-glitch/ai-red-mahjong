@@ -610,6 +610,16 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
   const bestTarget = enemies.length > 0 ? Math.max(...enemies) : -Infinity
 
   switch (action.skillId) {
+    case 'zhijian':
+      // 直谏不亏牌：把装备交给队友后自己补一张，场上有可用目标就积极发动。
+      return 17
+    case 'zhiba': {
+      // 挑战敌方孙策才值得；主公是自己人时不要白送拼点牌。
+      const lord = context.view.players.find((player) => player.identity === 'lord' && player.alive)
+      if (!lord || hostility(context.view, context.suspicion, lord.id) <= 0) return -100
+      const bestRank = Math.max(0, ...(me.hand ?? []).map((card) => card.rank))
+      return bestRank >= 10 ? 15 : bestRank >= 7 ? 6 : -100
+    }
     case 'tiaoxin': {
       /*
        * 挑衅是「逼对方出杀，否则拆他一张牌」。收益随对方手上有没有杀而变，
@@ -890,6 +900,24 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
+      if (request.prompt.startsWith('发动【悲歌】')) {
+        const target = context.view.players.find((player) => request.prompt.includes(player.nickname))
+        if (target && hostility(context.view, context.suspicion, target.id) > 0) return { ...base, payload: { cardIds: [] } }
+        const cheapest = [...request.cardIds].sort((left, right) => cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right)))[0]
+        return { ...base, payload: { cardIds: cheapest ? [cheapest] : [] } }
+      }
+      if (request.prompt.startsWith('【直谏】')) {
+        const cheapest = [...request.cardIds].sort((left, right) => cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right)))[0]
+        return { ...base, payload: { cardIds: cheapest ? [cheapest] : [] } }
+      }
+      if (request.prompt.startsWith('发动【固政】')) {
+        const phaseOwner = context.view.players.find((player) => request.prompt.includes(player.nickname))
+        if (phaseOwner && hostility(context.view, context.suspicion, phaseOwner.id) > 0 && request.cardIds.length <= 1) {
+          return { ...base, payload: { cardIds: [] } }
+        }
+        const cheapest = [...request.cardIds].sort((left, right) => cardValue(cardName(context, left)) - cardValue(cardName(context, right)))[0]
+        return { ...base, payload: { cardIds: cheapest ? [cheapest] : [] } }
+      }
       /*
        * 【享乐】：为了打中刘禅，值不值得额外弃一张基本牌。
        *
@@ -1018,6 +1046,12 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
     }
 
     case 'choose-targets': {
+      if (request.prompt.startsWith('【直谏】')) {
+        const ranked = [...request.candidateIds].sort((left, right) => (
+          hostility(context.view, context.suspicion, left) - hostility(context.view, context.suspicion, right)
+        ))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
       /*
        * 【驱虎】有两个选目标的窗口，提示词里都带「驱虎」，所以**必须按更具体的
        * 字样分辨**：先认「攻击范围内」那一个（赢了之后选谁挨打，min 为 1），
@@ -1146,6 +1180,33 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       // 有别的选项就不要碰它。其余选项仍然随机，避免 AI 行为过于死板。
       const me = myself(context.view)
       const options = request.options
+      if (request.prompt.startsWith('【化身】：选择') && request.prompt.includes('技能')) {
+        const defensive = new Set(['qingguo', 'longdan', 'jijiu', 'jianxiong', 'fankui', 'yiji', 'ganglie', 'tianxiang', 'buqu'])
+        const active = new Set(['zhiheng', 'rende', 'qixi', 'wusheng', 'lijian', 'qingnang', 'tianyi', 'quhu'])
+        const scored = [...options].sort((left, right) => {
+          const score = (id: string) => (me.hp <= 2 && defensive.has(id) ? 20 : 0) + (active.has(id) ? 10 : 5)
+          return score(right.id) - score(left.id)
+        })
+        return { ...base, payload: { optionId: scored[0].id } }
+      }
+      if (request.prompt.startsWith('【化身】：选择') && request.prompt.includes('化身')) {
+        const preferred = ['zhenji', 'zhaoyun', 'sunquan', 'caocao', 'guojia', 'huatuo']
+        const selected = preferred.map((id) => options.find((option) => option.id === id)).find(Boolean) ?? options[0]
+        return { ...base, payload: { optionId: selected.id } }
+      }
+      if (request.prompt.includes('是否更换【化身】')) {
+        // 回合开始优先调整，回合结束保留当前技能，避免无意义地频繁切换。
+        return { ...base, payload: { optionId: request.prompt.startsWith('回合开始时') ? 'yes' : 'no' } }
+      }
+      if (request.prompt.startsWith('发动【新生】')) return { ...base, payload: { optionId: 'yes' } }
+      if (request.prompt.startsWith('发动【激昂】')) return { ...base, payload: { optionId: 'yes' } }
+      if (request.prompt.startsWith('【制霸】：是否获得')) return { ...base, payload: { optionId: 'yes' } }
+      if (request.prompt.startsWith('【制霸】：是否接受')) {
+        const challenger = context.view.players.find((player) => request.prompt.includes(player.nickname))
+        const accept = !challenger || hostility(context.view, context.suspicion, challenger.id) <= 0 || me.handCount >= 3
+        return { ...base, payload: { optionId: accept ? 'yes' : 'no' } }
+      }
+      if (request.prompt.startsWith('【固政】：是否获得')) return { ...base, payload: { optionId: 'yes' } }
       if (options.some((option) => option.id === 'wine') && options.some((option) => option.id === 'none')) {
         const enemies = context.view.players.filter((player) => player.alive && player.id !== me.id
           && hostility(context.view, context.suspicion, player.id) > 0)

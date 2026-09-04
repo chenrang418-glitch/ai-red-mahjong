@@ -3,7 +3,7 @@ import { instantTrickActions } from '../../engine/cards/tricks'
 import type { ChooseCardsRequest, GameResponse } from '../../engine/requests'
 import { effectiveCardSuit, registerSkillRuntime } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
-import { getCharacter } from './standard'
+import { effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -149,12 +149,13 @@ export function xueyiBonus(state: SanguoshaState, ownerId: PlayerId): number {
   if (!owner?.alive || owner.identity !== 'lord') return 0
   return state.players.filter((player) => {
     if (!player.alive || player.id === ownerId || !player.characterId) return false
-    return getCharacter(player.characterId)?.kingdom === 'qun'
+    return effectiveKingdomOf(state, player.id) === 'qun'
   }).length
 }
 
 registerSkillRuntime({
   id: XUEYI,
+  lord: true,
   // 锁定技，没有发动时机，只在算手牌上限时被读到
   maxCardsBonus(state, ownerId) {
     return xueyiBonus(state, ownerId)

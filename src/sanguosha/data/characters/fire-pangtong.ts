@@ -31,6 +31,7 @@ registerSkillRuntime({
 
 registerSkillRuntime({
   id: NIEPAN,
+  limited: true,
   dyingIntercept(host, ownerId) {
     const owner = ownerOf(host.state, ownerId)
     if (!owner?.alive || owner.usedLimitedSkills.includes(NIEPAN)) return false

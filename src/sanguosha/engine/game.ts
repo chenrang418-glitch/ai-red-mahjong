@@ -4,7 +4,7 @@ import { GameEventBus, type EventContext, type GameEvent, type GameEventName } f
 import { identitiesFor } from './modes/identity'
 import { GameRng } from './rng'
 import { startPlaying } from './turn'
-import { advanceGamePhase, continuePhaseEntry, resolveDiscardPhaseResponse } from './phase'
+import { advanceGamePhase, continuePhaseEntry, continueTurnTransition, recordDiscardPhaseMove, resolveDiscardPhaseResponse } from './phase'
 import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
@@ -18,7 +18,7 @@ import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt } from './types'
 import { validateResponse } from './requests'
 import { allCharacterIds, entertainmentCharacterIds, getCharacter, isEntertainmentCharacter, skillIdsOf } from '../data/characters/standard'
-import { getSkillRuntime, registerSkillTriggers } from './skills/runtime'
+import { getSkillRuntime, initializeGameSkills, registerSkillTriggers } from './skills/runtime'
 import { buildPlayerView } from './view'
 import { skillDisplayName } from './presentation'
 
@@ -70,6 +70,8 @@ export class SanguoshaGame {
       faceDown: false,
       characterPiles: {},
       grantedSkills: [],
+      temporaryGrantedSkills: [],
+      characterSkillsDisabled: false,
       awakenedSkills: [],
       zones: { hand: [], equipment: emptyEquipment(), judgingArea: [] },
       marks: {},
@@ -98,6 +100,7 @@ export class SanguoshaGame {
       phase: 'prepare',
       skippedPhases: [],
       phaseEntry: null,
+      turnTransitionPending: false,
       turnUsage: { slashUses: 0, wineUses: 0, wineDamageBonus: 0 },
       pendingRequests: [],
       dying: null,
@@ -107,6 +110,9 @@ export class SanguoshaGame {
       privateZones: [],
       groupDecision: null,
       pindian: null,
+      pindianSettlement: null,
+      discardPhaseLedger: null,
+      huashen: null,
       guhuoResponse: null,
       mamaBonds: {},
       judgedDelayedCards: [],
@@ -142,6 +148,7 @@ export class SanguoshaGame {
       }
     }
     const seq = ++this.state.seq
+    if (name === 'CardMove') recordDiscardPhaseMove(this.state, payload, seq)
     const event: GameEvent = { id: `event-${seq}`, seq, name, payload, ...metadata }
     return this.events.emit(event)
   }
@@ -241,6 +248,19 @@ export class SanguoshaGame {
   /** 牌局往前走一步之后统一收尾：把排队的技能发问放出去。 */
   private settle(): void {
     this.drainSkillQueue()
+    if (
+      this.state.turnTransitionPending
+      && this.state.skillQueue.length === 0
+      && !this.state.skillResolution
+      && this.state.pendingRequests.length === 0
+      && !this.state.dying
+      && !this.state.damageChain
+      && !this.state.cardResolution
+      && !this.state.judgment
+    ) {
+      continueTurnTransition(this)
+      this.drainSkillQueue()
+    }
   }
 
   respond(response: GameResponse): void {
@@ -466,6 +486,7 @@ export class SanguoshaGame {
       for (const player of this.state.players) player.zones.hand.push(this.state.zones.drawPile.shift()!)
     }
     startPlaying(this.state, (name, payload) => { this.emit(name, payload) })
+    initializeGameSkills(this)
     // 开局排队的发问（牛来认麻麻）在这里就放出去，
     // 否则要等到第一次 act/advancePhase 才轮到，第一个准备阶段已经过去了
     this.settle()
@@ -502,15 +523,21 @@ export class SanguoshaGame {
     // 动态授技与觉醒记账是后加的字段，进行中的旧房间里没有
     for (const player of mutable.state.players) {
       player.grantedSkills ??= []
+      player.temporaryGrantedSkills ??= []
       player.awakenedSkills ??= []
+      player.characterSkillsDisabled ??= false
     }
     mutable.state.judgedDelayedCards ??= []
     mutable.state.privateZones ??= []
     mutable.state.groupDecision ??= null
     mutable.state.pindian ??= null
+    mutable.state.pindianSettlement ??= null
+    mutable.state.discardPhaseLedger ??= null
+    mutable.state.huashen ??= null
     mutable.state.guhuoResponse ??= null
     // 阶段进入窗口是后加的字段，进行中的旧房间里没有
     mutable.state.phaseEntry ??= null
+    mutable.state.turnTransitionPending ??= false
     // 额外回合调度是后加的字段，进行中的旧房间里没有：
     // 座次游标兜底成当前回合角色，队列兜底成空
     mutable.state.extraTurns ??= []

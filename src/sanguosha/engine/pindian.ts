@@ -39,7 +39,8 @@ export interface PindianHost {
   dispatch(name: string, payload?: Record<string, unknown>, metadata?: Record<string, unknown>): unknown
 }
 
-type PindianContinuation = (host: PindianHost, result: PindianResult) => void
+export type PindianContinuationResult = 'defer-settlement' | void
+type PindianContinuation = (host: PindianHost, result: PindianResult) => PindianContinuationResult
 
 const continuations = new Map<string, PindianContinuation>()
 
@@ -98,7 +99,7 @@ export interface PindianOptions {
  */
 export function startPindian(host: PindianHost, options: PindianOptions): void {
   if (!continuations.has(options.continuationTag)) throw new Error(`拼点续接未注册：${options.continuationTag}`)
-  if (host.state.pindian) throw new Error('上一次拼点还没结束')
+  if (host.state.pindian || host.state.pindianSettlement) throw new Error('上一次拼点还没结束')
   if (!canPindian(host.state, options.initiatorId) || !canPindian(host.state, options.opponentId)) {
     throw new Error('拼点双方都必须有手牌')
   }
@@ -235,10 +236,6 @@ function revealPindian(host: PindianHost): void {
     logText: `${initiator.nickname}拼 ${initiatorRank} 点，${opponent.nickname}拼 ${opponentRank} 点：${outcomeText}`,
   }, { sourceId: pindian.initiatorId, targetId: pindian.opponentId })
 
-  for (const cardId of [initiatorCardId, opponentCardId]) {
-    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
-  }
-
   const result: PindianResult = {
     initiatorId: pindian.initiatorId,
     opponentId: pindian.opponentId,
@@ -252,7 +249,43 @@ function revealPindian(host: PindianHost): void {
   const run = continuations.get(pindian.continuationTag)
   // 先清状态再回调：技能可能在续接里再发起别的东西
   host.state.pindian = null
-  run?.(host, result)
+  host.state.pindianSettlement = { id: pindian.id, cardIds: [initiatorCardId, opponentCardId] }
+  const disposition = run?.(host, result)
+  if (disposition !== 'defer-settlement') finishPindianSettlement(host)
+}
+
+/** 把仍在处理区的拼点牌送入弃牌堆，结束这次延后的牌去向结算。 */
+export function finishPindianSettlement(host: PindianHost): void {
+  const settlement = host.state.pindianSettlement
+  if (!settlement) return
+  for (const cardId of settlement.cardIds) {
+    if (host.state.zones.processingArea.includes(cardId)) {
+      moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+    }
+  }
+  host.state.pindianSettlement = null
+}
+
+/**
+ * 认领本次拼点中仍留在处理区的实体牌，然后把无人认领的剩余牌正常弃置。
+ * 返回真正获得的 Card ID；调用者据此记录技能日志。
+ */
+export function claimPindianCards(host: PindianHost, playerId: PlayerId, cardIds: readonly CardId[]): CardId[] {
+  const settlement = host.state.pindianSettlement
+  const player = playerOf(host.state, playerId)
+  if (!settlement || !player?.alive) return []
+  const allowed = new Set(settlement.cardIds)
+  const claimed: CardId[] = []
+  for (const cardId of cardIds) {
+    if (!allowed.has(cardId) || !host.state.zones.processingArea.includes(cardId)) continue
+    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'hand', playerId })
+    claimed.push(cardId)
+  }
+  if (claimed.length > 0) {
+    host.dispatch('GainCard', { playerId, cardIds: claimed, reason: 'pindian-claim' }, { targetId: playerId, cardIds: claimed })
+  }
+  finishPindianSettlement(host)
+  return claimed
 }
 
 /**
@@ -262,7 +295,10 @@ function revealPindian(host: PindianHost): void {
  */
 export function abortPindian(host: PindianHost): void {
   const pindian = host.state.pindian
-  if (!pindian) return
+  if (!pindian) {
+    finishPindianSettlement(host)
+    return
+  }
   for (const [playerId, cardId] of [[pindian.initiatorId, pindian.initiatorCardId], [pindian.opponentId, pindian.opponentCardId]] as const) {
     const zoneId = zoneIdFor(pindian.id, playerId)
     if (cardId && privateZoneCards(host.state, zoneId).includes(cardId)) {
@@ -274,4 +310,5 @@ export function abortPindian(host: PindianHost): void {
     (candidate) => !Object.values(pindian.requestIds).includes(candidate.id),
   )
   host.state.pindian = null
+  finishPindianSettlement(host)
 }

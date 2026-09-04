@@ -4,8 +4,7 @@ import { recover } from '../../engine/recover'
 import type { ChooseOptionRequest } from '../../engine/requests'
 import { effectiveCardSuit, registerSkillRuntime, type ViewAsOption } from '../../engine/skills/runtime'
 import type { PlayerId, SanguoshaState } from '../../engine/types'
-import { getCharacter } from './standard'
-import { kingdomOf } from './lords'
+import { effectiveGenderOf, effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -35,9 +34,7 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
 }
 
 function isFemale(state: SanguoshaState, playerId: PlayerId): boolean {
-  const characterId = playerOf(state, playerId)?.characterId
-  // 性别读武将定义，**绝不维护一份「女性武将名单」**——加一个女将就会漏
-  return Boolean(characterId && getCharacter(characterId)?.gender === 'female')
+  return effectiveGenderOf(state, playerId) === 'female'
 }
 
 // ─────────────────────────────── 酒池 ───────────────────────────────
@@ -182,6 +179,7 @@ registerJudgmentContinuation(BAONUE_TAG, (host, judged, data) => {
  */
 registerSkillRuntime({
   id: BAONUE,
+  lord: true,
   triggers: [{
     event: 'Damaged',
     handle(host, ownerId, context) {
@@ -193,7 +191,7 @@ registerSkillRuntime({
       if (!sourceId || sourceId === ownerId) return
       const source = playerOf(host.state, sourceId)
       if (!source?.alive || !source.characterId) return
-      if (kingdomOf(source.characterId) !== 'qun') return
+      if (effectiveKingdomOf(host.state, source.id) !== 'qun') return
       host.queueSkill({ skillId: BAONUE, ownerId, step: 'ask', data: { sourceId } })
     },
   }],

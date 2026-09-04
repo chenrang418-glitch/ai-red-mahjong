@@ -173,6 +173,33 @@ describe('联机房间：视图隔离', () => {
     }
   })
 
+  it('左慈断线恢复后拥有者仍见全部化身，其他真人只见当前公开化身', () => {
+    const room = started()
+    runToPlaying(room)
+    const stored = room.snapshot()
+    stored.game!.players.forEach((player) => {
+      player.characterId = player.id === 'seat-0' ? 'zuoci' : 'zhangfei'
+      player.temporaryGrantedSkills = []
+    })
+    stored.game!.players.find((player) => player.id === 'seat-0')!.temporaryGrantedSkills = [
+      { source: 'huashen:seat-0', skillId: 'jianxiong' },
+    ]
+    stored.game!.huashen = {
+      remainingCharacterIds: [],
+      owners: {
+        'seat-0': { characterIds: ['caocao', 'sunquan'], activeCharacterId: 'caocao', activeSkillId: 'jianxiong' },
+      },
+    }
+
+    const restored = new SanguoshaRoomCoordinator(structuredClone(stored))
+    const owner = restored.view(HOST.userId).playerView!.players.find((player) => player.id === 'seat-0')!.huashen!
+    const opponentView = restored.view(GUEST.userId).playerView!
+    const publicHuashen = opponentView.players.find((player) => player.id === 'seat-0')!.huashen!
+    expect(owner.ownedCharacterIds).toEqual(['caocao', 'sunquan'])
+    expect(publicHuashen).toEqual({ activeCharacterId: 'caocao', activeSkillId: 'jianxiong' })
+    expect(JSON.stringify(opponentView)).not.toContain('sunquan')
+  })
+
   it('战报按玩家过滤，别人摸的牌名不出现在我的战报里', () => {
     const room = started()
     runToPlaying(room)

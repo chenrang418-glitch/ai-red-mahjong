@@ -3,7 +3,7 @@ import { performJudgment, registerJudgmentContinuation } from '../../engine/judg
 import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
-import { kingdomOf } from './lords'
+import { effectiveKingdomOf } from '../../engine/huashen'
 
 /**
  * 张角【雷击】【鬼道】【黄天】。
@@ -164,6 +164,7 @@ function huangtianGiftIds(state: SanguoshaState, actorId: PlayerId): CardId[] {
 
 registerSkillRuntime({
   id: HUANGTIAN,
+  lord: true,
   grantsPlayActions(state, ownerId, actorId) {
     const lord = playerOf(state, ownerId)
     // 主公技：不在主公位上就没有效果
@@ -226,8 +227,7 @@ registerSkillRuntime({
  * 都在用同一个，不为黄天再注一份。
  */
 function isQun(state: SanguoshaState, playerId: PlayerId): boolean {
-  const characterId = playerOf(state, playerId)?.characterId
-  return characterId ? kingdomOf(characterId) === 'qun' : false
+  return effectiveKingdomOf(state, playerId) === 'qun'
 }
 
 function giveCard(host: SkillHost, fromId: PlayerId, toId: PlayerId, cardId: CardId): void {

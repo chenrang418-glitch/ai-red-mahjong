@@ -61,6 +61,15 @@ async function enterTable(page: Page, playerCount?: number) {
   await expect(page.locator('.sgs-table')).toBeVisible({ timeout: 15_000 })
 }
 
+/** 用开发阵容固定查看指定武将；该参数不会进入生产构建。 */
+async function enterDevLineup(page: Page, lineup: string[]) {
+  await page.goto(`/?game=sanguosha&lineup=${lineup.join(',')}`)
+  await page.getByRole('button', { name: /单机游戏/ }).click()
+  await page.getByRole('button', { name: '较快', exact: true }).click()
+  await page.getByRole('button', { name: '开始', exact: true }).click()
+  await expect(page.locator('.sgs-table')).toBeVisible({ timeout: 15_000 })
+}
+
 for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
   const label = `${viewport.width}x${viewport.height}`
 
@@ -78,6 +87,40 @@ for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
     expect(errors).toEqual([])
   })
 }
+
+for (const viewport of [PORTRAIT, WIDE_LANDSCAPE, DESKTOP]) {
+  test(`${viewport.width}x${viewport.height} 山包后四将高清立绘在牌桌完整加载`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await enterDevLineup(page, ['sunce', 'zhangzhaozhanghong', 'caiwenji', 'zuoci', 'zhanghe'])
+    await expect(page.locator('.sgs-seat__general')).toContainText(['孙策', '张昭张纮', '蔡文姬', '左慈', '张郃'])
+    const images = page.locator('.sgs-seat__art img')
+    await expect(images).toHaveCount(5)
+    await expect.poll(async () => images.evaluateAll((nodes) => nodes.every((node) => {
+      const image = node as HTMLImageElement
+      return image.complete && image.naturalWidth >= 480 && image.naturalHeight >= 640
+    }))).toBe(true)
+    await expectNoPageScroll(page)
+  })
+}
+
+test('真人左慈可在手机一屏内查看仅本人可见的化身库', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await enterDevLineup(page, ['zuoci', 'caocao', 'liubei', 'sunquan', 'caiwenji'])
+  // 开局必须先亮出一张化身并声明一个合法技能。
+  await page.locator('.sgs-dock__actions .primary').first().click()
+  await page.locator('.sgs-dock__actions .primary').first().click()
+  const libraryButton = page.getByRole('button', { name: '化身库', exact: true })
+  await expect(libraryButton).toHaveCount(1)
+  await libraryButton.click()
+  const panel = page.getByRole('dialog', { name: '化身库' })
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText('仅你可见')
+  await expect(panel.locator('.sgs-huashen-panel__list article')).toHaveCount(2)
+  await expect(panel.locator('article.active')).toContainText('当前化身')
+  await expectNoPageScroll(page)
+  await page.getByRole('button', { name: '关闭化身库' }).click()
+  await expect(panel).toHaveCount(0)
+})
 
 test('八人局座位全部可见且不溢出', async ({ page }) => {
   await page.setViewportSize(LANDSCAPE)

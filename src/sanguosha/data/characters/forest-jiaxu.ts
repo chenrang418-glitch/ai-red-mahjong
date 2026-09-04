@@ -171,6 +171,7 @@ function queueNext(host: SkillHost, ownerId: PlayerId, order: readonly PlayerId[
 
 registerSkillRuntime({
   id: LUANWU,
+  limited: true,
   announcesSelf: true,
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)

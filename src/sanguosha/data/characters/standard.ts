@@ -6,6 +6,7 @@ import { provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOptio
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
+import { effectiveGenderOf, provideHuashenCharacterCatalog } from '../../engine/huashen'
 import { WEI_CHARACTERS } from './wei'
 import { WEI_DAMAGE_CHARACTERS } from './wei-damage'
 import { LORD_CHARACTERS, provideKingdomLookup } from './lords'
@@ -204,7 +205,7 @@ registerSkillRuntime({
     if (!owner.alive || owner.zones.hand.length < 2 || usedThisTurn(state, ownerId, 'jieyin')) return []
     const hasTarget = state.players.some((target) => (
       target.alive && target.id !== ownerId && target.hp < target.maxHp
-      && target.characterId !== null && getCharacter(target.characterId)?.gender === 'male'
+      && target.characterId !== null && effectiveGenderOf(state, target.id) === 'male'
     ))
     return hasTarget ? [{ id: 'skill:jieyin', label: '发动【结姻】：弃置两张手牌，与一名受伤男性角色各回复一点体力' }] : []
   },
@@ -228,7 +229,7 @@ registerSkillRuntime({
       host.dispatch('LoseCard', { playerId: ownerId, cardIds, reason: '结姻' }, { sourceId: ownerId, cardIds })
       const candidateIds = host.state.players.filter((target) => (
         target.alive && target.id !== ownerId && target.hp < target.maxHp
-        && target.characterId !== null && getCharacter(target.characterId)?.gender === 'male'
+        && target.characterId !== null && effectiveGenderOf(host.state, target.id) === 'male'
       )).map((target) => target.id)
       host.askSkill({
         skillId: 'jieyin', ownerId, step: 'target',
@@ -370,6 +371,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
 ] as const
 
 const BY_ID = new Map(ALL_CHARACTERS.map((character) => [character.id, character]))
+provideHuashenCharacterCatalog(ALL_CHARACTERS)
 
 // 主公技要按势力找同伴，但势力表在这里才拼齐，所以运行时回注一个查询函数
 provideKingdomLookup((characterId) => BY_ID.get(characterId)?.kingdom)
@@ -397,7 +399,7 @@ export function skillIdsOf(characterId: string): string[] {
 export function skillDisplayName(state: SanguoshaState, ownerId: PlayerId, skillId: string): string {
   const characterId = state.players.find((candidate) => candidate.id === ownerId)?.characterId
   const found = characterId ? BY_ID.get(characterId)?.skills.find((skill) => skill.id === skillId) : undefined
-  return found?.name ?? skillId
+  return found?.name ?? ALL_CHARACTERS.flatMap((character) => character.skills).find((skill) => skill.id === skillId)?.name ?? skillId
 }
 
 provideSkillIdsLookup(skillIdsOf)

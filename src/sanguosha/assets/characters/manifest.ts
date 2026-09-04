@@ -364,7 +364,7 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
    * 竖构图半身像，按 docs/sanguosha-portraits.md 的竖构图基准值登记，再对着浏览器复核焦点。
    * **跟着武将逐个加**：这张表和 `allCharacterIds()` 必须一一对应
    * （tests/sanguosha-portrait-manifest.test.ts 钉着），提前给还没注册的武将加一项
-   * 会让那条测试直接红掉。邓艾、姜维、刘禅的派生图已经生成好，等各自注册时再补登记。
+   * 会让那条测试直接红掉。经典山包八将现已全部登记。
    */
   zhanghe: {
     desktop: { position: '50% 19%', scale: 1.0 },
@@ -385,6 +385,26 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     desktop: { position: '50% 19%', scale: 1.0 },
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·刘禅',
+  },
+  sunce: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·孙策',
+  },
+  zhangzhaozhanghong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·张昭张纮',
+  },
+  caiwenji: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·蔡文姬',
+  },
+  zuoci: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·左慈',
   },
 }
 

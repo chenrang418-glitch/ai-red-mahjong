@@ -2,6 +2,7 @@ import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { EquipmentSlot, SanguoshaState } from './types'
 import { assertCardConservation } from './zones'
+import { huashenEligibleSkills } from './huashen'
 
 const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = ['weapon', 'armor', 'offensiveHorse', 'defensiveHorse']
 
@@ -108,6 +109,13 @@ export function assertGameInvariants(state: SanguoshaState): void {
       }
     }
   }
+  if (state.pindianSettlement) {
+    if (state.pindian) throw new Error('拼点选牌与牌去向结算不能同时存在')
+    if (state.pindianSettlement.cardIds.length !== 2
+      || state.pindianSettlement.cardIds.some((cardId) => !state.zones.processingArea.includes(cardId))) {
+      throw new Error('待结算的拼点牌不完整或不在处理区')
+    }
+  }
   const decision = state.groupDecision
   if (decision) {
     // 已经收齐还挂着，说明续接没跑；参与者不存在说明状态是脏的
@@ -142,7 +150,7 @@ export function assertGameInvariants(state: SanguoshaState): void {
      * 正在收多人决定（于吉【蛊惑】的质疑），或者正在拼点。
      * 不排除这几种，「八卦阵判定 + 有人能改判」就会误报成坏状态。
      */
-    const parked = Boolean(state.judgment || state.retrial || state.groupDecision || state.pindian)
+    const parked = Boolean(state.judgment || state.retrial || state.groupDecision || state.pindian || state.pindianSettlement)
     // 「成为目标时」那一步挂的是技能 Request，不是求闪 Request
     if (parked) {
       // 停住期间不检查请求，等结算继续时再查
@@ -175,6 +183,27 @@ export function assertGameInvariants(state: SanguoshaState): void {
 
   for (const prompt of state.skillQueue) {
     if (!state.players.some((player) => player.id === prompt.ownerId)) throw new Error('排队技能的拥有者不存在')
+  }
+
+  if (state.huashen) {
+    const remaining = state.huashen.remainingCharacterIds
+    const owned = Object.values(state.huashen.owners).flatMap((owner) => owner.characterIds)
+    if (new Set(remaining).size !== remaining.length || new Set(owned).size !== owned.length) throw new Error('化身牌池存在重复武将')
+    if (remaining.some((characterId) => owned.includes(characterId))) throw new Error('化身剩余牌池与已持有化身重叠')
+    const seated = new Set(state.players.map((player) => player.characterId).filter(Boolean))
+    if ([...remaining, ...owned].some((characterId) => seated.has(characterId))) throw new Error('化身牌池包含本局已上场武将')
+    for (const [playerId, owner] of Object.entries(state.huashen.owners)) {
+      if (!state.players.some((player) => player.id === playerId && player.characterId === 'zuoci')) throw new Error(`化身拥有者非法：${playerId}`)
+      if ((owner.activeCharacterId === null) !== (owner.activeSkillId === null)) throw new Error(`化身公开武将与技能状态不一致：${playerId}`)
+      if (owner.activeCharacterId && !owner.characterIds.includes(owner.activeCharacterId)) throw new Error(`当前化身不属于拥有者：${playerId}`)
+      if (owner.activeCharacterId && owner.activeSkillId
+        && !huashenEligibleSkills(owner.activeCharacterId).some((skill) => skill.id === owner.activeSkillId)) {
+        throw new Error(`当前化身技能不合法：${playerId}/${owner.activeSkillId}`)
+      }
+      const temporary = state.players.find((player) => player.id === playerId)?.temporaryGrantedSkills
+        .filter((entry) => entry.source === `huashen:${playerId}`) ?? []
+      if (owner.activeSkillId && (temporary.length !== 1 || temporary[0].skillId !== owner.activeSkillId)) throw new Error(`化身临时技能记账不一致：${playerId}`)
+    }
   }
 
   if (state.status === 'game-over' && (!state.result || state.pendingRequests.length > 0)) throw new Error('结束状态缺少结果或仍有 Request')

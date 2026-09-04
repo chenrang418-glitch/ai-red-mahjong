@@ -91,6 +91,10 @@ export interface PlayerState {
    * 技能归属统一由 `ownedSkillIds` 取「武将自带 + 这里」的并集。
    */
   grantedSkills: string[]
+  /** 可替换的来源绑定临时技能（左慈化身）；同一来源原子替换。 */
+  temporaryGrantedSkills: Array<{ source: string; skillId: string }>
+  /** 断肠等效果永久令该角色失去全部武将技能；装备效果不受影响。 */
+  characterSkillsDisabled: boolean
   /**
    * 已经发动过的觉醒技。觉醒技一局只发动一次，**永不重置**。
    *
@@ -208,6 +212,43 @@ export interface PindianState {
   data: Record<string, unknown>
   requestIds: Record<PlayerId, string>
   stage: 'selecting' | 'revealing'
+}
+
+/**
+ * 拼点结果已经公开、但实体牌的最终去向仍待技能决定。
+ *
+ * 默认拼点不会留下这个状态；只有续接明确要求延后结算时，两张牌才继续留在
+ * 公开处理区。这样【制霸】获得的是两张真实拼点牌，而不是先弃置再捡回来。
+ */
+export interface PindianSettlementState {
+  id: string
+  cardIds: CardId[]
+}
+
+export interface DiscardPhaseRecord {
+  cardId: CardId
+  sourcePlayerId: PlayerId
+  originalZone: 'hand' | 'equipment'
+  moveReason: 'discard'
+  enteredDiscardAt: number
+}
+
+/** 当前唯一弃牌阶段的来源账本；阶段结束触发排队后立即清空。 */
+export interface DiscardPhaseLedgerState {
+  phaseInstanceId: string
+  ownerPlayerId: PlayerId
+  records: DiscardPhaseRecord[]
+}
+
+export interface HuashenOwnerState {
+  characterIds: CharacterId[]
+  activeCharacterId: CharacterId | null
+  activeSkillId: string | null
+}
+
+export interface HuashenGameState {
+  remainingCharacterIds: CharacterId[]
+  owners: Record<PlayerId, HuashenOwnerState>
 }
 
 export interface GameResult {
@@ -547,6 +588,13 @@ export interface SanguoshaState {
    * 或被跳过就清成 null。见 `phase.ts` 的 `beginPhaseEntry`。
    */
   phaseEntry: PhaseEntryState | null
+  /**
+   * TurnEnd 已发出，但其触发的技能尚未结算完；结算干净后才开始下一回合。
+   *
+   * 这是可持久化的断点，避免“回合结束后”技能在 Durable Object 休眠或
+   * 断线重连后越过下一名角色的 TurnStart。
+   */
+  turnTransitionPending: boolean
   turnUsage: TurnUsageState
   pendingRequests: GameRequest[]
   dying: DyingState | null
@@ -558,6 +606,12 @@ export interface SanguoshaState {
   groupDecision: GroupDecisionState | null
   /** 进行中的拼点；同一时刻最多一次。 */
   pindian: PindianState | null
+  /** 已揭示、等待消费者决定实体牌去向的拼点结算。 */
+  pindianSettlement: PindianSettlementState | null
+  /** 当前弃牌阶段中，因“弃置”进入弃牌堆的实体牌来源。 */
+  discardPhaseLedger: DiscardPhaseLedgerState | null
+  /** 服务端权威化身牌库；PlayerView 会按观察者裁剪。 */
+  huashen: HuashenGameState | null
   /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
   guhuoResponse: GuhuoResponseState | null
   /**

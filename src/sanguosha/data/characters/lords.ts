@@ -6,6 +6,7 @@ import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import { giveCards } from '../../engine/hand-transfer'
 import type { CharacterDefinition, Kingdom } from './types'
+import { effectiveKingdomOf } from '../../engine/huashen'
 
 /**
  * 三位主公，以及主公技。
@@ -32,7 +33,7 @@ function sameKingdomAllies(state: SanguoshaState, lordId: PlayerId, kingdom: Kin
   for (let offset = 1; offset < state.players.length; offset += 1) {
     const candidate = state.players[(lord.seat + offset) % state.players.length]
     if (!candidate.alive || !candidate.characterId) continue
-    if (kingdomOf(candidate.characterId) === kingdom) allies.push(candidate.id)
+    if (effectiveKingdomOf(state, candidate.id) === kingdom) allies.push(candidate.id)
   }
   return allies
 }
@@ -49,6 +50,7 @@ export function kingdomOf(characterId: string): Kingdom | undefined {
 // —— 曹操 主公技【护驾】——
 registerSkillRuntime({
   id: 'hujia',
+  lord: true,
   surrogateResponders(state, ownerId, requiredCardName) {
     if (requiredCardName !== '闪') return []
     return sameKingdomAllies(state, ownerId, 'wei')
@@ -142,6 +144,7 @@ registerSkillRuntime({
 // —— 刘备 主公技【激将】——
 registerSkillRuntime({
   id: 'jijiang',
+  lord: true,
   surrogateResponders(state, ownerId, requiredCardName) {
     if (requiredCardName !== '杀') return []
     return sameKingdomAllies(state, ownerId, 'shu')
@@ -198,11 +201,12 @@ registerSkillRuntime({
 // —— 孙权 主公技【救援】——
 registerSkillRuntime({
   id: 'jiuyuan',
+  lord: true,
   rescueRecoverBonus(state, ownerId, responderId) {
     const owner = state.players.find((player) => player.id === ownerId)
     if (owner?.identity !== 'lord') return 0
     const responder = state.players.find((player) => player.id === responderId)
-    if (!responder?.characterId || kingdomOf(responder.characterId) !== 'wu') return 0
+    if (!responder?.characterId || effectiveKingdomOf(state, responderId) !== 'wu') return 0
     return 1
   },
 })
