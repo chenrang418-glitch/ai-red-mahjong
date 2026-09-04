@@ -632,6 +632,9 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
     case 'yeyan':
       // 限定技，一局一次：场上有值得烧的敌人才交，血太少不冒险走大业炎那条
       return bestTarget > 4 && me.hp >= 2 ? 20 : -100
+    case 'jilue':
+      // 极略·制衡：弃掉低价值牌换等量新牌，手牌质量差时收益最高
+      return (me.hand ?? []).some((card) => cardValue(card.name) <= 2) ? 12 : 4
     case 'wuqian': {
       /*
        * 【无前】：2 枚暴怒换本回合无双 + 一名角色防具失效。
@@ -1387,6 +1390,26 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const payHp = me.hp >= 3 && (savingForShenfen || rage <= 2)
         return { ...base, payload: { optionId: payHp ? 'hp' : 'rage' } }
       }
+      /*
+       * 【极略】的各个分支。忍是**共享资源**：鬼才、放逐、集智、制衡、完杀
+       * 都从同一堆里花，所以不能在随手改判上耗光，回头开不了完杀和制衡。
+       *
+       * 简单的资源分配：忍多就随便用，忍少（1~2 枚）只留给收益明确的分支。
+       */
+      if (request.prompt.startsWith('发动【极略·')) {
+        const ren = me.marks?.ren ?? 0
+        const rich = ren >= 3
+        // 集智几乎总是正收益（白摸一张），完杀只在准备击杀时值钱
+        if (request.prompt.includes('集智')) return { ...base, payload: { optionId: rich || ren >= 2 ? 'yes' : 'no' } }
+        if (request.prompt.includes('完杀')) {
+          const weakEnemy = context.view.players.some((player) => player.alive && player.id !== me.id
+            && player.hp <= 1 && hostility(context.view, context.suspicion, player.id) > 0)
+          return { ...base, payload: { optionId: weakEnemy || rich ? 'yes' : 'no' } }
+        }
+        return { ...base, payload: { optionId: rich ? 'yes' : 'no' } }
+      }
+      /* 【连破】：能白拿一个完整额外回合，基本总是发动。 */
+      if (request.prompt.startsWith('发动【连破】')) return { ...base, payload: { optionId: 'yes' } }
       if (request.prompt.startsWith('发动【归心】')) {
         const donors = context.view.players.filter((player) => (
           player.alive && player.id !== me.id && (player.handCount > 0 || player.equipment.length > 0 || player.judgingArea.length > 0)

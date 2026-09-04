@@ -1,5 +1,6 @@
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from './multi-card-viewas'
 import { clearArmorSuppressionsOf } from './armor-suppression'
+import { recordTurnKill } from './turn-kills'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { checkIdentityVictory } from './modes/identity'
@@ -236,6 +237,8 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
    */
   clearTargetStatesOf(host.state, playerId)
   clearArmorSuppressionsOf(host.state, playerId)
+  // 先记回合内击杀账，再派发 Death：连破挂在回合结束，读的就是这本账
+  recordTurnKill(host.state, sourceId, playerId)
   host.dispatch('Death', { playerId, sourceId, identity: dead.identity }, { sourceId: sourceId ?? undefined, targetId: playerId })
   host.state.dying = null
 

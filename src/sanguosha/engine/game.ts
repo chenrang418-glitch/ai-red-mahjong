@@ -118,6 +118,7 @@ export class SanguoshaGame {
       huashen: null,
       guhuoResponse: null,
       multiCardViewAs: null,
+      turnKills: [],
       mamaBonds: {},
       judgedDelayedCards: [],
       deathClaim: null,
@@ -547,6 +548,7 @@ export class SanguoshaGame {
     mutable.state.cardAliases ??= {}
     mutable.state.cardNatures ??= {}
     mutable.state.multiCardViewAs ??= null
+    mutable.state.turnKills ??= []
     // 专属牌堆是后加的字段，进行中的旧房间里没有
     for (const player of mutable.state.players) player.characterPiles ??= {}
     // 动态授技与觉醒记账是后加的字段，进行中的旧房间里没有

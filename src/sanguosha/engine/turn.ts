@@ -3,6 +3,7 @@ import type { SanguoshaState, TurnPhase } from './types'
 import { expireArmorSuppressions } from './armor-suppression'
 import { clearTurnSlashRules } from './slash-rules'
 import { expireTargetStates } from './target-state'
+import { clearTurnKills } from './turn-kills'
 
 export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'play', 'discard', 'finish']
 
@@ -112,6 +113,12 @@ export function skipPhase(state: SanguoshaState, phase: TurnPhase): void {
  * 技能（曹仁自己的据守也在内）不会在被跳过的回合里触发。
  */
 function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
+  /*
+   * 上一个回合的击杀账在这里清，**不能放在 TurnEnd 里**：
+   * 连破正是挂在回合结束时机上读这本账，先清就永远读不到。
+   * 走到这里说明 TurnEnd 触发的技能已经全部结算完了。
+   */
+  clearTurnKills(state, state.turnNumber)
   const next = nextTurnEntry(state)
   state.currentPlayerId = next.playerId
   state.currentTurnKind = next.kind

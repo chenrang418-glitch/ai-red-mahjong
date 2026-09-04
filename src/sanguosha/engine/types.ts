@@ -236,6 +236,7 @@ export interface PindianSettlementState {
 
 import type { ArmorSuppression } from './armor-suppression'
 import type { MultiCardViewAsState } from './multi-card-viewas'
+import type { TurnKillRecord } from './turn-kills'
 
 export interface DiscardPhaseRecord {
   cardId: CardId
@@ -656,6 +657,8 @@ export interface SanguoshaState {
   guhuoResponse: GuhuoResponseState | null
   /** 多牌同花色转化的挂起流程（神赵云【龙魂】）。见 engine/multi-card-viewas.ts。 */
   multiCardViewAs: MultiCardViewAsState | null
+  /** 回合内击杀账本（神司马懿【连破】）。见 engine/turn-kills.ts。 */
+  turnKills: TurnKillRecord[]
   /**
    * 牛来【麻麻】的认亲关系：牛来的 playerId → 麻麻的 playerId。
    *
