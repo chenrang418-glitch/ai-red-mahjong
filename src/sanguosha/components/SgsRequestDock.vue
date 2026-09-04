@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import SgsCard from './SgsCard.vue'
+import SgsFactionBadge from './SgsFactionBadge.vue'
 import { getCharacter } from '../data/characters/standard'
 import { characterPortrait } from '../assets/characters/manifest'
 import type { GameRequest, GameResponse } from '../engine/requests'
@@ -203,6 +204,7 @@ function withCharacterNames(text: string): string {
           @click="selectedGeneral = candidate"
         >
           <i v-if="characterPortrait(candidate)" class="sgs-dock__general-art" aria-hidden="true"></i>
+          <SgsFactionBadge v-if="getCharacter(candidate)" class="sgs-dock__general-faction" :faction="getCharacter(candidate)!.kingdom" variant="pick" />
           <strong>{{ getCharacter(candidate)?.name ?? candidate }}</strong>
           <small>体力 {{ getCharacter(candidate)?.maxHp }}</small>
           <span v-for="skill in getCharacter(candidate)?.skills ?? []" :key="skill.id">
@@ -224,6 +226,7 @@ function withCharacterNames(text: string): string {
             @click="selectedGeneral = candidate"
           >
             <i v-if="characterPortrait(candidate)" class="sgs-dock__general-art" aria-hidden="true"></i>
+            <SgsFactionBadge v-if="getCharacter(candidate)" class="sgs-dock__general-faction" :faction="getCharacter(candidate)!.kingdom" variant="pick" />
             <strong>{{ getCharacter(candidate)?.name ?? candidate }}</strong>
             <small>娱乐武将 · 体力 {{ getCharacter(candidate)?.maxHp }}</small>
             <span v-for="skill in getCharacter(candidate)?.skills ?? []" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</span>
@@ -444,7 +447,7 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
  */
 .sgs-dock__generals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 8px; align-items: stretch; }
 .sgs-dock__general {
-  width: 100%; min-height: 0; padding: 9px 10px;
+  position: relative; width: 100%; min-height: 0; padding: 9px 10px;
   display: flex; flex-direction: column; gap: 3px; text-align: left;
   border: 1px solid #55492e; border-radius: 11px; background: #1b241d; color: #ded4b8;
 }
@@ -484,6 +487,11 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
   mask-image: linear-gradient(180deg, #000 0%, #000 34%, rgba(0, 0, 0, .42) 72%, transparent 100%);
 }
 .sgs-dock__general.has-art > :not(.sgs-dock__general-art) { position: relative; z-index: 1; }
+.sgs-dock__general > .sgs-dock__general-faction,
+.sgs-dock__general.has-art > .sgs-dock__general-faction {
+  position: absolute; z-index: 2; top: 6px; right: 6px;
+  color: var(--faction-text); font-size: 15px; line-height: 1;
+}
 /* 名字压在横幅下沿，和立绘接上又不挡脸 */
 /* 名字落在渐隐的尾段上，加一层轻投影保证任何立绘下都读得清 */
 .sgs-dock__general.has-art strong { margin-top: -2px; text-shadow: 0 1px 3px rgba(0, 0, 0, .85); }
@@ -512,5 +520,7 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
   .sgs-dock__cards { max-height: 22vh; }
   button { min-height: 34px; }
   .sgs-dock__general { padding: 6px 8px; }
+  .sgs-dock__general > .sgs-dock__general-faction,
+  .sgs-dock__general.has-art > .sgs-dock__general-faction { font-size: 14px; }
 }
 </style>

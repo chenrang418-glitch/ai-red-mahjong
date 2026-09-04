@@ -167,5 +167,12 @@ describe('主动技的发动广播', () => {
     expect(skillDisplayName('equip:zhangba')).toBe('丈八蛇矛')
     expect(skillDisplayName('equip:fangtian')).toBe('方天画戟')
     expect(skillDisplayName('lijian')).toBe('离间')
+    expect(skillDisplayName('ligui')).toBe('立规')
+  })
+
+  it('只携带内部 id 的立规事件在中央信息中仍显示中文名', () => {
+    const game = gameAt(['yixing', 'caocao', 'zhangfei', 'zhaoyun', 'machao'])
+    const event: GameEvent = { id: 'ligui-display', seq: 1, name: 'SkillActivated', sourceId: 'p0', payload: { skillId: 'ligui', skillName: '立规' } }
+    expect(buildPresentationEvent(game.state, event)).toMatchObject({ skillName: '立规', text: '奕星发动【立规】' })
   })
 })

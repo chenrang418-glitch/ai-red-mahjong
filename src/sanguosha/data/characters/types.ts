@@ -1,6 +1,8 @@
 import type { CharacterId } from '../../engine/types'
+import type { Faction } from '../../shared/factions'
 
-export type Kingdom = 'shu' | 'wei' | 'wu' | 'qun'
+/** 沿用既有字段名；六势力的唯一枚举定义在 shared/factions。 */
+export type Kingdom = Faction
 export type Gender = 'male' | 'female'
 
 /**

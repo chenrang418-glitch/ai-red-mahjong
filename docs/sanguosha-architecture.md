@@ -134,6 +134,8 @@ AI 只接收 `PlayerView + LegalAction[]`，不接触完整 state。身份判断
 
 `PlayerView.players[].distanceFromViewer` 和 `attackRange` 均由 `getDistance()` / `getAttackRange()` 生成，Vue 不重新实现距离。`SgsSeatLayout` 以观察者为底部，从下家起按顺时针映射至 5～8 人固定槽位；`SgsEffectLayer` 从座位 DOM 读取响应式坐标并绘制 SVG 指向。
 
+武将势力沿用强类型必填字段 `CharacterDefinition.kingdom`。魏、蜀、吴、群、晋、神的唯一枚举、固定顺序和视觉配置在 `shared/factions.ts`；对局、词条、规则页和艺术集不得再维护局部势力映射。完整接入约束见 `docs/sanguosha-factions.md`。
+
 局内词条由 `ALL_CARD_INFO`、`STANDARD_CHARACTERS` 和身份/规则词条生成。`SgsCard` 使用并列的牌面按钮与 info 按钮，避免嵌套 button；因此 disabled 的装备、判定牌和处理区牌仍可查说明，同时不改变牌面主体的选择语义。
 
 Wrangler DO migration 已追加到 tag `v3`；D1 migration 已追加到 `0006_sanguosha_room_directory.sql`。历史 migration 未修改。

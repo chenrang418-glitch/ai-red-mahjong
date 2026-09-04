@@ -1,4 +1,5 @@
 import type { GameRequest } from './requests'
+import type { Faction } from '../shared/factions'
 
 export const RULESET_VERSION = 'ruleset-v1' as const
 
@@ -7,7 +8,7 @@ export type PlayerId = string
 export type CardId = string
 export type CharacterId = string
 export type Identity = 'lord' | 'loyalist' | 'rebel' | 'renegade'
-export type Kingdom = 'wei' | 'shu' | 'wu' | 'qun'
+export type Kingdom = Faction
 export type Suit = 'spade' | 'heart' | 'club' | 'diamond'
 export type Rank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13
 export type CardColor = 'red' | 'black'

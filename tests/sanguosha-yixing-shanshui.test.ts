@@ -115,6 +115,14 @@ function invariants(game: SanguoshaGame): void {
 }
 
 describe('奕星【立规】', () => {
+  it('制定规定时广播中文技能名，不把 ligui 显示到中央对局信息', () => {
+    const game = gameWith(['yixing', 'caocao', 'liubei', 'sunquan', 'lvbu'], 'ligui-display-name')
+    const seen: Array<Record<string, unknown>> = []
+    game.events.on('SkillActivated', ({ event }) => { seen.push(event.payload) })
+    chooseRule(game, 'wine')
+    expect(seen).toContainEqual(expect.objectContaining({ skillId: 'ligui', skillName: '立规', rule: '禁酒' }))
+  })
+
   it('每轮可以选择不立规，当前轮无规则效果', () => {
     const game = gameWith(['yixing', 'caocao', 'liubei', 'sunquan', 'lvbu'])
     chooseRule(game, 'none')

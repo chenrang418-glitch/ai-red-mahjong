@@ -15,6 +15,7 @@ import { CARD_INFO_SECTIONS } from './data/ruleset-v1/card-info'
 import type { GameResponse } from './engine/requests'
 import type { AIDifficulty } from './ai'
 import { AI_PACE_MS } from './shared/timing'
+import { FACTION_CONFIG, FACTION_ORDER } from './shared/factions'
 
 defineEmits<{ backToPortal: [] }>()
 
@@ -47,10 +48,11 @@ const playerCounts = computed(() => [5, 6, 7, 8].filter((count) => count <= maxP
 const result = computed(() => game.view.value?.result ?? null)
 const choosingGeneral = computed(() => game.view.value?.status === 'choosing-general')
 const selfSelectOpen = ref(false)
-const KINGDOM_LABEL = { shu: '蜀', wei: '魏', wu: '吴', qun: '群' } as const
-const characterGroups = computed(() => (Object.keys(KINGDOM_LABEL) as Array<keyof typeof KINGDOM_LABEL>)
-  .map((kingdom) => ({ kingdom, label: KINGDOM_LABEL[kingdom], characters: ALL_CHARACTERS.filter((character) => character.kingdom === kingdom) }))
-  .filter((group) => group.characters.length))
+const characterGroups = computed(() => FACTION_ORDER.map((kingdom) => ({
+  kingdom,
+  ...FACTION_CONFIG[kingdom],
+  characters: ALL_CHARACTERS.filter((character) => character.kingdom === kingdom),
+})))
 
 
 
@@ -225,7 +227,7 @@ function handleRespond(response: GameResponse): void {
           <p v-for="card in section.cards" :key="card.name">【{{ card.name }}】{{ card.description }}</p>
         </article>
         <section v-for="group in characterGroups" :key="group.kingdom" class="sgs-rules__kingdom">
-          <h2>{{ group.label }}</h2>
+          <h2 :style="{ color: group.headingColor }">{{ group.name }}</h2>
           <article v-for="character in group.characters" :key="character.id">
             <b>{{ character.name }}（体力 {{ character.maxHp }}）<small v-if="character.pack === 'entertainment'">自定义</small></b>
             <p v-for="skill in character.skills" :key="skill.id">【{{ skill.name }}】{{ skill.description }}</p>

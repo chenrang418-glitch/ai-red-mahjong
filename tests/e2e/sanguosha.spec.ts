@@ -21,6 +21,13 @@ const PORTRAIT = { width: 393, height: 852 }
 const LANDSCAPE = { width: 852, height: 393 }
 const DESKTOP = { width: 1280, height: 800 }
 const WIDE_LANDSCAPE = { width: 932, height: 430 }
+const REQUIRED_FACTION_VIEWPORTS = [
+  PORTRAIT,
+  WIDE_LANDSCAPE,
+  { width: 1920, height: 1080 },
+  { width: 2560, height: 1440 },
+  { width: 2880, height: 1800 },
+]
 
 async function expectNoPageScroll(page: Page) {
   const scroll = await page.evaluate(() => ({
@@ -85,6 +92,39 @@ for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
     await expect(page.locator('.sgs-seat')).toHaveCount(5)
     await expectNoPageScroll(page)
     expect(errors).toEqual([])
+  })
+}
+
+for (const viewport of REQUIRED_FACTION_VIEWPORTS) {
+  test(`${viewport.width}x${viewport.height} 对局势力角标清晰且不遮挡公开信息`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await enterDevLineup(page, ['caocao', 'liubei', 'sunquan', 'lvbu', 'caiwenji'])
+    const seats = page.locator('.sgs-seat')
+    await expect(seats).toHaveCount(5)
+    await expect(page.locator('.sgs-faction-badge')).toHaveText(['魏', '蜀', '吴', '群', '群'])
+    const layout = await seats.evaluateAll((nodes) => nodes.map((seat) => {
+      const badge = seat.querySelector('.sgs-faction-badge') as HTMLElement
+      const nickname = seat.querySelector('.sgs-seat__header strong') as HTMLElement
+      const general = seat.querySelector('.sgs-seat__general') as HTMLElement
+      const hp = seat.querySelector('.sgs-seat__hp') as HTMLElement
+      const seatRect = seat.getBoundingClientRect()
+      const badgeRect = badge.getBoundingClientRect()
+      const overlaps = (element: HTMLElement) => {
+        const rect = element.getBoundingClientRect()
+        return badgeRect.left < rect.right && badgeRect.right > rect.left && badgeRect.top < rect.bottom && badgeRect.bottom > rect.top
+      }
+      return {
+        inside: badgeRect.left >= seatRect.left && badgeRect.right <= seatRect.right && badgeRect.top >= seatRect.top && badgeRect.bottom <= seatRect.bottom,
+        blocksInfo: [nickname, general, hp].some(overlaps),
+        pointerEvents: getComputedStyle(badge).pointerEvents,
+        fontSize: Number.parseFloat(getComputedStyle(badge).fontSize),
+      }
+    }))
+    expect(layout.every((entry) => entry.inside)).toBe(true)
+    expect(layout.every((entry) => !entry.blocksInfo)).toBe(true)
+    expect(layout.every((entry) => entry.pointerEvents === 'none')).toBe(true)
+    expect(layout.every((entry) => entry.fontSize >= 12)).toBe(true)
+    await expectNoPageScroll(page)
   })
 }
 
@@ -214,7 +254,7 @@ test('规则页的技能说明来自武将数据', async ({ page }) => {
   // 武将技能条目直接由 STANDARD_CHARACTERS 渲染
   await expect(page.locator('.sgs-rules')).toContainText('武圣')
   await expect(page.locator('.sgs-rules')).toContainText('咆哮')
-  await expect(page.locator('.sgs-rules__kingdom h2')).toHaveText(['蜀', '魏', '吴', '群'])
+  await expect(page.locator('.sgs-rules__kingdom h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神'])
   await expectNoPageScroll(page)
 })
 
@@ -230,6 +270,8 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   // 这里只守「池子里确实有这些自定义武将」
   const customCards = page.locator('.sgs-dock__general--custom')
   await expect(customCards).toHaveCount(CUSTOM_CHARACTERS.length)
+  await expect(customCards.locator('.sgs-faction-badge')).toHaveText(CUSTOM_CHARACTERS.map(() => '群'))
+  await expect(page.locator('.sgs-dock__general .sgs-faction-badge')).toHaveCount(await page.locator('.sgs-dock__general').count())
   for (const name of CUSTOM_CHARACTERS) {
     // 技能说明可能提到另一名娱乐武将（例如善水的【醉闹】会写到平头方块），
     // 所以只检查卡片标题，不能拿整张卡的全文做包含匹配。
@@ -240,6 +282,16 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   await expect(page.getByRole('heading', { name: '自选武将' })).toBeVisible()
   await expect(page.getByText('全部武将', { exact: true })).toBeVisible()
   await expect(page.locator('.sgs-dock__general')).toHaveCount(CHARACTER_COUNT)
+  await expect(page.locator('.sgs-dock__general .sgs-faction-badge')).toHaveCount(CHARACTER_COUNT)
+  expect(await page.locator('.sgs-dock__general .sgs-faction-badge').evaluateAll((badges) => badges.every((badge) => Number.parseFloat(getComputedStyle(badge).fontSize) >= 14))).toBe(true)
+  const badgesFit = await page.locator('.sgs-dock__general').evaluateAll((cards) => cards.every((card) => {
+    const badge = card.querySelector('.sgs-faction-badge')!.getBoundingClientRect()
+    const name = card.querySelector(':scope > strong')!.getBoundingClientRect()
+    const bounds = card.getBoundingClientRect()
+    const overlapsName = badge.left < name.right && badge.right > name.left && badge.top < name.bottom && badge.bottom > name.top
+    return badge.left >= bounds.left && badge.right <= bounds.right && badge.top >= bounds.top && badge.bottom <= bounds.bottom && !overlapsName
+  }))
+  expect(badgesFit).toBe(true)
 
   await page.getByRole('button', { name: '返回单机设置' }).click()
   await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
@@ -252,7 +304,10 @@ test('艺术集按阵营展示全部立绘并可查看原图', async ({ page }) 
   await page.getByRole('button', { name: /规则/ }).click()
   await page.getByRole('button', { name: '艺术集' }).click()
   await expect(page.getByRole('heading', { name: '武将艺术集' })).toBeVisible()
-  await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['蜀', '魏', '吴', '群'])
+  await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神'])
+  await expect(page.locator('.sgs-art-gallery .sgs-faction-badge')).toHaveCount(0)
+  await expect(page.locator('.sgs-art-gallery__group').nth(4).locator('button')).toHaveCount(0)
+  await expect(page.locator('.sgs-art-gallery__group').nth(5).locator('button')).toHaveCount(0)
   await expect(page.locator('.sgs-art-gallery__grid > button')).toHaveCount(CHARACTER_COUNT)
   await page.getByRole('button', { name: /诸葛亮/ }).click()
   await expect(page.getByRole('dialog', { name: '诸葛亮立绘原图' })).toBeVisible()

@@ -1,11 +1,11 @@
 import { getSkillRuntime, replaceTemporarySkill, type SkillHost } from './skills/runtime'
-import type { CharacterId, PlayerId, SanguoshaState } from './types'
+import type { CharacterId, Kingdom, PlayerId, SanguoshaState } from './types'
 
 export interface HuashenCharacter {
   id: CharacterId
   name: string
   pack: string
-  kingdom: 'wei' | 'shu' | 'wu' | 'qun'
+  kingdom: Kingdom
   gender: 'male' | 'female'
   skills: Array<{ id: string; name: string; granted?: boolean }>
 }
@@ -76,7 +76,7 @@ function activeCharacter(state: SanguoshaState, playerId: PlayerId): HuashenChar
   return activeId ? byId.get(activeId) : undefined
 }
 
-export function effectiveKingdomOf(state: SanguoshaState, playerId: PlayerId): 'wei' | 'shu' | 'wu' | 'qun' | undefined {
+export function effectiveKingdomOf(state: SanguoshaState, playerId: PlayerId): Kingdom | undefined {
   const active = activeCharacter(state, playerId)
   if (active) return active.kingdom
   const characterId = state.players.find((candidate) => candidate.id === playerId)?.characterId

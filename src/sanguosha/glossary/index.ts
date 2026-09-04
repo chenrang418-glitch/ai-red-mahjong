@@ -1,5 +1,6 @@
 import { ALL_CARD_INFO } from '../data/ruleset-v1/card-info'
 import { getCharacter, ALL_CHARACTERS } from '../data/characters/standard'
+import { factionDefinition } from '../shared/factions'
 
 export type GlossaryKind = 'card' | 'character' | 'skill' | 'identity' | 'rule' | 'unknown-identity'
 
@@ -37,7 +38,7 @@ export function cardGlossary(name: string): GlossaryEntry | null {
 export function characterGlossary(characterId: string): GlossaryEntry | null {
   const character = getCharacter(characterId)
   if (!character) return null
-  const kingdom = { wei: '魏', shu: '蜀', wu: '吴', qun: '群' }[character.kingdom]
+  const kingdom = factionDefinition(character.kingdom)?.name ?? '未知'
   return { id: `character:${character.id}`, kind: 'character', title: character.name, subtitle: `${kingdom} · ${character.maxHp} 体力`, description: '', skills: [...character.skills], characterId: character.id }
 }
 

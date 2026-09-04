@@ -1,4 +1,4 @@
-import type { CardId, GameResult, Identity, PhysicalCard, PlayerId, SanguoshaState, TurnPhase } from './types'
+import type { CardId, GameResult, Identity, Kingdom, PhysicalCard, PlayerId, SanguoshaState, TurnPhase } from './types'
 import type { GameRequest } from './requests'
 import type { LegalAction } from './actions'
 import { legalPlayActions } from './cards/basic'
@@ -15,7 +15,7 @@ export interface PlayerPublicView {
   identity: Identity | null
   identityHidden: boolean
   characterId: string | null
-  kingdom: 'wei' | 'shu' | 'wu' | 'qun' | null
+  kingdom: Kingdom | null
   gender: 'male' | 'female' | null
   characterSkillsDisabled: boolean
   skills: Array<{ id: string; name: string }>

@@ -75,14 +75,14 @@ function recordAffected(host: SkillHost, ownerId: PlayerId, actorId: PlayerId, r
   const next = (owner.marks[AFFECTED_COUNT] ?? 0) + 1
   owner.marks[AFFECTED_COUNT] = next % 3
   host.dispatch('SkillActivated', {
-    playerId: ownerId, skillId: LIGUI, result: 'affected', affectedPlayerId: actorId, reason,
+    playerId: ownerId, skillId: LIGUI, skillName: '立规', result: 'affected', affectedPlayerId: actorId, reason,
     logText: `${playerOf(host.state, actorId).nickname}受到【立规】影响`,
   }, { sourceId: ownerId, targetId: actorId })
   if (next < 3) return
   const resentment = Math.min(3, (owner.marks[RESENTMENT] ?? 0) + 1)
   owner.marks[RESENTMENT] = resentment
   host.dispatch('SkillActivated', {
-    playerId: ownerId, skillId: XINZHENG, result: 'resentment', resentment,
+    playerId: ownerId, skillId: XINZHENG, skillName: '新政', result: 'resentment', resentment,
     logText: `众人怨气渐生，${owner.nickname}获得1枚【怨】`,
   }, { sourceId: ownerId })
   if (resentment === 3 && !owner.marks[ANGER_ACTIVE]) queueAnger(host, ownerId, 'start')
@@ -246,7 +246,7 @@ registerSkillRuntime({
       owner.marks[RULE] = option === 'wine' ? RULE_WINE : option === 'limit' ? RULE_LIMIT : option === 'study' ? RULE_STUDY : RULE_NONE
       const label = option === 'wine' ? '禁酒' : option === 'limit' ? '限行' : option === 'study' ? '静习' : null
       host.dispatch('SkillActivated', {
-        playerId: ownerId, skillId: LIGUI, result: label ? 'rule' : 'none', rule: label,
+        playerId: ownerId, skillId: LIGUI, skillName: '立规', result: label ? 'rule' : 'none', rule: label,
         logText: label ? `${owner.nickname}制定了【${label}】` : `${owner.nickname}本轮未制定规定`,
       }, { sourceId: ownerId })
       return
@@ -285,7 +285,7 @@ function beginAnger(host: SkillHost, ownerId: PlayerId): void {
   owner.marks[ANGER_ACTIVE] = 1
   for (const playerId of angerOrder(host.state, ownerId)) owner.marks[angerPendingKey(playerId)] = 1
   host.dispatch('SkillActivated', {
-    playerId: ownerId, skillId: XINZHENG, result: 'anger-start', logText: `群情激愤！${owner.nickname}触发【群怒】`,
+    playerId: ownerId, skillId: XINZHENG, skillName: '新政', result: 'anger-start', logText: `群情激愤！${owner.nickname}触发【群怒】`,
   }, { sourceId: ownerId })
   askNextAngerPlayer(host, ownerId)
 }
@@ -297,7 +297,7 @@ function finishAnger(host: SkillHost, ownerId: PlayerId): void {
   for (const key of Object.keys(owner.marks)) {
     if (key.startsWith('xinzheng:anger-pending:') || key.startsWith('xinzheng:anger-attacker:')) delete owner.marks[key]
   }
-  host.dispatch('SkillActivated', { playerId: ownerId, skillId: XINZHENG, result: 'anger-finished' }, { sourceId: ownerId })
+  host.dispatch('SkillActivated', { playerId: ownerId, skillId: XINZHENG, skillName: '新政', result: 'anger-finished' }, { sourceId: ownerId })
 }
 
 function askNextAngerPlayer(host: SkillHost, ownerId: PlayerId): void {
@@ -332,7 +332,7 @@ function angerLoseHp(host: SkillHost, ownerId: PlayerId, actorId: PlayerId): voi
   delete owner.marks[angerPendingKey(actorId)]
   queueAnger(host, ownerId, 'next')
   host.dispatch('SkillActivated', {
-    playerId: ownerId, skillId: XINZHENG, result: 'refuse', targetIds: [actorId],
+    playerId: ownerId, skillId: XINZHENG, skillName: '新政', result: 'refuse', targetIds: [actorId],
     logText: `${playerOf(host.state, actorId).nickname}拒绝出杀，失去1点体力`,
   }, { sourceId: ownerId, targetId: actorId })
   loseHp(host, actorId, 1, XINZHENG)
@@ -420,7 +420,7 @@ registerSkillRuntime({
     delete owner.marks[angerPendingKey(actorId)]
     owner.marks[angerAttackerKey(actorId)] = 1
     host.dispatch('SkillActivated', {
-      playerId: ownerId, skillId: XINZHENG, result: 'slash', targetIds: [actorId],
+      playerId: ownerId, skillId: XINZHENG, skillName: '新政', result: 'slash', targetIds: [actorId],
       logText: `${actor.nickname}响应【群怒】，对${owner.nickname}使用【杀】`,
     }, { sourceId: actorId, targetId: ownerId, cardIds: [cardId] })
     host.beginVirtualSlash({ sourceId: actorId, targetId: ownerId, sourceSkillId: XINZHENG, cardId })
