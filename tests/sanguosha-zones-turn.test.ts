@@ -57,7 +57,13 @@ describe('牌区域、合法操作与可中断阶段', () => {
     advancePhase(game.state, emit)
     expect(game.state.currentPlayerId).not.toBe(previous)
     expect(game.state.turnNumber).toBe(2)
-    expect(seen).toContain('PhaseStart:draw')
+    // 被跳过的判定阶段自始至终没有开始过。
+    // `PhaseStart` 不再由 advancePhase 发——阶段真正开始之前还有一个
+    // 「付代价跳过这个阶段」的公共窗口，发出权在 phase.ts 的 beginPhaseEntry，
+    // 见 tests/sanguosha-phase-skip.test.ts。这里只守 advancePhase 自己的职责：
+    // 跳过的阶段被越过、回合正常交接。
+    expect(seen).not.toContain('PhaseStart:judge')
+    expect(seen.filter((entry) => entry.startsWith('PhaseEnd:'))).not.toContain('PhaseEnd:judge')
   })
 
   it('存在待处理 Request 时阶段不能推进', () => {

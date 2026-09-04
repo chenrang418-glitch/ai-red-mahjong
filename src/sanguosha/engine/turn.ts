@@ -43,7 +43,7 @@ export function skipPhase(state: SanguoshaState, phase: TurnPhase): void {
  * 发生了，只是每个阶段都被跳过。**不发 `PhaseStart`**，所以挂在阶段上的
  * 技能（曹仁自己的据守也在内）不会在被跳过的回合里触发。
  */
-function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): void {
+function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   state.currentPlayerId = nextAlivePlayerId(state)
   state.turnNumber += 1
   state.skippedPhases = []
@@ -57,14 +57,25 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): void {
     emit('CharacterFlip', { playerId: current.id, faceDown: false, reason: '回合开始' })
     state.skippedPhases = [...TURN_PHASES]
     state.phase = 'finish'
-    return
+    return false
   }
 
   state.phase = 'prepare'
-  emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
+  return true
 }
 
-export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
+/**
+ * 推进到下一个阶段。
+ *
+ * **这里不再发 `PhaseStart`。** 阶段真正开始之前还有一个公共窗口：
+ * 「付代价跳过这个阶段」（张郃【巧变】、刘禅【放权】）。那个窗口会挂起
+ * 等玩家回答，挂起期间这个阶段还没有开始，此时发 `PhaseStart` 会让挂在
+ * 阶段上的技能（英魂、崩坏……）在一个最终被跳过的阶段里错误触发。
+ * 所以 `PhaseStart` 改由 `phase.ts` 的 `beginPhaseEntry` 在窗口走完后发。
+ *
+ * 返回是否进入了一个待开始的新阶段；翻面跳过整个回合时返回 false。
+ */
+export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   if (state.status !== 'playing') throw new Error('牌局尚未进入进行状态')
   if (state.pendingRequests.length > 0) throw new Error('仍有待处理 Request，不能推进阶段')
   emit('PhaseEnd', { playerId: state.currentPlayerId, phase: state.phase })
@@ -79,8 +90,7 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
     while (nextIndex < TURN_PHASES.length && state.skippedPhases.includes(TURN_PHASES[nextIndex])) nextIndex += 1
     if (nextIndex < TURN_PHASES.length) {
       state.phase = TURN_PHASES[nextIndex]
-      emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
-      return
+      return true
     }
   }
 
@@ -91,5 +101,5 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): void {
   for (const player of state.players) player.turnUsedSkills = []
   // 本回合的临时杀规则（太史慈【天义】）同样在这里统一抹掉，技能不各自注册清理
   clearTurnSlashRules(state)
-  beginTurn(state, emit)
+  return beginTurn(state, emit)
 }

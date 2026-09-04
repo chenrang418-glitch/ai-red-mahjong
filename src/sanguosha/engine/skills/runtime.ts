@@ -3,7 +3,7 @@ import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
-import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit } from '../types'
+import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit, TurnPhase } from '../types'
 
 export interface TargetedCardContext {
   sourceId: PlayerId
@@ -99,6 +99,15 @@ export interface SkillHost {
   resumeCardTarget(): void
   /** 技能完成阶段替代效果后，按统一回合状态机进入下一阶段。 */
   advancePhase(): void
+  /**
+   * 「付代价跳过这个阶段」的窗口里回答完了，接着往下走。
+   *
+   * 无论玩家选的是跳过还是放弃都要调它：跳过的话技能自己先调过
+   * `skipPhase`，这里会把阶段收掉；放弃的话这里会继续问下一个技能，
+   * 都没有了就正式开始这个阶段。**技能不要自己发 `PhaseStart`，
+   * 也不要自己调 `advancePhase` 来「跳过」**——那样跳过的语义会有两套。
+   */
+  resumePhaseEntry(): void
 }
 
 /**
@@ -140,6 +149,19 @@ export interface SkillRuntime {
    * 返回 true 表示技能已经发出可序列化 Request，原动作暂不继续。
    */
   interceptPlayAction?(host: SkillHost, ownerId: PlayerId, action: Extract<LegalAction, { kind: 'use-card' }>): boolean
+  /**
+   * 阶段开始**之前**的「付代价跳过这个阶段」机会（张郃【巧变】、刘禅【放权】）。
+   *
+   * 引擎只问当前回合角色自己的技能——能跳过的只有自己的阶段。
+   * 返回 true 表示技能已经发出可序列化 Request，阶段暂不开始；
+   * 玩家答完之后技能**必须**调 `host.resumePhaseEntry()` 把控制权交回来，
+   * 否则牌局就停在这里了。
+   *
+   * 真要跳过时调 `skipPhase(state, phase)`，走的是和兵粮寸断、乐不思蜀
+   * 同一份 `skippedPhases`；**不要**用「摸 0 张」「手牌上限设无穷」
+   * 这类假跳过糊弄过去，那样阶段技能的时机全是错的。
+   */
+  offerPhaseSkip?(host: SkillHost, ownerId: PlayerId, phase: TurnPhase): boolean
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
   /** 条件式无距离使用【杀】；状态必须来自可序列化牌局数据。 */

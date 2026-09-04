@@ -477,6 +477,17 @@ export interface DeathClaimState {
   cardIds: CardId[]
 }
 
+/**
+ * 阶段进入窗口。**只放可序列化数据**——窗口中途 Durable Object 可能休眠。
+ *
+ * `askedSkillIds` 记的是「这个阶段已经问过哪些技能要不要跳过」，
+ * 少了它，技能回答完再回到窗口时会把自己重新问一遍，问成死循环。
+ */
+export interface PhaseEntryState {
+  phase: TurnPhase
+  askedSkillIds: string[]
+}
+
 export interface SanguoshaState {
   rulesetVersion: RulesetVersion
   seed: string
@@ -490,6 +501,13 @@ export interface SanguoshaState {
   turnNumber: number
   phase: TurnPhase
   skippedPhases: TurnPhase[]
+  /**
+   * 阶段还没正式开始，正在走「付代价跳过这个阶段」的公共窗口。
+   *
+   * 只在窗口挂起等玩家回答时非空；阶段一旦真正开始（发出 `PhaseStart`）
+   * 或被跳过就清成 null。见 `phase.ts` 的 `beginPhaseEntry`。
+   */
+  phaseEntry: PhaseEntryState | null
   turnUsage: TurnUsageState
   pendingRequests: GameRequest[]
   dying: DyingState | null

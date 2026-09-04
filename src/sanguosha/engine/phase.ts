@@ -5,7 +5,8 @@ import { advancePhase } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
-import { fixedMaxCardsOf, maxCardsBonusOf } from './skills/runtime'
+import { fixedMaxCardsOf, maxCardsBonusOf, skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 
 /**
  * 阶段引擎的宿主。
@@ -88,9 +89,69 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
   }
 }
 
-export function advanceGamePhase(host: PhaseEngineHost): void {
-  advancePhase(host.state, (name, payload) => { host.dispatch(name, payload) })
+/**
+ * 阶段开始前的公共「付代价跳过这个阶段」窗口。
+ *
+ * 这是张郃【巧变】、刘禅【放权】共用的**唯一**入口，也是以后同类技能该挂的地方。
+ * 三条约束：
+ *
+ * 1. **窗口在 `PhaseStart` 之前。** 阶段还没开始，所以挂在阶段上的技能
+ *    （英魂、崩坏、观星……）不会在一个最终被跳过的阶段里错误触发。
+ * 2. **跳过是真跳过**，走 `skipPhase` 那条既有语义，不是「摸 0 张」
+ *    「AI 直接 pass」这类假跳过——兵粮寸断、好施、放权读的都是同一份
+ *    `skippedPhases`。
+ * 3. **可挂起、可序列化。** 问到哪一步记在 `state.phaseEntry` 里，
+ *    技能回答完调 `continuePhaseEntry` 接着问下一个技能。
+ *    `askedSkillIds` 防止同一个技能在一个阶段里被反复问。
+ *
+ * 只问当前回合角色自己的技能：能跳过的只有自己的阶段，这是规则。
+ */
+export function beginPhaseEntry(host: PhaseEngineHost): void {
+  host.state.phaseEntry = { phase: host.state.phase, askedSkillIds: [] }
+  continuePhaseEntry(host)
+}
+
+export function continuePhaseEntry(host: PhaseEngineHost): void {
+  const entry = host.state.phaseEntry
+  if (!entry) return
+  // 阶段状态机已经往前走了（技能自己调了 advancePhase），这份窗口作废
+  if (entry.phase !== host.state.phase) {
+    host.state.phaseEntry = null
+    return
+  }
+
+  const playerId = host.state.currentPlayerId
+  const current = host.state.players.find((player) => player.id === playerId)
+  if (current?.alive) {
+    for (const runtime of skillsOf(host.state, playerId, skillIdsOf)) {
+      if (!runtime.offerPhaseSkip) continue
+      if (entry.askedSkillIds.includes(runtime.id)) continue
+      entry.askedSkillIds.push(runtime.id)
+      // 技能发出了可序列化 Request，阶段暂不开始；玩家回答后由技能调回来
+      if (runtime.offerPhaseSkip(host, playerId, entry.phase)) return
+      // 技能在这一步里就把阶段跳掉了，不用再问剩下的
+      if (host.state.skippedPhases.includes(entry.phase)) break
+    }
+  }
+
+  host.state.phaseEntry = null
+  if (host.state.skippedPhases.includes(entry.phase)) {
+    // 被跳过的阶段不发 PhaseStart、不跑阶段内容，直接进入下一个阶段
+    advanceGamePhase(host)
+    return
+  }
+  // 这两句合起来就是重构前 advancePhase + enterCurrentPhase 的原样行为，
+  // 顺序和无条件性都不能改：阶段技能靠 PhaseStart 触发，阶段内容靠
+  // enterCurrentPhase 里各自的 JudgePhase / DrawPhase / PlayPhase / DiscardPhase 事件。
+  host.dispatch('PhaseStart', { playerId, phase: entry.phase })
   enterCurrentPhase(host)
+}
+
+export function advanceGamePhase(host: PhaseEngineHost): void {
+  const entered = advancePhase(host.state, (name, payload) => { host.dispatch(name, payload) })
+  // 翻面跳过整个回合：停在 finish，不发 PhaseStart 也不跑阶段内容
+  if (!entered) return
+  beginPhaseEntry(host)
 }
 
 export function resolveDiscardPhaseResponse(host: PhaseEngineHost, request: ChooseCardsRequest, response: GameResponse): void {

@@ -4,7 +4,7 @@ import { GameEventBus, type EventContext, type GameEvent, type GameEventName } f
 import { identitiesFor } from './modes/identity'
 import { GameRng } from './rng'
 import { startPlaying } from './turn'
-import { advanceGamePhase, resolveDiscardPhaseResponse } from './phase'
+import { advanceGamePhase, continuePhaseEntry, resolveDiscardPhaseResponse } from './phase'
 import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
@@ -92,6 +92,7 @@ export class SanguoshaGame {
       turnNumber: 0,
       phase: 'prepare',
       skippedPhases: [],
+      phaseEntry: null,
       turnUsage: { slashUses: 0, wineUses: 0, wineDamageBonus: 0 },
       pendingRequests: [],
       dying: null,
@@ -196,6 +197,10 @@ export class SanguoshaGame {
 
   resumeCardTarget(): void {
     continueCardTarget(this)
+  }
+
+  resumePhaseEntry(): void {
+    continuePhaseEntry(this)
   }
 
   queueSkill(prompt: QueuedSkillPrompt): void {
@@ -494,6 +499,8 @@ export class SanguoshaGame {
     mutable.state.groupDecision ??= null
     mutable.state.pindian ??= null
     mutable.state.guhuoResponse ??= null
+    // 阶段进入窗口是后加的字段，进行中的旧房间里没有
+    mutable.state.phaseEntry ??= null
     mutable.state.mamaBonds ??= {}
     if (mutable.state.damageChain) {
       mutable.state.damageChain.cardId ??= null

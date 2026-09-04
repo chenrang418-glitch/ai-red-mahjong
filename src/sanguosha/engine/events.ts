@@ -11,6 +11,8 @@ export type GameEventName =
   | 'LoseHp' | 'MaxHpChange'
   | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'
   | 'CardMove' | 'LoseCard' | 'GainCard' | 'HandSwap' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
+  /** 场上的牌（装备区 / 判定区）被直接移动到另一名角色的对应区域。见 field-move.ts。 */
+  | 'FieldCardMoved'
 
 export interface GameEvent<TPayload = Record<string, unknown>> {
   id: string
