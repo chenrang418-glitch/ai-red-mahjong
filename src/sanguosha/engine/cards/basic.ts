@@ -399,7 +399,18 @@ function enterSlashTarget(host: CardEngineHost): void {
     return
   }
   applyUndodgeableSkills(host, resolution.sourceId, resolution.targetId)
-  if (!askSlashInterceptors(host)) askSlashDodge(host)
+  if (askSlashInterceptors(host)) return
+  /*
+   * 插入点可以**同步**取消这个目标：刘禅【享乐】在攻击者一张基本牌都没有时
+   * 不发问，当场判这张【杀】对他无效。那种情况下 `interceptTarget` 返回的是
+   * false（没有挂起任何 Request），但目标已经作废，不能再往下问闪——
+   * 问了就是对一个已经无效的目标求闪，而且会留下一个没人回答的请求。
+   */
+  if (resolution.targetCancelled) {
+    continueSlash(host)
+    return
+  }
+  askSlashDodge(host)
 }
 
 /**

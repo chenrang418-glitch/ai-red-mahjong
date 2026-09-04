@@ -503,6 +503,17 @@ export interface PhaseEntryState {
   askedSkillIds: string[]
 }
 
+/**
+ * 排队中的额外回合（刘禅【放权】）。
+ *
+ * `sourceSkillId` / `sourcePlayerId` 只用于战报和界面，**规则层不读它们**。
+ */
+export interface ExtraTurnEntry {
+  playerId: PlayerId
+  sourceSkillId?: string
+  sourcePlayerId?: PlayerId
+}
+
 export interface SanguoshaState {
   rulesetVersion: RulesetVersion
   seed: string
@@ -513,6 +524,19 @@ export interface SanguoshaState {
   cards: Record<CardId, PhysicalCard>
   zones: GameZones
   currentPlayerId: PlayerId
+  /**
+   * 正常座次游标。**额外回合不会推进它。**
+   *
+   * 和 `currentPlayerId` 分开是整套回合调度最要紧的一条不变量：
+   * 额外回合期间 `currentPlayerId` 指向插队的那个人，但下一个正常回合
+   * 仍然要从这里继续往后数。合成一个字段的话，被插队角色的正常回合
+   * 会被直接吃掉。
+   */
+  normalTurnPlayerId: PlayerId
+  /** 排队中的额外回合，先进先出。轮到时已经死亡的直接丢弃。 */
+  extraTurns: ExtraTurnEntry[]
+  /** 当前回合是正常回合还是插队的额外回合。决定下一个正常回合从哪里数起。 */
+  currentTurnKind: 'normal' | 'extra'
   turnNumber: number
   phase: TurnPhase
   skippedPhases: TurnPhase[]

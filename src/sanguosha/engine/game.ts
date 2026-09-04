@@ -91,6 +91,9 @@ export class SanguoshaGame {
       cards,
       zones: { drawPile, discardPile: [], processingArea: [] },
       currentPlayerId: lord.id,
+      normalTurnPlayerId: lord.id,
+      extraTurns: [],
+      currentTurnKind: 'normal',
       turnNumber: 0,
       phase: 'prepare',
       skippedPhases: [],
@@ -508,6 +511,11 @@ export class SanguoshaGame {
     mutable.state.guhuoResponse ??= null
     // 阶段进入窗口是后加的字段，进行中的旧房间里没有
     mutable.state.phaseEntry ??= null
+    // 额外回合调度是后加的字段，进行中的旧房间里没有：
+    // 座次游标兜底成当前回合角色，队列兜底成空
+    mutable.state.extraTurns ??= []
+    mutable.state.normalTurnPlayerId ??= mutable.state.currentPlayerId
+    mutable.state.currentTurnKind ??= 'normal'
     mutable.state.mamaBonds ??= {}
     if (mutable.state.damageChain) {
       mutable.state.damageChain.cardId ??= null

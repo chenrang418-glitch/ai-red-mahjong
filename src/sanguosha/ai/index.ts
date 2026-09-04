@@ -254,8 +254,16 @@ function dimengScore(context: AIContext): number {
   const pair = bestDimengPair(context, others.map((player) => player.id))
   if (!pair) return -100
   const cost = pair.cost
-  // 付不起就别发动：真去选了也只会被服务端挡回来
-  if (cost > me.handCount + 2) return -100
+  /*
+   * 付不起就别发动。
+   *
+   * 代价从**手牌 + 装备区**里出，所以要按真实可弃牌数算。
+   * 原来写的是 `handCount + 2`（拍脑袋估装备），高估之后 AI 会去发动一个
+   * 付不起的缔盟——引擎按设计「当作没发动过」，于是本回合还能再挑一次，
+   * AI 又挑同一对，牌桌中央连播六条「牌不足，无法发动【缔盟】」。
+   */
+  const payable = me.handCount + me.equipment.length
+  if (cost > payable) return -100
   return pair.gain - cost * 3
 }
 
@@ -521,6 +529,46 @@ function qiaobianMoveScore(context: AIContext, prompt: string, targetId: PlayerI
   }
   // 装备：给自己人，越缺装备的越优先
   return -attitude * 6 + Math.max(0, 3 - target.equipment.length)
+}
+
+/** 从请求给的 cardId 反查牌名；查不到按最普通的牌算。 */
+function cardNameOf(context: AIContext, cardId: string): string {
+  const me = myself(context.view)
+  return (me.hand ?? []).find((card) => card.id === cardId)?.name
+    ?? me.equipment.find((card) => card.id === cardId)?.name
+    ?? ''
+}
+
+/**
+ * 【放权】要不要跳过出牌阶段。
+ *
+ * 换掉的是自己一整个出牌阶段，拿到的是**别人**的一个额外回合，
+ * 所以只有「自己这个出牌阶段本来也做不了什么」时才划算。
+ */
+function shouldInvokeFangquan(context: AIContext): boolean {
+  const me = myself(context.view)
+  // 手上还有牌能打，就别把自己的回合让出去
+  if (me.handCount >= 3) return false
+  const hasFriend = context.view.players.some((player) => (
+    player.alive && player.id !== me.id && !player.faceDown
+    && hostility(context.view, context.suspicion, player.id) <= 0
+  ))
+  // 没有可以受益的自己人时，放权只会资敌
+  if (!hasFriend) return false
+  // 手上一张牌都没有就更该让出去；第二段还要弃一张手牌，所以至少留一张
+  return me.handCount >= 1 && me.handCount <= 2
+}
+
+/** 放权给谁：自己人优先，牌多、血健康、正面朝上的更能用好这个回合。 */
+function fangquanScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  // 给敌人一个完整回合是资敌，重罚
+  if (attitude > 0) return -100 - attitude
+  // 背面朝上的人拿到额外回合只会翻回正面然后整回合被跳过，白给
+  if (target.faceDown) return -50
+  return 20 - attitude * 4 + Math.min(target.handCount, 6) + target.hp
 }
 
 /** 目标价值：先看阵营敌意，再看血少、手牌少好不好打。 */
@@ -843,6 +891,37 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
       /*
+       * 【享乐】：为了打中刘禅，值不值得额外弃一张基本牌。
+       *
+       * 代价是实打实的一张牌，收益只有 1 点伤害，所以要挑着付：
+       * 能打死（或打进濒死）才一定付；否则只在代价便宜（弃【杀】）时付。
+       * 为了打满血刘禅弃一张【桃】是典型的亏本买卖。
+       */
+      if (String(request.prompt).startsWith('【享乐】')) {
+        if (request.cardIds.length === 0) return { ...base, payload: { cardIds: [] } }
+        const liushan = context.view.players.find((player) => (
+          player.alive && String(request.prompt).includes(player.nickname)
+        ))
+        const cheapest = [...request.cardIds].sort((left, right) => (
+          cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right))
+        ))[0]
+        const lethal = (liushan?.hp ?? 99) <= 1
+        const cheap = cardValue(cardNameOf(context, cheapest)) <= 4
+        if (!lethal && !cheap) return { ...base, payload: { cardIds: [] } }
+        return { ...base, payload: { cardIds: [cheapest] } }
+      }
+      /*
+       * 【放权】第二段：弃一张手牌换一个给别人的额外回合。
+       * 到这一步说明跳出牌阶段已经付出去了，不兑现纯亏，所以一定弃最便宜的那张。
+       */
+      if (String(request.prompt).startsWith('【放权】')) {
+        if (request.cardIds.length === 0) return { ...base, payload: { cardIds: [] } }
+        const cheapest = [...request.cardIds].sort((left, right) => (
+          cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right))
+        ))[0]
+        return { ...base, payload: { cardIds: [cheapest] } }
+      }
+      /*
        * 被【挑衅】点名：出一张杀，还是让姜维拆自己一张牌。
        *
        * 出杀等于替姜维消耗自己一张牌，还可能被闪掉白亏；但不出就一定被拆一张，
@@ -986,6 +1065,16 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
         const best = ranked.filter((id) => Number.isFinite(targetScore(context, id)))
         return { ...base, payload: { targetIds: (best.length > 0 ? best : ranked).slice(0, 1) } }
+      }
+      /*
+       * 【放权】给谁一个额外回合：**只给自己人**。
+       * 给敌人等于白送他一整个回合，是这个技能最容易犯的错。
+       * 背面朝上的人拿到额外回合会直接被跳过（翻回正面就结束），
+       * 所以也要排除。
+       */
+      if (request.prompt.startsWith('【放权】')) {
+        const ranked = [...request.candidateIds].sort((left, right) => fangquanScore(context, right) - fangquanScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
       // 【乱武】并列最近时挑一个：优先敌人，其次血最少的
       if (request.prompt.startsWith('【乱武】')) {
@@ -1166,6 +1255,15 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (options.some((option) => option.id.startsWith('zhiji-'))) {
         const me = myself(context.view)
         return { ...base, payload: { optionId: me.hp < me.maxHp && me.hp <= 2 ? 'zhiji-recover' : 'zhiji-draw' } }
+      }
+      /*
+       * 【放权】：拿自己的出牌阶段换队友一个完整的额外回合。
+       *
+       * 自己这个出牌阶段越没用，换得越值：手牌少、没有能打的敌人时才放权。
+       * 手上有牌能打人的时候放权是纯亏——额外回合给的是别人，不是自己。
+       */
+      if (request.prompt.startsWith('发动【放权】')) {
+        return { ...base, payload: { optionId: shouldInvokeFangquan(context) ? 'yes' : 'no' } }
       }
       // 【巧变】按阶段分别算账，不是「有手牌就跳」
       if (request.prompt.startsWith('发动【巧变】')) {

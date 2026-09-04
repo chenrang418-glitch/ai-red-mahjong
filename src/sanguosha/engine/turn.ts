@@ -6,14 +6,76 @@ export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'p
 
 export type EmitTurnEvent = (name: GameEventName, payload: Record<string, unknown>) => void
 
-function nextAlivePlayerId(state: SanguoshaState): string {
-  const current = state.players.find((player) => player.id === state.currentPlayerId)
-  if (!current) throw new Error('当前玩家不存在')
+/**
+ * 从某个座位往后找下一名存活角色。
+ *
+ * 起点按 **id** 查而不是按当前回合角色查：正常座次游标可能停在一个已经死掉的
+ * 人身上（他在自己回合里死了），那时仍然要从他的座位继续往后数。
+ */
+function nextAliveAfter(state: SanguoshaState, fromPlayerId: string): string {
+  const from = state.players.find((player) => player.id === fromPlayerId)
+  if (!from) throw new Error('座次游标指向的玩家不存在')
   for (let offset = 1; offset <= state.players.length; offset += 1) {
-    const candidate = state.players[(current.seat + offset) % state.players.length]
+    const candidate = state.players[(from.seat + offset) % state.players.length]
     if (candidate.alive) return candidate.id
   }
   throw new Error('没有存活玩家可以开始下一回合')
+}
+
+/**
+ * 给某名角色排一个额外回合（刘禅【放权】）。
+ *
+ * **队列而不是单个字段**：以后可能有多个技能同时排队，甚至额外回合里再排
+ * 一个额外回合。用一个 `extraTurnPlayerId` 只存得下一个，第二个会被静默吃掉。
+ */
+export function queueExtraTurn(
+  state: SanguoshaState,
+  playerId: string,
+  source: { skillId?: string; playerId?: string } = {},
+): void {
+  state.extraTurns ??= []
+  state.extraTurns.push({
+    playerId,
+    ...(source.skillId ? { sourceSkillId: source.skillId } : {}),
+    ...(source.playerId ? { sourcePlayerId: source.playerId } : {}),
+  })
+}
+
+/**
+ * 决定下一个回合归谁，以及它是正常回合还是额外回合。
+ *
+ * **额外回合不推进正常座次游标**——这是整套调度里最要紧的一条不变量。
+ * 推进了的话，被插队的那名角色的正常回合会被直接吃掉（或者反过来多跑一次）。
+ * 所以 `normalTurnPlayerId` 和 `currentPlayerId` 是两个字段，
+ * 只有正常回合才会去动前者。
+ *
+ * 排队时还活着、轮到时已经死了的额外回合直接丢弃，继续往下取。
+ */
+function nextTurnEntry(state: SanguoshaState): { playerId: string; kind: 'normal' | 'extra'; sourceSkillId?: string; sourcePlayerId?: string } {
+  state.extraTurns ??= []
+  while (state.extraTurns.length > 0) {
+    const queued = state.extraTurns.shift()!
+    const player = state.players.find((candidate) => candidate.id === queued.playerId)
+    if (!player?.alive) continue
+    // 插队之前先把正常座次钉住：它是「上一个正常回合是谁」，
+    // 额外回合结束后要从这里继续往下数
+    if (state.currentTurnKind !== 'extra') state.normalTurnPlayerId = state.currentPlayerId
+    return { ...queued, kind: 'extra' }
+  }
+  /*
+   * 正常回合的起点：
+   * - 上一个回合是**正常回合**时，就用 `currentPlayerId`。
+   *   这样和重构前的行为完全一致，也让直接改 `currentPlayerId` 的调用方
+   *   （不少测试脚手架就是这么摆局面的）照常工作。
+   * - 上一个回合是**额外回合**时，`currentPlayerId` 指向插队的人，
+   *   必须回到钉住的正常座次继续数，否则被插队者的回合会被吃掉。
+   */
+  const from = state.currentTurnKind === 'extra'
+    ? (state.normalTurnPlayerId ?? state.currentPlayerId)
+    : state.currentPlayerId
+  const nextId = nextAliveAfter(state, from)
+  state.normalTurnPlayerId = nextId
+  return { playerId: nextId, kind: 'normal' }
 }
 
 export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
@@ -24,7 +86,11 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   state.skippedPhases = []
   state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
-  emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
+  state.extraTurns = []
+  // 正常座次游标从主公开始；只有额外回合插队时才需要靠它记住位置
+  state.normalTurnPlayerId = state.currentPlayerId
+  state.currentTurnKind = 'normal'
+  emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber, kind: 'normal' })
   emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
 }
 
@@ -44,12 +110,21 @@ export function skipPhase(state: SanguoshaState, phase: TurnPhase): void {
  * 技能（曹仁自己的据守也在内）不会在被跳过的回合里触发。
  */
 function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
-  state.currentPlayerId = nextAlivePlayerId(state)
+  const next = nextTurnEntry(state)
+  state.currentPlayerId = next.playerId
+  state.currentTurnKind = next.kind
   state.turnNumber += 1
   state.skippedPhases = []
   state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
-  emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber })
+  emit('TurnStart', {
+    playerId: state.currentPlayerId,
+    turnNumber: state.turnNumber,
+    // 额外回合在战报和界面上要能和正常回合分辨开，否则玩家会以为座次乱跳
+    kind: next.kind,
+    ...(next.sourceSkillId ? { sourceSkillId: next.sourceSkillId } : {}),
+    ...(next.sourcePlayerId ? { sourcePlayerId: next.sourcePlayerId } : {}),
+  })
 
   const current = state.players.find((player) => player.id === state.currentPlayerId)
   if (current?.faceDown) {

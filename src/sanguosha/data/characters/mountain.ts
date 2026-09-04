@@ -15,9 +15,12 @@ import { ZHANGHE } from './mountain-zhanghe'
 import { DENGAI } from './mountain-dengai'
 // 姜维：挑衅用公共 ask-use-slash，志继觉醒后复用标准诸葛亮的观星
 import { JIANGWEI } from './mountain-jiangwei'
+// 刘禅：放权复用公共 offerPhaseSkip + 新建的额外回合队列，若愚觉醒后复用刘备的激将
+import { LIUSHAN } from './mountain-liushan'
 
 export const MOUNTAIN_CHARACTERS: readonly CharacterDefinition[] = [
   ZHANGHE,
   DENGAI,
   JIANGWEI,
+  LIUSHAN,
 ] as const
