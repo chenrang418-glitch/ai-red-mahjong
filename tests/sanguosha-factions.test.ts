@@ -34,6 +34,11 @@ describe('三国杀六势力基础数据', () => {
     expect(html).toContain(`--faction-color:${FACTION_CONFIG[faction].color}`)
     expect(html).toContain(`aria-label="${FACTION_CONFIG[faction].name}势力"`)
   })
+
+  it('生产 CSP 允许 Vite 内联的势力字体加载', () => {
+    const headers = readFileSync('public/_headers', 'utf8')
+    expect(headers).toMatch(/Content-Security-Policy:.*font-src 'self' data:/)
+  })
 })
 
 describe('规则页和艺术集的势力分类', () => {
