@@ -17,6 +17,10 @@ import { SHENZHOUYU } from './god-shenzhouyu'
 // 神诸葛亮：七星用扣置专属牌堆（hiddenCharacterPiles），狂风/大雾用公共临时角色状态
 import { SHENCAOCAO } from './god-shencaocao'
 import { SHENLVBU } from './god-shenlvbu'
+import { SHENLIUBEI } from './god-shenliubei'
+import { SHENLUXUN } from './god-shenluxun'
+import { SHENGANNING } from './god-shenganning'
+import { SHENZHANGLIAO } from './god-shenzhangliao'
 import { SHENSIMAYI } from './god-shensimayi'
 import { SHENZHAOYUN } from './god-shenzhaoyun'
 import { SHENZHUGELIANG } from './god-shenzhugeliang'
@@ -30,4 +34,8 @@ export const GOD_CHARACTERS: readonly CharacterDefinition[] = [
   SHENLVBU,
   SHENZHAOYUN,
   SHENSIMAYI,
+  SHENLIUBEI,
+  SHENLUXUN,
+  SHENZHANGLIAO,
+  SHENGANNING,
 ] as const

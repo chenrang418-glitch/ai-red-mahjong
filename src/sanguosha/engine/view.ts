@@ -29,6 +29,10 @@ export interface PlayerPublicView {
   maxHp: number
   chained: boolean
   faceDown: boolean
+  /** 已被废除的装备栏（神张辽【夺锐】）。界面要灰掉并标注，不是藏起来。 */
+  abolishedSlots: string[]
+  /** 身上带着的全局 Token（神甘宁的「营」）。 */
+  tokens: Array<{ name: string; ownerId: string }>
   /**
    * 武将专属牌堆。「创」这类牌是**亮出来**的，所以对所有人公开，
    * 直接下发牌面；将来若出现暗置的专属牌堆，要在这里按观看者裁剪。
@@ -138,6 +142,9 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         maxHp: player.maxHp,
         chained: player.chained,
         faceDown: player.faceDown,
+        abolishedSlots: [...(state.abolishedSlots?.[player.id] ?? [])],
+        tokens: (state.globalTokens ?? []).filter((token) => token.carrierId === player.id)
+          .map((token) => ({ name: token.name, ownerId: token.ownerId })),
         characterPiles: Object.fromEntries(
           Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [
             pile,

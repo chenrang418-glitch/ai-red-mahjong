@@ -5,7 +5,7 @@ import { advancePhase, resumeTurnTransition } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
-import { fixedMaxCardsOf, maxCardsBonusOf, skillsOf } from './skills/runtime'
+import { fixedMaxCardsOf, globalMaxCardsBonusOf, maxCardsBonusOf, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 
 /**
@@ -45,7 +45,7 @@ export function maxCardsOf(state: SanguoshaState, playerId: PlayerId): number {
   const target = state.players.find((player) => player.id === playerId)
   if (!target) throw new Error(`玩家不存在：${playerId}`)
   const base = fixedMaxCardsOf(state, playerId) ?? Math.max(0, target.hp)
-  return Math.max(0, base + maxCardsBonusOf(state, playerId))
+  return Math.max(0, base + maxCardsBonusOf(state, playerId) + globalMaxCardsBonusOf(state, playerId))
 }
 
 function maxCards(state: SanguoshaState, playerId: PlayerId): number {
@@ -134,9 +134,41 @@ export function beginPhaseEntry(host: PhaseEngineHost): void {
   continuePhaseEntry(host)
 }
 
+/** 场面是不是干净到可以开始跑阶段内容了。 */
+function boardIsClean(host: PhaseEngineHost): boolean {
+  return host.state.pendingRequests.length === 0
+    && !host.state.dying
+    && !host.state.skillResolution
+    && !host.state.damageChain
+    && !host.state.cardResolution
+    && !host.state.judgment
+    && host.state.skillQueue.length === 0
+}
+
 export function continuePhaseEntry(host: PhaseEngineHost): void {
   const entry = host.state.phaseEntry
   if (!entry) return
+
+  /*
+   * `PhaseStart` 已经发出、正等着它触发的技能结算完。
+   *
+   * 神刘备【龙怒】在出牌阶段开始时失去体力，1 血时会进濒死；
+   * 神陆逊【摧克】在同一时机直接发问。这两种情况下都不能立刻开始阶段内容——
+   * 原来是 dispatch 完 PhaseStart 就无条件 `enterCurrentPhase`，
+   * 于是出牌阶段在濒死流程还没结束的时候就开了，
+   * 压测报「DyingState 与目标状态不一致」（seed=soak-5-198）。
+   */
+  if (entry.stage === 'await-content') {
+    if (!boardIsClean(host)) return
+    host.state.phaseEntry = null
+    if (host.state.phase !== entry.phase) return
+    if (!host.state.players.find((player) => player.id === host.state.currentPlayerId)?.alive) {
+      if (host.state.status === 'playing') advanceGamePhase(host)
+      return
+    }
+    enterCurrentPhase(host)
+    return
+  }
   // 阶段状态机已经往前走了（技能自己调了 advancePhase），这份窗口作废
   if (entry.phase !== host.state.phase) {
     host.state.phaseEntry = null
@@ -166,8 +198,16 @@ export function continuePhaseEntry(host: PhaseEngineHost): void {
   // 这两句合起来就是重构前 advancePhase + enterCurrentPhase 的原样行为，
   // 顺序和无条件性都不能改：阶段技能靠 PhaseStart 触发，阶段内容靠
   // enterCurrentPhase 里各自的 JudgePhase / DrawPhase / PlayPhase / DiscardPhase 事件。
+  host.state.phaseEntry = { phase: entry.phase, askedSkillIds: entry.askedSkillIds, stage: 'await-content' }
   host.dispatch('PhaseStart', { playerId, phase: entry.phase })
-  enterCurrentPhase(host)
+  /*
+   * `PhaseStart` 上的技能可能把当前回合角色打进濒死、甚至直接打死
+   * （神刘备【龙怒】阳状态失去 1 点体力），也可能当场发问（神陆逊【摧克】）。
+   * 这些都必须先结算完，阶段内容才能开始——所以先把断点写进 `phaseEntry`，
+   * 再 dispatch，然后交给上面那段 `await-content` 统一收尾。
+   * 断点进 State，重连和 Durable Object 休眠恢复之后照样接得上。
+   */
+  continuePhaseEntry(host)
 }
 
 export function advanceGamePhase(host: PhaseEngineHost): void {

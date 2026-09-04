@@ -1,3 +1,4 @@
+import { canUseCardAs } from '../forced-identity'
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import type { LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
@@ -455,7 +456,9 @@ export function askNullification(host: CardEngineHost): void {
     askNullification(host)
     return
   }
-  const actionIds = cardIds.map((cardId) => `respond-nullification:${cardId}`)
+  const actionIds = cardIds
+    .filter((cardId) => canUseCardAs(host.state, responderId, cardId, '无懈可击'))
+    .map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
   // 多目标锦囊才需要「本轮均不使用」：单目标牌只问一轮，多一个按钮反而是噪音
   if (resolution.targetIds.length > 1) actionIds.push(PASS_ROUND_ACTION)
@@ -571,7 +574,9 @@ function askRespondCard(
   )
   // 武圣、龙胆等“打出”转化同样适用于南蛮、万箭和决斗，不能只在普通【杀】求闪时生效。
   for (const option of responseViewAsOptions(host.state, responderId, requiredCardName)) responseCards.add(option.cardId)
-  const actionIds = [...responseCards].map((cardId) => `respond-trick:${cardId}`)
+  const actionIds = [...responseCards]
+    .filter((cardId) => canUseCardAs(host.state, responderId, cardId, requiredCardName))
+    .map((cardId) => `respond-trick:${cardId}`)
   if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
   if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
   // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
@@ -679,6 +684,8 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
     case '决斗': {
       // 决斗由目标先出杀，然后双方轮流；先出不出来的一方受伤
       if (cannotRespond) {
+        // 目标打不出杀，使用者赢
+        dispatchDuelResult(host, resolution.sourceId, targetId)
         resolveDamage(host, { sourceId: resolution.sourceId, targetId, amount: 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
         if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
         return
@@ -708,6 +715,17 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
     default:
       advanceToNextTarget(host)
   }
+}
+
+/**
+ * 决斗的胜负事件。
+ *
+ * 决斗没有「伤害来源就是赢家」这条捷径可走：对方可能被别的效果打死、
+ * 伤害可能被防止或转移。谁先打不出【杀】谁就输，所以在那一刻显式派发一次，
+ * 挂在这上面的技能（神张辽【止啼】）才有可靠的判据。
+ */
+function dispatchDuelResult(host: CardEngineHost, winnerId: PlayerId, loserId: PlayerId): void {
+  host.dispatch('DuelResult', { winnerId, loserId }, { sourceId: winnerId, targetId: loserId })
 }
 
 /** 效果阶段收到「打出杀/闪」或「放弃」的响应。 */
@@ -794,8 +812,9 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
 
   if (effect.kind === 'duel') {
     if (!playedCardId) {
-      // 这一方出不出杀，由对方造成一点伤害
+      // 这一方出不出杀，由对方造成一点伤害——**这就是决斗分出胜负的那一刻**
       resolution.effect = null
+      dispatchDuelResult(host, effect.otherId, effect.responderId)
       resolveDamage(host, { sourceId: effect.otherId, targetId: effect.responderId, amount: 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
       return

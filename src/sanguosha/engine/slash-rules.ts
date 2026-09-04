@@ -1,3 +1,4 @@
+import { globalSlashUsesOf } from './skills/runtime'
 import type { PlayerId, SanguoshaState } from './types'
 
 /**
@@ -59,7 +60,8 @@ export function canUseSlash(state: SanguoshaState, playerId: PlayerId, unlimited
   const rules = slashRules(state, playerId)
   if (rules.prohibited) return false
   if (unlimited) return true
-  return state.turnUsage.slashUses < 1 + rules.extraUses
+  // 全场效果给的次数加成（神甘宁的「营」）和本回合的临时加成一起算
+  return state.turnUsage.slashUses < 1 + rules.extraUses + globalSlashUsesOf(state, playerId)
 }
 
 /** 一张杀最多能指定几个目标。 */

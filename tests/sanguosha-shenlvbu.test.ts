@@ -493,22 +493,20 @@ describe('神愤', () => {
   })
 })
 
-describe('无谋：使用时机里把自己打死不能留下悬空请求', () => {
+describe('无谋把自己打死时不能留下悬空请求', () => {
   /**
-   * 回归（seed=soak-5-82）：1 血的神吕布主公使用【决斗】，
-   * 无谋在 `CardUsed` 时机强制失去 1 点体力把自己送走，主公死亡牌局结束。
-   * 引擎在结束时清空了待回应请求，但这张【决斗】的结算还在往下走，
-   * 又向目标发出一个求【杀】请求——牌局已经 game-over 却仍挂着 Request。
+   * 原本这条钉的是引擎缺陷（压测 seed=soak-5-82）：使用时机里的技能把牌局打完之后，
+   * 那张牌的结算还在往下走又发新请求，于是 game-over 却挂着 Request。
+   * 修在公共入口 `beginPhysicalCard`。
    *
-   * 修在公共入口 `beginPhysicalCard`：使用时机结束后牌局已经结束就不再往下结算。
-   * 这不是无谋独有的问题，任何能在使用时机造成死亡的效果都会踩。
+   * 后来无谋的代价改成了**排队**（见下一组用例的说明），
+   * 所以它不再在使用时机里把人打死——`beginPhysicalCard` 里那道防线因此变成
+   * **纯防御性**的，这条用例改为守住最终状态：代价照付、牌局照常收尾、不留悬空请求。
    */
-  it('牌局在使用时机中结束时，不再发出新的请求', () => {
+  it('1 血 0 暴怒用锦囊：代价照付，牌局收尾干净', () => {
     const game = gameWith(FIVE)
-    // 让神吕布只剩 1 血、没有暴怒：使用非延时锦囊必定强制失去体力而死
     playerOf(game, 'p0').hp = 1
     playerOf(game, 'p0').marks[RAGE_MARK] = 0
-    // 其他人只留一个阵营，主公一死立刻分出胜负
     game.state.players.forEach((player, index) => { player.identity = index === 0 ? 'lord' : 'rebel' })
 
     enterPlay(game, 'p0')
@@ -522,10 +520,83 @@ describe('无谋：使用时机里把自己打死不能留下悬空请求', () =
     expect(action, '应当能打出决斗').toBeTruthy()
     game.act('p0', action!.id)
 
-    expect(playerOf(game, 'p0').alive, '无谋把自己打死了').toBe(false)
-    expect(game.state.status, '牌局结束').toBe('game-over')
-    expect(game.state.result, '有胜负结果').toBeTruthy()
+    let guard = 0
+    while (game.state.pendingRequests.length > 0 && guard < 30) {
+      const request = game.state.pendingRequests[0]
+      const ids = (request as unknown as { actionIds?: string[] }).actionIds ?? []
+      game.respond({
+        requestId: request.id, playerId: request.playerId,
+        payload: request.kind === 'choose-cards' ? { cardIds: [] }
+          : request.kind === 'choose-targets' ? { targetIds: [] }
+          : ids.length ? { actionId: ids.includes('rescue-pass') ? 'rescue-pass' : 'respond-pass' }
+            // choose-option 的选项因技能而异（无谋是 rage/hp），不能一律交 'no'
+            : { optionId: (request as unknown as { options: Array<{ id: string }> }).options.slice(-1)[0].id },
+      })
+      guard += 1
+    }
+
+    expect(playerOf(game, 'p0').hp, '无谋的代价照付').toBeLessThanOrEqual(0)
     expect(game.state.pendingRequests, '不能留下悬空请求').toHaveLength(0)
+    assertCardConservation(game.state)
+  })
+})
+
+describe('无谋：代价不能嵌套进这张牌自己的结算里', () => {
+  /**
+   * 回归（压测 seed=soak-5-198，本轮加入神刘备改变阵容后才撞到）。
+   *
+   * 0 暴怒时无谋是强制失去 1 点体力。原来这一步在 `CardUsed` 里**同步**执行，
+   * 于是 1 血的神吕布用一张【无中生有】时：这张牌自己的无懈链刚开始，
+   * 濒死流程又当场插进来，两条独立请求同时挂着，
+   * 状态不变式报「DyingState 与目标状态不一致」。
+   *
+   * 现在一律排队，代价在这张牌结算完、场面干净之后才付。
+   */
+  it('0 暴怒时使用锦囊，濒死不会插进这张牌的结算中间', () => {
+    const game = gameWith(FIVE)
+    const owner = playerOf(game, 'p0')
+    owner.hp = 1
+    owner.marks[RAGE_MARK] = 0
+    clearHand(game, 'p0')
+    const wuzhong = findCard(game, (card) => card.name === '无中生有')
+    giveHand(game, 'p0', [wuzhong])
+    // 给别人桃，逼出真正的多人求桃链
+    const peaches = Object.values(game.state.cards).filter((card) => card.name === '桃').slice(0, 2).map((card) => card.id)
+    giveHand(game, 'p1', [peaches[0]])
+    giveHand(game, 'p2', [peaches[1]])
+    enterPlay(game, 'p0')
+
+    const action = game.legalActions('p0').find((candidate) => (
+      candidate.kind === 'use-card' && (candidate as { cardIds?: string[] }).cardIds?.includes(wuzhong)
+    ))
+    expect(action, '应当能用无中生有').toBeTruthy()
+    game.act('p0', action!.id)
+
+    /*
+     * 关键断言：这一刻**不能**同时挂着濒死流程和这张牌的响应请求。
+     * 出问题的版本在这里是 dying + rescue + respond-card 三者并存。
+     */
+    const kinds = game.state.pendingRequests.map((request) => request.kind)
+    expect(game.state.dying && kinds.includes('respond-card'),
+      '濒死流程不能和这张牌的无懈链同时挂着').toBeFalsy()
+
+    let guard = 0
+    while (game.state.pendingRequests.length > 0 && guard < 20) {
+      const request = game.state.pendingRequests[0]
+      const ids = (request as unknown as { actionIds?: string[] }).actionIds ?? []
+      const rescue = request.kind === 'rescue' && request.playerId !== 'p0'
+        ? ids.find((id) => id.startsWith('rescue-card:'))
+        : undefined
+      const fallback = ids.includes('rescue-pass') ? 'rescue-pass' : 'respond-pass'
+      game.respond({
+        requestId: request.id, playerId: request.playerId,
+        payload: request.kind === 'choose-cards' ? { cardIds: [] }
+          : request.kind === 'choose-targets' ? { targetIds: [] }
+          : ids.length ? { actionId: rescue ?? fallback } : { optionId: 'no' },
+      })
+      guard += 1
+    }
+    assertGameInvariants(game.state)
     assertCardConservation(game.state)
   })
 })

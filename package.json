@@ -32,7 +32,8 @@
     "test:online": "npm run test:online:smoke",
     "test:online:smoke": "npm run build:worker && npm run test:online:prepared",
     "test:online:prepared": "node scripts/online-smoke.mjs",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "sanguosha:duorui-audit": "vite-node scripts/sanguosha-duorui-audit.mjs"
   },
   "dependencies": {
     "vue": "^3.5.0"

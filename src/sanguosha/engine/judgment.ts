@@ -1,3 +1,4 @@
+import { canUseCardAs } from './forced-identity'
 import { multiCardGrantedAs } from './multi-card-viewas'
 import { resolveDamage } from './damage'
 import type { EventContext, GameEvent, GameEventName } from './events'
@@ -310,7 +311,9 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
     requestCurrentNullification(host)
     return
   }
-  const actionIds = cardIds.map((cardId) => `respond-nullification:${cardId}`)
+  const actionIds = cardIds
+    .filter((cardId) => canUseCardAs(host.state, responderId, cardId, '无懈可击'))
+    .map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
   if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
   const request: RespondCardRequest = {

@@ -632,6 +632,19 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
     case 'yeyan':
       // 限定技，一局一次：场上有值得烧的敌人才交，血太少不冒险走大业炎那条
       return bestTarget > 4 && me.hp >= 2 ? 20 : -100
+    case 'poxi': {
+      // 看牌本身就有价值；手上有低价值牌时更划算（弃自己的牌换收益）
+      const cheap = (me.hand ?? []).filter((card) => cardValue(card.name) <= 3).length
+      return bestTarget > 0 || cheap >= 2 ? 13 + cheap : 6
+    }
+    case 'zhanhuo': {
+      // 限定技：连环敌人多、军略够多的时候才值
+      const junlue = me.marks?.junlue ?? 0
+      const chainedFoes = context.view.players.filter((player) => player.alive && player.chained
+        && player.id !== me.id && hostility(context.view, context.suspicion, player.id) > 0).length
+      if (junlue < 2 || chainedFoes === 0) return -100
+      return 16 + Math.min(junlue, 4) + chainedFoes * 3
+    }
     case 'jilue':
       // 极略·制衡：弃掉低价值牌换等量新牌，手牌质量差时收益最高
       return (me.hand ?? []).some((card) => cardValue(card.name) <= 2) ? 12 : 4
@@ -1013,6 +1026,40 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         // 凑不出同花色就交空，引擎当作放弃，不会卡住
         return { ...base, payload: { cardIds: [] } }
       }
+      /*
+       * 【魄袭】选四张不同花色的牌。
+       *
+       * 请求里是**双方手牌合起来**的候选池。收益按「其中自己的牌数」分档：
+       * 4 张摸四张、3 张回血、1 张结束出牌阶段、0 张掉体力上限、2 张什么都没有。
+       * 所以尽量多用自己的低价值牌，同时优先弃掉对方的高价值牌。
+       * 凑不出四花色就交空——引擎当作「只观看不弃置」，不会卡住。
+       */
+      if (request.prompt.startsWith('【魄袭】：观看')) {
+        const mine = new Set((myself(context.view).hand ?? []).map((card) => card.id))
+        const suitOf = (cardId: string) => (myself(context.view).hand ?? []).find((card) => card.id === cardId)?.suit
+        const bySuit = new Map<string, string[]>()
+        for (const cardId of request.cardIds) {
+          // 对方的牌看不到花色信息时按候选顺序兜底，服务端会再校验一次
+          const suit = suitOf(cardId) ?? `unknown:${cardId}`
+          bySuit.set(suit, [...(bySuit.get(suit) ?? []), cardId])
+        }
+        const picked: string[] = []
+        const usedSuits = new Set<string>()
+        // 先用自己的低价值牌占花色
+        const ordered = [...request.cardIds].sort((left, right) => {
+          const own = (mine.has(right) ? 1 : 0) - (mine.has(left) ? 1 : 0)
+          if (own !== 0) return own
+          return cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right))
+        })
+        for (const cardId of ordered) {
+          const suit = suitOf(cardId)
+          if (!suit || usedSuits.has(suit)) continue
+          usedSuits.add(suit)
+          picked.push(cardId)
+          if (picked.length === 4) break
+        }
+        return { ...base, payload: { cardIds: picked.length === 4 ? picked : [] } }
+      }
       if (request.prompt.startsWith('【归心】：获得')) {
         const target = context.view.players.find((player) => request.prompt.includes(player.nickname))
         const enemy = !target || hostility(context.view, context.suspicion, target.id) > 0
@@ -1209,6 +1256,65 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const ranked = [...request.candidateIds]
           .sort((left, right) => qiaobianMoveScore(context, request.prompt, right) - qiaobianMoveScore(context, request.prompt, left))
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      /*
+       * 【魄袭】选目标。**绝不交空数组**——和挑衅、攻心、业炎、无前同一类坑：
+       * 交空会让技能不被消耗，出牌阶段可以原样再发一次，直接转成死循环
+       * （压测 seed=ci-5-3）。要不要发动已经在 skillActionScore 里判过了。
+       */
+      if (request.prompt.startsWith('【魄袭】：选择')) {
+        const scored = [...request.candidateIds].sort((left, right) => {
+          const weight = (playerId: string) => {
+            const player = context.view.players.find((candidate) => candidate.id === playerId)
+            if (!player) return -99
+            // 手牌多的敌人最值得看，也最容易凑齐四花色
+            return (hostility(context.view, context.suspicion, playerId) > 0 ? 8 : 0) + player.handCount
+          }
+          return weight(right) - weight(left)
+        })
+        return { ...base, payload: { targetIds: scored.length > 0 ? [scored[0]] : [] } }
+      }
+      /*
+       * 【摧克】奇数：对一名角色造成 1 点伤害。目标**包含自己**，
+       * 但 AI 显然只该打敌人；没有敌人可打就放弃（交空是合法的取消）。
+       */
+      if (request.prompt.startsWith('【摧克】') && request.prompt.includes('奇数')) {
+        const enemies = request.candidateIds
+          .filter((id) => id !== myself(context.view).id && hostility(context.view, context.suspicion, id) > 0)
+          .sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        return { ...base, payload: { targetIds: enemies.length > 0 ? [enemies[0]] : [] } }
+      }
+      /*
+       * 【摧克】偶数：令一名角色进入连环并弃其一张牌。
+       * 优先还没连环的敌人——既拆牌又为绽火布局。
+       */
+      if (request.prompt.startsWith('【摧克】') && request.prompt.includes('偶数')) {
+        const scored = [...request.candidateIds].sort((left, right) => {
+          const weight = (playerId: string) => {
+            const player = context.view.players.find((candidate) => candidate.id === playerId)
+            if (!player) return -99
+            const enemy = hostility(context.view, context.suspicion, playerId) > 0 ? 10 : -5
+            const notChained = player.chained ? 0 : 4
+            return enemy + notChained + player.equipment.length
+          }
+          return weight(right) - weight(left)
+        })
+        return { ...base, payload: { targetIds: scored.length > 0 ? [scored[0]] : [] } }
+      }
+      /* 【绽火】选目标：只能选连环角色，尽量多选，敌人优先。 */
+      if (request.prompt.startsWith('【绽火】：选择')) {
+        const scored = [...request.candidateIds].sort((left, right) => (
+          (hostility(context.view, context.suspicion, right) > 0 ? 1 : 0)
+          - (hostility(context.view, context.suspicion, left) > 0 ? 1 : 0)
+        ))
+        const enemies = scored.filter((id) => hostility(context.view, context.suspicion, id) > 0)
+        const picked = (enemies.length > 0 ? enemies : scored).slice(0, request.max)
+        return { ...base, payload: { targetIds: picked } }
+      }
+      /* 【绽火】火伤打谁：血最少的敌人。 */
+      if (request.prompt.startsWith('【绽火】：对其中')) {
+        const scored = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        return { ...base, payload: { targetIds: scored.length > 0 ? [scored[0]] : [request.candidateIds[0]] } }
       }
       /*
        * 【无前】选目标。**绝不交空数组**——和挑衅、攻心、业炎同一类坑：
@@ -1410,6 +1516,12 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       }
       /* 【连破】：能白拿一个完整额外回合，基本总是发动。 */
       if (request.prompt.startsWith('发动【连破】')) return { ...base, payload: { optionId: 'yes' } }
+      /* 【摧克】大摧克：全场各 1 伤，敌人比友军多才划算。 */
+      if (request.prompt.startsWith('【摧克】') && request.prompt.includes('大于 7')) {
+        const others = context.view.players.filter((player) => player.alive && player.id !== me.id)
+        const foes = others.filter((player) => hostility(context.view, context.suspicion, player.id) > 0).length
+        return { ...base, payload: { optionId: foes > others.length - foes ? 'yes' : 'no' } }
+      }
       if (request.prompt.startsWith('发动【归心】')) {
         const donors = context.view.players.filter((player) => (
           player.alive && player.id !== me.id && (player.handCount > 0 || player.equipment.length > 0 || player.judgingArea.length > 0)

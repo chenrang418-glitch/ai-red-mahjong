@@ -143,14 +143,19 @@ describe('无头压测', () => {
    * - `soak-5-178`：业炎付代价那步交上来的四张牌花色有重复，旧实现静默返回，
    *   限定技没被消耗，出牌阶段可以原样再发一次，转成死循环。
    *
-   * 这两条比任何手搓用例都更贴近真实牌局，直接按 seed 钉住。
+   * - `soak-5-237`：`resolveDeath` 在派发 `Death` **之后**才清 `state.dying`，
+   *   于是 Death 上的技能、以及这次死亡之后继续往下跑的牌结算（决斗还在轮询下一个目标）
+   *   都看到一个过期的濒死状态，再有人被打到 0 体力就抛「已有濒死流程正在进行」。
+   *   这一条和神将第三批无关，是既有缺陷，加入新武将改变阵容后才撞到。
+   *
+   * 这几条比任何手搓用例都更贴近真实牌局，直接按 seed 钉住。
    */
-  for (const [seed, playerCount] of [['soak-8-423', 8], ['soak-5-178', 5]] as const) {
+  for (const [seed, playerCount] of [['soak-8-423', 8], ['soak-5-178', 5], ['soak-5-237', 5]] as const) {
     it(`神将第一批：seed=${seed} 不再卡死`, () => {
-      const result = runSoakGame({
-        seed, playerCount,
-        characterIds: ['shenguanyu', 'shenlvmeng', 'shenzhouyu', 'shenzhugeliang'],
-      })
+      // soak-5-237 是全随机阵容的既有缺陷，不能固定武将，否则复现不出来
+      const result = seed === 'soak-5-237'
+        ? runSoakGame({ seed, playerCount })
+        : runSoakGame({ seed, playerCount, characterIds: ['shenguanyu', 'shenlvmeng', 'shenzhouyu', 'shenzhugeliang'] })
       expect(result.finished).toBe(true)
     })
   }

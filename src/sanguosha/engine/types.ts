@@ -236,6 +236,9 @@ export interface PindianSettlementState {
 
 import type { ArmorSuppression } from './armor-suppression'
 import type { MultiCardViewAsState } from './multi-card-viewas'
+import type { ForcedCardIdentity } from './forced-identity'
+import type { GlobalToken } from './global-token'
+import type { SkillSuppression } from './skill-suppression'
 import type { TurnKillRecord } from './turn-kills'
 
 export interface DiscardPhaseRecord {
@@ -555,6 +558,12 @@ export interface DeathClaimState {
 export interface PhaseEntryState {
   phase: TurnPhase
   askedSkillIds: string[]
+  /**
+   * `ask-skip`：还在问「要不要跳过这个阶段」。
+   * `await-content`：`PhaseStart` 已经发出去了，但它触发的技能还没结算完
+   * （发了 Request、或者把拥有者打进濒死），阶段内容要等场面干净了再跑。
+   */
+  stage?: 'ask-skip' | 'await-content'
 }
 
 /**
@@ -659,6 +668,16 @@ export interface SanguoshaState {
   multiCardViewAs: MultiCardViewAsState | null
   /** 回合内击杀账本（神司马懿【连破】）。见 engine/turn-kills.ts。 */
   turnKills: TurnKillRecord[]
+  /** 转换技的阴阳状态（神刘备【龙怒】）。见 engine/conversion.ts。 */
+  conversionStates: Record<string, 'yang' | 'yin'>
+  /** 本回合被强制改写身份的手牌类别（神刘备【龙怒】）。见 engine/forced-identity.ts。 */
+  forcedIdentities: ForcedCardIdentity[]
+  /** 被废除的装备栏（神张辽【夺锐】）。见 engine/equipment-slots.ts。 */
+  abolishedSlots: Record<PlayerId, EquipmentSlot[]>
+  /** 单个技能的临时失效（神张辽【夺锐】）。见 engine/skill-suppression.ts。 */
+  skillSuppressions: SkillSuppression[]
+  /** 带归属的全局唯一 Token（神甘宁的「营」）。见 engine/global-token.ts。 */
+  globalTokens: GlobalToken[]
   /**
    * 牛来【麻麻】的认亲关系：牛来的 playerId → 麻麻的 playerId。
    *

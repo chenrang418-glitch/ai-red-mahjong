@@ -7,6 +7,14 @@ export type GameEventName =
   | 'CardResponded' | 'BeforeDamage' | 'DamageCaused' | 'DamageInflicted' | 'Damaged' | 'AfterDamage'
   | 'SkillActivated'
   | 'CharacterFlip' | 'CharacterChained'
+  /**
+   * 拼点 / 决斗的**胜负结果**。
+   *
+   * 神张辽【止啼】要的是「你赢时」，不能拿「最后一次伤害的来源是他」凑：
+   * 决斗里对方可能被别的效果打死，拼点更是根本不产生伤害。
+   * 平局不派发 `PindianResult`——平局不算赢。
+   */
+  | 'PindianResult' | 'DuelResult'
   | 'Recover'
   | 'LoseHp' | 'MaxHpChange'
   | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'

@@ -136,15 +136,17 @@ registerSkillRuntime({
       if (!NON_DELAYED_TRICKS.has(cardName)) return
       if (!playerOf(host.state, ownerId)?.alive) return
 
-      if (rageOf(host.state, ownerId) <= 0) {
-        /*
-         * 没有暴怒时**只能失去体力**，不发一个玩家付不起的二选一。
-         * 失去体力走 loseHp：**不是伤害**，所以不触发狂暴、奸雄、刚烈、天香，
-         * 但仍然可能进入濒死。
-         */
-        applyWumouHpLoss(host, ownerId)
-        return
-      }
+      /*
+       * **一律排队，0 暴怒的强制掉血也不例外。**
+       *
+       * 这里是 `CardUsed`，也就是这张牌自己的结算才刚开始：后面还有无懈链、
+       * 目标结算。0 暴怒时同步 `loseHp` 会在 1 血的时候当场把自己打进濒死，
+       * 于是求桃链和这张牌的无懈链同时挂着两条独立请求，
+       * 状态不变式直接报「DyingState 与目标状态不一致」。
+       *
+       * 排队之后代价在这张牌结算完、场面干净时才付。规则上「使用时付代价」
+       * 与「这张牌结算完付代价」对结果没有区别——牌已经使用出去了。
+       */
       host.queueSkill({ skillId: WUMOU, ownerId, step: 'choose', data: {} })
     },
   }],

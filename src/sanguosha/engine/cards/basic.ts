@@ -1,4 +1,6 @@
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
+import { canUseCardAs, forcedIdentityFor } from '../forced-identity'
+import { isSlotAbolished } from '../equipment-slots'
 import { findLegalAction, type LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
@@ -9,8 +11,8 @@ import { effectiveCardColor, getSkillRuntime, isCardUseProhibited, isTargetProhi
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
-import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
-import { effectiveCardName, effectiveDamageNature, locateOwnedCard, moveCard, setCardAlias } from '../zones'
+import type { CardId, DamageNature, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
+import { effectiveCardName, effectiveDamageNature, locateOwnedCard, moveCard, setCardAlias, setCardNature } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { canUseSlash, slashRules, slashTargetLimit } from '../slash-rules'
 import { PASS_ROUND_ACTION } from '../nullification'
@@ -102,6 +104,25 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   for (const cardId of source.zones.hand) {
     const card = state.cards[cardId]
     if (!card) continue
+    /*
+     * 身份被强制改写的手牌（神刘备【龙怒】）**只出转化后的动作**，
+     * 原用途一条都不出——「均视为火【杀】」是强制的，不是多给一个入口。
+     * 转出来的【杀】是否无次数、是否无距离，由这条改写自己说了算，
+     * 和玩家本来的出杀次数按统一规则聚合。
+     */
+    const forced = forcedIdentityFor(state, playerId, cardId)
+    if (forced) {
+      if (forced.asCardName !== '杀') continue
+      if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId) || forced.unlimitedUses)) continue
+      for (const combo of slashTargetCombos(state, playerId, cardId)) {
+        const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
+        actions.push({
+          ...useAction(cardId, playerId, '杀', combo, `将【${card.name}】当作${natureLabel(forced.nature)}【杀】对${names}使用`),
+          id: combo.length > 1 ? `play:${cardId}:${combo.join(',')}` : `play:${cardId}:${combo[0]}`,
+        })
+      }
+      continue
+    }
     if (card.name === '杀' && canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) {
       for (const combo of slashTargetCombos(state, playerId, cardId)) {
         const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
@@ -116,6 +137,8 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     } else if (card.name === '酒' && state.turnUsage.wineUses < 1) {
       actions.push(useAction(cardId, playerId, '酒', [playerId], '使用【酒】强化下一张杀'))
     } else if (card.category === 'equipment' && card.equipmentSlot) {
+      // 被废除的栏不能再装备牌（神张辽【夺锐】）
+      if (isSlotAbolished(state, playerId, card.equipmentSlot)) continue
       actions.push(useAction(cardId, playerId, card.name, [playerId], `装备【${card.name}】`))
     } else if (INSTANT_TRICKS.has(card.name)) {
       actions.push(...instantTrickActions(state, playerId, cardId))
@@ -255,6 +278,13 @@ function beginSlash(
   options: { countUsage?: boolean; consumeWine?: boolean } = {},
 ): void {
   const [cardId, ...extraCardIds] = action.cardIds
+  /*
+   * 强制改写身份的牌（神刘备【龙怒】）在这里把属性落到本次结算上。
+   * 必须在 `beginActionPhysicalCard` 把牌搬进处理区**之前**读改写，
+   * 因为改写只认手牌——搬走之后就查不到了。
+   */
+  const forcedSlash = forcedIdentityFor(host.state, action.playerId, cardId)
+  if (forcedSlash?.asCardName === '杀') setCardNature(host.state, cardId, forcedSlash.nature)
   let targetIds = [...action.targetIds]
   const candidateIds = host.state.players
     .filter((target) => target.alive && target.id !== action.playerId && !targetIds.includes(target.id)
@@ -571,6 +601,8 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   const responder = player(host.state, responderId)
   const actionIds = responder.zones.hand
     .filter((candidateId) => host.state.cards[candidateId]?.name === '闪')
+    // 身份被强制改写的牌不能再按原用途打出（神刘备【龙怒】阳状态下的红色【闪】）
+    .filter((candidateId) => canUseCardAs(host.state, responderId, candidateId, '闪'))
     .map((candidateId) => `respond-dodge:${candidateId}`)
   // 龙胆把【杀】当【闪】打出，同样要作为独立动作发出去
   for (const option of dodgeViewAsOptions(host.state, responderId)) {
@@ -648,6 +680,11 @@ function askLordSurrogate(host: CardEngineHost, resolution: SlashResolutionState
     resolution.surrogate.index += 1
   }
   return false
+}
+
+/** 火杀 / 雷杀在按钮上要看得出来，普通杀不加前缀。 */
+function natureLabel(nature: DamageNature): string {
+  return nature === 'fire' ? '火' : nature === 'thunder' ? '雷' : ''
 }
 
 function placeDelayedTrick(host: CardEngineHost, action: Extract<LegalAction, { kind: 'use-card' }>): void {
@@ -795,6 +832,7 @@ export function executeUseCardAction(
     host.state.turnUsage.wineUses += 1
     host.state.turnUsage.wineDamageBonus = 1
   } else if (card.category === 'equipment' && card.equipmentSlot) {
+    if (isSlotAbolished(host.state, playerId, card.equipmentSlot)) throw new Error('该装备栏已被废除')
     const replaced = playerOf(host.state, playerId).zones.equipment[card.equipmentSlot]
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'equipment', playerId, slot: card.equipmentSlot })
     if (replaced) handleEquipmentLost(host, playerId, replaced)

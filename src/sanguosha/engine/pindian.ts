@@ -236,6 +236,17 @@ function revealPindian(host: PindianHost): void {
     logText: `${initiator.nickname}拼 ${initiatorRank} 点，${opponent.nickname}拼 ${opponentRank} 点：${outcomeText}`,
   }, { sourceId: pindian.initiatorId, targetId: pindian.opponentId })
 
+  /*
+   * 公共的拼点胜负事件。**平局不派发**——平局不算赢，
+   * 挂在这上面的技能（神张辽【止啼】）也就自然不会触发。
+   */
+  if (outcome !== 'tie') {
+    const winnerId = outcome === 'initiator-win' ? pindian.initiatorId : pindian.opponentId
+    const loserId = outcome === 'initiator-win' ? pindian.opponentId : pindian.initiatorId
+    host.dispatch('PindianResult', { winnerId, loserId, reason: pindian.reason },
+      { sourceId: winnerId, targetId: loserId })
+  }
+
   const result: PindianResult = {
     initiatorId: pindian.initiatorId,
     opponentId: pindian.opponentId,

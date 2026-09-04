@@ -1,5 +1,9 @@
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from './multi-card-viewas'
 import { clearArmorSuppressionsOf } from './armor-suppression'
+import { canUseCardAs, clearForcedIdentitiesOf } from './forced-identity'
+import { clearAbolishedSlotsOf } from './equipment-slots'
+import { clearTokensOf } from './global-token'
+import { releaseStolenSkillsOf } from './skill-theft-expiry'
 import { recordTurnKill } from './turn-kills'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
@@ -129,7 +133,8 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
     if (name === '酒') return responderId === dyingPlayerId
     if (name === '桃' || viewAsPeach.has(cardId)) return !peachProhibited
     return false
-  })
+  // 身份被强制改写的牌不能再按原用途使用（神刘备【龙怒】阳状态下手里的【桃】）
+  }).filter((cardId) => canUseCardAs(state, responderId, cardId, state.cards[cardId]?.name ?? ''))
   const actionIds = [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
   // 于吉【蛊惑】：声明打出一张【桃】救人（含救自己）
   if (!peachProhibited && canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
@@ -237,10 +242,23 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
    */
   clearTargetStatesOf(host.state, playerId)
   clearArmorSuppressionsOf(host.state, playerId)
+  clearForcedIdentitiesOf(host.state, playerId)
+  clearAbolishedSlotsOf(host.state, playerId)
+  releaseStolenSkillsOf(host.state, playerId)
+  clearTokensOf(host.state, playerId)
   // 先记回合内击杀账，再派发 Death：连破挂在回合结束，读的就是这本账
   recordTurnKill(host.state, sourceId, playerId)
-  host.dispatch('Death', { playerId, sourceId, identity: dead.identity }, { sourceId: sourceId ?? undefined, targetId: playerId })
+  /*
+   * **在派发 `Death` 之前就把濒死流程结清。**
+   *
+   * 走到这里这条濒死流程已经彻底结束了：救援问完了、人确实死了。
+   * 原来是 dispatch 完 `Death` 才清，于是 `Death` 上的技能、以及这次死亡之后
+   * 继续往下跑的牌结算（决斗还在轮询下一个目标）都看到一个过期的 `state.dying`，
+   * 再有人被打到 0 体力时 `enterDying` 直接抛「已有濒死流程正在进行」
+   * （压测 seed=soak-5-237）。
+   */
   host.state.dying = null
+  host.dispatch('Death', { playerId, sourceId, identity: dead.identity }, { sourceId: sourceId ?? undefined, targetId: playerId })
 
   const killer = sourceId ? host.state.players.find((candidate) => candidate.id === sourceId && candidate.alive) : undefined
   if (dead.identity === 'rebel' && killer) {

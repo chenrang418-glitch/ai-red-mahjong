@@ -1,6 +1,8 @@
 import type { GameEventName } from './events'
 import type { SanguoshaState, TurnPhase } from './types'
 import { expireArmorSuppressions } from './armor-suppression'
+import { clearForcedIdentities } from './forced-identity'
+import { expireStolenSkills } from './skill-theft-expiry'
 import { clearTurnSlashRules } from './slash-rules'
 import { expireTargetStates } from './target-state'
 import { clearTurnKills } from './turn-kills'
@@ -195,6 +197,17 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   clearTurnSlashRules(state)
   // 来源绑定的防具失效（神吕布【无前】）也是「直到本回合结束」，同样统一清
   expireArmorSuppressions(state)
+  // 龙怒的强制牌身份也是「本回合」，同样统一清
+  clearForcedIdentities(state)
+  // 神甘宁【魄袭】「弃一张」留下的本回合手牌上限 -1，同样在这里统一清
+  for (const player of state.players) delete player.marks['poxi-maxcards']
+  /*
+   * 夺锐的技能失效到期：判据是「正在结束的这个回合属于目标，且不是施加它的那个回合」。
+   * 目标先拿到一个额外回合的话，那个额外回合结束就到期——
+   * 「下一个实际回合」认的是回合实例，不是 round+1，也不是只认正常回合。
+   * 收回神张辽临时获得的那个技能由 `expireStolenSkills` 统一做。
+   */
+  expireStolenSkills(state, state.currentPlayerId, state.turnNumber)
   // TurnEnd 触发的技能必须先完整结算，不能先发下一名角色的 TurnStart。
   // 断点进入 State，回应结束或重连恢复后由 Game.settle 续接。
   if (

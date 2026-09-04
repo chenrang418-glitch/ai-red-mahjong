@@ -4,6 +4,7 @@ import { GameEventBus, type EventContext, type GameEvent, type GameEventName } f
 import { identitiesFor } from './modes/identity'
 import { GameRng } from './rng'
 import { startPlaying } from './turn'
+import { recheckZeroHpAfterSkillLoss } from './skills/runtime'
 import { advanceGamePhase, continuePhaseEntry, continueTurnTransition, recordDiscardPhaseMove, resolveDiscardPhaseResponse } from './phase'
 import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget } from './cards/tricks'
@@ -119,6 +120,11 @@ export class SanguoshaGame {
       guhuoResponse: null,
       multiCardViewAs: null,
       turnKills: [],
+      conversionStates: {},
+      forcedIdentities: [],
+      abolishedSlots: {},
+      skillSuppressions: [],
+      globalTokens: [],
       mamaBonds: {},
       judgedDelayedCards: [],
       deathClaim: null,
@@ -221,6 +227,18 @@ export class SanguoshaGame {
     continuePhaseEntry(this)
   }
 
+  /**
+   * 提前结束当前出牌阶段。
+   *
+   * 只在「确实是这名角色正在进行的出牌阶段」时才动，
+   * 免得技能在别的时机误调之后把阶段状态机推乱。
+   */
+  endPlayPhaseEarly(playerId: string): void {
+    if (this.state.status !== 'playing') return
+    if (this.state.phase !== 'play' || this.state.currentPlayerId !== playerId) return
+    advanceGamePhase(this)
+  }
+
   queueSkill(prompt: QueuedSkillPrompt): void {
     this.state.skillQueue.push(structuredClone(prompt))
   }
@@ -252,8 +270,50 @@ export class SanguoshaGame {
   }
 
   /** 牌局往前走一步之后统一收尾：把排队的技能发问放出去。 */
+  /**
+   * 「0 血却活着」的兜底扫描只在**场面完全干净**时做。
+   *
+   * 于吉【蛊惑】和神赵云【龙魂】在挂起求桃时会把 `state.dying` 暂存到自己的
+   * 上下文里，那一刻场上确实有一个 0 血活人，但濒死流程并没有结束——
+   * 这时候扫一遍会凭空再开一条濒死流程，把原来那条挤掉。
+   */
+  private zeroHpSweepAllowed(): boolean {
+    return this.state.status === 'playing'
+      && !this.state.dying
+      && !this.state.guhuoResponse
+      && !this.state.multiCardViewAs
+      && !this.state.skillResolution
+      && !this.state.cardResolution
+      && !this.state.judgment
+      && !this.state.damageChain
+      && this.state.pendingRequests.length === 0
+  }
+
   private settle(): void {
     this.drainSkillQueue()
+    /*
+     * 「0 体力却仍然活着」的统一兜底。
+     *
+     * 靠技能在 0 体力存活（周泰【不屈】）的人一旦失去那个技能，就必须重新进入濒死。
+     * 触发路径不止一条：左慈换化身、蔡文姬【断肠】、神张辽【夺锐】把不屈夺走，
+     * 以及**夺锐到期时神张辽自己失去夺来的不屈**（压测 seed=soak-8-33）。
+     * 与其在每条路径上各写一遍，不如在这里统一扫一次——
+     * 玩家数很少，代价可以忽略。
+     */
+    if (this.zeroHpSweepAllowed()) {
+      for (const player of this.state.players) {
+        if (player.alive && player.hp <= 0) recheckZeroHpAfterSkillLoss(this, player.id)
+      }
+    }
+    /*
+     * `PhaseStart` 触发的技能结算完之后，把等在那儿的阶段内容跑起来。
+     * 断点是 `state.phaseEntry.stage === 'await-content'`，
+     * 由 `continuePhaseEntry` 自己判断场面干净了没有。
+     */
+    if (this.state.phaseEntry?.stage === 'await-content') {
+      continuePhaseEntry(this)
+      this.drainSkillQueue()
+    }
     if (
       this.state.turnTransitionPending
       && this.state.skillQueue.length === 0
@@ -391,8 +451,14 @@ export class SanguoshaGame {
       const player = this.state.players.find((candidate) => candidate.id === response.playerId)!
       player.characterId = characterId
       // 主公体力上限 +1 是身份局的规则，写在模式层而不是武将数据里
-      player.maxHp = character.maxHp + (player.identity === 'lord' && this.state.players.length >= 5 ? 1 : 0)
-      player.hp = player.maxHp
+      const lordBonus = player.identity === 'lord' && this.state.players.length >= 5 ? 1 : 0
+      player.maxHp = character.maxHp + lordBonus
+      /*
+       * 开局体力默认等于上限，但**允许武将声明一个更低的初始体力**（神甘宁 6/3）。
+       * 主公的 +1 对上限和体力同时生效，所以神甘宁当主公是 7 上限 / 4 体力——
+       * 写成 `hp = maxHp` 会让他开局变成满血 7，那是错的。
+       */
+      player.hp = Math.min(player.maxHp, (character.initialHp ?? character.maxHp) + lordBonus)
       this.state.pendingRequests = this.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
       // 单机自选可能挑中原本分给 AI 的普通武将。普通武将保持唯一；
       // 娱乐包是固定公共候选，明确允许一桌多人选择同一个。
@@ -549,6 +615,11 @@ export class SanguoshaGame {
     mutable.state.cardNatures ??= {}
     mutable.state.multiCardViewAs ??= null
     mutable.state.turnKills ??= []
+    mutable.state.conversionStates ??= {}
+    mutable.state.forcedIdentities ??= []
+    mutable.state.abolishedSlots ??= {}
+    mutable.state.skillSuppressions ??= []
+    mutable.state.globalTokens ??= []
     // 专属牌堆是后加的字段，进行中的旧房间里没有
     for (const player of mutable.state.players) player.characterPiles ??= {}
     // 动态授技与觉醒记账是后加的字段，进行中的旧房间里没有

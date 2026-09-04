@@ -36,6 +36,14 @@ export interface CharacterDefinition {
   gender: Gender
   /** 体力上限。主公在部分人数下会 +1，由模式层处理，不写死在这里。 */
   maxHp: number
+  /**
+   * 开局体力，**默认等于体力上限**。
+   *
+   * 神甘宁是 6 上限 / 3 开局——初始体力和上限不相等的武将要在这里声明，
+   * 不能在初始化里按 characterId 特判扣血。
+   * 身份局主公的 +1 加成对上限和体力同时生效，所以神甘宁当主公是 7 / 4。
+   */
+  initialHp?: number
   pack: CharacterPack
   skills: CharacterSkillInfo[]
 }

@@ -3,6 +3,7 @@ import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
+import { suppressedSkillsOf } from '../skill-suppression'
 import type { MultiCardViewAsSpec } from '../multi-card-viewas'
 import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit, TurnPhase } from '../types'
 
@@ -109,6 +110,14 @@ export interface SkillHost {
    * 也不要自己调 `advancePhase` 来「跳过」**——那样跳过的语义会有两套。
    */
   resumePhaseEntry(): void
+  /**
+   * **真正结束当前的出牌阶段**（神甘宁【魄袭】弃一张时）。
+   *
+   * 不是「AI 放弃」，也不是「禁止再出牌但仍停留在阶段里」——
+   * 阶段状态机要往前走到弃牌阶段，后面的弃牌照常按修正后的手牌上限结算。
+   * 只对当前正在进行的、属于这名角色的出牌阶段生效。
+   */
+  endPlayPhaseEarly(playerId: PlayerId): void
 }
 
 /**
@@ -254,6 +263,32 @@ export interface SkillRuntime {
    * 多个来源相加，不会互相覆盖（袁绍【血裔】走这一条）。
    */
   maxCardsBonus?(state: SanguoshaState, ownerId: PlayerId): number
+  /**
+   * 锁定技：拥有者的连环状态不能被解除（神刘备【结营】）。
+   * 属性伤害传导时的统一解除不受此限制，那是规则本身。
+   */
+  preventsUnchain?: boolean
+  /**
+   * 这个技能能不能被临时夺走（神张辽【夺锐】）。
+   *
+   * **默认可以**。限定技、觉醒技、主公技由 `limited` / `awakening` / `lord`
+   * 自动排除，不需要在这里重复声明；只有「理论上是普通技能但夺过去会形成规则冲突」
+   * 才显式写 false，并在 docs/duorui-compatibility.md 里说明原因。
+   */
+  stealable?: boolean
+  /**
+   * 拥有者给**任意角色**提供的手牌上限修正（神刘备【结营】给全场连环角色 +2）。
+   *
+   * 和 `maxCardsBonus` 的区别：那个只影响拥有者自己，
+   * 这个是「因为场上有他，别人也受影响」。
+   */
+  globalMaxCardsBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
+  /**
+   * 拥有者给**任意角色**提供的出杀次数加成（神甘宁的「营」+1）。
+   *
+   * 是「限制次数 +1」，不是无限杀；和天义、诸葛连弩按 `canUseSlash` 的统一规则聚合。
+   */
+  globalSlashUses?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
   /**
    * 濒死介入：拥有者刚进入濒死时先给技能一次机会（不屈）。
    *
@@ -426,7 +461,15 @@ export function ownedSkillIds(
   const own = skillIdsOf(player.characterId)
   const granted = player.grantedSkills ?? []
   const temporary = (player.temporaryGrantedSkills ?? []).map((entry) => entry.skillId)
-  return [...new Set([...own, ...granted, ...temporary])]
+  /*
+   * 被单独压制的技能在这里就摘掉（神张辽【夺锐】）。
+   *
+   * 出口只有这一个，所以主动技按钮、触发时机、转化、响应、被动修正、
+   * AI 全都自然失效——不需要在每条路径上各写一遍判断。
+   * 和断肠的「全部技能失效」是两条独立规则，各管各的。
+   */
+  const suppressed = new Set(suppressedSkillsOf(state, playerId))
+  return [...new Set([...own, ...granted, ...temporary])].filter((skillId) => !suppressed.has(skillId))
 }
 
 /**
@@ -487,6 +530,38 @@ export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: 
 }
 
 /** 技能给出的手牌上限加成之和。 */
+/** 场上所有角色的技能给这名角色提供的手牌上限修正之和。 */
+export function globalMaxCardsBonusOf(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  let bonus = 0
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      bonus += Math.trunc(runtime.globalMaxCardsBonus?.(state, owner.id, targetId) ?? 0)
+    }
+  }
+  return bonus
+}
+
+/** 场上所有角色的技能给这名角色提供的出杀次数加成之和。 */
+export function globalSlashUsesOf(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  let bonus = 0
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      bonus += Math.trunc(runtime.globalSlashUses?.(state, owner.id, targetId) ?? 0)
+    }
+  }
+  return bonus
+}
+
 export function maxCardsBonusOf(
   state: SanguoshaState,
   playerId: PlayerId,

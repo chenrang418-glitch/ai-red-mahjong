@@ -1,3 +1,4 @@
+import { isSlotAbolished } from './equipment-slots'
 import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { PlayerId, SanguoshaState } from './types'
@@ -57,7 +58,9 @@ export function getDistance(state: SanguoshaState, sourceId: PlayerId, targetId:
 
 export function getAttackRange(state: SanguoshaState, playerId: PlayerId): number {
   const source = player(state, playerId)
-  const weapon = source.zones.equipment.weapon ? state.cards[source.zones.equipment.weapon] : null
+  // 武器栏被废除时武器不存在，攻击范围随之变化（神张辽【夺锐】）
+  const weaponId = isSlotAbolished(state, playerId, 'weapon') ? null : source.zones.equipment.weapon
+  const weapon = weaponId ? state.cards[weaponId] : null
   return Math.max(1, weapon?.attackRange ?? 1) + source.attackRangeBonus
 }
 

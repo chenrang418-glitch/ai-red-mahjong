@@ -27,8 +27,9 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npx vitest run` | 134 文件 / **1651 用例，无 todo** |
+| `npx vitest run` | 137 文件 / **1721 用例，无 todo** |
 | `npx playwright test` | **72 通过**（Chromium 68 + WebKit 4） |
+| `npm run sanguosha:duorui-audit` | 124 个可夺技能，不兼容 0 个 |
 | `npm run sanguosha:soak -- 500 --characters=<经典八神>` | 5 / 8 人各 500 局全部完成 |
 | `npm run sanguosha:soak -- 500` | 5 人局与 8 人局各 500 局全部完成 |
 | `npm run sanguosha:soak -- 500 --characters=<林包八将>` | 各 500 局全部完成，八将机制均有触发 |
@@ -36,11 +37,16 @@
 | `npm run typecheck` / `typecheck:online` | 通过 |
 | `npm run build` / `build:online` | 通过（Worker dry-run 通过） |
 
-## 神将（8 / 24 已完成，经典八神 8 / 8）
+## 神将（12 / 24 已完成）
 
-已完成：神·关羽、神·吕蒙、神·周瑜、神·诸葛亮、神·曹操、神·吕布、神·赵云、神·司马懿。
-**经典八神到此全部完成**，后续 16 名属于现代神将，
-每一批开始前必须逐个核实官方版本并写进 ruleset，不能笼统写「经典版」。规则以
+- 经典八神 8 / 8：神·关羽、神·吕蒙、神·周瑜、神·诸葛亮、神·曹操、神·吕布、神·赵云、神·司马懿。
+- 现代神将 4 / 16：神·刘备、神·陆逊、神·张辽、神·甘宁。
+
+**现代神将每一批开始前必须逐个核实官方版本文本并写进 ruleset**，不能笼统写「经典版」。
+
+**核实一定要用 `www.sanguosha.cn`（移动版官网）。**
+`www.sanguosha.com` 是另一条产品线，同名武将给的是更旧的文本——
+神张辽在那里是被本项目明令排除的旧 OL 版。这个坑踩过一次。规则以
 `docs/sanguosha-ruleset-v1.md` 里锁定的**经典神话再临版本**为准，
 不要因为官网某些武将已经重做就混入现代强化文本。
 
