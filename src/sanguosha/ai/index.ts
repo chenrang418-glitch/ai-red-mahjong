@@ -562,6 +562,21 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
   const bestTarget = enemies.length > 0 ? Math.max(...enemies) : -Infinity
 
   switch (action.skillId) {
+    case 'tiaoxin': {
+      /*
+       * 挑衅是「逼对方出杀，否则拆他一张牌」。收益随对方手上有没有杀而变，
+       * 但姜维看不见别人的手牌，只能按风险估：
+       * 自己血少、又没有闪，被反打一刀可能直接送命，那就别去撩。
+       */
+      if (bestTarget <= 0) return -100
+      const dodges = (me.hand ?? []).filter((card) => card.name === '闪').length
+      // 1 血无闪时绝不主动挑衅：对方真出杀就是直接濒死
+      if (me.hp <= 1 && dodges === 0) return -100
+      let score = 10 + bestTarget
+      if (dodges > 0) score += 4
+      if (me.hp <= 2) score -= 6
+      return score
+    }
     case 'qiangxi': {
       // 打不到值得打的人就别付代价
       if (bestTarget <= 0) return -100
@@ -827,6 +842,24 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.purpose === 'retrial' && request.retrial) {
         return { ...base, payload: { cardIds: decideRetrial(context, request) } }
       }
+      /*
+       * 被【挑衅】点名：出一张杀，还是让姜维拆自己一张牌。
+       *
+       * 出杀等于替姜维消耗自己一张牌，还可能被闪掉白亏；但不出就一定被拆一张，
+       * 而且拆的可能是装备或桃。所以默认出杀——除非姜维血很低，
+       * 这一刀有机会直接打进濒死，那更值。
+       */
+      if (String(request.prompt).startsWith('【挑衅】：对')) {
+        if (request.cardIds.length === 0) return { ...base, payload: { cardIds: [] } }
+        const jiangwei = context.view.players.find((player) => (
+          player.alive && player.id !== myself(context.view).id && String(request.prompt).includes(player.nickname)
+        ))
+        const worthHitting = jiangwei
+          ? hostility(context.view, context.suspicion, jiangwei.id) > 0 || jiangwei.hp <= 2
+          : true
+        if (!worthHitting) return { ...base, payload: { cardIds: [] } }
+        return { ...base, payload: { cardIds: [request.cardIds[0]] } }
+      }
       // 【乱击】选两张同花色的底牌：挑价值最低的那一组，别拿桃和无懈去换
       if (request.prompt.startsWith('【乱击】')) {
         return { ...base, payload: { cardIds: chooseLuanjiCards(context, request.cardIds) } }
@@ -942,6 +975,17 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const ranked = [...request.candidateIds]
           .sort((left, right) => qiaobianMoveScore(context, request.prompt, right) - qiaobianMoveScore(context, request.prompt, left))
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
+      /*
+       * 【挑衅】选谁。**绝不交空数组**：取消不消耗「出牌阶段限一次」，
+       * 于是技能仍然可以发动，AI 会立刻再发动一次，压测里直接死循环
+       * （6 人局 20002 步就是这么卡住的）。要不要发动已经在
+       * `skillActionScore` 里判过了，到这一步就必须选一个人。
+       */
+      if (request.prompt.startsWith('【挑衅】')) {
+        const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        const best = ranked.filter((id) => Number.isFinite(targetScore(context, id)))
+        return { ...base, payload: { targetIds: (best.length > 0 ? best : ranked).slice(0, 1) } }
       }
       // 【乱武】并列最近时挑一个：优先敌人，其次血最少的
       if (request.prompt.startsWith('【乱武】')) {
@@ -1117,6 +1161,11 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
        */
       if (request.prompt.startsWith('发动【屯田】')) {
         return { ...base, payload: { optionId: 'yes' } }
+      }
+      // 【志继】觉醒二选一：受伤了就回血，没受伤摸两张更实在
+      if (options.some((option) => option.id.startsWith('zhiji-'))) {
+        const me = myself(context.view)
+        return { ...base, payload: { optionId: me.hp < me.maxHp && me.hp <= 2 ? 'zhiji-recover' : 'zhiji-draw' } }
       }
       // 【巧变】按阶段分别算账，不是「有手牌就跳」
       if (request.prompt.startsWith('发动【巧变】')) {

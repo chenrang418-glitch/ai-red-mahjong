@@ -13,8 +13,11 @@ import type { CharacterDefinition } from './types'
 import { ZHANGHE } from './mountain-zhanghe'
 // 邓艾：田用公共 characterPiles，凿险用公共 awakening，急袭用专属牌堆 ViewAs
 import { DENGAI } from './mountain-dengai'
+// 姜维：挑衅用公共 ask-use-slash，志继觉醒后复用标准诸葛亮的观星
+import { JIANGWEI } from './mountain-jiangwei'
 
 export const MOUNTAIN_CHARACTERS: readonly CharacterDefinition[] = [
   ZHANGHE,
   DENGAI,
+  JIANGWEI,
 ] as const
