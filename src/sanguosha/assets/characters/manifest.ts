@@ -371,6 +371,11 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·张郃',
   },
+  dengai: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·邓艾',
+  },
 }
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

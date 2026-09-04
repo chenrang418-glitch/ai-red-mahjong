@@ -69,6 +69,8 @@ export class SanguoshaGame {
       chained: false,
       faceDown: false,
       characterPiles: {},
+      grantedSkills: [],
+      awakenedSkills: [],
       zones: { hand: [], equipment: emptyEquipment(), judgingArea: [] },
       marks: {},
       usedLimitedSkills: [],
@@ -494,6 +496,11 @@ export class SanguoshaGame {
     mutable.state.cardAliases ??= {}
     // 专属牌堆是后加的字段，进行中的旧房间里没有
     for (const player of mutable.state.players) player.characterPiles ??= {}
+    // 动态授技与觉醒记账是后加的字段，进行中的旧房间里没有
+    for (const player of mutable.state.players) {
+      player.grantedSkills ??= []
+      player.awakenedSkills ??= []
+    }
     mutable.state.judgedDelayedCards ??= []
     mutable.state.privateZones ??= []
     mutable.state.groupDecision ??= null

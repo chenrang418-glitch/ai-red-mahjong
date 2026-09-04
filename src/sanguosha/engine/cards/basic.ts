@@ -283,10 +283,16 @@ function beginSlash(
   enterSlashTarget(host)
 }
 
-/** 支持转化技从装备区使用牌，并保证装备离场时机只走一次。 */
+/**
+ * 支持转化技从装备区和武将专属牌堆使用牌，并保证装备离场时机只走一次。
+ *
+ * 专属牌堆是邓艾【急袭】要的：把一张「田」当【顺手牵羊】用，底牌就是那张
+ * 真实的田。**不能先把田挪回手牌再使用**——那会多出一次 GainCard、
+ * 让手牌数在界面上闪一下，还会被「获得牌后」的技能误触发。
+ */
 function beginActionPhysicalCard(host: CardEngineHost, playerId: PlayerId, cardId: CardId, targetIds: PlayerId[], cardName: string): boolean {
-  const from = locateOwnedCard(host.state, playerId, cardId)
-  if (!from || from.kind === 'judgingArea') throw new Error('卡牌不属于出牌玩家的手牌区或装备区')
+  const from = locateOwnedCard(host.state, playerId, cardId, { includeCharacterPiles: true })
+  if (!from || from.kind === 'judgingArea') throw new Error('卡牌不属于出牌玩家的手牌区、装备区或专属牌堆')
   const started = beginPhysicalCard(host, playerId, cardId, targetIds, cardName, from)
   if (from.kind === 'equipment') handleEquipmentLost(host, playerId, cardId)
   return started
@@ -704,9 +710,14 @@ export function executeUseCardAction(
 ): void {
   const [cardId] = action.cardIds
   const card = host.state.cards[cardId]
-  // 丈八蛇矛会带两张牌，每一张都要确认在自己手上
+  /*
+   * 丈八蛇矛会带两张牌，每一张都要确认在自己手上。
+   *
+   * 专属牌堆算「属于自己」：邓艾【急袭】的底牌是武将牌上的「田」，
+   * 从那里直接使用，不路过手牌。判定区仍然排除——那不是你能拿去用的牌。
+   */
   if (!card || action.cardIds.some((id) => {
-    const zone = locateOwnedCard(host.state, playerId, id)
+    const zone = locateOwnedCard(host.state, playerId, id, { includeCharacterPiles: true })
     return !zone || zone.kind === 'judgingArea'
   })) throw new Error('卡牌不属于出牌玩家')
   if (isCardUseProhibited(host.state, playerId, action.asCardName, { dyingPlayerId: null }, skillIdsOf)) {

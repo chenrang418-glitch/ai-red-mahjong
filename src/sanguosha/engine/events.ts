@@ -13,6 +13,8 @@ export type GameEventName =
   | 'CardMove' | 'LoseCard' | 'GainCard' | 'HandSwap' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
   /** 场上的牌（装备区 / 判定区）被直接移动到另一名角色的对应区域。见 field-move.ts。 */
   | 'FieldCardMoved'
+  /** 觉醒技发动。一局一次，由 registerSkillTriggers 统一记账后发出。 */
+  | 'SkillAwakened'
 
 export interface GameEvent<TPayload = Record<string, unknown>> {
   id: string

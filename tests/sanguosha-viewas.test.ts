@@ -189,6 +189,15 @@ describe('转化技不能产出无人消费的牌名', () => {
       // 双雄只有在本回合已经完成判定后才开放转化；这里测试的是消费路径，
       // 因而显式构造一个“判定结果为红色”的合法前置状态。
       if (character.id === 'yanliangwenchou') owner.marks.shuangxiong = 1
+      /*
+       * 邓艾【急袭】的底牌不在手牌里，而是武将牌上的「田」——
+       * 这是第一个从专属牌堆出牌的转化技，给再多手牌也探不到它，
+       * 必须先往专属牌堆里摆一张。
+       */
+      if (character.id === 'dengai') {
+        const field = game.state.zones.drawPile[0]
+        moveCard(game.state, field, { kind: 'drawPile' }, { kind: 'characterPile', playerId: 'p0', pile: 'tuntian' })
+      }
 
       // 有的转化技限定在自己回合内（武圣、奇袭），有的限定在回合外（急救），
       // 两种情形都探一次，只要有一处产出就说明技能是活的

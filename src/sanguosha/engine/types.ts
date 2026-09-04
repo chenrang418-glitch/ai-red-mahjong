@@ -83,6 +83,21 @@ export interface PlayerState {
    * 这个列表由 `turn.ts` 在回合结束时统一清空，技能不需要各自注册重置。
    */
   turnUsedSkills: string[]
+  /**
+   * 运行中获得的技能（觉醒后拿到的【急袭】【观星】【激将】这类）。
+   *
+   * **不能直接改 `CharacterDefinition`**：那个对象是所有对局共享的模块级常量，
+   * 改它会让同一进程里别的房间、甚至下一局的同名武将也跟着有这个技能。
+   * 技能归属统一由 `ownedSkillIds` 取「武将自带 + 这里」的并集。
+   */
+  grantedSkills: string[]
+  /**
+   * 已经发动过的觉醒技。觉醒技一局只发动一次，**永不重置**。
+   *
+   * 和 `usedLimitedSkills` 分开：限定技是玩家自己选择发动的，
+   * 觉醒技是条件满足即强制发动，两者的判定时机和 UI 呈现都不一样。
+   */
+  awakenedSkills: string[]
   distanceFromOthers: number
   distanceToOthers: number
   attackRangeBonus: number

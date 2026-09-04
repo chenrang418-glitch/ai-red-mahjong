@@ -2,11 +2,28 @@ import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { PlayerId, SanguoshaState } from './types'
 
-/** 技能带来的距离修正：来源的「与他人距离」和目标的「他人与我距离」都算进来。 */
+/**
+ * 技能带来的距离修正：来源的「与他人距离」和目标的「他人与我距离」都算进来。
+ *
+ * 修正量允许是函数：邓艾【屯田】的减距离等于「田」的张数，每次现算。
+ */
+function resolveModifier(
+  value: number | ((state: SanguoshaState, ownerId: PlayerId) => number) | undefined,
+  state: SanguoshaState,
+  ownerId: PlayerId,
+): number {
+  if (value === undefined) return 0
+  return Math.trunc(typeof value === 'function' ? value(state, ownerId) : value)
+}
+
 function skillDistanceModifier(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): number {
   let total = 0
-  for (const runtime of skillsOf(state, sourceId, skillIdsOf)) total += runtime.distanceModifier?.toOthers ?? 0
-  for (const runtime of skillsOf(state, targetId, skillIdsOf)) total += runtime.distanceModifier?.fromOthers ?? 0
+  for (const runtime of skillsOf(state, sourceId, skillIdsOf)) {
+    total += resolveModifier(runtime.distanceModifier?.toOthers, state, sourceId)
+  }
+  for (const runtime of skillsOf(state, targetId, skillIdsOf)) {
+    total += resolveModifier(runtime.distanceModifier?.fromOthers, state, targetId)
+  }
   return total
 }
 

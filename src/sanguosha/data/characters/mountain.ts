@@ -11,7 +11,10 @@ import type { CharacterDefinition } from './types'
 
 // 张郃：巧变走公共 offerPhaseSkip 窗口 + 公共 field-move
 import { ZHANGHE } from './mountain-zhanghe'
+// 邓艾：田用公共 characterPiles，凿险用公共 awakening，急袭用专属牌堆 ViewAs
+import { DENGAI } from './mountain-dengai'
 
 export const MOUNTAIN_CHARACTERS: readonly CharacterDefinition[] = [
   ZHANGHE,
+  DENGAI,
 ] as const

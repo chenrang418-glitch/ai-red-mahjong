@@ -162,6 +162,28 @@ export interface SkillRuntime {
    * 这类假跳过糊弄过去，那样阶段技能的时机全是错的。
    */
   offerPhaseSkip?(host: SkillHost, ownerId: PlayerId, phase: TurnPhase): boolean
+  /**
+   * 觉醒技：条件满足即**强制**发动，一局一次。
+   *
+   * 邓艾【凿险】、姜维【志继】、刘禅【若愚】共用这一套，各自只提供
+   * 条件和效果，不各写一份 PhaseStart 触发和「发动过没有」的私有开关。
+   *
+   * 三条纪律：
+   * - **不问玩家要不要觉醒**。觉醒技是强制的，条件成立就发动；
+   *   效果内部的选择（志继选回复还是摸牌）才是玩家的决定。
+   * - **一局一次由引擎记账**（`player.awakenedSkills`），可序列化、
+   *   重连之后仍然算已觉醒，技能不要自己维护 `zaoxianDone` 这种私有标记。
+   * - 觉醒过程可以挂起发问；引擎在调用 `invoke` **之前**就已经记好账了。
+   */
+  awakening?: {
+    /** 什么阶段检查。经典觉醒技都在准备阶段。 */
+    phase: TurnPhase
+    priority?: number
+    /** 条件成立吗。只读状态，不要在这里改动牌局。 */
+    ready(state: SanguoshaState, ownerId: PlayerId): boolean
+    /** 发动。可以调 host.askSkill 挂起。 */
+    invoke(host: SkillHost, ownerId: PlayerId): void
+  }
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
   /** 条件式无距离使用【杀】；状态必须来自可序列化牌局数据。 */
@@ -189,8 +211,20 @@ export interface SkillRuntime {
   claimsDeathCards?(state: SanguoshaState, ownerId: PlayerId, deadId: PlayerId): boolean
   /** 牌结算后仍在处理区时，改写实体牌的最终去向。 */
   resolvedCardRecipient?(state: SanguoshaState, ownerId: PlayerId, context: ResolvedCardContext): boolean
-  /** 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。 */
-  distanceModifier?: { toOthers?: number; fromOthers?: number }
+  /**
+   * 距离修正：正数表示「与其他角色距离 +n」，负数表示 -n。
+   *
+   * `toOthers` 只影响**拥有者到别人**的距离（马术、屯田），
+   * `fromOthers` 只影响**别人到拥有者**的距离。两个方向分开，
+   * 写错方向会让「更容易杀到远处」变成「更不容易被杀」。
+   *
+   * 值可以是常数，也可以是函数——邓艾【屯田】的修正量等于「田」的张数，
+   * 每次都要现算，不能在注册时定死。
+   */
+  distanceModifier?: {
+    toOthers?: number | ((state: SanguoshaState, ownerId: PlayerId) => number)
+    fromOthers?: number | ((state: SanguoshaState, ownerId: PlayerId) => number)
+  }
   /**
    * 固定手牌上限。返回 null 表示沿用通常的“当前体力值”。
    *
@@ -351,11 +385,45 @@ export function resetSkillRegistry(): void {
   registry.clear()
 }
 
-/** 某名玩家当前拥有的技能运行时。武将没选定时返回空。 */
-export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: (characterId: string) => string[]): SkillRuntime[] {
+/**
+ * 某名玩家现在拥有哪些技能 id：**武将自带 + 运行中获得的**。
+ *
+ * 觉醒后拿到的技能（邓艾的【急袭】、姜维的【观星】、刘禅的【激将】）走
+ * `player.grantedSkills`，绝不能去改 `CharacterDefinition`——那是模块级共享常量，
+ * 改一次全进程的同名武将都会跟着变。
+ */
+export function ownedSkillIds(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): string[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player?.characterId) return []
-  return skillIdsOf(player.characterId)
+  // 提到闭包外面：TS 在 filter 的回调里丢掉 characterId 的非空收窄
+  const own = skillIdsOf(player.characterId)
+  const granted = player.grantedSkills ?? []
+  return [...own, ...granted.filter((id) => !own.includes(id))]
+}
+
+/**
+ * 授予一个技能。已经有了就什么都不做（重复授予不该产生第二份触发）。
+ *
+ * 死亡角色不再触发技能，但这里仍然记账：`serialize` / `restore` 之后
+ * 战报和界面还要显示「他觉醒过」。规则层的过滤在 `registerSkillTriggers`
+ * 和各调用点的 `alive` 判断里。
+ */
+export function grantSkill(state: SanguoshaState, playerId: PlayerId, skillId: string): boolean {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player) return false
+  player.grantedSkills ??= []
+  if (player.grantedSkills.includes(skillId)) return false
+  player.grantedSkills.push(skillId)
+  return true
+}
+
+/** 某名玩家当前拥有的技能运行时。武将没选定时返回空。 */
+export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: (characterId: string) => string[]): SkillRuntime[] {
+  return ownedSkillIds(state, playerId, skillIdsOf)
     .map((skillId) => registry.get(skillId))
     .filter((runtime): runtime is SkillRuntime => !!runtime)
 }
@@ -520,13 +588,39 @@ export function registerSkillTriggers(
   for (const runtime of registry.values()) {
     for (const trigger of runtime.triggers ?? []) {
       on(trigger.event, (context) => {
-        // 只有真正拥有这个技能的人才会被触发
+        // 只有真正拥有这个技能的人才会被触发；觉醒后获得的技能也算拥有
         for (const player of host.state.players) {
           if (!player.alive || !player.characterId) continue
-          if (!skillIdsOf(player.characterId).includes(runtime.id)) continue
+          if (!ownedSkillIds(host.state, player.id, skillIdsOf).includes(runtime.id)) continue
           trigger.handle(host, player.id, context)
         }
       }, trigger.priority ?? 0)
+    }
+
+    // 觉醒技统一挂在这里，三名觉醒武将不各写一套 PhaseStart 触发
+    if (runtime.awakening) {
+      const awakening = runtime.awakening
+      on('PhaseStart', (context) => {
+        const payload = context.event.payload as { playerId?: PlayerId; phase?: string }
+        if (payload.phase !== awakening.phase) return
+        const ownerId = payload.playerId
+        if (!ownerId) return
+        const player = host.state.players.find((candidate) => candidate.id === ownerId)
+        if (!player?.alive || !player.characterId) return
+        if (!ownedSkillIds(host.state, ownerId, skillIdsOf).includes(runtime.id)) return
+        // 一局一次，永不重置
+        player.awakenedSkills ??= []
+        if (player.awakenedSkills.includes(runtime.id)) return
+        if (!awakening.ready(host.state, ownerId)) return
+        /*
+         * **先记账再发动。** 觉醒过程里可能挂起发问（姜维【志继】要选
+         * 回复还是摸牌），挂起期间这条 PhaseStart 已经走完，
+         * 后面再有事件把这个技能问一遍就会重复觉醒。
+         */
+        player.awakenedSkills.push(runtime.id)
+        host.dispatch('SkillAwakened', { playerId: ownerId, skillId: runtime.id }, { sourceId: ownerId })
+        awakening.invoke(host, ownerId)
+      }, awakening.priority ?? 0)
     }
   }
 }

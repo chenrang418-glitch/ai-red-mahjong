@@ -93,7 +93,23 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
  * `moveCard` 直接抛「卡牌不在来源区域」，整局崩掉。
  * 凡是让玩家从「手牌 + 装备」里挑牌的技能，都该用这个函数定位来源。
  */
-export function locateOwnedCard(state: SanguoshaState, playerId: PlayerId, cardId: CardId): ZoneRef | null {
+export interface LocateOwnedCardOptions {
+  /**
+   * 连武将专属牌堆一起找（邓艾把「田」当【顺手牵羊】用）。
+   *
+   * **默认关闭**，而且必须由调用方显式打开：绝大多数调用点是「弃置 / 拆掉
+   * 你的一张牌」，专属牌堆里的牌不该被这些流程碰到。周泰的「创」要是能被
+   * 过河拆桥拆走，不屈就白写了。只有转化技使用牌的那条路径需要它。
+   */
+  includeCharacterPiles?: boolean
+}
+
+export function locateOwnedCard(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  cardId: CardId,
+  options: LocateOwnedCardOptions = {},
+): ZoneRef | null {
   const owner = state.players.find((candidate) => candidate.id === playerId)
   if (!owner) return null
   if (owner.zones.hand.includes(cardId)) return { kind: 'hand', playerId }
@@ -101,6 +117,11 @@ export function locateOwnedCard(state: SanguoshaState, playerId: PlayerId, cardI
     if (equipped === cardId) return { kind: 'equipment', playerId, slot: slot as EquipmentSlot }
   }
   if (owner.zones.judgingArea.includes(cardId)) return { kind: 'judgingArea', playerId }
+  if (options.includeCharacterPiles) {
+    for (const [pile, ids] of Object.entries(owner.characterPiles ?? {})) {
+      if (ids.includes(cardId)) return { kind: 'characterPile', playerId, pile }
+    }
+  }
   return null
 }
 

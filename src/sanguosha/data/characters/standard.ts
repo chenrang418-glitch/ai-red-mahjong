@@ -378,8 +378,14 @@ export function getCharacter(characterId: string): CharacterDefinition | undefin
   return BY_ID.get(characterId)
 }
 
+/**
+ * 武将**开局自带**的技能 id。
+ *
+ * 标了 `granted` 的不算：那些是觉醒之后才授予的，开局就返回它们等于
+ * 白送一个技能。运行中获得的技能由 `ownedSkillIds` 并上 `player.grantedSkills`。
+ */
 export function skillIdsOf(characterId: string): string[] {
-  return BY_ID.get(characterId)?.skills.map((skill) => skill.id) ?? []
+  return BY_ID.get(characterId)?.skills.filter((skill) => !skill.granted).map((skill) => skill.id) ?? []
 }
 
 /**

@@ -703,6 +703,13 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
     if (!best || score > best.score) best = { action, score }
   }
 
+  /*
+   * 「田」既是急袭的弹药，也是屯田的距离来源。
+   * 全部花掉会让邓艾的距离优势归零，所以留一张不用——
+   * 这是本轮 AI 唯一需要为邓艾单独考虑的取舍。
+   */
+  const fieldIds = new Set((me.characterPiles?.tuntian ?? []).map((card) => card.id))
+
   for (const action of useActions) {
     let score = 0
     switch (action.asCardName) {
@@ -781,6 +788,12 @@ export function decidePlayAction(context: AIContext, actions: readonly LegalActi
         else if (action.id.startsWith('play:recast:')) score = 5
         else score = 8
     }
+    /*
+     * 邓艾【急袭】的底牌是「田」，而田同时是屯田的距离来源。
+     * 全部花光会让距离优势归零，所以用田出牌一律扣分，只剩最后一张时扣得更重——
+     * 「留着够得到人」通常比多偷一张低价值牌更重要。
+     */
+    if (fieldIds.has(action.cardIds[0])) score -= fieldIds.size <= 1 ? 14 : 4
     if (context.difficulty !== 'hard') score += context.rng.nextInt(5)
     if (!best || score > best.score) best = { action, score }
   }
@@ -1095,6 +1108,14 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.prompt.includes('雷击')) {
         // 雷击不花任何代价，判定成功就是 2 点雷电伤害——没有不发动的理由。
         // 打谁由后面的 choose-targets 分支按敌我倾向挑。
+        return { ...base, payload: { optionId: 'yes' } }
+      }
+      /*
+       * 【屯田】几乎没有代价：判定牌不是红桃就白拿一张公开牌，还顺带减距离。
+       * 唯一的成本是判定牌本身可能被自己人的改判技能浪费掉，
+       * 第一版不做这层博弈，一律发动。
+       */
+      if (request.prompt.startsWith('发动【屯田】')) {
         return { ...base, payload: { optionId: 'yes' } }
       }
       // 【巧变】按阶段分别算账，不是「有手牌就跳」
