@@ -6,6 +6,8 @@ import { ALL_CHARACTERS } from '../../src/sanguosha/data/characters/standard'
  * 而且这个数已经被写错过一次（记成 26，实为 25）。
  */
 const CHARACTER_COUNT = ALL_CHARACTERS.length
+/** 艺术集分组的阵营顺序，和页面上的一致。 */
+const FACTION_ORDER = ['wei', 'shu', 'wu', 'qun', 'jin', 'shen'] as const
 /** 固定展示在「自定义武将」分区的娱乐武将名。 */
 const CUSTOM_CHARACTERS = ALL_CHARACTERS.filter((character) => character.pack === 'entertainment').map((character) => character.name)
 
@@ -306,10 +308,14 @@ test('艺术集按阵营展示全部立绘并可查看原图', async ({ page }) 
   await expect(page.getByRole('heading', { name: '武将艺术集' })).toBeVisible()
   await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神'])
   await expect(page.locator('.sgs-art-gallery .sgs-faction-badge')).toHaveCount(0)
-  await expect(page.locator('.sgs-art-gallery__group').nth(4).locator('button')).toHaveCount(0)
-  await expect(page.locator('.sgs-art-gallery__group').nth(5).locator('button')).toHaveCount(0)
+  // 每个阵营分组里的立绘数按数据算，不写死——神将陆续加进来时这里不该再改一次
+  for (const [index, kingdom] of FACTION_ORDER.entries()) {
+    await expect(page.locator('.sgs-art-gallery__group').nth(index).locator('button'))
+      .toHaveCount(ALL_CHARACTERS.filter((character) => character.kingdom === kingdom).length)
+  }
   await expect(page.locator('.sgs-art-gallery__grid > button')).toHaveCount(CHARACTER_COUNT)
-  await page.getByRole('button', { name: /诸葛亮/ }).click()
+  // 精确匹配：神诸葛亮进来之后 /诸葛亮/ 会同时命中两个
+  await page.getByRole('button', { name: '诸葛亮立绘 诸葛亮', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '诸葛亮立绘原图' })).toBeVisible()
   await expect(page.getByAltText('诸葛亮立绘原图')).toBeVisible()
 })

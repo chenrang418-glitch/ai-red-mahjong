@@ -148,10 +148,31 @@ export function allLocatedCardIds(state: SanguoshaState): CardId[] {
   return ids
 }
 
+/** 诊断用：列出某张牌当前出现在哪些区域。正常只会有一个。 */
+function zonesHolding(state: SanguoshaState, cardId: CardId): string[] {
+  const found: string[] = []
+  if (state.zones.drawPile.includes(cardId)) found.push('drawPile')
+  if (state.zones.discardPile.includes(cardId)) found.push('discardPile')
+  if (state.zones.processingArea.includes(cardId)) found.push('processingArea')
+  for (const player of state.players) {
+    if (player.zones.hand.includes(cardId)) found.push(`hand:${player.id}`)
+    if (player.zones.judgingArea.includes(cardId)) found.push(`judge:${player.id}`)
+    for (const [slot, id] of Object.entries(player.zones.equipment)) if (id === cardId) found.push(`equip:${player.id}:${slot}`)
+    for (const [pile, ids] of Object.entries(player.characterPiles ?? {})) if (ids.includes(cardId)) found.push(`pile:${player.id}:${pile}`)
+  }
+  for (const zone of state.privateZones ?? []) if (zone.cards.includes(cardId)) found.push(`private:${zone.id}`)
+  return found
+}
+
 export function assertCardConservation(state: SanguoshaState): void {
   const located = allLocatedCardIds(state)
   const unique = new Set(located)
-  if (unique.size !== located.length) throw new Error('同一张牌同时出现在多个区域')
+  if (unique.size !== located.length) {
+    // 只说「有重复」定位不了问题，把是哪张牌、在哪几个区域一起报出来
+    const seen = new Set<CardId>()
+    const duplicated = located.filter((cardId) => (seen.has(cardId) ? true : (seen.add(cardId), false)))
+    throw new Error(`同一张牌同时出现在多个区域：${[...new Set(duplicated)].map((cardId) => `${cardId}@${zonesHolding(state, cardId).join('+')}`).join('，')}`)
+  }
   const known = Object.keys(state.cards)
   if (unique.size !== known.length || known.some((id) => !unique.has(id))) throw new Error('牌张不守恒：存在丢失或未知位置的牌')
 }

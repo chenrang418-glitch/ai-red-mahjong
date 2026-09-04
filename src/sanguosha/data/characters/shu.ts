@@ -38,7 +38,9 @@ registerSkillRuntime({
     const { top, bottom } = response.payload as { top: CardId[]; bottom: CardId[] }
     const observed = new Set(original)
     const untouched = host.state.zones.drawPile.filter((cardId) => !observed.has(cardId))
-    host.state.zones.drawPile = [...top, ...untouched, ...bottom]
+    // 快照里的牌若在这期间离开了牌堆（别的技能拿走了），就不能再写回去，否则会凭空多出一张
+    const stillInPile = (cardId: CardId): boolean => host.state.zones.drawPile.includes(cardId)
+    host.state.zones.drawPile = [...top.filter(stillInPile), ...untouched, ...bottom.filter(stillInPile)]
   },
 })
 

@@ -134,6 +134,27 @@ describe('无头压测', () => {
     expect(second).toEqual(first)
   })
 
+  /**
+   * 神将第一批做出来的时候，这两个 seed 各自抓到一个真实的卡死，手搓场景都没能复现：
+   *
+   * - `soak-8-423`：闪电把 `state.judgment` 占成「等待造成伤害」当书签，
+   *   3 点雷电伤害在铁索连环链里打死了神关羽，武魂当场又开一个判定把书签冲掉，
+   *   闪电再也收不了尾，判定阶段 `advance:judge` 无限重复。
+   * - `soak-5-178`：业炎付代价那步交上来的四张牌花色有重复，旧实现静默返回，
+   *   限定技没被消耗，出牌阶段可以原样再发一次，转成死循环。
+   *
+   * 这两条比任何手搓用例都更贴近真实牌局，直接按 seed 钉住。
+   */
+  for (const [seed, playerCount] of [['soak-8-423', 8], ['soak-5-178', 5]] as const) {
+    it(`神将第一批：seed=${seed} 不再卡死`, () => {
+      const result = runSoakGame({
+        seed, playerCount,
+        characterIds: ['shenguanyu', 'shenlvmeng', 'shenzhouyu', 'shenzhugeliang'],
+      })
+      expect(result.finished).toBe(true)
+    })
+  }
+
   for (const count of [5, 6, 7, 8]) {
     it(`${count} 人局 40 局全部正常结束`, () => {
       const results = runSoakBatch(40, count, 'ci')

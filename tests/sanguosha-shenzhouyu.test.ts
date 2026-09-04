@@ -348,3 +348,61 @@ describe('业炎：限定技与代价', () => {
     expect(playerOf(game, 'p1').hp, '藤甲让火伤 +1').toBe(2)
   })
 })
+
+describe('业炎：代价这一步不能变成死循环', () => {
+  function yeyanActionOf(game: SanguoshaGame) {
+    return game.legalActions('p0').find((action) => action.kind === 'invoke-skill' && action.skillId === 'yeyan')
+  }
+
+  /**
+   * 回归（seed=soak-5-178）：代价这一步交上来的四张牌花色有重复时，
+   * 旧实现直接静默 return——限定技没被消耗，出牌阶段可以原样再发一次，
+   * 于是「发动→选目标→选分配→交牌→发动…」无限转圈。
+   * 代价是强制的，走到这一步就必须落地。
+   */
+  it('交上来的四张牌花色重复时兜底成合法的一组，技能照常消耗掉', () => {
+    const game = gameWith(FIVE)
+    clearHand(game, 'p0')
+    // 四种花色各一张（保证付得起），外加两张重复花色供「交错」用
+    const legal = fourSuits(game)
+    const spades = Object.values(game.state.cards).filter((card) => card.suit === 'spade').slice(0, 3).map((card) => card.id)
+    giveHand(game, 'p0', [...new Set([...legal, ...spades])])
+    playerOf(game, 'p0').hp = 4
+    playerOf(game, 'p0').maxHp = 4
+    playerOf(game, 'p1').hp = 5
+    playerOf(game, 'p1').maxHp = 5
+    enterPlay(game, 'p0')
+
+    game.act('p0', yeyanActionOf(game)!.id)
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+    const split = pending(game)
+    game.respond({ requestId: split.id, playerId: 'p0', payload: { optionId: split.options[0].id } })
+
+    const cost = pending(game)
+    expect(String(cost.prompt)).toContain('弃置四张')
+    // 故意交一组花色重复的（三张黑桃 + 一张别的）
+    const bad = [...spades, legal.find((cardId) => !spades.includes(cardId))!].slice(0, 4)
+    game.respond({ requestId: cost.id, playerId: 'p0', payload: { cardIds: bad } })
+
+    let guard = 0
+    while (pending(game) && guard < 12) {
+      const request = pending(game)
+      game.respond({
+        requestId: request.id, playerId: request.playerId,
+        payload: request.kind === 'rescue' || request.kind === 'respond-card'
+          ? { actionId: request.actionIds[request.actionIds.length - 1] }
+          : { optionId: 'no', cardIds: [], targetIds: [] },
+      })
+      guard += 1
+    }
+
+    expect(playerOf(game, 'p0').hp, '代价的 3 点体力照失').toBe(1)
+    expect(playerOf(game, 'p1').hp, '3 点火焰伤害照打').toBe(2)
+    expect(
+      yeyanActionOf(game),
+      '限定技必须已经消耗掉——留着就是死循环的入口',
+    ).toBeUndefined()
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
+  })
+})

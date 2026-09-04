@@ -486,8 +486,16 @@ export class SanguoshaGame {
     for (let round = 0; round < 4; round += 1) {
       for (const player of this.state.players) player.zones.hand.push(this.state.zones.drawPile.shift()!)
     }
-    startPlaying(this.state, (name, payload) => { this.emit(name, payload) })
+    /*
+     * 开局技能必须在**第一个回合开始之前**跑完。
+     *
+     * 顺序反过来的时候踩过一次：`startPlaying` 已经进了第一个准备阶段、
+     * 观星把牌堆顶五张记进了快照，此时七星才把牌堆顶七张拿走做「星」，
+     * 观星结算时按旧快照把这五张写回牌堆——牌就同时出现在牌堆和星堆里了。
+     * 任何动到公共区域的 onGameStart 都会踩同一个坑，所以修在这里而不是修某个技能。
+     */
     initializeGameSkills(this)
+    startPlaying(this.state, (name, payload) => { this.emit(name, payload) })
     // 开局排队的发问（牛来认麻麻）在这里就放出去，
     // 否则要等到第一次 act/advancePhase 才轮到，第一个准备阶段已经过去了
     this.settle()

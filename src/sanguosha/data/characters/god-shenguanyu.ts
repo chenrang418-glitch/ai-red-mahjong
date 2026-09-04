@@ -131,38 +131,70 @@ registerSkillRuntime({
       handle(host, ownerId, context) {
         const payload = context.event.payload as { playerId?: PlayerId }
         if (payload.playerId !== ownerId) return
-        // 候选是**其他角色**里梦魇最多的那些，神关羽自己不在内
-        const candidates = host.state.players.filter((player) => (
-          player.alive && player.id !== ownerId && (player.marks[NIGHTMARE_MARK] ?? 0) > 0
-        ))
-        if (candidates.length === 0) return
-        const most = Math.max(...candidates.map((player) => player.marks[NIGHTMARE_MARK] ?? 0))
-        const tied = candidates.filter((player) => (player.marks[NIGHTMARE_MARK] ?? 0) === most)
-        if (tied.length === 1) {
-          beginWuhunJudgment(host, ownerId, tied[0].id)
+        /*
+         * **默认就地结算，只有外层还有结算在跑时才排队。**
+         *
+         * 就地结算是正确的顺序：`Death` 之后紧接着就是胜负判定，
+         * 武魂夺走的那条命必须算进这次判定里，排队会排到胜负判定之后。
+         *
+         * 但神关羽可能死在一次仍在进行中的结算里——压测 seed=soak-8-423 是闪电：
+         * 闪电把 `state.judgment` 占成「等待造成伤害」当作书签，伤害打死了神关羽，
+         * 武魂当场又开一个判定把这个书签冲掉，闪电再也收不了尾，判定阶段原地打转。
+         * `state.judgment` 只有一个槽位，判定不能嵌套。
+         *
+         * 所以只在「外层确实有东西在跑」时让路。这种情况下胜负判定可能先一步结束牌局、
+         * 武魂来不及结算，这是本实现相对规则文本的一处取舍——比整局卡死好。
+         */
+        // 只有判定槽位被占着才需要让路：`state.judgment` / `state.retrial` 都只有一份，
+        // 判定不能嵌套。伤害链、濒死不占这个槽位，不影响武魂开判定。
+        if (host.state.judgment || host.state.retrial) {
+          host.queueSkill({ skillId: WUHUN, ownerId, step: 'settle', data: {} })
           return
         }
-        /*
-         * 并列最多。
-         *
-         * 规则上由神关羽指定，但**他这时已经死了**，而引擎的不变量禁止把
-         * Request 发给已阵亡的玩家（`invariants.ts` 的「Request 响应玩家非法」，
-         * 压测 seed=soak-8-71 抓到）。所以这里按**从神关羽座位起顺时针**
-         * 取第一个作为确定性结果——可序列化、可复现，不会因为死人无法作答
-         * 而把整局卡住。这是本实现相对规则文本的一处明确取舍，已记在 ruleset。
-         */
-        const owner = playerOf(host.state, ownerId)
-        const ordered = [...tied].sort((left, right) => {
-          const base = owner?.seat ?? 0
-          const total = host.state.players.length
-          return ((left.seat - base + total) % total) - ((right.seat - base + total) % total)
-        })
-        beginWuhunJudgment(host, ownerId, ordered[0].id)
+        settleWuhun(host, ownerId)
       },
     },
   ],
 
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'settle') return
+    settleWuhun(host, ownerId)
+  },
 })
+
+/** 武魂的死亡结算。排队之后才跑，见上面 Death 触发器里的说明。 */
+function settleWuhun(
+  host: Parameters<NonNullable<Parameters<typeof registerSkillRuntime>[0]['startQueued']>>[0],
+  ownerId: PlayerId,
+): void {
+  // 候选是**其他角色**里梦魇最多的那些，神关羽自己不在内
+  const candidates = host.state.players.filter((player) => (
+    player.alive && player.id !== ownerId && (player.marks[NIGHTMARE_MARK] ?? 0) > 0
+  ))
+  if (candidates.length === 0) return
+  const most = Math.max(...candidates.map((player) => player.marks[NIGHTMARE_MARK] ?? 0))
+  const tied = candidates.filter((player) => (player.marks[NIGHTMARE_MARK] ?? 0) === most)
+  if (tied.length === 1) {
+    beginWuhunJudgment(host, ownerId, tied[0].id)
+    return
+  }
+  /*
+   * 并列最多。
+   *
+   * 规则上由神关羽指定，但**他这时已经死了**，而引擎的不变量禁止把
+   * Request 发给已阵亡的玩家（`invariants.ts` 的「Request 响应玩家非法」，
+   * 压测 seed=soak-8-71 抓到）。所以这里按**从神关羽座位起顺时针**
+   * 取第一个作为确定性结果——可序列化、可复现，不会因为死人无法作答
+   * 而把整局卡住。这是本实现相对规则文本的一处明确取舍，已记在 ruleset。
+   */
+  const owner = playerOf(host.state, ownerId)
+  const ordered = [...tied].sort((left, right) => {
+    const base = owner?.seat ?? 0
+    const total = host.state.players.length
+    return ((left.seat - base + total) % total) - ((right.seat - base + total) % total)
+  })
+  beginWuhunJudgment(host, ownerId, ordered[0].id)
+}
 
 function beginWuhunJudgment(host: Parameters<NonNullable<Parameters<typeof registerSkillRuntime>[0]['resume']>>[0], ownerId: PlayerId, targetId: PlayerId): void {
   performJudgment(host as never, targetId, '武魂', { tag: WUHUN_TAG, data: { ownerId, targetId } })
@@ -170,7 +202,7 @@ function beginWuhunJudgment(host: Parameters<NonNullable<Parameters<typeof regis
 
 export const SHENGUANYU: CharacterDefinition = {
   id: 'shenguanyu',
-  name: '神关羽',
+  name: '神·关羽',
   kingdom: 'shen',
   gender: 'male',
   maxHp: 5,

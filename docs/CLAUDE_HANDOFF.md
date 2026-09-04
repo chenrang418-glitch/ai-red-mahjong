@@ -23,17 +23,39 @@
   git checkout feature/sanguosha
   ```
 
-## 验证基线（2026-09-02 扩包完成后实测）
+## 验证基线（2026-09-04 神将第一批完成后实测）
 
 | 命令 | 结果 |
 |---|---|
-| `npx vitest run` | 110 文件 / **1256 用例，无 todo** |
-| `npx playwright test` | **51 通过**（Chromium 47 + WebKit 4） |
+| `npx vitest run` | 130 文件 / **1568 用例，无 todo** |
+| `npx playwright test` | **70 通过**（Chromium 66 + WebKit 4） |
+| `npm run sanguosha:soak -- 800 --characters=<四神>` | 5 / 8 人各 800 局全部完成 |
 | `npm run sanguosha:soak -- 500` | 5 人局与 8 人局各 500 局全部完成 |
 | `npm run sanguosha:soak -- 500 --characters=<林包八将>` | 各 500 局全部完成，八将机制均有触发 |
 | `npm run test:online:smoke` | 通过 |
 | `npm run typecheck` / `typecheck:online` | 通过 |
 | `npm run build` / `build:online` | 通过（Worker dry-run 通过） |
+
+## 神将（4 / 24 已完成）
+
+已完成：神·关羽、神·吕蒙、神·周瑜、神·诸葛亮。规则以
+`docs/sanguosha-ruleset-v1.md` 里锁定的**经典神话再临版本**为准，
+不要因为官网某些武将已经重做就混入现代强化文本。
+
+命名约定：前缀和本名之间加「·」（神·关羽），以后的界限突破同样处理；武将 id 不带分隔符。
+
+做新神将之前先看那份文档里已经有的公共机制（标记、摸牌阶段替代、弃牌阶段账本、
+扣置专属牌堆、临时角色状态、`killPlayer`），能复用就复用。**引擎主干不许出现按 `characterId` 的特判。**
+
+这批踩过三个坑，性质都不是「某个技能写错了」，值得先知道：
+
+- **开局技能必须在第一个回合开始之前跑完**（`game.ts` 里 `initializeGameSkills` 排在
+  `startPlaying` 之前）。反过来的话，动公共牌堆的 `onGameStart` 会和第一个准备阶段抢牌。
+- **判定不能嵌套**：`state.judgment` / `state.retrial` 各只有一个槽位。
+  在别人的判定还挂着时开新判定，外层那次就再也回不来了。要开判定先看槽位，占着就 `queueSkill` 让路。
+- **可取消的第一个请求 + AI 交空 = 死循环**：技能没被消耗，出牌阶段可以原样再发一次。
+  挑衅、攻心、业炎都栽过。加新技能时，AI 侧必须有一条**绝不返回空选择**的分支；
+  强制步骤（比如业炎的代价）交上来非法数据时也不能静默返回。
 
 **专项压测要看机制计数**，不能只看「没崩」——AI 一次都没发动的技能同样不会崩。
 带 `--characters=` 时脚本会打印一行 `机制计数：skill:xxx=N viewas:xxx=N skip:xxx=N`，

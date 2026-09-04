@@ -931,6 +931,22 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const cheapest = [...request.cardIds].sort((left, right) => cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right)))[0]
         return { ...base, payload: { cardIds: cheapest ? [cheapest] : [] } }
       }
+      /*
+       * 【业炎】的代价：必须是**花色各不相同**的四张手牌。
+       *
+       * 照默认那样取前四张会撞出重复花色，技能结算判不合法，
+       * 限定技没被消耗又能原样再发一次，直接转成死循环（seed=soak-5-178）。
+       * 引擎侧已经加了兜底，这里让 AI 一开始就交合法的牌。
+       */
+      if (request.prompt.startsWith('【业炎】：弃置四张')) {
+        const hand = myself(context.view).hand ?? []
+        const bySuit = new Map<string, string>()
+        for (const cardId of request.cardIds) {
+          const suit = hand.find((card) => card.id === cardId)?.suit
+          if (suit && !bySuit.has(suit)) bySuit.set(suit, cardId)
+        }
+        return { ...base, payload: { cardIds: [...bySuit.values()].slice(0, 4) } }
+      }
       if (request.prompt.startsWith('【直谏】')) {
         const cheapest = [...request.cardIds].sort((left, right) => cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right)))[0]
         return { ...base, payload: { cardIds: cheapest ? [cheapest] : [] } }

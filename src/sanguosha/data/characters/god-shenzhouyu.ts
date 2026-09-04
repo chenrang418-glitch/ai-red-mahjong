@@ -157,6 +157,19 @@ function canPayBigYeyan(state: SanguoshaState, ownerId: PlayerId): boolean {
 }
 
 /**
+ * 从手牌里凑一组花色各不相同的四张牌。凑不出返回 null。
+ *
+ * 既给 AI 用，也给结算兜底用：走到「付代价」这一步时代价是**强制**的，
+ * 客户端交上来一组不合法的牌不能变成「技能白白没了」或「反复重发」——
+ * 这里给出一个确定性的合法解，结算继续往下走。
+ */
+function pickFourDifferentSuits(state: SanguoshaState, ownerId: PlayerId): CardId[] | null {
+  const bySuit = differentSuitCards(state, ownerId)
+  if (bySuit.size < 4) return null
+  return [...bySuit.values()].slice(0, 4).map((cardIds) => cardIds[0])
+}
+
+/**
  * 业炎能选几个目标。
  *
  * 3 点伤害要分完，而「对任意一人分到 ≥2 点」就必须付代价，
@@ -260,12 +273,23 @@ registerSkillRuntime({
       // **花色必须各不相同**，而且都得真的在手上
       const suits = new Set(cardIds.map((cardId) => suitOf(host.state, ownerId, cardId)))
       const allInHand = cardIds.every((cardId) => owner.zones.hand.includes(cardId))
-      if (cardIds.length !== 4 || suits.size !== 4 || !allInHand) return
+      /*
+       * 交上来的牌不合法时**不能直接 return**。
+       *
+       * 这一步的代价是强制的（请求 optional: false），中途放弃没有规则依据；
+       * 而静默返回会让限定技没被消耗，出牌阶段可以原样再发一次——
+       * 压测里就是这么转成死循环的（seed=soak-5-178）。
+       * 走到这里代价一定付得起（split 那步已经验过），所以兜一组合法的继续。
+       */
+      const paid = (cardIds.length === 4 && suits.size === 4 && allInHand)
+        ? cardIds
+        : pickFourDifferentSuits(host.state, ownerId)
+      if (!paid) return
 
-      for (const cardId of cardIds) {
+      for (const cardId of paid) {
         moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
       }
-      host.dispatch('LoseCard', { playerId: ownerId, cardIds, reason: YEYAN }, { sourceId: ownerId, cardIds })
+      host.dispatch('LoseCard', { playerId: ownerId, cardIds: paid, reason: YEYAN }, { sourceId: ownerId, cardIds: paid })
       // 失去 3 点体力是 **LoseHp 不是伤害**：不触发受伤时机，也不会被防伤挡掉
       loseHp(host as never, ownerId, 3, '业炎')
       // 付完代价自己可能已经进濒死甚至死了，那就不再放火
@@ -362,7 +386,7 @@ function burnYeyanStep(host: SkillHost, ownerId: PlayerId, remaining: Array<{ ta
 
 export const SHENZHOUYU: CharacterDefinition = {
   id: 'shenzhouyu',
-  name: '神周瑜',
+  name: '神·周瑜',
   kingdom: 'shen',
   gender: 'male',
   maxHp: 4,

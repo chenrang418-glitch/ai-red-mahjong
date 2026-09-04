@@ -291,7 +291,7 @@ function gongxinTargets(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
 
 export const SHENLVMENG: CharacterDefinition = {
   id: 'shenlvmeng',
-  name: '神吕蒙',
+  name: '神·吕蒙',
   kingdom: 'shen',
   gender: 'male',
   maxHp: 3,
