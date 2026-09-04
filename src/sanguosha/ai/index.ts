@@ -444,6 +444,85 @@ function answerLuanwu(context: AIContext): string {
   return hasEnemy ? 'luanwu-slash' : 'luanwu-lose-hp'
 }
 
+/**
+ * 【巧变】要不要发动：**按阶段分别算账**。
+ *
+ * 代价固定是一张手牌，所以每个阶段各自和这一张牌比价值。
+ * 「有手牌就跳」是最容易写、也最难看的实现——那样张郃每回合把四个阶段
+ * 全跳光，手牌打空还什么都没做成。
+ */
+function shouldInvokeQiaobian(context: AIContext, prompt: string): boolean {
+  const me = myself(context.view)
+  if (me.handCount <= 0) return false
+
+  if (prompt.includes('判定阶段')) {
+    // 判定区里有东西才值得跳。闪电最该躲（3 点雷电伤害能直接要命），
+    // 乐和兵粮则是省掉一整个阶段的损失。
+    const pending = me.judgingArea
+    if (pending.length === 0) return false
+    if (pending.some((card) => card.name === '闪电')) return true
+    // 只剩最后一张手牌时，为了乐 / 兵粮把牌打空不划算
+    return me.handCount > 1
+  }
+
+  if (prompt.includes('摸牌阶段')) {
+    // 跳摸牌换「至多两人各一张」：能偷到两张才稳赚（弃 1 拿 2，净 +1），
+    // 只偷得到一张就是弃 1 拿 1 摸 0，纯亏。
+    const donors = context.view.players.filter((player) => (
+      player.alive && player.id !== me.id && player.handCount > 0
+    ))
+    if (donors.length < 2) return false
+    // 优先偷敌人；全场只剩自己人有牌时，抢队友的牌没有意义
+    return donors.some((player) => hostility(context.view, context.suspicion, player.id) > 0)
+  }
+
+  if (prompt.includes('出牌阶段')) {
+    // 跳出牌阶段代价很大——整个回合的输出都没了。
+    // 只有「本来也打不出什么」且「场上确实有值得搬的牌」时才换。
+    if (me.handCount > 2) return false
+    return context.view.players.some((player) => (
+      player.alive && player.id !== me.id
+      && (player.judgingArea.length > 0 || player.equipment.length > 0)
+    ))
+  }
+
+  if (prompt.includes('弃牌阶段')) {
+    // 用一张最不值钱的牌换掉一批弃牌：要弃 2 张以上才划算
+    return me.handCount - Math.max(0, me.hp) >= 2
+  }
+
+  return false
+}
+
+/** 巧变偷谁：敌人优先，手牌多的优先（偷完对他更疼，也更可能偷到好牌）。 */
+function qiaobianStealScore(context: AIContext, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  if (attitude <= PROTECTED) return -Infinity
+  return attitude * 6 + Math.min(target.handCount, 6)
+}
+
+/**
+ * 巧变把牌搬给谁。
+ *
+ * 判定区的牌（乐、兵粮、闪电）是负担，塞给敌人；
+ * 装备是资源，送给自己人。提示语里带着牌名，按牌名分两类就够了。
+ */
+function qiaobianMoveScore(context: AIContext, prompt: string, targetId: PlayerId): number {
+  const target = context.view.players.find((player) => player.id === targetId)
+  if (!target?.alive) return -Infinity
+  const attitude = hostility(context.view, context.suspicion, targetId)
+  const isBurden = ['乐不思蜀', '兵粮寸断', '闪电'].some((name) => prompt.includes(name))
+  if (isBurden) {
+    // 负担越该给敌人；闪电尤其要推给血少的敌人
+    if (attitude <= PROTECTED) return -Infinity
+    return attitude * 6 + (prompt.includes('闪电') ? Math.max(0, 5 - target.hp) : 0)
+  }
+  // 装备：给自己人，越缺装备的越优先
+  return -attitude * 6 + Math.max(0, 3 - target.equipment.length)
+}
+
 /** 目标价值：先看阵营敌意，再看血少、手牌少好不好打。 */
 function targetScore(context: AIContext, targetId: PlayerId): number {
   const target = context.view.players.find((player) => player.id === targetId)
@@ -835,6 +914,22 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         const ranked = [...request.candidateIds].sort((left, right) => quhuTargetScore(context, right) - quhuTargetScore(context, left))
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
+      /*
+       * 【巧变】跳摸牌后偷谁：手牌越多的敌人越值得偷。
+       * 请求本身 min 为 0，但既然已经付过代价跳掉了摸牌阶段，
+       * 这里再交空数组就是白亏一张牌——**能偷就偷满**。
+       */
+      if (request.prompt.startsWith('【巧变】：获得至多')) {
+        const ranked = [...request.candidateIds]
+          .sort((left, right) => qiaobianStealScore(context, right) - qiaobianStealScore(context, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, Math.min(request.max, ranked.length)) } }
+      }
+      // 【巧变】把场上那张牌搬给谁：延时锦囊塞给敌人，装备送给自己人
+      if (request.prompt.startsWith('【巧变】：将')) {
+        const ranked = [...request.candidateIds]
+          .sort((left, right) => qiaobianMoveScore(context, request.prompt, right) - qiaobianMoveScore(context, request.prompt, left))
+        return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
+      }
       // 【乱武】并列最近时挑一个：优先敌人，其次血最少的
       if (request.prompt.startsWith('【乱武】')) {
         const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
@@ -1001,6 +1096,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         // 雷击不花任何代价，判定成功就是 2 点雷电伤害——没有不发动的理由。
         // 打谁由后面的 choose-targets 分支按敌我倾向挑。
         return { ...base, payload: { optionId: 'yes' } }
+      }
+      // 【巧变】按阶段分别算账，不是「有手牌就跳」
+      if (request.prompt.startsWith('发动【巧变】')) {
+        return { ...base, payload: { optionId: shouldInvokeQiaobian(context, request.prompt) ? 'yes' : 'no' } }
       }
       if (request.prompt.includes('据守')) {
         return { ...base, payload: { optionId: decideJushou(context) ? 'yes' : 'no' } }
