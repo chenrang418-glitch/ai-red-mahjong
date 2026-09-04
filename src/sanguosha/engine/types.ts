@@ -235,6 +235,7 @@ export interface PindianSettlementState {
 }
 
 import type { ArmorSuppression } from './armor-suppression'
+import type { MultiCardViewAsState } from './multi-card-viewas'
 
 export interface DiscardPhaseRecord {
   cardId: CardId
@@ -653,6 +654,8 @@ export interface SanguoshaState {
   huashen: HuashenGameState | null
   /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
   guhuoResponse: GuhuoResponseState | null
+  /** 多牌同花色转化的挂起流程（神赵云【龙魂】）。见 engine/multi-card-viewas.ts。 */
+  multiCardViewAs: MultiCardViewAsState | null
   /**
    * 牛来【麻麻】的认亲关系：牛来的 playerId → 麻麻的 playerId。
    *
@@ -698,6 +701,8 @@ export interface SanguoshaState {
    * 普通锦囊不需要它——那条路上转化后的牌名直接存在 `cardResolution.cardName` 里。
    */
   cardAliases: Record<CardId, string>
+  /** 本次结算里被临时改写的伤害属性（龙魂的方块火杀）。见 zones.ts。 */
+  cardNatures: Record<CardId, DamageNature>
   decisions: GameDecision[]
   result: GameResult | null
 }

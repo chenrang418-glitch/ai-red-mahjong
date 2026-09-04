@@ -1,3 +1,4 @@
+import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import type { LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
@@ -459,6 +460,7 @@ export function askNullification(host: CardEngineHost): void {
   // 多目标锦囊才需要「本轮均不使用」：单目标牌只问一轮，多一个按钮反而是噪音
   if (resolution.targetIds.length > 1) actionIds.push(PASS_ROUND_ACTION)
   if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
+  if (canMultiCardViewAs(host.state, responderId, '无懈可击')) actionIds.push(MULTI_VIEWAS_ACTION)
   /*
    * 无亮【忍耐】：**只有当前正在结算的目标是他自己**时才给。
    *
@@ -571,6 +573,7 @@ function askRespondCard(
   for (const option of responseViewAsOptions(host.state, responderId, requiredCardName)) responseCards.add(option.cardId)
   const actionIds = [...responseCards].map((cardId) => `respond-trick:${cardId}`)
   if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
   // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
   if (canRennai(host.state, responderId, resolution.sourceId, actionIds.length > 0,
     usedThisTurn(host.state, responderId, RENNAI_SKILL), skillIdsOf)) {
@@ -723,6 +726,7 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
     const converted = responseViewAsOptions(host.state, response.playerId, request.requiredCardName)
       .some((option) => option.cardId === playedCardId)
     const granted = guhuoGrantedAs(host.state, response.playerId, playedCardId) === request.requiredCardName
+      || multiCardGrantedAs(host.state, response.playerId, playedCardId) === request.requiredCardName
     if (!responder.zones.hand.includes(playedCardId)
       || (host.state.cards[playedCardId]?.name !== request.requiredCardName && !converted && !granted)) {
       throw new Error(`响应牌不是该玩家持有的${request.requiredCardName}`)

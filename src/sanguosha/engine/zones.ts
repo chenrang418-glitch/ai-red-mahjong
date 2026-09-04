@@ -1,4 +1,4 @@
-import type { CardId, EquipmentSlot, PlayerId, SanguoshaState } from './types'
+import type { CardId, DamageNature, EquipmentSlot, PlayerId, SanguoshaState } from './types'
 
 export type ZoneRef =
   | { kind: 'drawPile' }
@@ -81,7 +81,10 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
   if (replaced) addCard(state, options.replaceEquipmentTo ?? { kind: 'discardPile' }, replaced, false)
   // 「当作什么用」只在结算途中有意义。牌回到手牌、弃牌堆或牌堆就该忘掉，
   // 否则下次再摸到它还会顶着上一次的身份。闪电要在判定区之间流转，所以留着。
-  if (to.kind !== 'judgingArea' && to.kind !== 'processingArea') delete state.cardAliases[cardId]
+  if (to.kind !== 'judgingArea' && to.kind !== 'processingArea') {
+    delete state.cardAliases[cardId]
+    delete state.cardNatures[cardId]
+  }
 }
 
 /** 这张牌当前按什么牌名结算：有转化就用转化后的，否则用牌面上印的。 */
@@ -133,6 +136,23 @@ export function effectiveCardName(state: SanguoshaState, cardId: CardId): string
 export function setCardAlias(state: SanguoshaState, cardId: CardId, asName: string): void {
   if (state.cards[cardId]?.name === asName) delete state.cardAliases[cardId]
   else state.cardAliases[cardId] = asName
+}
+
+/**
+ * 这次结算里这张牌算什么伤害属性。
+ *
+ * 默认取牌面自带的属性（【火杀】【雷杀】印在牌上）。但转化技可以把一张
+ * 普通牌当作**火焰**【杀】使用（神赵云【龙魂】的方块），这时属性不在牌面上，
+ * 只属于这一次使用，所以和 `cardAliases` 一样跟着牌走、离开结算区就清掉。
+ */
+export function effectiveDamageNature(state: SanguoshaState, cardId: CardId): DamageNature {
+  return state.cardNatures[cardId] ?? state.cards[cardId]?.damageNature ?? 'normal'
+}
+
+/** 设定本次结算的伤害属性。传 null 清除。 */
+export function setCardNature(state: SanguoshaState, cardId: CardId, nature: DamageNature | null): void {
+  if (!nature || nature === (state.cards[cardId]?.damageNature ?? 'normal')) delete state.cardNatures[cardId]
+  else state.cardNatures[cardId] = nature
 }
 
 export function allLocatedCardIds(state: SanguoshaState): CardId[] {

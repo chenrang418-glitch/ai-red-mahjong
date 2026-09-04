@@ -985,6 +985,31 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
        * 敌人：优先拿走他的装备（最实在的削弱），其次摸一张暗手牌。
        * 友方：优先拿走他判定区的负面延时锦囊（等于帮他解掉），装备留给他。
        */
+      /*
+       * 【龙魂】选底牌：请求里已经把可用花色的牌都列出来了，
+       * 只要挑出**同一花色**的前 N 张——引擎会校验花色一致，交混了会当作放弃。
+       * 优先花掉价值最低的那几张。
+       */
+      if (request.prompt.startsWith('【龙魂】')) {
+        const hand = myself(context.view).hand ?? []
+        const equipment = myself(context.view).equipment ?? []
+        const suitOf = (cardId: string) => (hand.find((card) => card.id === cardId)
+          ?? equipment.find((card) => card.id === cardId))?.suit
+        const valueOf = (cardId: string) => cardValue(cardNameOf(context, cardId))
+        const bySuit = new Map<string, string[]>()
+        for (const cardId of request.cardIds) {
+          const suit = suitOf(cardId)
+          if (!suit) continue
+          bySuit.set(suit, [...(bySuit.get(suit) ?? []), cardId])
+        }
+        for (const cards of bySuit.values()) {
+          if (cards.length < request.min) continue
+          const picked = [...cards].sort((left, right) => valueOf(left) - valueOf(right)).slice(0, request.min)
+          return { ...base, payload: { cardIds: picked } }
+        }
+        // 凑不出同花色就交空，引擎当作放弃，不会卡住
+        return { ...base, payload: { cardIds: [] } }
+      }
       if (request.prompt.startsWith('【归心】：获得')) {
         const target = context.view.players.find((player) => request.prompt.includes(player.nickname))
         const enemy = !target || hostility(context.view, context.suspicion, target.id) > 0
@@ -1623,6 +1648,13 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       }
       if (played) return { ...base, payload: { actionId: played } }
       /*
+       * 神赵云【龙魂】：手上没有真牌时才用，因为它要花掉 X 张同花色的牌。
+       * 血越少 X 越小、越划算，所以低血量时更积极。
+       */
+      if (request.actionIds.includes('multi-viewas')) {
+        return { ...base, payload: { actionId: 'multi-viewas' } }
+      }
+      /*
        * 于吉【蛊惑】打出模式：手上真的没有这张牌时才诈一次。
        * 有真牌就走上面的 preferPlay，不必冒被质疑的风险。
        */
@@ -1643,7 +1675,9 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
 
     case 'rescue': {
       // 濒死救援：自己一定救自己，别人看阵营
-      const playable = request.actionIds.filter((id) => id !== 'rescue-pass' && id !== 'guhuo-respond')
+      const playable = request.actionIds.filter((id) => (
+        id !== 'rescue-pass' && id !== 'guhuo-respond' && id !== 'multi-viewas'
+      ))
       const savingSelf = request.dyingPlayerId === request.playerId
       // 敌意为负说明是自己人（尤其是主公），一定要救
       const worthSaving = savingSelf || hostility(context.view, context.suspicion, request.dyingPlayerId) <= 0
@@ -1653,6 +1687,10 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         return { ...base, payload: { actionId: 'guhuo-respond' } }
       }
       if (playable.length > 0) return { ...base, payload: { actionId: playable[0] } }
+      // 没有真桃时，神赵云可以用【龙魂】把同花色的牌当桃——濒死时 X 最低只要 1 张
+      if (request.actionIds.includes('multi-viewas')) {
+        return { ...base, payload: { actionId: 'multi-viewas' } }
+      }
       // 没有真桃，才轮到于吉【蛊惑】赌一把
       if (request.actionIds.includes('guhuo-respond') && shouldGuhuoRespond(context, '桃')) {
         return { ...base, payload: { actionId: 'guhuo-respond' } }

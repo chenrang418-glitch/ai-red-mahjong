@@ -1,3 +1,4 @@
+import { multiCardGrantedAs } from './multi-card-viewas'
 import { resolveDamage } from './damage'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from './requests'
@@ -363,6 +364,7 @@ export function resolveJudgmentResponse(host: JudgmentEngineHost, request: Respo
     const responder = player(host.state, response.playerId)
     // 蛊惑成立的那一瞬间，那张牌被临时报成【无懈可击】，沿用这里原有的校验
     const granted = guhuoGrantedAs(host.state, response.playerId, cardId) === '无懈可击'
+      || multiCardGrantedAs(host.state, response.playerId, cardId) === '无懈可击'
     const converted = responseViewAsOptions(host.state, response.playerId, '无懈可击')
       .some((option) => option.cardId === cardId)
     if (!responder.zones.hand.includes(cardId) || (!granted && !converted && host.state.cards[cardId]?.name !== '无懈可击')) {

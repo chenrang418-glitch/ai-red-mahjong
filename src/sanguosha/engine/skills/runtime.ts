@@ -3,6 +3,7 @@ import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
+import type { MultiCardViewAsSpec } from '../multi-card-viewas'
 import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit, TurnPhase } from '../types'
 
 export interface TargetedCardContext {
@@ -375,6 +376,13 @@ export interface SkillRuntime {
    * 返回这名玩家当前能做的所有转化，引擎据此生成 LegalAction。
    */
   viewAs?(state: SanguoshaState, ownerId: PlayerId): ViewAsOption[]
+  /**
+   * 「恰好 N 张同花色的牌当作某张牌」的转化能力（神赵云【龙魂】）。
+   *
+   * 和单牌 `viewAs` 分开：那个一次只报一张牌，凑不出「恰好 N 张同花色」这个约束，
+   * 而且把所有组合枚举成选项在手机上没法用。具体流程见 engine/multi-card-viewas.ts。
+   */
+  multiCardViewAs?(state: SanguoshaState, ownerId: PlayerId): MultiCardViewAsSpec | null
 }
 
 const registry = new Map<string, SkillRuntime>()

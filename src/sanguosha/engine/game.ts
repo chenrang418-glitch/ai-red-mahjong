@@ -10,6 +10,7 @@ import { resolveBorrowedKnifeTarget } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
 import { isPindianRequest, resolvePindianResponse } from './pindian'
+import { MULTI_VIEWAS_ACTION, beginMultiCardViewAs } from './multi-card-viewas'
 import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
 import { RENNAI_ACTION, RENNAI_SKILL, armRennai } from './rennai'
 import { markUsedThisTurn } from './turn-usage'
@@ -116,6 +117,7 @@ export class SanguoshaGame {
       armorSuppressions: [],
       huashen: null,
       guhuoResponse: null,
+      multiCardViewAs: null,
       mamaBonds: {},
       judgedDelayedCards: [],
       deathClaim: null,
@@ -124,6 +126,7 @@ export class SanguoshaGame {
       skillQueue: [],
       rngState: 0,
       cardAliases: {},
+      cardNatures: {},
       decisions: [],
       result: null,
     }
@@ -308,6 +311,20 @@ export class SanguoshaGame {
         throw new Error('当前请求不能用蛊惑打出')
       }
       beginGuhuoRespond(this, request as unknown as GameRequest)
+      return
+    }
+
+    /*
+     * 多牌同花色转化（神赵云【龙魂】）也走这条集中认领的路子，理由和蛊惑一样：
+     * 求闪 / 求桃 / 无懈 / 锦囊效果四条路径只需要各多挂一条声明动作。
+     */
+    if ((response.payload as { actionId?: string })?.actionId === MULTI_VIEWAS_ACTION) {
+      if (!('actionIds' in request) || !request.actionIds.includes(MULTI_VIEWAS_ACTION)) {
+        throw new Error('当前请求不能用多牌转化响应')
+      }
+      // 要凑成哪张牌由请求自己带（求桃没有这个字段，默认就是【桃】），和蛊惑同一套读法
+      const target = 'requiredCardName' in request ? String(request.requiredCardName) : '桃'
+      beginMultiCardViewAs(this, request as unknown as GameRequest, target)
       return
     }
 
@@ -528,6 +545,8 @@ export class SanguoshaGame {
     mutable.state = structuredClone(stored)
     // 旧存档里没有这张表，补一个空的，免得后续读写炸掉
     mutable.state.cardAliases ??= {}
+    mutable.state.cardNatures ??= {}
+    mutable.state.multiCardViewAs ??= null
     // 专属牌堆是后加的字段，进行中的旧房间里没有
     for (const player of mutable.state.players) player.characterPiles ??= {}
     // 动态授技与觉醒记账是后加的字段，进行中的旧房间里没有

@@ -160,8 +160,16 @@ describe('无头压测', () => {
       const results = runSoakBatch(40, count, 'ci')
       // 不死循环、不抛异常、不出现非法状态（牌张守恒和 invariant 在每一步都查过）
       expect(results.every((result) => result.finished)).toBe(true)
-      expect(results.every((result) => result.survivors >= 1)).toBe(true)
       expect(results.every((result) => result.winningCamp !== null)).toBe(true)
+      /*
+       * **不能断言「至少有一名幸存者」**——那不是真的不变式。
+       *
+       * 神关羽【武魂】在他真正死亡之后还能再判定杀死一名角色，
+       * 连锁下去整桌清空是完全合法的结果（seed=ci-5-35 就是这样）。
+       * 主公死亡时反贼获胜，即使反贼自己也已经全部阵亡——这是标准身份局规则，
+       * 已死的反贼照样算赢。所以这里只要求牌局有明确结果。
+       */
+      expect(results.every((result) => result.survivors >= 0)).toBe(true)
       /*
        * 回合数应当在合理区间。
        *

@@ -1,3 +1,4 @@
+import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import { findLegalAction, type LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance } from '../distance'
@@ -9,7 +10,7 @@ import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { CardId, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
-import { effectiveCardName, locateOwnedCard, moveCard, setCardAlias } from '../zones'
+import { effectiveCardName, effectiveDamageNature, locateOwnedCard, moveCard, setCardAlias } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { canUseSlash, slashRules, slashTargetLimit } from '../slash-rules'
 import { PASS_ROUND_ACTION } from '../nullification'
@@ -263,7 +264,6 @@ function beginSlash(
     targetIds = runtime.modifySlashTargets?.(host, action.playerId, targetIds, candidateIds) ?? targetIds
   }
   const [targetId, ...remainingTargetIds] = targetIds
-  const card = host.state.cards[cardId]
   if (!beginActionPhysicalCard(host, action.playerId, cardId, targetIds, '杀')) return
   // 丈八蛇矛：第二张牌和主牌一起进处理区，结算结束时一起弃掉
   for (const extra of extraCardIds) {
@@ -276,7 +276,8 @@ function beginSlash(
   if (consumeWine) host.state.turnUsage.wineDamageBonus = 0
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
-    damageNature: card.damageNature ?? 'normal', damageAmount,
+    // 属性走公共入口：转化技可以把普通牌当火杀用（龙魂的方块），属性不在牌面上
+    damageNature: effectiveDamageNature(host.state, cardId), damageAmount,
     stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [], extraCardIds,
     remainingTargetIds: [...remainingTargetIds],
     dodgeRemaining: slashDodgeRequirement(host, action.playerId, targetId),
@@ -395,7 +396,7 @@ function enterSlashTarget(host: CardEngineHost): void {
   if (resolution?.kind !== 'slash') return
   const card = host.state.cards[resolution.cardId]
   const slashColor = card.virtual ? null : effectiveCardColor(host.state, resolution.sourceId, card.id, skillIdsOf)
-  if (isCardIneffective(host.state, resolution.targetId, '杀', slashColor, card.damageNature ?? 'normal', resolution.sourceId)) {
+  if (isCardIneffective(host.state, resolution.targetId, '杀', slashColor, resolution.damageNature, resolution.sourceId)) {
     continueSlash(host)
     return
   }
@@ -586,6 +587,7 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   // 于吉【蛊惑】：声明打出一张【闪】。入口只是多一条动作 id，
   // 挂起和恢复由 game.respondInner 统一处理
   if (canGuhuoRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  if (canMultiCardViewAs(host.state, responderId, '闪')) actionIds.push(MULTI_VIEWAS_ACTION)
   /*
    * 无亮【忍耐】：本来能响应才给这个入口。
    *
@@ -865,6 +867,7 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
     const heldName = host.state.cards[responseCardId]?.name
     // 蛊惑成立的那一瞬间，那张牌被临时报成声明的牌，沿用这里原有的校验
     const granted = guhuoGrantedAs(host.state, response.playerId, responseCardId) === requiredName
+      || multiCardGrantedAs(host.state, response.playerId, responseCardId) === requiredName
     const convertible = granted || (resolution.kind === 'slash'
       ? dodgeViewAsOptions(host.state, response.playerId).some((option) => option.cardId === responseCardId)
       : responseViewAsOptions(host.state, response.playerId, requiredName).some((option) => option.cardId === responseCardId))
@@ -1070,14 +1073,13 @@ provideEquipmentCallbacks({
     if (engineHost.state.zones.discardPile.includes(cardId)) {
       moveCard(engineHost.state, cardId, { kind: 'discardPile' }, { kind: 'processingArea' })
     }
-    const card = engineHost.state.cards[cardId]
     const metadata = { sourceId, targetId, cardIds: [cardId] }
     engineHost.dispatch('CardUsed', { cardId, cardName: '杀', targetIds: [targetId] }, metadata)
     engineHost.dispatch('TargetSpecified', { cardId, cardName: '杀', targetIds: [targetId] }, metadata)
     engineHost.dispatch('TargetConfirmed', { cardId, cardName: '杀', targetId }, metadata)
     engineHost.state.cardResolution = {
       kind: 'slash', cardId, sourceId, targetId,
-      damageNature: card.damageNature ?? 'normal',
+      damageNature: effectiveDamageNature(engineHost.state, cardId),
       // 借刀的【杀】不吃使用者的酒，也不占他的出杀次数——那不是他的出牌阶段
       damageAmount: 1,
       stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [],

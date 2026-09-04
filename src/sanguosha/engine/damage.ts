@@ -1,3 +1,4 @@
+import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from './multi-card-viewas'
 import { clearArmorSuppressionsOf } from './armor-suppression'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
@@ -131,6 +132,8 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
   const actionIds = [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
   // 于吉【蛊惑】：声明打出一张【桃】救人（含救自己）
   if (!peachProhibited && canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  // 龙魂这类多牌同花色转化：同样只多挂一条声明动作，引擎集中认领
+  if (!peachProhibited && canMultiCardViewAs(state, responderId, '桃')) actionIds.push(MULTI_VIEWAS_ACTION)
   return actionIds
 }
 
@@ -476,6 +479,7 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
   if (!responder.zones.hand.includes(cardId) || !request.actionIds.includes(actionId)) throw new Error('救援牌不属于响应玩家')
   const card = host.state.cards[cardId]
   const asPeach = guhuoGrantedAs(host.state, responder.id, cardId) === '桃'
+    || multiCardGrantedAs(host.state, responder.id, cardId) === '桃'
     || skillsOf(host.state, responder.id, skillIdsOf)
       .flatMap((runtime) => runtime.viewAs?.(host.state, responder.id) ?? [])
       .some((option) => option.asCardName === '桃' && option.cardId === cardId)
