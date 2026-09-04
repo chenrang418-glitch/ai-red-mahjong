@@ -1,3 +1,4 @@
+import { isArmorSuppressed } from './armor-suppression'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { cardEffectInvalidBy, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
@@ -33,14 +34,31 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return found
 }
 
-/** 某人是否穿着指定防具。 */
-export function hasArmor(state: SanguoshaState, playerId: PlayerId, armorName: string): boolean {
+/**
+ * 某人是否穿着指定防具。
+ *
+ * 给了 `againstSourceId` 就把「防具技能对这个来源无效」一并算进来
+ * （神吕布【无前】）：**牌还在装备区，只是技能对这个来源不生效**，
+ * 所以判断在这里做，不是把装备拆掉。
+ */
+export function hasArmor(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  armorName: string,
+  againstSourceId?: PlayerId | null,
+): boolean {
+  if (isArmorSuppressed(state, playerId, againstSourceId)) return false
   const armorId = playerOf(state, playerId).zones.equipment.armor
   return !!armorId && state.cards[armorId]?.name === armorName
 }
 
 /** 真实装备优先；只有装备槽为空时技能才可提供没有 CardId 的虚拟防具。 */
-export function effectiveArmorName(state: SanguoshaState, playerId: PlayerId): string | null {
+export function effectiveArmorName(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  againstSourceId?: PlayerId | null,
+): string | null {
+  if (isArmorSuppressed(state, playerId, againstSourceId)) return null
   const owner = playerOf(state, playerId)
   const realArmorId = owner.zones.equipment.armor
   if (realArmorId) return state.cards[realArmorId]?.name ?? null
@@ -80,13 +98,13 @@ export function isCardIneffective(
 ): boolean {
   if (cardEffectInvalidBy(state, targetId, sourceId, cardName)) return true
   if (cardName === '杀') {
-    if (hasArmor(state, targetId, '仁王盾') && cardColor === 'black') return true
+    if (hasArmor(state, targetId, '仁王盾', sourceId) && cardColor === 'black') return true
     // 藤甲只挡普通杀，火杀雷杀照样打得进来
-    if (hasArmor(state, targetId, '藤甲') && damageNature === 'normal') return true
+    if (hasArmor(state, targetId, '藤甲', sourceId) && damageNature === 'normal') return true
     return false
   }
   if (cardName === '南蛮入侵' || cardName === '万箭齐发') {
-    return hasArmor(state, targetId, '藤甲')
+    return hasArmor(state, targetId, '藤甲', sourceId)
   }
   return false
 }
@@ -112,8 +130,8 @@ export function adjustDamageAmount(
   if (cardName === '杀' && sourceId && hasWeapon(state, sourceId, '古锭刀')) {
     if (playerOf(state, targetId).zones.hand.length === 0) adjusted += 1
   }
-  if (nature === 'fire' && hasArmor(state, targetId, '藤甲')) adjusted += 1
-  if (hasArmor(state, targetId, '白银狮子') && adjusted > 1) adjusted = 1
+  if (nature === 'fire' && hasArmor(state, targetId, '藤甲', sourceId)) adjusted += 1
+  if (hasArmor(state, targetId, '白银狮子', sourceId) && adjusted > 1) adjusted = 1
   return adjusted
 }
 
@@ -144,6 +162,11 @@ export function handleEquipmentLost(host: EquipmentHost, playerId: PlayerId, car
 /** 八卦阵：需要打出【闪】时，可以改为判定，红色即视为出了一张【闪】。 */
 export const BAGUA_ACTION_ID = 'invoke-bagua'
 
-export function canInvokeBagua(state: SanguoshaState, playerId: PlayerId): boolean {
-  return effectiveArmorName(state, playerId) === '八卦阵'
+export function canInvokeBagua(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  againstSourceId?: PlayerId | null,
+): boolean {
+  // 八卦阵是「防具技能」，被【无前】压制的目标对那个来源用不了它
+  return effectiveArmorName(state, playerId, againstSourceId) === '八卦阵'
 }

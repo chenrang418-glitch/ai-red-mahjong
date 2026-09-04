@@ -1,5 +1,6 @@
 import type { GameEventName } from './events'
 import type { SanguoshaState, TurnPhase } from './types'
+import { expireArmorSuppressions } from './armor-suppression'
 import { clearTurnSlashRules } from './slash-rules'
 import { expireTargetStates } from './target-state'
 
@@ -185,6 +186,8 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   for (const player of state.players) player.turnUsedSkills = []
   // 本回合的临时杀规则（太史慈【天义】）同样在这里统一抹掉，技能不各自注册清理
   clearTurnSlashRules(state)
+  // 来源绑定的防具失效（神吕布【无前】）也是「直到本回合结束」，同样统一清
+  expireArmorSuppressions(state)
   // TurnEnd 触发的技能必须先完整结算，不能先发下一名角色的 TurnStart。
   // 断点进入 State，回应结束或重连恢复后由 Game.settle 续接。
   if (

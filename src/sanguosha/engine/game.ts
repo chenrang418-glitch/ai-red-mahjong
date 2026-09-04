@@ -113,6 +113,7 @@ export class SanguoshaGame {
       pindian: null,
       pindianSettlement: null,
       discardPhaseLedger: null,
+      armorSuppressions: [],
       huashen: null,
       guhuoResponse: null,
       mamaBonds: {},
@@ -542,6 +543,7 @@ export class SanguoshaGame {
     mutable.state.pindian ??= null
     mutable.state.pindianSettlement ??= null
     mutable.state.discardPhaseLedger ??= null
+    mutable.state.armorSuppressions ??= []
     mutable.state.huashen ??= null
     mutable.state.guhuoResponse ??= null
     // 阶段进入窗口是后加的字段，进行中的旧房间里没有

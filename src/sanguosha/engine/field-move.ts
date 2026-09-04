@@ -1,3 +1,4 @@
+import { DELAYED_TRICKS } from './cards/tricks'
 import type { EquipmentHost } from './equipment'
 import { handleEquipmentLost } from './equipment'
 import type { CardId, EquipmentSlot, PlayerId, SanguoshaState } from './types'
@@ -19,7 +20,6 @@ import { effectiveCardName, moveCard, type ZoneRef } from './zones'
  *    自己写一遍规则。
  */
 
-const DELAYED_TRICKS = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
 export interface FieldCard {
   cardId: CardId

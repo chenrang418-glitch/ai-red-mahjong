@@ -632,6 +632,37 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
     case 'yeyan':
       // 限定技，一局一次：场上有值得烧的敌人才交，血太少不冒险走大业炎那条
       return bestTarget > 4 && me.hp >= 2 ? 20 : -100
+    case 'wuqian': {
+      /*
+       * 【无前】：2 枚暴怒换本回合无双 + 一名角色防具失效。
+       *
+       * 手上有杀才值得——无双是「目标要出两张闪」，没杀打不出来就是白花。
+       * 攒神愤（6 枚）期间不要把暴怒花在这里。
+       */
+      const rage = me.marks?.rage ?? 0
+      const slashes = (me.hand ?? []).filter((card) => card.name === '杀').length
+      if (slashes === 0) return -100
+      // 差一点就能神愤时先攒着
+      if (rage >= 4 && rage < 6) return -100
+      return bestTarget > 0 ? 14 + slashes : -100
+    }
+    case 'shenfen': {
+      /*
+       * 【神愤】：6 枚暴怒，全场各 1 伤 + 弃光装备 + 弃四张手牌，自己翻面。
+       *
+       * 收益随敌人数量涨，但**翻面要跳过下一个回合**，而且友方也会一起吃。
+       * 敌人明显多于友方时才值得；只剩一个敌人时不如留着暴怒打无前。
+       */
+      const others = context.view.players.filter((player) => player.alive && player.id !== me.id)
+      const foes = others.filter((player) => hostility(context.view, context.suspicion, player.id) > 0).length
+      const friends = others.length - foes
+      if (foes === 0) return -100
+      // 能直接打死人时非常值
+      const lethal = others.some((player) => player.hp <= 1
+        && hostility(context.view, context.suspicion, player.id) > 0)
+      if (lethal) return 30
+      return foes > friends ? 18 : -100
+    }
     case 'gongxin':
       // 看牌本身没有代价，能顺手拆掉一张红桃桃 / 闪就是纯赚
       return bestTarget > 0 ? 12 : 4
@@ -1152,6 +1183,25 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         return { ...base, payload: { targetIds: ranked.slice(0, 1) } }
       }
       /*
+       * 【无前】选目标。**绝不交空数组**——和挑衅、攻心、业炎同一类坑：
+       * 交空会让技能不被消耗，出牌阶段可以原样再发一次，直接转成死循环。
+       * 要不要发动已经在 skillActionScore 里判过了。
+       */
+      if (request.prompt.startsWith('【无前】')) {
+        const scored = [...request.candidateIds].sort((left, right) => {
+          const weight = (playerId: string) => {
+            const player = context.view.players.find((candidate) => candidate.id === playerId)
+            if (!player) return -99
+            // 优先选敌人，其次选有防具的（压制才有意义），再次选手牌少好打的
+            const enemy = hostility(context.view, context.suspicion, playerId) > 0 ? 10 : 0
+            const armored = player.equipment.some((card) => card.equipmentSlot === 'armor') ? 5 : 0
+            return enemy + armored - player.handCount * 0.3
+          }
+          return weight(right) - weight(left)
+        })
+        return { ...base, payload: { targetIds: scored.length > 0 ? [scored[0]] : [] } }
+      }
+      /*
        * 【业炎】选目标。**绝不交空数组**——和攻心、挑衅同一类坑：
        * 取消不消耗限定技，交空之后技能仍然可用，AI 立刻再发动一次就死循环
        * （seed=balance-5-26）。发不发动已经在 skillActionScore 里判过了。
@@ -1300,6 +1350,18 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
        * 正面朝上时要拿得够多才值——只有一名角色有牌的话，
        * 一张牌换掉一个回合通常亏。
        */
+      /*
+       * 【无谋】：花暴怒还是掉血。
+       *
+       * 暴怒是神吕布的核心资源（无前 2 枚、神愤 6 枚），血是命。
+       * 血少的时候优先花暴怒；血够而暴怒正好卡在神愤门槛上时宁可掉血。
+       */
+      if (request.prompt.startsWith('【无谋】')) {
+        const rage = me.marks?.rage ?? 0
+        const savingForShenfen = rage >= 6 && rage <= 7
+        const payHp = me.hp >= 3 && (savingForShenfen || rage <= 2)
+        return { ...base, payload: { optionId: payHp ? 'hp' : 'rage' } }
+      }
       if (request.prompt.startsWith('发动【归心】')) {
         const donors = context.view.players.filter((player) => (
           player.alive && player.id !== me.id && (player.handCount > 0 || player.equipment.length > 0 || player.judgingArea.length > 0)

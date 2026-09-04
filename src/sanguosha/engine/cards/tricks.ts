@@ -33,6 +33,13 @@ import { setChained } from '../character-state'
  */
 
 /** 需要逐个目标问无懈、且效果由本模块处理的即时锦囊。 */
+/**
+ * 延时锦囊。放在这里和 `INSTANT_TRICKS` 做邻居，是为了只有一份定义——
+ * 原本 `cards/basic.ts` 和 `field-move.ts` 各自抄了一份。
+ * 神吕布【无谋】要区分「非延时锦囊」，再抄第三份迟早对不上。
+ */
+export const DELAYED_TRICKS = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
+
 export const INSTANT_TRICKS = new Set([
   '无中生有', '桃园结义', '铁索连环', '南蛮入侵', '万箭齐发',
   '决斗', '过河拆桥', '顺手牵羊', '五谷丰登', '火攻', '借刀杀人',

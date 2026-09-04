@@ -1,3 +1,4 @@
+import { clearArmorSuppressionsOf } from './armor-suppression'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { checkIdentityVictory } from './modes/identity'
@@ -231,6 +232,7 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
    * 施加者死了就再也不会有「他的下一个回合」，留着等于永久生效。
    */
   clearTargetStatesOf(host.state, playerId)
+  clearArmorSuppressionsOf(host.state, playerId)
   host.dispatch('Death', { playerId, sourceId, identity: dead.identity }, { sourceId: sourceId ?? undefined, targetId: playerId })
   host.state.dying = null
 

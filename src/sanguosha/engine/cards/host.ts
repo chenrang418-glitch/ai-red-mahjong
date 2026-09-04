@@ -73,6 +73,21 @@ export function beginPhysicalCard(
     return false
   }
   host.dispatch('CardUsed', { cardId, cardName, targetIds }, metadata)
+  /*
+   * 使用时机里的技能可能把牌局直接打完。
+   *
+   * 神吕布【无谋】就能做到：使用非延时锦囊要付代价，没有暴怒时强制失去 1 点体力，
+   * 1 血的主公用一张【决斗】就把自己送走了。引擎在牌局结束时会清空待回应请求，
+   * 但那之后这张牌的结算还在继续，又发出一个新的求【杀】请求——
+   * 牌局已经 game-over 却仍挂着 Request（压测 seed=soak-5-82 抓到）。
+   *
+   * 这不是某个技能的问题：任何能在使用时机里造成死亡的效果都会踩。
+   * 所以在公共入口这里收口：牌局结束就不再往下结算，牌照常收进弃牌堆。
+   */
+  if (host.state.status !== 'playing') {
+    finishPhysicalCard(host, sourceId, cardId, targetIds, true, cardName)
+    return false
+  }
   host.dispatch('TargetSpecified', { cardId, cardName, targetIds }, metadata)
   for (const targetId of targetIds) {
     host.dispatch('TargetConfirmed', { cardId, cardName, targetId }, { sourceId, targetId, cardIds: [cardId] })

@@ -21,6 +21,7 @@ import { skillDisplayName } from '../presentation'
 import type { CardEngineHost } from './host'
 import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, useAction } from './host'
 import {
+  DELAYED_TRICKS,
   INSTANT_TRICKS,
   askNullification,
   beginInstantTrick,
@@ -33,7 +34,6 @@ import {
 
 export type { CardEngineHost }
 
-const DELAYED_TRICKS = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
 
 /** 出牌阶段这名玩家能做的所有牌面转化。 */
 function viewAsPlayOptions(state: SanguoshaState, playerId: PlayerId) {
@@ -577,7 +577,12 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   }
   // 八卦阵不是手牌，但同样是「打出闪」的一种途径，必须出现在合法动作里，
   // 否则前端永远点不到它——服务端支持不等于前端能用。
-  if (allowBagua && canInvokeBagua(host.state, responderId)) actionIds.push(BAGUA_ACTION_ID)
+  /*
+   * 八卦阵是防具技能，会被【无前】按来源压制。求闪时的「来源」就是这张【杀】的使用者，
+   * 从当前【杀】结算状态里取——askDodge 本身拿不到，也不该另存一份。
+   */
+  const slashSourceId = host.state.cardResolution?.kind === 'slash' ? host.state.cardResolution.sourceId : null
+  if (allowBagua && canInvokeBagua(host.state, responderId, slashSourceId)) actionIds.push(BAGUA_ACTION_ID)
   // 于吉【蛊惑】：声明打出一张【闪】。入口只是多一条动作 id，
   // 挂起和恢复由 game.respondInner 统一处理
   if (canGuhuoRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
@@ -825,7 +830,10 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
 
   // 八卦阵：判定红色就当作打出了一张【闪】，黑色则视为没有响应
   if (actionId === BAGUA_ACTION_ID) {
-    if (resolution.kind !== 'slash' || !canInvokeBagua(host.state, response.playerId)) throw new Error('当前不能发动【八卦阵】')
+    // 校验也要带来源，否则前端不显示但服务端照样放行，等于【无前】没压制住
+    if (resolution.kind !== 'slash' || !canInvokeBagua(host.state, response.playerId, resolution.sourceId)) {
+      throw new Error('当前不能发动【八卦阵】')
+    }
     removeResponseRequest(host.state, request.id)
     resolution.requestId = null
     recordResponse(host, request, response)

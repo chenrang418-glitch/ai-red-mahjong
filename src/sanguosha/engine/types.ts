@@ -234,6 +234,8 @@ export interface PindianSettlementState {
   cardIds: CardId[]
 }
 
+import type { ArmorSuppression } from './armor-suppression'
+
 export interface DiscardPhaseRecord {
   cardId: CardId
   sourcePlayerId: PlayerId
@@ -645,6 +647,8 @@ export interface SanguoshaState {
   pindianSettlement: PindianSettlementState | null
   /** 当前弃牌阶段中，因“弃置”进入弃牌堆的实体牌来源。 */
   discardPhaseLedger: DiscardPhaseLedgerState | null
+  /** 来源绑定的临时防具失效（神吕布【无前】）。见 engine/armor-suppression.ts。 */
+  armorSuppressions: ArmorSuppression[]
   /** 服务端权威化身牌库；PlayerView 会按观察者裁剪。 */
   huashen: HuashenGameState | null
   /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
