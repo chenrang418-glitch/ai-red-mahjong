@@ -947,6 +947,27 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         }
         return { ...base, payload: { cardIds: [...bySuit.values()].slice(0, 4) } }
       }
+      /*
+       * 【归心】从某人区域里拿一张。请求里装备区和判定区是公开的 cardId，
+       * 手牌只有占位槽——看不见牌面，这是规则要求的，不要试图绕过。
+       *
+       * 敌人：优先拿走他的装备（最实在的削弱），其次摸一张暗手牌。
+       * 友方：优先拿走他判定区的负面延时锦囊（等于帮他解掉），装备留给他。
+       */
+      if (request.prompt.startsWith('【归心】：获得')) {
+        const target = context.view.players.find((player) => request.prompt.includes(player.nickname))
+        const enemy = !target || hostility(context.view, context.suspicion, target.id) > 0
+        const judging = new Set(target?.judgingArea?.map((card) => card.id) ?? [])
+        const open = [...request.cardIds]
+        const equipment = open.filter((cardId) => !judging.has(cardId))
+        const delayed = open.filter((cardId) => judging.has(cardId))
+        const byValue = (left: string, right: string) => cardValue(cardNameOf(context, right)) - cardValue(cardNameOf(context, left))
+        const preferred = enemy
+          ? [...equipment.sort(byValue), ...request.hiddenCardSlots, ...delayed]
+          : [...delayed, ...request.hiddenCardSlots, ...equipment.sort(byValue)]
+        const picked = preferred[0] ?? open[0] ?? request.hiddenCardSlots[0]
+        return { ...base, payload: { cardIds: picked ? [picked] : [] } }
+      }
       if (request.prompt.startsWith('【直谏】')) {
         const cheapest = [...request.cardIds].sort((left, right) => cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right)))[0]
         return { ...base, payload: { cardIds: cheapest ? [cheapest] : [] } }
@@ -1271,6 +1292,19 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       if (request.prompt.includes('是否更换【化身】')) {
         // 回合开始优先调整，回合结束保留当前技能，避免无意义地频繁切换。
         return { ...base, payload: { optionId: request.prompt.startsWith('回合开始时') ? 'yes' : 'no' } }
+      }
+      /*
+       * 【归心】要不要发动。代价是**翻面**（背面朝上会跳过下一个回合）。
+       *
+       * 已经背面朝上时无脑发动：既拿牌又翻回正面，纯赚。
+       * 正面朝上时要拿得够多才值——只有一名角色有牌的话，
+       * 一张牌换掉一个回合通常亏。
+       */
+      if (request.prompt.startsWith('发动【归心】')) {
+        const donors = context.view.players.filter((player) => (
+          player.alive && player.id !== me.id && (player.handCount > 0 || player.equipment.length > 0 || player.judgingArea.length > 0)
+        )).length
+        return { ...base, payload: { optionId: me.faceDown || donors >= 2 ? 'yes' : 'no' } }
       }
       if (request.prompt.startsWith('发动【新生】')) return { ...base, payload: { optionId: 'yes' } }
       if (request.prompt.startsWith('发动【激昂】')) return { ...base, payload: { optionId: 'yes' } }

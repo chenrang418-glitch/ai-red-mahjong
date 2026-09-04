@@ -11,9 +11,15 @@ import { locateOwnedCard, moveCard, type ZoneRef } from './zones'
  * 挑的人不许先看见点数花色再决定拿哪张。这条隐私纪律必须只有一份实现，
  * 各技能自己拼一遍迟早会漏掉某一处。
  *
- * 判定区的牌不在候选里：现有的「获得/弃置一张牌」类技能都不涉及判定区，
- * 需要时应当在这里显式加一个开关，而不是让某个技能自己去读 judgingArea。
+ * 判定区默认不在候选里：顺手牵羊、过河拆桥这些按本项目锁定的规则只动手牌和装备区。
+ * 需要判定区的（神曹操【归心】的「区域里的牌」包含判定区）传 `includeJudgingArea`，
+ * 而不是让技能自己去读 `judgingArea`——隐私和移动收尾的实现只能有一份。
  */
+
+export interface PickableOptions {
+  /** 把判定区的牌也列进候选。判定区是公开的，所以直接给真实 cardId。 */
+  includeJudgingArea?: boolean
+}
 
 export interface PickableCards {
   /** 公开可选的牌（装备区）。 */
@@ -23,18 +29,28 @@ export interface PickableCards {
 }
 
 /** 某名角色现在有哪些牌可以被别人挑走。 */
-export function pickableCardsOf(state: SanguoshaState, targetId: PlayerId): PickableCards {
+export function pickableCardsOf(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  options: PickableOptions = {},
+): PickableCards {
   const target = state.players.find((candidate) => candidate.id === targetId)
   if (!target?.alive) return { cardIds: [], hiddenCardSlots: [] }
+  const open = Object.values(target.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId))
+  if (options.includeJudgingArea) open.push(...target.zones.judgingArea)
   return {
-    cardIds: Object.values(target.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId)),
+    cardIds: open,
     hiddenCardSlots: target.zones.hand.map((_, index) => hiddenHandSlot(targetId, index)),
   }
 }
 
 /** 现在还有没有牌可挑。没有就不该发出一个空请求。 */
-export function hasPickableCards(state: SanguoshaState, targetId: PlayerId): boolean {
-  const pickable = pickableCardsOf(state, targetId)
+export function hasPickableCards(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  options: PickableOptions = {},
+): boolean {
+  const pickable = pickableCardsOf(state, targetId, options)
   return pickable.cardIds.length + pickable.hiddenCardSlots.length > 0
 }
 
