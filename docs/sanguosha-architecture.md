@@ -153,3 +153,47 @@ Wrangler DO migration 已追加到 tag `v3`；D1 migration 已追加到 `0006_sa
 5. 补门户、刷新与溢出测试。
 
 不需要改写 GamePortal 卡片模板。
+
+
+## 回合调度：正常回合与额外回合（2026-09-04）
+
+回合归属由**两个**字段共同决定，不能合并：
+
+- `currentPlayerId`：当前回合是谁的。额外回合期间指向插队的那个人。
+- `normalTurnPlayerId`：正常座次游标。**只有正常回合会推进它。**
+
+`state.extraTurns` 是先进先出的额外回合队列（刘禅【放权】排进去）。
+`turn.ts` 的 `nextTurnEntry` 先取队列，取不到才按座次往下数：
+
+```
+正常回合 A 结束
+  ↓ 队列里有 C
+额外回合 C（normalTurnPlayerId 仍然停在 A）
+  ↓ 队列空了
+正常回合 B（从 A 往后数，不是从 C 往后数）
+```
+
+合成一个字段的话，B 的正常回合会被直接吃掉——这是整套调度里最要紧的不变量，
+`tests/sanguosha-liushan.test.ts` 的「额外回合的调度不变量」一组钉着它。
+
+额外回合是**完整回合**：六个阶段、翻面跳过、觉醒、「回合限一次」重置全部照常，
+因为它和正常回合走的是同一个 `beginTurn`。
+
+## 阶段的开始：`PhaseStart` 由阶段引擎发出（2026-09-04）
+
+`turn.ts` 的 `advancePhase` **只推进阶段指针并返回 boolean**，不发 `PhaseStart`。
+阶段真正开始之前还有一个可挂起的公共窗口——「付代价跳过这个阶段」
+（`SkillRuntime.offerPhaseSkip`，张郃【巧变】和刘禅【放权】在用）。
+
+```
+advancePhase（推进指针，发 PhaseEnd/TurnEnd/TurnStart）
+  ↓
+beginPhaseEntry（逐个问技能要不要跳过，可挂起）
+  ↓ 没人跳过
+PhaseStart → enterCurrentPhase（跑阶段内容）
+  ↓ 有人跳过
+skipPhase + 直接进入下一个阶段（不发 PhaseStart，不跑阶段内容）
+```
+
+在窗口挂起期间发 `PhaseStart`，会让挂在阶段上的技能（英魂、崩坏、观星）
+在一个**最终被跳过的阶段**里错误触发。

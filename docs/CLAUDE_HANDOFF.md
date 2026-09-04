@@ -1,6 +1,6 @@
 # 交接说明：CRPlay（红中麻将 + 三国杀）
 
-更新时间：2026-09-03（**林包八将全部完成**）。
+更新时间：2026-09-04（**山包前四将完成，武将总池 60 名**）。
 
 ## 先做什么
 
@@ -110,6 +110,22 @@
   | 贾诩（群 3 血） | 完杀、乱武、帷幕 | `data/characters/forest-jiaxu.ts` |
 
   **林包普通武将 8 / 8，已全部完成。**
+
+  山包 4 名（2026-09-04 新增，**一律经典「神话再临·山」首版**）：
+
+  | 武将 | 技能 | 文件 |
+  |---|---|---|
+  | 张郃（魏 4 血） | 巧变 | `data/characters/mountain-zhanghe.ts` |
+  | 邓艾（魏 4 血） | 屯田、凿险（觉醒）、急袭 | `data/characters/mountain-dengai.ts` |
+  | 姜维（蜀 4 血） | 挑衅、志继（觉醒）、观星 | `data/characters/mountain-jiangwei.ts` |
+  | 刘禅（蜀 3 血） | 享乐、放权、若愚（主公觉醒）、激将 | `data/characters/mountain-liushan.ts` |
+
+  **不要混进改版**：张郃跳判定阶段**不会**获得判定区的牌（那是界张郃）；
+  刘禅【放权】**没有**「手牌上限等于体力上限」的强化（那是界刘禅）；
+  姜维【志继】的条件是**严格没有手牌**，不是「手牌最少」；
+  邓艾【屯田】减的是**自己到别人**的距离，别人到他的距离不变。
+
+  **山包普通武将 4 / 8**，剩余：孙策、张昭张纮、蔡文姬、左慈。
 
   几条最容易写错、务必按原文的地方：**颂威和暴虐的发动者都是「其」——
   那名魏 / 群势力角色，不是主公自己**；**崩坏是「不是全场最低」才触发，
@@ -323,6 +339,52 @@
 3. **「需要几张闪」多个来源取 max 不是相加**：无双和肉林撞在一起仍然是两张。
 4. **乱武没有新建引擎状态**，用现成的 `skillQueue` 串起来，
    排队项挂在当前参与者身上而不是贾诩——挂贾诩的话他中途死了后面就全被跳过。
+
+## 山包前四将引入的公共机制（2026-09-04）
+
+这一轮的重点**不是四个武将，而是七个公共机制**。改山包后四将（孙策、张昭张纮、
+蔡文姬、左慈）之前先看这一节，已经有的一律复用，不要造第二套。
+
+| 机制 | 入口 | 谁在用 |
+|---|---|---|
+| 阶段开始前的付代价跳过窗口 | `SkillRuntime.offerPhaseSkip` + `phase.ts` 的 `beginPhaseEntry` / `continuePhaseEntry`；技能答完调 `host.resumePhaseEntry()` | 张郃【巧变】、刘禅【放权】 |
+| 场上牌移动 | `engine/field-move.ts` 的 `fieldCards` / `fieldMoveDestinations` / `moveFieldCard` | 张郃【巧变】 |
+| 觉醒技 | `SkillRuntime.awakening`（`ready` + `invoke`），记账在 `player.awakenedSkills` | 邓艾【凿险】、姜维【志继】、刘禅【若愚】 |
+| 运行中获得技能 | `grantSkill` + `player.grantedSkills` + `ownedSkillIds`；定义侧用 `CharacterSkillInfo.granted` 标记 | 急袭 / 观星 / 激将 |
+| 动态距离修正 | `distanceModifier.toOthers` 支持**函数**形态 | 邓艾【屯田】 |
+| 专属牌堆当 ViewAs 底牌 | `locateOwnedCard(..., { includeCharacterPiles: true })` | 邓艾【急袭】 |
+| 要求某人使用【杀】 | `engine/ask-use-slash.ts` 的 `slashUseOptions` / `canUseSlashAt` / `attackRangeCovers` | 姜维【挑衅】 |
+| 额外回合调度 | `state.extraTurns` + `queueExtraTurn`；`normalTurnPlayerId` 与 `currentPlayerId` 分离 | 刘禅【放权】 |
+
+八条改动前必读：
+
+1. **`PhaseStart` 的发出权已经从 `turn.ts` 移到 `phase.ts`。**
+   `advancePhase` 现在只推进阶段指针并返回 boolean，不发 `PhaseStart`——
+   阶段真正开始前还有一个可挂起的跳过窗口，那期间阶段还没开始，
+   此时发 `PhaseStart` 会让阶段技能在一个最终被跳过的阶段里误触发。
+2. **跳过必须走 `skipPhase` / `skippedPhases`。** 「摸 0 张」「手牌上限设无穷」
+   「AI 直接 pass」都不是跳过，兵粮寸断、好施、放权读的都是同一份 `skippedPhases`。
+3. **额外回合绝不推进正常座次。** `normalTurnPlayerId` 单独存在就是为了这条；
+   合成一个字段的话，被插队者的正常回合会被直接吃掉。上一个回合是正常回合时
+   仍按 `currentPlayerId` 往后数，所以既有调用方和测试脚手架行为不变。
+4. **觉醒技不问玩家要不要**，条件成立即发动；效果内部的选择（志继二选一）才是玩家的。
+   引擎在调用 `invoke` **之前**就记好了账，所以觉醒过程可以安全挂起发问。
+5. **绝不改 `CharacterDefinition` 来授予技能**——那是模块级共享常量，
+   改一次全进程的同名武将都会跟着变。授技一律走 `player.grantedSkills`。
+   定义里列出来的技能要加 `granted: true`，否则开局就拥有，觉醒技就没意义了。
+6. **回合外触发的技能要走 `queueSkill`，不能当场 `askSkill`。**
+   失去牌几乎总在别人的牌结算途中，当场发问会撞「已有技能正在等待回应」直接抛错。
+   屯田就是这么炸过一次的。
+7. **`interceptTarget` 返回 true 的含义是「我已经挂起并发出了 Request」。**
+   要同步作废当前目标就标 `resolution.targetCancelled` 并返回 **false**，
+   `enterSlashTarget` 会收束它。返回 true 却同步走完会留下
+   「成为目标阶段缺少技能等待状态」的坏状态。
+8. **转化技拿出来的底牌印的不是【杀】。** 交给 `beginVirtualSlash` 之前
+   调用方必须先 `setCardAlias(state, cardId, '杀')`，贾诩【乱武】走的也是这一条。
+
+**压测是这一轮唯一抓到这四个 bug 的手段**（AI 取消目标导致的死锁、转化载体别名、
+同步取消目标的坏状态、缔盟可支付牌数高估），单测一个都没抓到。
+带 `--characters=` 跑，并且**一定要看机制计数**——关键技能是 0 就等于没测到。
 
 ## 一条容易再犯的坑：测试脚手架里的体力上限
 
