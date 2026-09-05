@@ -13,10 +13,13 @@ import type { CardId, PlayerId, SanguoshaState } from './types'
  * 无懈可击的响应窗口。
  *
  * 30 秒对一个「有没有无懈」的判断来说太长了：多目标锦囊每个目标都要问一轮，
- * 一张五谷丰登能把牌局卡上好几分钟。收到 3 秒——真想用的人早就想好了，
- * 手上没有无懈的人根本不会被问到。
+ * 一张五谷丰登能把牌局卡上好几分钟。所以收短。
+ *
+ * 4 秒而不是 3 秒：3 秒里要「看清这张锦囊打给谁 → 决定拦不拦 → 点到牌上」，
+ * 手机端光是反应加点击就去掉一大半，抢不到手是常态。多给 1 秒仍然远短于
+ * 常规操作时间，不会把整桌人晾住。
  */
-export const NULLIFICATION_TIMEOUT_MS = 3_000
+export const NULLIFICATION_TIMEOUT_MS = 4_000
 
 /** 「本轮均不使用」：这张牌剩下的目标都不再问我。 */
 export const PASS_ROUND_ACTION = 'respond-pass-round'

@@ -31,7 +31,7 @@ function started(now = 1_000): SanguoshaRoomCoordinator {
 
 /** 读内部私有状态：这些测试就是要盯调度细节。 */
 function jobsOf(room: SanguoshaRoomCoordinator) {
-  return (room.state as unknown as { jobs: Array<{ kind: string; dueAt: number; stageKey: string; attempt?: number }> }).jobs
+  return (room.state as unknown as { jobs: Array<{ kind: string; dueAt: number; stageKey: string; attempt?: number; requestId?: string }> }).jobs
 }
 
 /**
@@ -53,12 +53,12 @@ describe('Job 执行失败不会把任务吃掉', () => {
     const room = started()
     const now = 2_000
     // 让下一次 Job 执行抛异常一次
-    const internals = room as unknown as { stepAI: (now: number, seatId?: number) => void }
+    const internals = room as unknown as { stepAI: (now: number, job: unknown) => boolean }
     const original = internals.stepAI.bind(room)
     let thrown = 0
-    const spy = vi.spyOn(internals, 'stepAI').mockImplementation((at: number, seatId?: number) => {
+    const spy = vi.spyOn(internals, 'stepAI').mockImplementation((at: number, job: unknown) => {
       if (thrown === 0) { thrown += 1; throw new Error('注入的 AI 异常') }
-      return original(at, seatId)
+      return original(at, job)
     })
 
     const dueAt = Math.min(...jobsOf(room).map((job) => job.dueAt))
@@ -66,8 +66,11 @@ describe('Job 执行失败不会把任务吃掉', () => {
 
     const retried = jobsOf(room).filter((job) => job.kind === 'ai-step' || job.kind === 'turn-timeout')
     expect(retried.length, '失败的任务必须还在队列里').toBeGreaterThan(0)
-    expect(retried[0].attempt, '要记下这是第几次重试').toBe(1)
-    expect(retried[0].dueAt, '重试要有退避').toBeGreaterThan(dueAt)
+    // 多人同时决定时每个座位各有一个任务，队首不一定就是失败的那个，要按 attempt 找
+    const failed = retried.find((job) => job.attempt !== undefined)
+    expect(failed, '失败的那个任务要被重新排上').toBeTruthy()
+    expect(failed!.attempt, '要记下这是第几次重试').toBe(1)
+    expect(failed!.dueAt, '重试要有退避').toBeGreaterThan(dueAt)
     expectProgressInvariant(room, dueAt)
 
     // 退避之后重试成功，牌局继续往前走
@@ -141,15 +144,25 @@ describe('health watchdog 自愈', () => {
   it('任务全是过期局面指纹时，清理并按当前局面重排', () => {
     const room = started()
     const now = 2_000
+    /*
+     * 「过期」有两种：绑了请求的任务看**请求还在不在**，没绑请求的看局面指纹。
+     * 这里两种都伪造成过期，watchdog 应当把它们全部换成当前局面的任务。
+     */
     for (const job of jobsOf(room)) {
-      if (job.kind === 'ai-step' || job.kind === 'turn-timeout') job.stageKey = 'stale-stage-key'
+      if (job.kind !== 'ai-step' && job.kind !== 'turn-timeout') continue
+      job.stageKey = 'stale-stage-key'
+      if (job.requestId !== undefined) job.requestId = 'request-that-no-longer-exists'
     }
     room.runDueJobs(now)
     const watchdog = jobsOf(room).find((job) => job.kind === 'health-watchdog')!
     room.runDueJobs(watchdog.dueAt)
 
     const gameplay = jobsOf(room).filter((job) => job.kind === 'ai-step' || job.kind === 'turn-timeout')
-    expect(gameplay.every((job) => job.stageKey === room.state.stageKey), '过期任务要被换成当前局面的任务').toBe(true)
+    expect(gameplay.length, 'watchdog 必须重建出推进任务').toBeGreaterThan(0)
+    const pending = room.state.game!.pendingRequests
+    expect(gameplay.every((job) => (job.requestId === undefined
+      ? job.stageKey === room.state.stageKey
+      : pending.some((request) => request.id === job.requestId))), '过期任务要被换成当前局面的任务').toBe(true)
   })
 
   it('watchdog 不会重复堆积：跑很多轮也只有一个', () => {

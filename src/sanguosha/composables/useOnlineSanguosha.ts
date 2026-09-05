@@ -74,6 +74,24 @@ export function useOnlineSanguosha() {
   const session = ref<OnlineSession | null>(null)
   const lastNickname = ref(storageGet(NICKNAME_KEY))
   const room = ref<SgsRoomView | null>(null)
+  /**
+   * 服务器时钟相对本地时钟的偏移。
+   *
+   * `deadlineAt` 是服务器时间戳；设备时钟慢 3 秒，倒计时就会多走 3 秒。
+   * 每个样本恒等于「真实偏移 - 单程延迟」，所以取历次最大值，
+   * 等价于采用网络延迟最小的那次采样。断线后重新标定：换了服务器实例
+   * 或睡眠唤醒之后，旧偏移不一定还成立。
+   */
+  const clockOffset = ref(0)
+  let clockCalibrated = false
+  function calibrateClock(serverNow: number | undefined): void {
+    if (!serverNow) return
+    const sample = serverNow - Date.now()
+    if (!clockCalibrated || sample > clockOffset.value) {
+      clockOffset.value = sample
+      clockCalibrated = true
+    }
+  }
   const rooms = ref<SgsRoomDirectoryEntry[]>([])
   const connected = ref(false)
   const connecting = ref(false)
@@ -215,7 +233,7 @@ export function useOnlineSanguosha() {
       }
       try {
         const message = JSON.parse(String(event.data)) as SgsRoomServerMessage
-        if (message.type === 'room-state') room.value = message.room
+        if (message.type === 'room-state') { calibrateClock(message.room.serverNow); room.value = message.room }
         else if (message.type === 'error') error.value = message.message
         else if (message.type === 'chat') { appendChat(message.message); showChatBubble(message.message) }
       } catch { error.value = '服务器返回了无法识别的数据' }
@@ -319,6 +337,8 @@ export function useOnlineSanguosha() {
     reconnectTimer = null
     heartbeatTimer = null
     lastPongAt = 0
+    // 断线后重新标定：睡眠唤醒、切换网络之后旧的偏移不一定还成立
+    clockCalibrated = false
     const previous = socket
     socket = null
     connected.value = false
@@ -331,5 +351,5 @@ export function useOnlineSanguosha() {
     cleanupSocket()
   })
 
-  return { session, lastNickname, room, rooms, connected, connecting, busy, error, chatBubbles, login, restoreSession, refreshRooms, createRoom, joinRoom, send, respond, act, leaveRoom, logout }
+  return { session, lastNickname, room, rooms, connected, connecting, busy, error, chatBubbles, clockOffset, login, restoreSession, refreshRooms, createRoom, joinRoom, send, respond, act, leaveRoom, logout }
 }

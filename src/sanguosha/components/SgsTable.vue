@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import SgsCard from './SgsCard.vue'
 import SgsSeatLayout from './SgsSeatLayout.vue'
 import SgsRequestDock from './SgsRequestDock.vue'
-import SgsCountdown from './SgsCountdown.vue'
+import SgsSeatTimer from './SgsSeatTimer.vue'
 import SgsChatDock from './SgsChatDock.vue'
 import SgsAudioControl from './SgsAudioControl.vue'
 import { useSgsEventStage } from '../composables/useSgsEventStage'
@@ -11,7 +11,7 @@ import { sgsAudio } from '../composables/useSgsAudio'
 import type { LegalAction } from '../engine/actions'
 import type { GameRequest, GameResponse } from '../engine/requests'
 import type { PresentationEvent } from '../engine/presentation'
-import type { SgsChatMessage } from '../online/protocol'
+import type { SgsChatMessage, SgsSeatTimer as SgsSeatTimerData } from '../online/protocol'
 import type { PlayerView } from '../engine/view'
 import { fixedTargetAction, initialTargetIds } from '../presentation/targetSelection'
 
@@ -22,15 +22,55 @@ const props = withDefaults(defineProps<{
   busy: boolean
   log: readonly string[]
   presentationEvents?: readonly PresentationEvent[]
-  deadlineAt?: number | null
+  /** 所有正在被等待的座位的计时，只有联机局会传 */
+  timers?: readonly SgsSeatTimerData[]
+  clockOffsetMs?: number
+  /** 自己这个座位是不是托管中；`null` 表示这局没有托管这回事（单机） */
+  trustee?: boolean | null
+  trusteeBusy?: boolean
   connectionStatuses?: Readonly<Record<string, 'online' | 'offline' | 'trustee' | 'connecting'>>
   /** 只有联机局传聊天；单机不传，右下角那个圆钮就不会出现 */
   chat?: readonly SgsChatMessage[] | null
   selfUserId?: string
   /** 说话那家座位上冒出来的临时气泡，按 playerId 索引 */
   bubbles?: Readonly<Record<string, string>>
-}>(), { presentationEvents: () => [], deadlineAt: null, connectionStatuses: () => ({}), chat: null, selfUserId: '', bubbles: () => ({}) })
-const emit = defineEmits<{ act: [actionId: string]; respond: [response: GameResponse]; quit: []; chat: [text: string] }>()
+}>(), { presentationEvents: () => [], timers: () => [], clockOffsetMs: 0, trustee: null, trusteeBusy: false, connectionStatuses: () => ({}), chat: null, selfUserId: '', bubbles: () => ({}) })
+const emit = defineEmits<{ act: [actionId: string]; respond: [response: GameResponse]; quit: []; chat: [text: string]; 'toggle-trustee': [enabled: boolean] }>()
+
+/*
+ * —— 牌桌时钟 ——
+ *
+ * 整桌共用一个心跳：每个座位各开一个定时器既浪费，读数也会各走各的对不齐。
+ * 没有任何计时在跑时停表，免得等待开局、结算弹层期间白白重绘牌桌。
+ * 后台标签页会被浏览器把定时器节流到 1 秒以上，所以切回前台先纠正一次读数。
+ */
+const localNow = ref(Date.now())
+const serverNow = computed(() => localNow.value + props.clockOffsetMs)
+const timerActive = computed(() => props.timers.length > 0)
+let clockTimer: number | null = null
+function syncClock(): void {
+  localNow.value = Date.now()
+  if (!timerActive.value || document.hidden) {
+    if (clockTimer !== null) window.clearInterval(clockTimer)
+    clockTimer = null
+    return
+  }
+  if (clockTimer === null) clockTimer = window.setInterval(() => { localNow.value = Date.now() }, 250)
+}
+watch(timerActive, syncClock, { immediate: true })
+/*
+ * 换了新的计时（新请求、新回合）也要重新读一次表。
+ * 只靠 250ms 的心跳的话，新计时的第一帧用的是上一次的读数，
+ * 一开头就先差半秒；换请求换得密的时候看起来就是「跳一下」。
+ */
+watch(() => props.timers.map((timer) => `${timer.seatId}:${timer.deadlineAt}`).join(','), () => {
+  localNow.value = Date.now()
+})
+
+const timersByPlayer = computed(() => Object.fromEntries(
+  props.timers.map((timer) => [`seat-${timer.seatId}`, timer] as const),
+))
+const selfTimer = computed(() => timersByPlayer.value[props.view.viewerId] ?? null)
 
 const selectedCardId = ref<string | null>(null)
 const selectedMode = ref<string | null>(null)
@@ -63,8 +103,16 @@ const selectableTargetIds = computed(() => (fixedAction.value ? new Set<string>(
 const exactAction = computed(() => modeActions.value.find((action) => action.targetIds.length === selectedTargetIds.value.length && action.targetIds.every((id) => selectedTargetIds.value.includes(id))) ?? null)
 const standaloneActions = computed(() => props.legalActions.filter((action) => action.kind === 'invoke-skill' || action.kind === 'pass'))
 
-onMounted(() => { sgsAudio.prepare(props.presentationEvents) })
-onBeforeUnmount(() => { sgsAudio.stop() })
+onMounted(() => {
+  sgsAudio.prepare(props.presentationEvents)
+  document.addEventListener('visibilitychange', syncClock)
+})
+onBeforeUnmount(() => {
+  sgsAudio.stop()
+  document.removeEventListener('visibilitychange', syncClock)
+  if (clockTimer !== null) window.clearInterval(clockTimer)
+  clockTimer = null
+})
 watch(() => props.presentationEvents.map((event) => event.id), () => {
   sgsAudio.processEvents(props.presentationEvents, props.view.viewerId)
 })
@@ -116,15 +164,30 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
     <header class="sgs-table__bar">
       <button type="button" class="sgs-table__back" aria-label="退出牌局" @click="emit('quit')">‹</button>
       <span>第 {{ view.turnNumber }} 回合</span><span>牌堆 {{ view.drawPileCount }}</span><span>弃牌 {{ view.discardPile.length }}</span>
-      <SgsCountdown :deadline-at="deadlineAt" />
+      <button
+        v-if="trustee !== null"
+        type="button"
+        class="sgs-table__trustee"
+        :class="{ on: trustee }"
+        :disabled="trusteeBusy"
+        :aria-pressed="trustee"
+        @click="emit('toggle-trustee', !trustee)"
+      >{{ trusteeBusy ? '…' : trustee ? '取消托管' : '托管' }}</button>
       <SgsAudioControl v-model:open="audioOpen" />
       <button type="button" class="sgs-table__logbtn" @click="logOpen = true">战报</button>
     </header>
 
     <main class="sgs-table__arena">
-      <SgsSeatLayout :view="view" :request="request" :staged="stage.staged.value" :sticky-message="stage.stickyMessage.value" :busy="busy" :selectable-ids="selectableTargetIds" :selected-ids="selectedTargetIds" :statuses="connectionStatuses" :bubbles="bubbles" @select="toggleTarget" />
+      <SgsSeatLayout :view="view" :request="request" :staged="stage.staged.value" :sticky-message="stage.stickyMessage.value" :busy="busy" :selectable-ids="selectableTargetIds" :selected-ids="selectedTargetIds" :statuses="connectionStatuses" :bubbles="bubbles" :timers="timersByPlayer" :server-now="serverNow" @select="toggleTarget" />
       <div v-if="view.processingArea.length" class="sgs-table__processing"><SgsCard v-for="card in view.processingArea" :key="card.id" :card="card" compact disabled /></div>
     </main>
+
+    <!--
+      自己的那一条单独放在手牌上方：要做决定的时候眼睛在这里，
+      时间就该在这里，不用抬头去屏幕角落找。
+    -->
+    <SgsSeatTimer v-if="selfTimer" class="sgs-table__selftimer" :timer="selfTimer" :server-now="serverNow" wide />
+    <p v-if="trustee" class="sgs-table__trusteebar">托管中，由 AI 代打 · 点上方「取消托管」随时接回</p>
 
     <section class="sgs-table__hand" aria-label="你的手牌">
       <SgsCard v-for="card in me.hand ?? []" :key="card.id" :card="card" :selected="selectedCardId === card.id" :disabled="!!request || !usableCardIds.has(card.id)" @click="toggleCard(card.id)" />
@@ -152,6 +215,12 @@ function act(actionId: string): void { emit('act', actionId); resetSelection() }
 </template>
 
 <style scoped>
+.sgs-table__trustee{flex:none;padding:3px 9px;border:1px solid #6f633f;border-radius:999px;background:#2f2a1b;color:#f0d885;font-size:10px;cursor:pointer}
+.sgs-table__trustee.on{border-color:#c8a955;background:#5a4520;color:#ffe6ac;font-weight:800}
+.sgs-table__trustee:disabled{opacity:.55;cursor:progress}
+.sgs-table__selftimer{flex:none}
+.sgs-table__trusteebar{flex:none;margin:0;padding:4px 10px;background:#3a2f16;color:#f4d79a;font-size:11px;text-align:center}
+
 .sgs-table{height:calc(100dvh - var(--app-viewport-offset, 0px));display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;overflow:hidden;color:#e7e0cc;background:radial-gradient(ellipse at 50% 42%,#315c43 0,#173829 47%,transparent 72%),linear-gradient(150deg,var(--ink-bg-top),var(--ink-bg-bottom))}.sgs-table__bar{display:flex;align-items:center;gap:10px;padding:max(7px,env(safe-area-inset-top)) 12px 5px;color:#98aaa0;font-size:11px}.sgs-table__bar span{white-space:nowrap}.sgs-table__back{width:32px;height:32px;display:grid;place-items:center;padding:0;border:1px solid rgba(90,130,110,.35);border-radius:9px;background:rgba(10,28,23,.78);color:#efe7d2;font-size:20px;cursor:pointer}.sgs-table__logbtn{margin-left:auto;min-height:28px;padding:0 10px;border:1px solid #3f4d45;border-radius:8px;background:#16241e;color:#c3cfc6;cursor:pointer}.sgs-table__arena{position:relative;min-height:0;padding:0 8px;overflow:hidden}.sgs-table__processing{position:absolute;z-index:6;left:50%;top:66%;transform:translate(-50%,-50%);display:flex;gap:3px}.sgs-table__hand{z-index:8;display:flex;justify-content:center;gap:0;min-height:70px;overflow-x:auto;overflow-y:visible;padding:3px 10px 5px}.sgs-table__hand>:deep(.sgs-card-shell){margin-left:-9px}.sgs-table__hand>:deep(.sgs-card-shell:first-child){margin-left:0}.sgs-table__hand>:deep(.sgs-card-shell:hover),.sgs-table__hand>:deep(.sgs-card-shell:has(.sgs-card--selected)){z-index:2}.sgs-table__dock{z-index:10;display:flex;flex-direction:column;gap:6px;max-height:30dvh;min-height:42px;overflow-y:auto;padding:7px 11px calc(7px + env(safe-area-inset-bottom));border-top:1px solid #46402c;background:linear-gradient(180deg,rgba(24,34,28,.97),rgba(12,20,16,.99))}.sgs-table__dock--idle{color:#8d9c93;font-size:11px}.sgs-table__dock--idle p,.sgs-table__hint{margin:0}.sgs-table__hint{color:#ead99f;font-size:11px;font-weight:700}.sgs-table__actions{display:flex;flex-wrap:wrap;gap:7px}.sgs-table__actions button{min-height:36px;padding:0 13px;border-radius:9px;cursor:pointer;font:inherit;font-weight:700}.primary{border:1px solid #9e7f3c;background:linear-gradient(180deg,#6d5527,#4c3b1a);color:#ffe6a8}.primary:disabled{opacity:.42;cursor:default}.ghost{border:1px solid #3f4d45;background:#16241e;color:#b9c5bd}.sgs-table__mask{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.6)}.sgs-table__log{position:fixed;z-index:71;right:0;top:var(--app-viewport-offset, 0px);bottom:0;width:min(320px,86vw);display:flex;flex-direction:column;padding:max(14px,env(safe-area-inset-top)) 14px 14px;border-left:1px solid #3d4b43;background:#101c17}.sgs-table__log header{display:flex;justify-content:space-between}.sgs-table__log header button{border:0;background:transparent;color:#aab7af;font-size:20px}.sgs-table__log ol{flex:1;overflow-y:auto;padding-left:18px;color:#a9b5a9;font-size:12px;line-height:1.7}
 @media(max-width:620px) and (orientation:portrait){.sgs-table__bar{gap:6px;font-size:9px;padding-left:6px;padding-right:6px}.sgs-table__bar>span:nth-of-type(1){display:none}.sgs-table__arena{padding:0 2px}.sgs-table__hand{justify-content:flex-start;min-height:66px;padding-left:16px}.sgs-table__hand>:deep(.sgs-card-shell){margin-left:-11px}.sgs-table__dock{max-height:32dvh;padding-top:6px}}
 @media(orientation:landscape) and (max-height:500px){.sgs-table{grid-template-rows:auto minmax(0,1fr) auto auto}.sgs-table__bar{padding-top:max(3px,env(safe-area-inset-top));padding-bottom:2px}.sgs-table__hand{position:absolute;z-index:9;left:50%;bottom:44px;transform:translateX(-50%);width:min(64vw,620px);min-height:58px;padding-bottom:0}.sgs-table__dock{max-height:36dvh;min-height:38px;padding:4px 10px calc(4px + env(safe-area-inset-bottom))}.sgs-table__actions button{min-height:32px}}

@@ -1231,7 +1231,16 @@ export class SanguoshaRoom {
     // 没有玩家操作等待时也保留一次回收 alarm；否则 finished/空闲 lobby 永远不会再醒，
     // `isStale()` 只能在下一次外部请求时才有机会运行。
     const alarmAt = this.coordinator.nextAlarmAt() ?? (this.coordinator.state.updatedAt + 6 * 60 * 60_000)
-    await this.state.storage.setAlarm(Math.max(Date.now() + this.timing.alarmFloorMs, alarmAt))
+    /*
+     * 下限**只对已经过期的时刻生效**。
+     *
+     * 它的用途是给「已经到点却还没跑成」的任务留一次退避，避免 alarm 立刻
+     * 重入烧 CPU。原来无条件套在所有时刻上，于是每次 persist（每条客户端消息
+     * 都会 persist）都会把 1 秒内到期的 alarm 往后推到整整 1 秒后——
+     * 玩家在最后一秒里随便点一下，操作窗口就白白多出最多 1 秒。
+     */
+    const now = Date.now()
+    await this.state.storage.setAlarm(alarmAt <= now ? now + this.timing.alarmFloorMs : alarmAt)
   }
 
   private async syncRoomDirectory(): Promise<void> {

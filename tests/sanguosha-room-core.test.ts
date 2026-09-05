@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NULLIFICATION_TIMEOUT_MS } from '@/sanguosha/engine/nullification'
 import {
   InvalidSgsCommandError,
   SanguoshaRoomCoordinator,
@@ -268,11 +269,12 @@ describe('联机房间：休眠与恢复', () => {
 describe('联机房间：牌局能打完', () => {
   it('全部交给 AI 推进，牌局能正常结束', () => {
     const room = started()
-    // 两个真人都托管，等于全 AI 局
-    room.handle(HOST.userId, { type: 'trustee', enabled: true })
-    room.handle(GUEST.userId, { type: 'trustee', enabled: true })
-
     let now = 10_000
+    // 两个真人都托管，等于全 AI 局。必须显式传 now：不传就用 Date.now()，
+    // 任务会排在真实时间上，而下面推进用的是虚拟时钟，两者永远对不上
+    room.handle(HOST.userId, { type: 'trustee', enabled: true }, now)
+    room.handle(GUEST.userId, { type: 'trustee', enabled: true }, now)
+
     for (let step = 0; step < 4_000; step += 1) {
       // 选将阶段的 status 也不是 playing，这里要等的是「打完」
       if (room.snapshot().game!.status === 'game-over') break
@@ -372,9 +374,11 @@ describe('联机房间：再来一局', () => {
 
 /** 全托管跑到牌局结束。 */
 function playToEnd(room: SanguoshaRoomCoordinator): SanguoshaRoomCoordinator {
-  room.handle(HOST.userId, { type: 'trustee', enabled: true })
-  room.handle(GUEST.userId, { type: 'trustee', enabled: true })
   let now = 10_000
+  // 必须显式传 now：不传就用 Date.now()，任务会排在真实时间上，
+  // 而这里推进用的是虚拟时钟，两者永远对不上，牌局就卡住了
+  room.handle(HOST.userId, { type: 'trustee', enabled: true }, now)
+  room.handle(GUEST.userId, { type: 'trustee', enabled: true }, now)
   for (let step = 0; step < 4_000; step += 1) {
     if (room.snapshot().game!.status === 'game-over') return room
     const alarm = room.nextAlarmAt()
@@ -410,42 +414,54 @@ function runToPlaying(room: SanguoshaRoomCoordinator): void {
 }
 
 describe('联机的等待窗口', () => {
+  type Internals = {
+    state: { settings: { turnSeconds: number } }
+    nominalWindowMs(request?: unknown): number
+    humanDeadline(seatId: number, now: number, windowEndsAt: number): number
+  }
+
   /**
    * 无懈可击是个「有没有」的判断，而一张多目标锦囊要问好几轮。
    * 按房间的操作时间（默认 30 秒）一轮，整桌人会被晾很久，
-   * 所以这一类请求走请求自带的 3 秒窗口。
+   * 所以这一类请求走请求自带的抢答窗口。
    */
-  it('无懈可击的等待窗口比普通操作短得多', () => {
+  it('无懈可击的等待窗口比普通操作短得多，选将则固定给 60 秒', () => {
     const room = started()
     const settings = room.view(HOST.userId).settings
-    // 内部方法不对外暴露，这里通过「同样的设置下两种请求的到期时间」来验
-    const windowFor = (requiredCardName: string | null): number => {
-      const anyRoom = room as unknown as {
-        state: { game: { pendingRequests: unknown[] } | null }
-        humanWindowMs(seatId: number): number
-      }
-      const game = anyRoom.state.game
-      if (!game) throw new Error('牌局没有开始')
-      const saved = game.pendingRequests
-      // 多人决定时每人各有一个请求，所以要按座位找，payload 里得带上 playerId
-      game.pendingRequests = requiredCardName
-        ? [{ kind: 'respond-card', playerId: 'seat-0', requiredCardName, timeoutMs: 3_000 }]
-        : []
-      const result = anyRoom.humanWindowMs(0)
-      game.pendingRequests = saved
-      return result
-    }
+    const anyRoom = room as unknown as Internals
+    const windowFor = (requiredCardName: string | null): number => anyRoom.nominalWindowMs(
+      requiredCardName
+        ? { kind: 'respond-card', playerId: 'seat-0', requiredCardName, timeoutMs: NULLIFICATION_TIMEOUT_MS }
+        : undefined)
 
     expect(windowFor(null), '普通操作用房间设置的时间').toBe(settings.turnSeconds * 1000)
     expect(windowFor('闪'), '出闪仍然是完整时间').toBe(settings.turnSeconds * 1000)
-    expect(windowFor('无懈可击'), '无懈只给 3 秒').toBe(3_000)
+    expect(windowFor('无懈可击'), '无懈按抢答窗口来').toBe(NULLIFICATION_TIMEOUT_MS)
+    // 选将要读十几个武将的技能文本，不跟操作时间走
+    expect(anyRoom.nominalWindowMs({ kind: 'choose-general', playerId: 'seat-0' }), '选将固定 60 秒').toBe(60_000)
   })
 
-  it('房主把操作时间调得比 3 秒还短时，不会反而变长', () => {
+  it('已经掉线的人最多只等到重连保护期结束，不拖着全桌', () => {
+    const room = started(1_000)
+    room.disconnect(GUEST.userId, 2_000)
+    const anyRoom = room as unknown as Internals
+    const guestSeatId = room.state.seats.find((seat) => seat.userId === GUEST.userId)!.seatId
+    const hostSeatId = room.state.seats.find((seat) => seat.userId === HOST.userId)!.seatId
+    // 保护期是掉线后 20 秒，也就是到 22_000 为止；窗口本来能到 32_000
+    expect(anyRoom.humanDeadline(guestSeatId, 7_000, 32_000), '掉线的人只等到保护期结束').toBe(22_000)
+    // 还连着的人不受影响
+    expect(anyRoom.humanDeadline(hostSeatId, 7_000, 32_000)).toBe(32_000)
+    // 保护期只剩一点点时也至少留 1 秒，免得任务和 alarm 挤在同一刻
+    expect(anyRoom.humanDeadline(guestSeatId, 21_950, 32_000)).toBe(22_950)
+  })
+
+  it('房主把操作时间调得比抢答窗口还短时，不会反而变长', () => {
     const room = SanguoshaRoomCoordinator.create('ABC235', HOST, normalizeSettings({ playerCount: 5, turnSeconds: 15 }), 1_000)
-    const anyRoom = room as unknown as { state: { settings: { turnSeconds: number } }; humanWindowMs(seatId: number): number }
+    const anyRoom = room as unknown as Internals
     anyRoom.state.settings.turnSeconds = 1
-    expect(anyRoom.humanWindowMs(0)).toBe(1_000)
+    const request = { kind: 'respond-card', playerId: 'seat-0', requiredCardName: '无懈可击', timeoutMs: NULLIFICATION_TIMEOUT_MS }
+    expect(anyRoom.nominalWindowMs(request)).toBe(1_000)
+    expect(anyRoom.nominalWindowMs()).toBe(1_000)
   })
 })
 
@@ -467,7 +483,7 @@ describe('全员托管自动解散', () => {
     expect(room.shouldDeleteRoom(), '还有人在打就不能拆房').toBe(false)
   })
 
-  it('所有真人都托管后，等一段时间自动解散', () => {
+  it('所有真人都托管后，先让 AI 把这局打完，打完才解散', () => {
     const room = twoHumans()
     room.handle(HOST.userId, { type: 'trustee', enabled: true }, 2_000)
     room.handle(GUEST.userId, { type: 'trustee', enabled: true }, 2_100)
@@ -476,8 +492,21 @@ describe('全员托管自动解散', () => {
     room.runDueJobs(2_200)
     expect(room.shouldDeleteRoom(), '不能立刻拆').toBe(false)
 
+    // 倒计时到了但牌局还没打完：也不拆。打了半局的结果不该因为大家临时离开就没了
     room.runDueJobs(2_100 + 30_000 + 1)
-    expect(room.shouldDeleteRoom(), '没人打了就该解散').toBe(true)
+    expect(room.state.game!.status, '这时候牌局还在进行').not.toBe('game-over')
+    expect(room.shouldDeleteRoom(), '还没打完就不拆').toBe(false)
+
+    // AI 把它打完，之后的解散任务才真的生效
+    let now = 2_100 + 30_000 + 1
+    for (let step = 0; step < 6_000 && !room.shouldDeleteRoom(); step += 1) {
+      const alarm = room.nextAlarmAt()
+      if (alarm === null) break
+      now = Math.max(now + 1, alarm)
+      room.runDueJobs(now)
+    }
+    expect(room.state.game!.status, 'AI 应当把这局打完').toBe('game-over')
+    expect(room.shouldDeleteRoom(), '打完之后才拆').toBe(true)
   })
 
   it('倒计时期间有人取消托管就不解散了', () => {

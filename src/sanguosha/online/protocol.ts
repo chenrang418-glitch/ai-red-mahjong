@@ -55,6 +55,29 @@ export type SgsRoomCommand =
 type WithoutActionMetadata<T> = T extends SgsActionMetadata ? Omit<T, 'actionId' | 'baseSeq'> : never
 export type SgsCommandDraft = WithoutActionMetadata<SgsRoomCommand>
 
+/**
+ * 一个座位正在被等待的计时。
+ *
+ * `kind` 决定表现强度，不决定规则：
+ * - `action`   自己的出牌阶段，最长的那个窗口
+ * - `response` 被要求响应（闪、桃、弃牌、技能询问……）
+ * - `claim`    抢答窗口（无懈可击、濒死求桃），只有几秒
+ * - `pick-general` 选将
+ *
+ * `ai` 为真表示这个座位由电脑或托管驱动。**窗口长度按真人同样的口径给**，
+ * 好让牌桌上每一家的计时看起来是同一套；但 AI 实际什么时候落子由它自己的
+ * 节奏决定，通常远早于 `deadlineAt`，到时候这一项就直接消失了。
+ */
+export type SgsTimerKind = 'action' | 'response' | 'claim' | 'pick-general'
+
+export interface SgsSeatTimer {
+  seatId: number
+  startedAt: number
+  deadlineAt: number
+  kind: SgsTimerKind
+  ai: boolean
+}
+
 export interface SgsRoomView {
   code: string
   version: number
@@ -76,7 +99,21 @@ export interface SgsRoomView {
   chat: SgsChatMessage[]
   log: string[]
   presentationEvents: PresentationEvent[]
+  /**
+   * 当前**被强制执行**的真人截止时刻。保留给旧路径和测试用；
+   * 牌桌上要显示的是下面的 `timers`，那里每一家都有自己的一项。
+   */
   deadlineAt: number | null
+  /** 此刻所有正在被等待的座位，含 AI。牌桌按座位各画各的。 */
+  timers: SgsSeatTimer[]
+  /**
+   * 下发这一帧时的服务器时间。
+   *
+   * `deadlineAt` 是服务器时间戳，客户端拿本地 `Date.now()` 直接相减的话，
+   * 设备时钟差多少，倒计时就多显示（或少显示）多少秒——这正是
+   * 「设置 30 秒、实际能操作 33~34 秒」的成因。客户端必须先用它校正。
+   */
+  serverNow: number
   aiThinking: boolean
 }
 

@@ -68,7 +68,15 @@ describe('AI 节奏', () => {
     expect(game.phase, '停在出牌阶段').toBe('play')
     expect(game.pendingRequests, '出牌阶段不该有待处理请求').toHaveLength(0)
 
-    const waiting = room.nextAlarmAt()! - room.state.updatedAt
+    /*
+     * 要看的是**这一步的推进任务**，不能用 `nextAlarmAt()`：
+     * 那是所有任务里最早的一个，健康自检（15 秒一次）经常比它还早，
+     * 量到的就变成自检的剩余时间了。原来的写法只是碰巧没撞上。
+     */
+    const step = (room.state.jobs as Array<{ kind: string; dueAt: number; startedAt?: number }>)
+      .find((job) => job.kind === 'ai-step')
+    expect(step, 'AI 的出牌任务应当已经排上').toBeTruthy()
+    const waiting = step!.dueAt - room.state.updatedAt
     expect(waiting, 'AI 出牌的等待应当用加长后的那一档').toBe(playActionDelay(AI_PACE_MS.normal))
     expect(waiting, '而且确实比响应牌那一档长').toBeGreaterThan(AI_PACE_MS.normal)
   })

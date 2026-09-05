@@ -97,6 +97,8 @@ describe('连接竞态', () => {
 
 describe('重连后以服务端为准', () => {
   it('room-state 是整体覆盖，不是在本地旧状态上打补丁', () => {
-    expect(source).toContain("if (message.type === 'room-state') room.value = message.room")
+    // 整帧覆盖：赋的是 message.room 本身，不能是 { ...room.value, ...message.room } 这种合并
+    expect(source).toContain("if (message.type === 'room-state') { calibrateClock(message.room.serverNow); room.value = message.room }")
+    expect(source).not.toContain('room.value = { ...room.value')
   })
 })

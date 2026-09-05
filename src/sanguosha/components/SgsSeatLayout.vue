@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import SgsSeat from './SgsSeat.vue'
+import SgsSeatTimer from './SgsSeatTimer.vue'
 import SgsEffectLayer from './SgsEffectLayer.vue'
 import SgsActionStage from './SgsActionStage.vue'
 import { seatSlotsForPlayerCount } from '../composables/useSgsSeatLayout'
@@ -9,6 +10,7 @@ import type { GameRequest } from '../engine/requests'
 import type { StagedEvent } from '../composables/useSgsEventStage'
 import type { PresentationEvent } from '../engine/presentation'
 import type { PlayerView } from '../engine/view'
+import type { SgsSeatTimer as SgsSeatTimerData } from '../online/protocol'
 import { seatEffectFor } from '../presentation/effects'
 
 const props = defineProps<{
@@ -22,6 +24,9 @@ const props = defineProps<{
   statuses?: Readonly<Record<string, 'online' | 'offline' | 'trustee' | 'connecting'>>
   /** 按 playerId 存的临时聊天气泡，只有联机局会传 */
   bubbles?: Readonly<Record<string, string>>
+  /** 按 playerId 存的操作计时，只有联机局会传 */
+  timers?: Readonly<Record<string, SgsSeatTimerData>>
+  serverNow?: number
 }>()
 const emit = defineEmits<{ select: [playerId: string] }>()
 
@@ -69,6 +74,18 @@ const effectFor = (playerId: string) => seatEffectFor(props.staged?.event ?? nul
         :display-name="displayCharacterName(view.players, player.id)" :mama-owners="mamaOwnersOf(player.id)"
         @select="emit('select', $event)"
       />
+      <!--
+        计时条画在座位卡**外面**（卡下沿），不放卡里。
+        卡是 overflow:hidden、内容又是贴底排的，放进去必然压住身份、昵称或装备；
+        给它在卡内让出一条的话，计时一出现整张卡的内容还会往下跳一格。
+        自己那家不画：手牌上方已经有一条更大的，重复而且会挤到手牌。
+      -->
+      <SgsSeatTimer
+        v-if="timers?.[player.id] && player.id !== view.viewerId"
+        class="sgs-seat-layout__timer"
+        :timer="timers[player.id]"
+        :server-now="serverNow ?? 0"
+      />
       <!-- 气泡放在槽位上而不是座位卡里：座位卡是 overflow:hidden 的，放里面会被裁掉 -->
       <transition name="sgs-bubble">
         <p v-if="bubbles?.[player.id]" class="sgs-seat-layout__bubble" :class="`sgs-seat-layout__bubble--${bubbleSide(slots[index])}`">{{ bubbles[player.id] }}</p>
@@ -87,6 +104,17 @@ const effectFor = (playerId: string) => seatEffectFor(props.staged?.event ?? nul
 /* 给移动端完整装备和技能留出真实高度；位置仍沿用同一环形槽位。 */
 @media(max-width:700px) and (orientation:portrait){.sgs-seat-layout__slot{height:clamp(96px,15.5vh,118px)}.sgs-seat-layout__slot--self{height:106px}}
 @media(orientation:landscape) and (max-height:500px){.sgs-seat-layout__slot{height:clamp(82px,27vh,94px)}.sgs-seat-layout__slot--self{height:90px}}
+
+/*
+ * 计时条贴在座位卡下沿之外。槽位之间本来就有间距，4px 的条占得下，
+ * 也就不会和邻座的卡叠在一起。
+ */
+/*
+ * 一律画在卡**下**沿。上排那几家不能改画到上沿——它们的槽位就贴着牌桌顶边
+ * （top:0），往上画会被 `.sgs-table__arena` 的 overflow:hidden 裁掉。
+ * 往下画落在牌桌空地上，中央的行动提示在垂直中线附近，两者不重叠。
+ */
+.sgs-seat-layout__timer { position: absolute; left: 2px; right: 2px; top: calc(100% + 3px); z-index: 7; }
 
 /* 正在说话的那家抬一层，气泡才能盖过邻座 */
 .sgs-seat-layout__slot:has(.sgs-seat-layout__bubble) { z-index: 9; }

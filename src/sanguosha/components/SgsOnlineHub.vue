@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import SgsRequestDock from './SgsRequestDock.vue'
 import SgsTable from './SgsTable.vue'
+import SgsSeatTimer from './SgsSeatTimer.vue'
 import SgsChatDock from './SgsChatDock.vue'
 import SgsResultDialog from './SgsResultDialog.vue'
 import { useOnlineSanguosha } from '../composables/useOnlineSanguosha'
@@ -48,6 +49,48 @@ const allHumansReady = computed(() => online.room.value?.seats.every((seat) => s
 const connectionStatuses = computed(() => Object.fromEntries((online.room.value?.seats ?? [])
   .filter((seat) => seat.kind !== 'empty')
   .map((seat) => [`seat-${seat.seatId}`, seat.trustee ? 'trustee' : seat.connected ? 'online' : 'offline'] as const)))
+
+/*
+ * 托管按钮的乐观显示。
+ *
+ * 点下去到服务端确认之间有一个来回，直接跟着 `seat.trustee` 走会让按钮
+ * 「点了没反应、过一会儿才跳」。这里先按意图显示并禁用，等广播回来的状态
+ * 和意图一致再解锁；连接断了也解锁，免得永远卡在「…」。
+ */
+const trusteeIntent = ref<boolean | null>(null)
+const selfTrustee = computed(() => trusteeIntent.value ?? me.value?.trustee ?? false)
+const trusteeBusy = computed(() => trusteeIntent.value !== null)
+function toggleTrustee(enabled: boolean): void {
+  trusteeIntent.value = enabled
+  online.send({ type: 'trustee', enabled })
+}
+watch(() => me.value?.trustee, (actual) => {
+  if (trusteeIntent.value !== null && actual === trusteeIntent.value) trusteeIntent.value = null
+})
+watch(() => online.connected.value, (connected) => { if (!connected) trusteeIntent.value = null })
+
+/*
+ * 选将这一屏不经过牌桌，自带一条计时和它自己的心跳。
+ * 只在真的挂着选将计时时才走表，选完就停。
+ */
+const pickTimer = computed(() => {
+  const view = online.room.value?.playerView
+  if (!view || view.status !== 'choosing-general' || !view.pendingRequest) return null
+  const seatId = Number(view.viewerId.slice('seat-'.length))
+  return online.room.value?.timers?.find((timer) => timer.seatId === seatId) ?? null
+})
+const pickerLocalNow = ref(Date.now())
+const pickerNow = computed(() => pickerLocalNow.value + online.clockOffset.value)
+let pickerTimer: number | null = null
+watch(pickTimer, (timer) => {
+  pickerLocalNow.value = Date.now()
+  if (timer && pickerTimer === null) {
+    pickerTimer = window.setInterval(() => { pickerLocalNow.value = Date.now() }, 250)
+  } else if (!timer && pickerTimer !== null) {
+    window.clearInterval(pickerTimer)
+    pickerTimer = null
+  }
+}, { immediate: true })
 
 // 气泡在牌桌上按 playerId 取用，这里把带 id 的记录压成纯文本
 const bubbleTexts = computed(() => Object.fromEntries(
@@ -103,6 +146,7 @@ async function shareRoom(): Promise<void> {
 onBeforeUnmount(() => {
   service.stop()
   if (shareResetTimer !== null) window.clearTimeout(shareResetTimer)
+  if (pickerTimer !== null) window.clearInterval(pickerTimer)
 })
 </script>
 
@@ -115,13 +159,17 @@ onBeforeUnmount(() => {
     :busy="online.room.value!.aiThinking || !online.connected.value"
     :log="online.room.value!.log"
     :presentation-events="online.room.value!.presentationEvents"
-    :deadline-at="online.room.value!.deadlineAt"
+    :timers="online.room.value!.timers ?? []"
+    :clock-offset-ms="online.clockOffset.value"
+    :trustee="selfTrustee"
+    :trustee-busy="trusteeBusy"
     :connection-statuses="connectionStatuses"
     :chat="online.room.value!.chat"
     :self-user-id="online.session.value?.userId ?? ''"
     :bubbles="bubbleTexts"
     @act="online.act"
     @respond="online.respond"
+    @toggle-trustee="toggleTrustee"
     @quit="confirmLeave = true"
     @chat="(text) => online.send({ type: 'chat', text })"
   />
@@ -208,6 +256,11 @@ onBeforeUnmount(() => {
 
     <section v-else-if="online.room.value.playerView?.status === 'choosing-general'" class="sgs-online__panel sgs-online__choose">
       <h1>选择武将</h1>
+      <!--
+        选将也是有超时的（不选就由 AI 替你定），可原来这一屏什么都不显示。
+        牌桌那条计时在 SgsTable 里，这一屏不走牌桌，所以要单独挂一条。
+      -->
+      <SgsSeatTimer v-if="pickTimer" class="sgs-online__choosetimer" :timer="pickTimer" :server-now="pickerNow" wide />
       <SgsRequestDock
         v-if="online.room.value.playerView.pendingRequest"
         :request="online.room.value.playerView.pendingRequest"
@@ -259,6 +312,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.sgs-online__choosetimer{width:min(560px,100%);margin:0 auto 6px}
+
 .sgs-online__maintenance { margin: 6px 0 0; color: #ff9d94; font-size: 12px; line-height: 1.6; }
 /* 维护中的按钮要一眼看出来是「不能点」，不是「按钮坏了」——和麻将大厅同一套观感 */
 .primary.is-maintenance { border-color: #4a3f3d; background: linear-gradient(180deg, #2a201f, #1b1413); color: #b58e8a; }

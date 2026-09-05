@@ -4,11 +4,12 @@ import { decideResponse, decidePlayAction, isTrivialAIRequest, type AIContext, t
 import { emptySuspicion, observeEvent, type SuspicionMap } from '../src/sanguosha/ai/belief'
 import { describeEvent } from '../src/sanguosha/engine/log'
 import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha/engine/presentation'
-import type { GameResponse } from '../src/sanguosha/engine/requests'
+import type { GameRequest, GameResponse } from '../src/sanguosha/engine/requests'
+import { timeoutDefaultResponse } from '../src/sanguosha/engine/timeout-default'
 import type { PlayerId, SanguoshaState } from '../src/sanguosha/engine/types'
 import type { PlayerView } from '../src/sanguosha/engine/view'
 import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS, playActionDelay } from '../src/sanguosha/shared/timing'
-import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
+import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView, SgsSeatTimer, SgsTimerKind } from '../src/sanguosha/online/protocol'
 export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
 
 export interface SgsRoomTiming {
@@ -67,6 +68,13 @@ interface SgsSeat {
   trustee: boolean
   leftRoom: boolean
   nextRoundReady: boolean
+  /**
+   * 连续超时次数。任何一次真人操作清零。
+   *
+   * 「挂机」和「掉线」是两回事：掉线有 socket 关闭这个明确信号，挂机没有——
+   * 人在、连接好好的，就是不动。只能靠连续多少次没在窗口内做决定来识别。
+   */
+  timeoutStreak?: number
 }
 
 type SgsJobKind = 'ai-step' | 'turn-timeout' | 'disconnect-trustee' | 'next-round-timeout' | 'all-trustee-dissolve' | 'health-watchdog'
@@ -110,6 +118,7 @@ interface SgsRestorePoint {
   presentationEvents: PresentationEvent[]
   seats: SgsSeat[]
   processedActionIds: string[] | undefined
+  jobSeq: number | undefined
 }
 
 interface SgsJob {
@@ -118,9 +127,29 @@ interface SgsJob {
   id: string
   kind: SgsJobKind
   dueAt: number
+  /** 排下这个任务的时刻。计时条要按「已经走了多少」画进度，只有终点不够。 */
+  startedAt?: number
+  /**
+   * 这一步的名义窗口终点。
+   *
+   * **窗口属于这一步，不属于驱动方式。**开托管、取消托管、掉线、重连都会
+   * 重新安排任务，如果那时按「现在 + 完整窗口」重发，倒计时就会跳回起点——
+   * 点两下托管等于白拿一整轮时间，别人还得跟着重等。所以窗口的起点和终点
+   * 在同一个（座位, 请求）上一次算定，之后原样带着走。
+   */
+  windowEndsAt?: number
   /** 局面指纹。局面已经变了的任务直接作废，避免超时把新局面误伤 */
   stageKey: string
   seatId?: number
+  /**
+   * 这个任务在等哪个请求。
+   *
+   * 有它的任务**不看局面指纹**，只看「这个请求还在不在」——多人同时决定
+   * （开局选将、于吉【蛊惑】质疑）时，任何一个人答完都会改变局面指纹，
+   * 按指纹作废会把其他人正在跑的计时一起清掉，于是全桌只能一个一个来，
+   * 排在最后的那个人白等好几轮。
+   */
+  requestId?: string
 }
 
 export interface StoredSgsRoomState {
@@ -153,6 +182,15 @@ export interface StoredSgsRoomState {
   deleteRequested: boolean
   /** 最近成功处理的客户端动作。用于在 DO 休眠恢复后继续拒绝重复 actionId。 */
   processedActionIds?: string[]
+  /**
+   * 任务 id 的单调计数器。
+   *
+   * 原来的 id 是 `job-${version}-${jobs.length}`。同一刻只存在一个对局任务时
+   * 它碰巧不会撞；改成每个座位各有一个任务之后，「同一 version、过滤后长度又回到
+   * 同一个值」会生成**重复 id**，而 `runDueJobs` 是按 id 删任务的——
+   * 一次删掉两个，剩下那个座位的计时凭空消失，只能等 watchdog 15 秒后补。
+   */
+  jobSeq?: number
 }
 
 export class InvalidSgsCommandError extends Error {}
@@ -184,13 +222,45 @@ const NEXT_ROUND_TIMEOUT_MS = 40_000
  * 或取消托管都会把解散取消掉。
  */
 const ALL_TRUSTEE_DISSOLVE_MS = 30_000
+/**
+ * 连续多少次超时就自动转托管。
+ *
+ * 取 3 不取 2：偶发的网络卡顿、看漏一次提示不该被判成挂机。
+ * 30 秒档下 3 次 = 整整 90 秒毫无反应，这时候基本可以确定人不在了。
+ * 任何一次真人操作都会清零，回来接着打不需要额外动作。
+ */
+const AUTO_TRUSTEE_TIMEOUTS = 3
+/**
+ * 选将的窗口。
+ *
+ * 不跟房间的「操作时间」走：选将要读十几个武将的技能文本再做决定，
+ * 和「出不出这张闪」完全不是一个量级，15 秒或 30 秒根本读不完。
+ * 固定给 60 秒。
+ */
+const PICK_GENERAL_WINDOW_MS = 60_000
 const CHAT_MAX = 40
 const LOG_MAX = 200
 /** 舞台只回放最近这些条，重连时够还原「刚才发生了什么」，又不至于把 DO 存储撑大 */
 const PRESENTATION_MAX = 30
 
 function emptySeat(seatId: number): SgsSeat {
-  return { seatId, kind: 'empty', userId: null, name: '', connected: false, ready: false, trustee: false, leftRoom: false, nextRoundReady: false }
+  return { seatId, kind: 'empty', userId: null, name: '', connected: false, ready: false, trustee: false, leftRoom: false, nextRoundReady: false, timeoutStreak: 0 }
+}
+
+/** 计时条的表现强度分类。只影响显示，不影响规则。 */
+export function timerKindOf(status: string, request: GameRequest | undefined): SgsTimerKind {
+  if (status === 'choosing-general' || request?.kind === 'choose-general') return 'pick-general'
+  if (!request) return 'action'
+  /*
+   * 「抢答」专指**窗口被收短**的那一种（目前只有无懈可击）：全桌同时被问、
+   * 只有几秒，表现上必须和常规响应一眼分开。
+   *
+   * 濒死求桃不算：它是按座位顺序一个一个问的，而且要不要交出一张桃是个
+   * 重决定，窗口仍然是完整的操作时间。给它套上「抢答」的皮会让人以为
+   * 只剩几秒，反而催出误操作。
+   */
+  if (request.kind === 'respond-card' && request.requiredCardName === '无懈可击') return 'claim'
+  return 'response'
 }
 
 /** 座位 id 和引擎里的 playerId 是一一对应的，转换只在这里发生。 */
@@ -280,6 +350,7 @@ export class SanguoshaRoomCoordinator {
       existing.connected = true
       existing.leftRoom = false
       existing.trustee = false
+      existing.timeoutStreak = 0
       existing.name = user.nickname
       return existing.seatId
     }
@@ -436,6 +507,7 @@ export class SanguoshaRoomCoordinator {
         if (request.playerId !== playerIdOf(seat.seatId)) throw new InvalidSgsCommandError('这不是你要回应的请求')
         // 合法性交给引擎判定，服务端不做第二套规则
         game.respond({ requestId: request.id, playerId: request.playerId, payload: command.payload } as GameResponse)
+        this.noteHumanAction(seat, now)
         this.afterEngineStep(now)
         return null
       }
@@ -446,6 +518,7 @@ export class SanguoshaRoomCoordinator {
         if (game.state.currentPlayerId !== playerId) throw new InvalidSgsCommandError('还没轮到你')
         if (game.state.pendingRequests.length > 0) throw new InvalidSgsCommandError('还有待处理的请求')
         game.act(playerId, command.legalActionId)
+        this.noteHumanAction(seat, now)
         this.afterEngineStep(now)
         return null
       }
@@ -454,6 +527,7 @@ export class SanguoshaRoomCoordinator {
         const game = this.game()
         if (game.state.currentPlayerId !== playerIdOf(seat.seatId)) throw new InvalidSgsCommandError('还没轮到你')
         game.advancePhase()
+        this.noteHumanAction(seat, now)
         this.afterEngineStep(now)
         return null
       }
@@ -461,6 +535,9 @@ export class SanguoshaRoomCoordinator {
       case 'trustee': {
         if (!this.state.game) throw new InvalidSgsCommandError('牌局还没有开始')
         seat.trustee = command.enabled
+        // 手动取消托管也算「人回来了」，超时计数一起清掉，
+        // 否则刚收回来又被上一轮的计数推回托管
+        seat.timeoutStreak = 0
         this.touch(now)
         this.scheduleNext(now)
         // 最后一个真人也挂机了就开始倒计时解散
@@ -662,64 +739,186 @@ export class SanguoshaRoomCoordinator {
   }
 
   private pushJob(job: Omit<SgsJob, 'id' | 'stageKey'>): void {
-    this.state.jobs.push({ ...job, id: `job-${this.state.version}-${this.state.jobs.length}`, stageKey: this.state.stageKey })
+    this.state.jobSeq = (this.state.jobSeq ?? 0) + 1
+    // 单调计数，绝不复用：id 撞车会让删一个任务顺带删掉另一个
+    this.state.jobs.push({ ...job, id: `job#${this.state.jobSeq}`, stageKey: this.state.stageKey })
   }
 
   /**
-   * 决定下一步该等谁。
+   * 决定接下来要等谁，以及等多久。
    *
-   * 只安排一个任务：要么等 AI 走，要么等真人超时。局面指纹变了之后旧任务自然作废。
+   * **每一个正在被等待的座位都排一个任务**，而不是只排队首那一个。
+   * 多人同时决定时（开局选将、于吉【蛊惑】质疑），原来只有一个人的钟在走，
+   * 其余人要等前面的人答完才开始计时——排最后的那个人实际能拖两三轮，
+   * 牌桌上也没法显示「每一家还剩多少」。
+   *
+   * 已经在跑的计时**必须原样保留**：任何人答一次都会改变局面指纹，
+   * 每次重排等于把所有人的钟拨回起点。只有驱动方式变了（真人开/关托管）
+   * 才重新发一个任务。
    */
   private scheduleNext(now: number): void {
     if (!this.state.game) return
-    this.state.jobs = this.state.jobs.filter((job) => job.kind === 'disconnect-trustee' || job.kind === 'next-round-timeout' || job.kind === 'all-trustee-dissolve')
+    const previous: SgsJob[] = []
+    const kept: SgsJob[] = []
+    for (const job of this.state.jobs) {
+      if (job.kind === 'ai-step' || job.kind === 'turn-timeout') previous.push(job)
+      else kept.push(job)
+    }
+    this.state.jobs = kept
     // 选将阶段同样要安排任务，否则 AI 永远不选，房间停在选将界面
-    if (this.state.game.status !== 'playing' && this.state.game.status !== 'choosing-general') return
+    const state = this.state.game
+    if (state.status !== 'playing' && state.status !== 'choosing-general') return
 
-    const actorSeatId = this.currentActorSeatId()
-    if (actorSeatId === null) return
-    const seat = this.state.seats.find((candidate) => candidate.seatId === actorSeatId)
+    const scheduled = new Set<number>()
+    for (const request of state.pendingRequests) {
+      const seatId = seatIdOf(request.playerId)
+      // 同一个座位同时挂着多个请求时只给最前面那个排：引擎一次也只会答一个
+      if (scheduled.has(seatId)) continue
+      scheduled.add(seatId)
+      this.scheduleForSeat(now, seatId, request, previous)
+    }
+
+    if (state.pendingRequests.length === 0 && state.status === 'playing' && state.phase === 'play') {
+      this.scheduleForSeat(now, seatIdOf(state.currentPlayerId), undefined, previous)
+    }
+  }
+
+  /** 给一个座位排（或保留）它的推进任务。 */
+  private scheduleForSeat(now: number, seatId: number, request: GameRequest | undefined, previous: readonly SgsJob[]): void {
+    const seat = this.state.seats.find((candidate) => candidate.seatId === seatId)
     if (!seat) return
-
     // 断线本身不能立刻等同托管：disconnect-trustee 有 20 秒重连保护期。
     // 否则测试的 0ms 节奏（生产也可能在竞态下）会在玩家刷新时替他答掉请求。
     const drivenByAI = seat.kind === 'ai' || seat.trustee
-    const choosing = this.state.game.status === 'choosing-general'
-    const pending = this.state.game.pendingRequests.find((request) => request.playerId === playerIdOf(actorSeatId))
-    const onlyPass = drivenByAI && !choosing && !pending && this.state.game.phase === 'play'
-      ? this.game().legalActions(playerIdOf(actorSeatId)).every((action) => action.kind === 'pass')
+    const kind: SgsJobKind = drivenByAI ? 'ai-step' : 'turn-timeout'
+
+    /*
+     * 同一个（座位, 请求）上一次排的任务。没绑请求的（出牌阶段）靠局面指纹
+     * 认身份，少了这一条，同一个座位上一轮的出牌任务会被当成「还活着」原样
+     * 留用，这一步的等待时间就沿用了上一步的。
+     */
+    const carried = previous.find((job) => job.seatId === seatId
+      && job.requestId === request?.id
+      && (request !== undefined || job.stageKey === this.state.stageKey))
+    // 驱动方式没变就原样留用，连 dueAt 都不动
+    if (carried && carried.kind === kind) {
+      this.state.jobs.push(carried)
+      return
+    }
+
+    const choosing = this.state.game!.status === 'choosing-general'
+    const onlyPass = drivenByAI && !choosing && !request && this.state.game!.phase === 'play'
+      ? this.game().legalActions(playerIdOf(seatId)).every((action) => action.kind === 'pass')
       : false
     // 没有待处理请求 + 出牌阶段 = AI 要主动出一张牌，这一步慢一点让人看清；
     // 有请求的那条路是响应牌（无懈、桃、闪），节奏保持不动
-    const playingCard = drivenByAI && !choosing && !pending && this.state.game.phase === 'play' && !onlyPass
+    const playingCard = drivenByAI && !choosing && !request && this.state.game!.phase === 'play' && !onlyPass
     const aiDelay = choosing ? this.timing.pickGeneralMs
-      : ((pending && isTrivialAIRequest(pending)) || onlyPass) ? this.timing.trivialStepMs
+      : ((request && isTrivialAIRequest(request)) || onlyPass) ? this.timing.trivialStepMs
         : playingCard ? this.timing.playActionMs(this.timing.aiPaceMs)
           : this.timing.aiPaceMs
+    /*
+     * 窗口的起点和终点跟着这一步走，不跟着驱动方式走。
+     * 开/取消托管、掉线、重连都会走到这里，带着旧值就不会把倒计时拨回起点。
+     */
+    const startedAt = carried?.startedAt ?? now
+    /*
+     * 老任务没有 `windowEndsAt`（这个字段是后加的）。休眠中的房间恢复回来、
+     * 或者版本刚上线时在飞的那一局，任务就是老形状——直接落回「现在 + 完整窗口」
+     * 等于把倒计时拨回起点，正是这里要修的那个毛病。
+     * `turn-timeout` 的 `dueAt` 本来就是窗口终点，拿它顶上。
+     */
+    const windowEndsAt = carried?.windowEndsAt
+      ?? (carried?.kind === 'turn-timeout' ? carried.dueAt : undefined)
+      ?? (now + this.nominalWindowMs(request))
     this.pushJob({
-      kind: drivenByAI ? 'ai-step' : 'turn-timeout',
-      dueAt: now + (drivenByAI ? aiDelay : this.humanWindowMs(actorSeatId)),
-      seatId: actorSeatId,
+      kind,
+      startedAt,
+      windowEndsAt,
+      // AI 按自己的节奏落子；真人等到窗口结束，掉线的人再往前收一次
+      dueAt: drivenByAI ? now + aiDelay : this.humanDeadline(seatId, now, windowEndsAt),
+      seatId,
+      requestId: request?.id,
     })
   }
 
   /**
-   * 真人这一步有多长时间。
+   * 这一步的名义窗口有多长。
    *
-   * 默认是房间设置的操作时间；**无懈可击是例外**：它是一个「有没有无懈」的
-   * 判断，没那么难决定，而一张多目标锦囊要问好几轮，30~60 秒一轮会把
-   * 整桌人晾在那里。所以无懈按请求自带的窗口来（3 秒），
-   * 但不会超过房间设置——房主把操作时间调到 15 秒时不该反而变长。
+   * 真人和 AI 用**同一个口径**：牌桌上每一家的计时看起来必须是同一套，
+   * 一家 30 秒一家 0.7 秒会让人以为规则不一样。AI 实际什么时候落子由它自己的
+   * 节奏决定，和这里无关。
+   *
+   * 三种：
+   * 1. 选将固定 60 秒——要读十几个武将的技能文本，和「出不出这张闪」不是一个量级；
+   * 2. **抢答**（无懈可击）按请求自带的窗口来。它只是一个「有没有无懈」的判断，
+   *    而一张多目标锦囊要问好几轮，30~60 秒一轮会把整桌人晾在那里。
+   *    但不超过房间设置：房主把操作时间调到 15 秒时不该反而变长；
+   * 3. 其余用房间设置的操作时间。
    */
-  private humanWindowMs(seatId: number): number {
+  private nominalWindowMs(request: GameRequest | undefined): number {
     const setting = this.state.settings.turnSeconds * 1000
-    const playerId = playerIdOf(seatId)
-    // 多人决定时每人各有一个请求，要看**这个座位的**那一个，不能永远看 [0]
-    const request = this.state.game?.pendingRequests.find((candidate) => candidate.playerId === playerId)
+    if (request?.kind === 'choose-general') return PICK_GENERAL_WINDOW_MS
     if (request?.kind === 'respond-card' && request.requiredCardName === '无懈可击') {
       return Math.min(setting, request.timeoutMs)
     }
     return setting
+  }
+
+  /**
+   * 真人这一步的实际截止时刻。
+   *
+   * 就是名义窗口的终点，只有一个例外：**已经断线的人**最多只等到重连保护期
+   * 结束。他的 socket 已经关了，再等下去不可能有人操作，纯粹是拖着全桌。
+   * 刷新回来的人一秒不少——重连会把这个任务和保护期一起撤掉。
+   */
+  private humanDeadline(seatId: number, now: number, windowEndsAt: number): number {
+    const seat = this.state.seats.find((candidate) => candidate.seatId === seatId)
+    if (!seat || seat.connected) return windowEndsAt
+    const grace = this.state.jobs.find((job) => job.kind === 'disconnect-trustee' && job.seatId === seatId)
+    if (!grace) return windowEndsAt
+    // 至少留 1 秒：保护期只剩几十毫秒时给 0 会让任务和 alarm 挤在同一刻
+    return Math.min(windowEndsAt, Math.max(now + 1_000, grace.dueAt))
+  }
+
+  /**
+   * 连续超时到阈值就自动转托管。
+   *
+   * 「挂机」在服务端没有任何直接信号——人连着、心跳正常，就是不做决定。
+   * 只能按连续多少次没在窗口内操作来判定。转托管之后战报里说清楚，
+   * 免得回来的人以为自己的牌被谁动了。
+   */
+  private registerTimeout(now: number, seatId: number | undefined): void {
+    if (seatId === undefined) return
+    const seat = this.state.seats.find((candidate) => candidate.seatId === seatId)
+    if (!seat || seat.kind !== 'human' || seat.trustee) return
+    seat.timeoutStreak = (seat.timeoutStreak ?? 0) + 1
+    if (seat.timeoutStreak < AUTO_TRUSTEE_TIMEOUTS) return
+    seat.trustee = true
+    seat.timeoutStreak = 0
+    this.noteToAll(`${seat.name} 连续 ${AUTO_TRUSTEE_TIMEOUTS} 次未操作，已自动托管；本人任意操作即可收回。`)
+    this.reviewAllTrustee(now)
+  }
+
+  /** 真人做了任何一次决定：清掉超时计数，并把自动挂上的托管收回来。 */
+  private noteHumanAction(seat: SgsSeat, now: number): void {
+    seat.timeoutStreak = 0
+    if (!seat.trustee) return
+    // 托管中还能点得动，说明人回来了。让他直接接管，不必先去点一下「取消托管」
+    seat.trustee = false
+    this.noteToAll(`${seat.name} 已回到牌桌，托管解除。`)
+    this.reviewAllTrustee(now)
+  }
+
+  /** 往每个座位的战报里写同一句房间层面的提示。 */
+  private noteToAll(text: string): void {
+    for (const seat of this.state.seats) {
+      if (seat.kind === 'empty') continue
+      const viewerId = playerIdOf(seat.seatId)
+      const bucket = this.state.log[viewerId] ?? (this.state.log[viewerId] = [])
+      bucket.push(text)
+      if (bucket.length > LOG_MAX) bucket.splice(0, bucket.length - LOG_MAX)
+    }
   }
 
   /**
@@ -749,6 +948,21 @@ export class SanguoshaRoomCoordinator {
   }
 
 
+  /**
+   * 这个任务是不是已经作废了。
+   *
+   * 绑了请求的任务只认「这个请求还在不在」：多人同时决定时，别人答一次就会
+   * 改变局面指纹，按指纹判定会把还在等的人的计时一起清掉。
+   * 没绑请求的（出牌阶段、阶段推进）仍然按局面指纹。
+   */
+  private jobIsStale(job: SgsJob): boolean {
+    if (isStageAgnostic(job.kind)) return false
+    if (job.requestId !== undefined) {
+      return !this.state.game?.pendingRequests.some((request) => request.id === job.requestId)
+    }
+    return job.stageKey !== this.state.stageKey
+  }
+
   nextAlarmAt(): number | null {
     if (this.state.jobs.length === 0) return null
     return Math.min(...this.state.jobs.map((job) => job.dueAt))
@@ -774,7 +988,7 @@ export class SanguoshaRoomCoordinator {
 
       // 局面已经变了的超时任务直接作废，否则会误伤新局面。
       // 这一步不需要快照：只是丢弃一个过期任务，没有任何副作用。
-      if (!isStageAgnostic(due.kind) && due.stageKey !== this.state.stageKey) {
+      if (this.jobIsStale(due)) {
         this.state.jobs = this.state.jobs.filter((job) => job.id !== due.id)
         continue
       }
@@ -828,6 +1042,8 @@ export class SanguoshaRoomCoordinator {
       presentationEvents: structuredClone(this.state.presentationEvents ?? []),
       seats: structuredClone(this.state.seats),
       processedActionIds: [...(this.state.processedActionIds ?? [])],
+      // 计数器**不**回滚：回滚只是撤销局面，已经发出去的 id 不能再被重用
+      jobSeq: this.state.jobSeq,
     }
   }
 
@@ -843,6 +1059,7 @@ export class SanguoshaRoomCoordinator {
     this.state.presentationEvents = point.presentationEvents
     this.state.seats = point.seats
     this.state.processedActionIds = point.processedActionIds
+    this.state.jobSeq = Math.max(this.state.jobSeq ?? 0, point.jobSeq ?? 0)
     // 内存里的引擎已经被污染了，丢掉；下一次 game() 会从回滚后的 state.game 重新 hydrate
     this.engine = null
   }
@@ -930,7 +1147,7 @@ export class SanguoshaRoomCoordinator {
   private repairScheduling(now: number): boolean {
     if (!this.needsProgress()) return false
     const gameplay = this.state.jobs.filter((job) => job.kind === 'ai-step' || job.kind === 'turn-timeout')
-    const fresh = gameplay.filter((job) => job.stageKey === this.state.stageKey)
+    const fresh = gameplay.filter((job) => !this.jobIsStale(job))
     if (fresh.length > 0) return false
 
     const reason = gameplay.length > 0 ? 'stale-gameplay-jobs' : 'missing-gameplay-job'
@@ -970,6 +1187,18 @@ export class SanguoshaRoomCoordinator {
       case 'all-trustee-dissolve': {
         // 等待期间有人回来或取消了托管，就当没这回事
         if (!this.allHumansTrustee()) return false
+        /*
+         * 全员托管**不立刻拆房**：打了半小时的一局不该因为大家临时离开就凭空消失。
+         * 让 AI 把它打完，战报和结算对随后回来的人仍然有意义；打完之后这里再拆。
+         *
+         * 主动退出走的是另一条路：`leave()` 里所有真人都 leftRoom 时直接销毁——
+         * 那是明确表示不打了，和挂机不是一回事。
+         * 万一牌局因为未知原因永远结束不了，还有 6 小时的 `isStale` 兜底。
+         */
+        if (this.state.game && this.state.game.status !== 'game-over') {
+          this.pushJob({ kind: 'all-trustee-dissolve', dueAt: now + ALL_TRUSTEE_DISSOLVE_MS })
+          return false
+        }
         this.state.deleteRequested = true
         this.touch(now)
         return true
@@ -987,12 +1216,13 @@ export class SanguoshaRoomCoordinator {
         return this.repairScheduling(now)
       }
 
-      case 'ai-step':
+      case 'ai-step': {
+        return this.stepAI(now, job)
+      }
+
       case 'turn-timeout': {
-        // 超时和 AI 走子是同一件事：都由 AI 代做一步决定。
-        // 区别只在于谁的时间到了。
-        this.stepAI(now, job.seatId)
-        return true
+        // 真人超时**不等于**托管：默认放弃，而不是替他出牌。
+        return this.stepTimeout(now, job)
       }
 
       default: {
@@ -1002,42 +1232,99 @@ export class SanguoshaRoomCoordinator {
     }
   }
 
-  /** 让 AI 替当前该行动的人做一步。 */
-  private stepAI(now: number, seatId?: number): void {
+  /**
+   * 真人的操作时间到了。
+   *
+   * 默认是「放弃」，不是「AI 替他打」——超时的人没有授权任何人花他的牌。
+   * 只有两种情况仍然落回 AI：
+   *
+   * 1. 这个请求必须给出实质答案（选将、观星排序、强制弃牌），不答就卡死；
+   * 2. 出现了非预期的局面（没有请求、也不是自己的出牌阶段）。
+   *
+   * 想让 AI 代打的人应该开托管，那条路走的是 `ai-step`。
+   */
+  private stepTimeout(now: number, job: SgsJob): boolean {
     const game = this.game()
-    if (game.state.status !== 'playing' && game.state.status !== 'choosing-general') return
-    const aiRng = new GameRng(this.state.aiSeed, this.state.aiRngState || undefined)
-    const contextFor = (playerId: PlayerId): AIContext => ({
-      view: game.viewFor(playerId),
-      difficulty: this.state.settings.difficulty,
-      rng: aiRng,
-      suspicion: this.state.suspicion,
-    })
+    if (game.state.status !== 'playing' && game.state.status !== 'choosing-general') return false
 
-    try {
-      // 指定了座位就答那个座位的请求：多人决定时 pendingRequests[0]
-      // 可能是别人的，答错人会把状态搅乱
-      const request = seatId === undefined
-        ? game.state.pendingRequests[0]
-        : game.state.pendingRequests.find((candidate) => candidate.playerId === playerIdOf(seatId))
-          ?? game.state.pendingRequests[0]
-      if (request) {
-        game.respond(decideResponse(contextFor(request.playerId), request))
-      } else if (game.state.status !== 'playing') {
-        // 选将期间没有请求就说明都选完了，交给 afterEngineStep 开局
-        return
-      } else if (game.state.phase === 'play') {
-        const playerId = game.state.currentPlayerId
-        const chosen = decidePlayAction(contextFor(playerId), game.legalActions(playerId))
-        if (chosen) game.act(playerId, chosen.id)
-        else game.advancePhase()
-      } else {
-        game.advancePhase()
+    if (job.requestId !== undefined) {
+      // 任务只对**自己那个请求**负责。请求已经被答掉就直接作废，
+      // 绝不能顺手去答队列里别人的请求。
+      const request = game.state.pendingRequests.find((candidate) => candidate.id === job.requestId)
+      if (!request) return false
+      this.registerTimeout(now, job.seatId)
+      const passive = timeoutDefaultResponse(request)
+      if (!passive) {
+        this.answerAsAI(now, request)
+        return true
       }
+      game.respond(passive)
+      this.afterEngineStep(now)
+      return true
+    }
+
+    // 没有请求 + 自己的出牌阶段 = 超时放弃出牌，直接结束出牌阶段。
+    // 原来这里由 AI 替他打一张牌，然后又给他一个完整的新窗口——
+    // 结果是「超时」既花掉了他的牌，又永远不会真正结束他的回合。
+    if (game.state.status === 'playing' && game.state.phase === 'play'
+      && job.seatId !== undefined && seatIdOf(game.state.currentPlayerId) === job.seatId) {
+      this.registerTimeout(now, job.seatId)
+      game.advancePhase()
+      this.afterEngineStep(now)
+      return true
+    }
+    return false
+  }
+
+  /** AI（电脑或托管）走一步。任务绑了请求就只答那个请求。 */
+  private stepAI(now: number, job: SgsJob): boolean {
+    const game = this.game()
+    if (game.state.status !== 'playing' && game.state.status !== 'choosing-general') return false
+
+    if (job.requestId !== undefined) {
+      const request = game.state.pendingRequests.find((candidate) => candidate.id === job.requestId)
+      if (!request) return false
+      this.answerAsAI(now, request)
+      return true
+    }
+
+    if (game.state.status !== 'playing') return false
+    if (game.state.phase !== 'play' || job.seatId === undefined
+      || seatIdOf(game.state.currentPlayerId) !== job.seatId) {
+      return false
+    }
+    const playerId = game.state.currentPlayerId
+    const aiRng = new GameRng(this.state.aiSeed, this.state.aiRngState || undefined)
+    try {
+      const chosen = decidePlayAction(this.aiContext(game, playerId, aiRng), game.legalActions(playerId))
+      if (chosen) game.act(playerId, chosen.id)
+      else game.advancePhase()
     } finally {
       this.state.aiRngState = aiRng.snapshot()
     }
     this.afterEngineStep(now)
+    return true
+  }
+
+  /** 让 AI 回答一个具体请求。超时兜底和托管共用这一条路。 */
+  private answerAsAI(now: number, request: GameRequest): void {
+    const game = this.game()
+    const aiRng = new GameRng(this.state.aiSeed, this.state.aiRngState || undefined)
+    try {
+      game.respond(decideResponse(this.aiContext(game, request.playerId, aiRng), request))
+    } finally {
+      this.state.aiRngState = aiRng.snapshot()
+    }
+    this.afterEngineStep(now)
+  }
+
+  private aiContext(game: SanguoshaGame, playerId: PlayerId, rng: GameRng): AIContext {
+    return {
+      view: game.viewFor(playerId),
+      difficulty: this.state.settings.difficulty,
+      rng,
+      suspicion: this.state.suspicion,
+    }
   }
 
   // —— 视图 ——
@@ -1068,8 +1355,49 @@ export class SanguoshaRoomCoordinator {
       log: seat ? (this.state.log[playerIdOf(seat.seatId)] ?? []) : [],
       presentationEvents: seat ? (this.state.presentationEvents ?? []) : [],
       deadlineAt: waitingJob ? waitingJob.dueAt : null,
+      timers: this.seatTimers(),
+      serverNow: Date.now(),
       aiThinking: phase === 'playing' && !!actorSeat && (actorSeat.kind === 'ai' || actorSeat.trustee),
     }
+  }
+
+  /**
+   * 牌桌上要画的计时，每个正在被等待的座位一项。
+   *
+   * **AI 的窗口按真人同样的口径给**：牌桌上每一家的计时看起来必须是同一套，
+   * 一家 30 秒一家 0.7 秒会让人以为规则不一样。AI 实际什么时候落子仍由
+   * `ai-step` 的 `dueAt` 决定，和这里无关——它通常远早于窗口结束就答完了，
+   * 那一刻这一项直接消失。
+   */
+  private seatTimers(): SgsSeatTimer[] {
+    const state = this.state.game
+    if (!state || (state.status !== 'playing' && state.status !== 'choosing-general')) return []
+    const timers: SgsSeatTimer[] = []
+    for (const job of this.state.jobs) {
+      if (job.kind !== 'ai-step' && job.kind !== 'turn-timeout') continue
+      if (job.seatId === undefined || this.jobIsStale(job)) continue
+      const seat = this.state.seats.find((candidate) => candidate.seatId === job.seatId)
+      if (!seat || seat.kind === 'empty') continue
+      const request = job.requestId === undefined
+        ? undefined
+        : state.pendingRequests.find((candidate) => candidate.id === job.requestId)
+      const ai = job.kind === 'ai-step'
+      const startedAt = job.startedAt ?? job.dueAt
+      const windowEndsAt = job.windowEndsAt ?? job.dueAt
+      timers.push({
+        seatId: job.seatId,
+        startedAt,
+        /*
+         * AI 画名义窗口（它总是提前答完，画它自己的 0.7 秒会一闪而过）；
+         * 真人画真正会被执行的那一刻——通常就是名义窗口终点，
+         * 掉线的人会被收得更早，那时候画的必须是收窄后的。
+         */
+        deadlineAt: ai ? windowEndsAt : Math.min(windowEndsAt, job.dueAt),
+        kind: timerKindOf(state.status, request),
+        ai,
+      })
+    }
+    return timers.sort((left, right) => left.seatId - right.seatId)
   }
 
   shouldDeleteRoom(): boolean {
