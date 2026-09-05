@@ -229,7 +229,10 @@ registerSkillRuntime({
         skipPhase(host.state, 'play')
         // 记到回合结束才兑现；必须可序列化，中间可能休眠好几次
         owner.marks[FANGQUAN_MARK] = 1
-        host.dispatch('SkillActivated', { playerId: ownerId, skillId: FANGQUAN }, { sourceId: ownerId })
+        host.dispatch('SkillActivated', {
+          playerId: ownerId, skillId: FANGQUAN,
+          logText: `${owner.nickname}发动【放权】，跳过出牌阶段`,
+        }, { sourceId: ownerId })
       }
       host.resumePhaseEntry()
       return
@@ -270,7 +273,15 @@ registerSkillRuntime({
        * 一个都跑不到。
        */
       queueExtraTurn(host.state, targetId, { skillId: FANGQUAN, playerId: ownerId })
-      host.dispatch('SkillActivated', { playerId: ownerId, skillId: FANGQUAN, targetId }, { sourceId: ownerId, targetId })
+      /*
+       * 这条必须和第一段那条文案不同。
+       * 放权一个回合报两次横幅（跳过、兑现），两条都用默认的
+       * 「刘禅发动【放权】」的话，牌桌中央就是同一句连播两遍。
+       */
+      host.dispatch('SkillActivated', {
+        playerId: ownerId, skillId: FANGQUAN, targetId,
+        logText: `${playerOf(host.state, ownerId)?.nickname}发动【放权】，令${playerOf(host.state, targetId)?.nickname}进行一个额外的回合`,
+      }, { sourceId: ownerId, targetId })
     }
   },
 })

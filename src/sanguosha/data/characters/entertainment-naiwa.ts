@@ -274,6 +274,12 @@ function countsAsPlay(state: SanguoshaState, sourceId: PlayerId | undefined): bo
 
 registerSkillRuntime({
   id: PENGFU,
+  /*
+   * 捧腹一次完整流程会经过起哄、选择、弃牌、罚弃好几个时机，
+   * 每个时机的文案都不一样，全部自己报——引擎不要再补那条通用的
+   * 「奶蛙发动【捧腹】」，否则两条挨在一起就是重复播放。
+   */
+  announcesSelf: true,
 
   triggers: [
     {
@@ -310,6 +316,8 @@ registerSkillRuntime({
           draw(host, ownerId, 1, PENGFU)
           host.dispatch('SkillActivated', {
             skillId: PENGFU, skillName: '捧腹', playerId: ownerId, targetId: actor.id, result: 'continued',
+            // 起哄和兑现是两个时机，文案不区分就会连播两条一模一样的横幅
+            logText: `${actor.nickname}接住了【捧腹·继续】，${owner.nickname}摸一张牌`,
           }, { sourceId: ownerId, targetId: actor.id })
           return
         }
@@ -428,6 +436,10 @@ registerSkillRuntime({
       if (!target?.alive || !owner) return
       const optionId = (response.payload as { optionId: string }).optionId
       if (optionId === 'pengfu-continue') {
+        host.dispatch('SkillActivated', {
+          skillId: PENGFU, skillName: '捧腹', playerId: ownerId, targetId,
+          logText: `${owner.nickname}发动【捧腹】，${target.nickname}选择继续，摸一张牌`,
+        }, { sourceId: ownerId, targetId })
         draw(host, targetId, 1, PENGFU)
         // 标记挂在**被起哄的人**身上，值是发起者座位号 +1：
         // 一桌可能坐着两个奶蛙，要分得清是谁的挑战
@@ -463,6 +475,12 @@ registerSkillRuntime({
     if (resolution.step === 'stop-discard' || resolution.step === 'penalty') {
       const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
       if (!target || !cardId) return
+      host.dispatch('SkillActivated', {
+        skillId: PENGFU, skillName: '捧腹', playerId: ownerId, targetId,
+        logText: resolution.step === 'stop-discard'
+          ? `${owner?.nickname}发动【捧腹】，${target.nickname}选择算了，弃置一张牌`
+          : `${target.nickname}没能接住【捧腹·继续】，弃置一张牌`,
+      }, { sourceId: ownerId, targetId })
       discardOwnedCard(host, targetId, cardId, PENGFU)
       // 「算了」才给奶蛙摸牌；「继续」失败的罚弃只是罚，奶蛙不摸
       if (resolution.step === 'stop-discard') draw(host, ownerId, 1, PENGFU)

@@ -7,7 +7,7 @@ import { startPlaying } from './turn'
 import { recheckZeroHpAfterSkillLoss } from './skills/runtime'
 import { advanceGamePhase, continuePhaseEntry, continueTurnTransition, recordDiscardPhaseMove, resolveDiscardPhaseResponse } from './phase'
 import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
-import { resolveBorrowedKnifeTarget } from './cards/tricks'
+import { resolveBorrowedKnifeTarget, resolveQizhengMode } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
 import { isPindianRequest, resolvePindianResponse } from './pindian'
@@ -17,7 +17,7 @@ import { RENNAI_ACTION, RENNAI_SKILL, armRennai } from './rennai'
 import { markUsedThisTurn } from './turn-usage'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
-import type { QueuedSkillPrompt } from './types'
+import type { QueuedSkillPrompt, SkillResolutionState } from './types'
 import { validateResponse } from './requests'
 import { allCharacterIds, entertainmentCharacterIds, getCharacter, isEntertainmentCharacter, skillIdsOf } from '../data/characters/standard'
 import { getSkillRuntime, initializeGameSkills, registerSkillTriggers } from './skills/runtime'
@@ -48,6 +48,8 @@ export class SanguoshaGame {
    * 只在同一个调用链里有意义，所以不进 GameState；跨调用要保留的信息由
    * `skillResolution.announced` 负责（那个是序列化的）。
    */
+  /** SkillActivated 的累计条数。兜底横幅靠它判断「resume 期间技能自己报过没有」。 */
+  private skillAnnounceCount: number = 0
   private recentAnnounce: { skillId: string; ownerId: string } | null = null
 
   constructor(options: SanguoshaGameOptions) {
@@ -152,6 +154,12 @@ export class SanguoshaGame {
     metadata: Omit<GameEvent, 'id' | 'seq' | 'name' | 'payload'> = {},
   ): EventContext {
     if (name === 'SkillActivated') {
+      /*
+       * `restore` 用 `Object.create` 绕过构造函数，字段初始化器不会跑，
+       * 这里读到的是 undefined——直接 `+= 1` 会变成 NaN，
+       * 后面的比较恒为假，兜底横幅就会每次都补上，事件序列跟着发散。
+       */
+      this.skillAnnounceCount = (this.skillAnnounceCount ?? 0) + 1
       // 记下刚报过谁的什么技能，紧接着的 askSkill 靠它判断「这次发动已经报过了」。
       // 只在同一次 act/respond 的调用链里有效，入口处会清掉。
       this.recentAnnounce = {
@@ -410,11 +418,7 @@ export class SanguoshaGame {
       if (validationError) throw new Error(validationError)
       const runtime = getSkillRuntime(skillResolution.skillId)
       if (!runtime?.resume) throw new Error(`技能缺少续接实现：${skillResolution.skillId}`)
-      // 这次发动已经报过横幅就不再补：多步技能否则会连播好几遍同一个技能名。
-      // 技能自己会报的（announcesSelf）也不补，那两条会挨在一起变成重复播放。
-      if (!skillResolution.announced && !runtime.announcesSelf && skillResponseWasInvoked(request, response)) {
-        this.dispatch('SkillActivated', { skillId: skillResolution.skillId, skillName: skillDisplayName(skillResolution.skillId) }, { sourceId: skillResolution.ownerId })
-      } else if (skillResolution.announced) {
+      if (skillResolution.announced) {
         // 续接下一步时 askSkill 要能继续认出「已经报过」
         this.recentAnnounce = { skillId: skillResolution.skillId, ownerId: skillResolution.ownerId }
       }
@@ -428,7 +432,37 @@ export class SanguoshaGame {
         kind: request.kind,
         payload: structuredClone(response.payload),
       })
+      /*
+       * 兜底横幅要在 `resume` **之后**补，而且只在技能自己没报过时才补。
+       *
+       * 以前是先补再回调，于是「技能在 resume 里自己播一条」的写法必然连播两遍：
+       * 引擎那条已经发出去了，拦不住。靠给每个技能打 `announcesSelf` 标签治标——
+       * 全库有三十多个技能自己播横幅，漏一个就是一次重复播放，而且带 logText 的
+       * 那些文案不同，连相邻查重都抓不到。
+       *
+       * 改成事后判断：跑完 resume 看看这次有没有出现属于这个技能的 SkillActivated，
+       * 没有才补。这样技能写不写标签都不会重复。
+       */
+      const announceBefore = this.skillAnnounceCount ?? 0
       runtime.resume(this, skillResolution.ownerId, skillResolution, response)
+      const announcedDuringResume = (this.skillAnnounceCount ?? 0) > announceBefore
+        && this.recentAnnounce?.skillId === skillResolution.skillId
+      /*
+       * 技能链还没走完就先不补：resume 里又挂出了同一个技能的下一步。
+       *
+       * 刘禅【放权】是这条的由来——它在「弃牌支付」那步不报横幅，
+       * 到「选目标」那步才自己报。引擎要是在支付步就补一条，两条会挨在一起。
+       * 推迟到最后一步，技能在中间任何一步自报都来得及被上面那个判断看到。
+       */
+      // 上面清过一次 skillResolution，TS 会把它收窄成 null；resume 里可能又挂了新的
+      const pendingNext = this.state.skillResolution as SkillResolutionState | null
+      const chainContinues = !!pendingNext
+        && pendingNext.skillId === skillResolution.skillId
+        && pendingNext.ownerId === skillResolution.ownerId
+      if (!skillResolution.announced && !runtime.announcesSelf && !announcedDuringResume
+        && !chainContinues && skillResponseWasInvoked(request, response)) {
+        this.dispatch('SkillActivated', { skillId: skillResolution.skillId, skillName: skillDisplayName(skillResolution.skillId) }, { sourceId: skillResolution.ownerId })
+      }
       return
     }
     if (request.kind === 'rescue') {
@@ -494,6 +528,14 @@ export class SanguoshaGame {
     // 借刀杀人：目标挑选自己那张【杀】的受害者
     if (request.kind === 'choose-targets' && this.state.cardResolution?.kind === 'trick') {
       resolveBorrowedKnifeTarget(this, request, response)
+      return
+    }
+    // 奇正相生：使用者秘密选奇兵还是正兵
+    if (request.kind === 'choose-option'
+      && this.state.cardResolution?.kind === 'trick'
+      && this.state.cardResolution.effect?.kind === 'qizheng-mode'
+      && this.state.cardResolution.effect.requestId === request.id) {
+      resolveQizhengMode(this, request, response)
       return
     }
     throw new Error(`暂不支持处理 Request：${request.kind}`)
