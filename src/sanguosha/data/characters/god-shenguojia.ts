@@ -302,10 +302,20 @@ registerSkillRuntime({
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
     if (!owner?.alive) return []
+    // 限定技：一局一次，永不重置。`limited: true` 只是元数据，记账要自己查
+    if (owner.usedLimitedSkills.includes(HUISHIFADE)) return []
     return [{ id: HUISHIFADE, label: '发动【辉逝】' }]
   },
   invokeActive(host, ownerId, actionId) {
     if (actionId !== HUISHIFADE) return
+    const owner = playerOf(host.state, ownerId)
+    if (!owner?.alive || owner.usedLimitedSkills.includes(HUISHIFADE)) return
+    /*
+     * 一进来就记账，不等结算完。
+     * 中途要挂起两次（选目标、选觉醒技），不先记的话这期间入口还亮着，
+     * 玩家能把限定技点第二次。
+     */
+    owner.usedLimitedSkills.push(HUISHIFADE)
     host.askSkill({
       skillId: HUISHIFADE,
       ownerId,
