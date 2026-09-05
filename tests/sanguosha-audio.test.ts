@@ -70,28 +70,49 @@ describe('纸上三国声音映射', () => {
     expect(effectForPresentation(judgeEvent('乐不思蜀', true))).toBe('indulgence')
     expect(effectForPresentation(judgeEvent('兵粮寸断', true))).toBe('supply-shortage')
     expect(effectForPresentation(judgeEvent('闪电', true))).toBe('thunder')
-    // 没命中只留普通判定音
-    expect(effectForPresentation(judgeEvent('乐不思蜀', false))).toBe('judge')
-    expect(effectForPresentation(judgeEvent('兵粮寸断', false))).toBe('judge')
-    expect(effectForPresentation(judgeEvent('闪电', false))).toBe('judge')
+    // 没命中不再播放浏览器合成判定音
+    expect(effectForPresentation(judgeEvent('乐不思蜀', false))).toBeNull()
+    expect(effectForPresentation(judgeEvent('兵粮寸断', false))).toBeNull()
+    expect(effectForPresentation(judgeEvent('闪电', false))).toBeNull()
   })
 
-  it('技能判定这类普通判定仍然只有判定音', () => {
-    expect(effectForPresentation({ id: 'j', seq: 1, kind: 'judge', targetIds: ['p0'], judgeReason: '鬼才', judgeHit: false, text: '判定' })).toBe('judge')
+  it('技能判定这类普通判定不再播放浏览器合成音', () => {
+    expect(effectForPresentation({ id: 'j', seq: 1, kind: 'judge', targetIds: ['p0'], judgeReason: '鬼才', judgeHit: false, text: '判定' })).toBeNull()
   })
 
-  it('装备按武器、防具、坐骑分成三类', () => {
-    expect(effectForPresentation(cardEvent('青龙偃月刀'))).toBe('equip-weapon')
-    expect(effectForPresentation(cardEvent('八卦阵'))).toBe('equip-armor')
+  it('武器和防具共用装备音，坐骑单独使用坐骑音', () => {
+    expect(effectForPresentation(cardEvent('青龙偃月刀'))).toBe('equip')
+    expect(effectForPresentation(cardEvent('八卦阵'))).toBe('equip')
     expect(effectForPresentation(cardEvent('赤兔'))).toBe('equip-mount')
+  })
+
+  it('失去装备、改判和仅展示牌都不触发牌效', () => {
+    expect(effectForPresentation({ id: 'lose-equip', seq: 1, kind: 'equipment', cardName: '八卦阵', text: '失去装备' })).toBeNull()
+    expect(effectForPresentation({ ...cardEvent('杀', 'card-response'), cardEffect: false })).toBeNull()
+    expect(effectForPresentation({ ...cardEvent('桃', 'card-response'), cardEffect: false })).toBeNull()
+  })
+
+  it('按实际生效牌名播放，而不是实体牌原名', () => {
+    // 表现事件的 cardName 已经是转化后的有效牌名；例如把桃当杀使用时应听到杀。
+    expect(effectForPresentation({ ...cardEvent('杀'), id: 'view-as-peach-to-slash' })).toBe('slash')
+  })
+
+  it('女性使用固定受击、濒死和阵亡音，男性使用对应音效池', () => {
+    const event = (kind: 'damage' | 'dying' | 'death', targetGender: 'male' | 'female'): PresentationEvent => ({ id: `${kind}-${targetGender}`, seq: 1, kind, targetGender, text: kind })
+    expect(effectForPresentation(event('damage', 'male'))).toBe('damage')
+    expect(effectForPresentation(event('damage', 'female'))).toBe('damage-female')
+    expect(effectForPresentation(event('dying', 'male'))).toBe('dying')
+    expect(effectForPresentation(event('dying', 'female'))).toBe('dying-female')
+    expect(effectForPresentation(event('death', 'male'))).toBe('death')
+    expect(effectForPresentation(event('death', 'female'))).toBe('death-female')
   })
 
   /*
    * 成品文件和登记表必须一一对应。
    *
    * 少登记一个：文件白做，永远听不到。
-   * 多登记一个（或者路径打错一个字母）：取不到就静默退回合成音，
-   * 表面上「有声音」，实际接入根本没生效——这种错最难发现，所以钉死。
+   * 多登记一个（或者路径打错一个字母）：取不到就保持静音，
+   * 表面上完成接入，实际根本没生效——这种错最难发现，所以钉死。
    */
   it('音效文件和登记表一一对应', () => {
     const directory = resolve(dirname(fileURLToPath(import.meta.url)), '../src/sanguosha/assets/audio')
@@ -100,6 +121,7 @@ describe('纸上三国声音映射', () => {
     const registered = [...source.matchAll(/assets\/audio\/([A-Za-z0-9-]+\.mp3)/g)].map((match) => match[1]).sort()
     expect(registered, '登记的文件名').toEqual(files)
     for (const file of files) expect(statSync(resolve(directory, file)).size, file).toBeGreaterThan(0)
+    expect(files).not.toContain('deal.mp3')
   })
 
   /*
@@ -155,14 +177,34 @@ describe('纸上三国声音映射', () => {
     expect(prepare).toContain("play('game-start')")
   })
 
-  it('回合、濒死、死亡、技能和摸弃牌仍有各自反馈', () => {
+  it('只保留已有 MP3 的流程音，浏览器合成流程音全部静音', () => {
     const event = (kind: PresentationEvent['kind']): PresentationEvent => ({ id: kind, seq: 1, kind, text: kind })
-    expect(effectForPresentation(event('turn-start'))).toBe('turn')
+    expect(effectForPresentation(event('turn-start'))).toBeNull()
     expect(effectForPresentation(event('recover'))).toBe('recover')
     expect(effectForPresentation(event('dying'))).toBe('dying')
     expect(effectForPresentation(event('death'))).toBe('death')
-    expect(effectForPresentation(event('skill'))).toBe('skill')
-    expect(effectForPresentation(event('draw'))).toBe('draw')
-    expect(effectForPresentation(event('discard'))).toBe('draw')
+    expect(effectForPresentation(event('skill'))).toBeNull()
+    expect(effectForPresentation(event('draw'))).toBeNull()
+    expect(effectForPresentation(event('discard'))).toBeNull()
+    const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/sanguosha/composables/useSgsAudio.ts'), 'utf8')
+    expect(source).not.toContain('createOscillator')
+    expect(source).not.toContain('createBiquadFilter')
+  })
+})
+
+describe('麻将录制音频', () => {
+  it('只接入背景音乐、骰子和胜负结算，不接入发牌音', () => {
+    const root = dirname(fileURLToPath(import.meta.url))
+    const directory = resolve(root, '../src/assets/audio')
+    const files = readdirSync(directory).filter((name) => name.endsWith('.mp3')).sort()
+    expect(files).toEqual(['defeat.mp3', 'mahjong-bgm.mp3', 'mahjong-dice.mp3', 'victory.mp3'])
+    const source = readFileSync(resolve(root, '../src/composables/useGameAudio.ts'), 'utf8')
+    for (const file of files) expect(source, file).toContain(`assets/audio/${file}`)
+    expect(source).not.toContain('deal.mp3')
+    expect(source).not.toContain("playEffect('button')")
+    expect(source).not.toContain("playEffect('turn')")
+    expect(source).not.toContain("playEffect('countdown')")
+    for (const effect of ['draw', 'discard', 'peng', 'gang']) expect(source).toContain(`effect === '${effect}'`)
+    for (const file of files) expect(statSync(resolve(directory, file)).size, file).toBeGreaterThan(0)
   })
 })

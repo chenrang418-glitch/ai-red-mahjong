@@ -1,6 +1,7 @@
 import type { GameEvent } from './events'
 import { delayedTrickHits } from './delayed-trick-rules'
 import type { DamageNature, PlayerId, SanguoshaState, Suit } from './types'
+import { effectiveGenderOf } from './huashen'
 import { displayCharacterName, ALL_CHARACTERS } from '../data/characters/standard'
 
 export type PresentationEventKind =
@@ -18,6 +19,10 @@ export interface PresentationEvent {
   sourceId?: PlayerId
   targetIds?: PlayerId[]
   cardName?: string
+  /** 这次打出的牌是否真的作为牌生效；改判、展示等动作不播放牌效。 */
+  cardEffect?: boolean
+  /** 受击、濒死、阵亡音效按当前生效性别选择（含化身）。 */
+  targetGender?: 'male' | 'female'
   skillName?: string
   amount?: number
   nature?: DamageNature
@@ -115,7 +120,8 @@ export function buildPresentationEvent(
       const actorId = payload.playerId as PlayerId
       const name = String(payload.cardName ?? cardName(state, payload.cardId as string))
       if (!name) return null
-      return { id: event.id, seq: event.seq, kind: 'card-response', sourceId: actorId, cardName: name, text: `${playerName(state, actorId)}打出【${name}】` }
+      const cardEffect = payload.revealed !== true && payload.reason !== '改判'
+      return { id: event.id, seq: event.seq, kind: 'card-response', sourceId: actorId, cardName: name, cardEffect, text: `${playerName(state, actorId)}打出【${name}】` }
     }
     case 'SkillActivated': {
       /*
@@ -138,7 +144,7 @@ export function buildPresentationEvent(
       const amount = Number(payload.amount ?? 1)
       const nature = event.damageNature ?? 'normal'
       const natureText = nature === 'fire' ? '火焰' : nature === 'thunder' ? '雷电' : ''
-      return { id: event.id, seq: event.seq, kind: 'damage', sourceId, targetIds: targetId ? [targetId] : [], amount, nature, text: `${target}受到${amount}点${natureText}伤害` }
+      return { id: event.id, seq: event.seq, kind: 'damage', sourceId, targetIds: targetId ? [targetId] : [], targetGender: targetId ? effectiveGenderOf(state, targetId) : undefined, amount, nature, text: `${target}受到${amount}点${natureText}伤害` }
     }
     case 'Recover': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId
@@ -148,15 +154,15 @@ export function buildPresentationEvent(
     case 'LoseHp': {
       const actorId = payload.playerId as PlayerId
       const amount = Number(payload.amount ?? 1)
-      return { id: event.id, seq: event.seq, kind: 'lose-hp', targetIds: [actorId], amount, text: `${playerName(state, actorId)}失去${amount}点体力` }
+      return { id: event.id, seq: event.seq, kind: 'lose-hp', targetIds: [actorId], targetGender: effectiveGenderOf(state, actorId), amount, text: `${playerName(state, actorId)}失去${amount}点体力` }
     }
     case 'EnterDying': {
       const actorId = payload.playerId as PlayerId
-      return { id: event.id, seq: event.seq, kind: 'dying', targetIds: [actorId], text: `${playerName(state, actorId)}进入濒死` }
+      return { id: event.id, seq: event.seq, kind: 'dying', targetIds: [actorId], targetGender: effectiveGenderOf(state, actorId), text: `${playerName(state, actorId)}进入濒死` }
     }
     case 'Death': {
       const actorId = payload.playerId as PlayerId
-      return { id: event.id, seq: event.seq, kind: 'death', targetIds: [actorId], text: `${playerName(state, actorId)}阵亡` }
+      return { id: event.id, seq: event.seq, kind: 'death', targetIds: [actorId], targetGender: effectiveGenderOf(state, actorId), text: `${playerName(state, actorId)}阵亡` }
     }
     case 'CardMove': {
       // 同上：只表现公开展示

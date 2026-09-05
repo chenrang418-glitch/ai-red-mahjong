@@ -4,6 +4,13 @@ import { haptics, vibrationSupported } from './useHaptics'
 
 export { vibrationSupported } from './useHaptics'
 
+const MUSIC_URL = new URL('../assets/audio/mahjong-bgm.mp3', import.meta.url).href
+const EFFECT_URLS = {
+  dice: new URL('../assets/audio/mahjong-dice.mp3', import.meta.url).href,
+  win: new URL('../assets/audio/victory.mp3', import.meta.url).href,
+  loss: new URL('../assets/audio/defeat.mp3', import.meta.url).href,
+} as const
+
 type AudioSettingKey = 'musicEnabled' | 'effectsEnabled' | 'musicVolume' | 'effectsVolume' | 'vibrateEnabled'
 
 interface GameAudioSettings {
@@ -55,8 +62,11 @@ let noiseBuffer: AudioBuffer | null = null
 let masterGain: GainNode | null = null
 let musicGain: GainNode | null = null
 let effectsGain: GainNode | null = null
-let musicTimer: number | null = null
-let musicStep = 0
+let musicBuffer: AudioBuffer | null = null
+let musicLoading: Promise<void> | null = null
+let musicSource: AudioBufferSourceNode | null = null
+const effectBuffers = new Map<keyof typeof EFFECT_URLS, AudioBuffer>()
+let effectsLoading: Promise<void> | null = null
 let activeMatchId = ''
 const processedEvents = new Set<string>()
 
@@ -108,7 +118,10 @@ function resumeAudio() {
     syncGains()
     return
   }
-  void audio.resume().then(syncGains).catch(() => undefined)
+  void audio.resume().then(() => {
+    syncGains()
+    if (activeMatchId) startMusic()
+  }).catch(() => undefined)
 }
 
 function unlock() {
@@ -153,7 +166,40 @@ function noise(start: number, duration: number, volume: number, lowPass = 1700) 
   source.stop(start + duration)
 }
 
-type EffectName = 'button' | 'turn' | 'countdown' | 'dice' | 'draw' | 'discard' | 'peng' | 'gang' | 'win' | 'loss' | 'draw-game'
+type EffectName = 'dice' | 'draw' | 'discard' | 'peng' | 'gang' | 'win' | 'loss'
+
+function loadRecordedAudio() {
+  const audio = ensureContext()
+  if (!audio) return
+  if (!musicBuffer && !musicLoading) {
+    musicLoading = fetch(MUSIC_URL)
+      .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
+      .then((data) => audio.decodeAudioData(data))
+      .then((buffer) => { musicBuffer = buffer })
+      .catch(() => undefined)
+      .finally(() => { musicLoading = null })
+  }
+  if (effectBuffers.size < Object.keys(EFFECT_URLS).length && !effectsLoading) {
+    effectsLoading = Promise.all(Object.entries(EFFECT_URLS).map(([name, url]) => fetch(url)
+      .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
+      .then((data) => audio.decodeAudioData(data))
+      .then((buffer) => { effectBuffers.set(name as keyof typeof EFFECT_URLS, buffer) })))
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => { effectsLoading = null })
+  }
+}
+
+function playRecordedEffect(effect: EffectName, start: number): boolean {
+  if (effect !== 'dice' && effect !== 'win' && effect !== 'loss') return false
+  const buffer = effectBuffers.get(effect)
+  if (!buffer || !context || !effectsGain) return false
+  const source = context.createBufferSource()
+  source.buffer = buffer
+  source.connect(effectsGain)
+  source.start(start)
+  return true
+}
 
 function playEffect(effect: EffectName, delay = 0) {
   if (!gameAudioSettings.effectsEnabled || gameAudioSettings.effectsVolume <= 0 || document.hidden) return
@@ -162,19 +208,16 @@ function playEffect(effect: EffectName, delay = 0) {
   // 上下文被挂起过的话，这里顺手救活并重设增益，下一声就能正常响。
   if (audio.state !== 'running') resumeAudio()
   const start = audio.currentTime + 0.015 + delay
+  if (effect === 'dice' || effect === 'win' || effect === 'loss') {
+    if (playRecordedEffect(effect, start)) return
+    loadRecordedAudio()
+    if (effectsLoading) void effectsLoading.then(() => {
+      if (context) playRecordedEffect(effect, context.currentTime + 0.01)
+    })
+    return
+  }
   const volume = 1
-  if (effect === 'button') {
-    tone(620, start, 0.035, volume * 0.045, 'triangle')
-  } else if (effect === 'turn') {
-    tone(660, start, 0.09, volume * 0.08, 'triangle')
-    tone(880, start + 0.08, 0.14, volume * 0.09, 'triangle')
-  } else if (effect === 'countdown') {
-    tone(520, start, 0.075, volume * 0.08, 'square')
-  } else if (effect === 'dice') {
-    noise(start, 0.08, volume * 0.18, 2300)
-    noise(start + 0.1, 0.08, volume * 0.16, 1900)
-    noise(start + 0.2, 0.1, volume * 0.2, 1500)
-  } else if (effect === 'draw') {
+  if (effect === 'draw') {
     tone(760, start, 0.055, volume * 0.07, 'triangle')
     tone(520, start + 0.035, 0.06, volume * 0.055, 'triangle')
   } else if (effect === 'discard') {
@@ -188,40 +231,32 @@ function playEffect(effect: EffectName, delay = 0) {
       noise(start + index * 0.085, 0.08, volume * 0.2, 850)
       tone(150 - index * 12, start + index * 0.085, 0.11, volume * 0.12, 'square')
     }
-  } else if (effect === 'win') {
-    ;[392, 523, 659, 784].forEach((frequency, index) => tone(frequency, start + index * 0.12, 0.34, volume * 0.12, 'triangle'))
-  } else if (effect === 'loss') {
-    ;[392, 330, 262, 196].forEach((frequency, index) => tone(frequency, start + index * 0.15, 0.38, volume * 0.09, 'sine'))
-  } else {
-    tone(330, start, 0.22, volume * 0.08, 'sine')
-    tone(294, start + 0.14, 0.28, volume * 0.07, 'sine')
   }
 }
 
-const musicNotes = [261.63, 293.66, 329.63, 392, 329.63, 440, 392, 293.66, 261.63, 329.63, 392, 293.66]
-
-function scheduleMusicNote() {
-  if (!context || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0 || document.hidden) return
-  const start = context.currentTime + 0.04
-  const frequency = musicNotes[musicStep % musicNotes.length]
-  tone(frequency, start, 0.95, 0.045, 'triangle', 'music')
-  tone(frequency / 2, start, 1.15, 0.025, 'sine', 'music')
-  if (musicStep % 4 === 0) tone(98, start, 0.35, 0.022, 'sine', 'music')
-  musicStep += 1
-}
-
 function startMusic() {
-  if (musicTimer !== null || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0) return
+  if (musicSource || !activeMatchId || !gameAudioSettings.musicEnabled || gameAudioSettings.musicVolume <= 0 || document.hidden) return
   const audio = ensureContext()
   if (!audio) return
-  void audio.resume()
-  scheduleMusicNote()
-  musicTimer = window.setInterval(scheduleMusicNote, 720)
+  if (audio.state !== 'running') { resumeAudio(); return }
+  if (!musicBuffer) {
+    loadRecordedAudio()
+    if (musicLoading) void musicLoading.then(() => { if (musicBuffer) startMusic() })
+    return
+  }
+  const source = audio.createBufferSource()
+  source.buffer = musicBuffer
+  source.loop = true
+  source.connect(musicGain!)
+  source.start()
+  musicSource = source
 }
 
 function stopMusic() {
-  if (musicTimer !== null) window.clearInterval(musicTimer)
-  musicTimer = null
+  if (!musicSource) return
+  try { musicSource.stop() } catch { /* 已经停止 */ }
+  musicSource.disconnect()
+  musicSource = null
 }
 
 function setSetting<K extends AudioSettingKey>(key: K, value: GameAudioSettings[K]) {
@@ -241,6 +276,7 @@ function prepareMatch(matchId: string, existingEvents: GameEvent[] = [], playExi
   if (!playExisting) for (const event of existingEvents) processedEvents.add(event.id)
   ensureContext()
   syncGains()
+  loadRecordedAudio()
   startMusic()
 }
 
@@ -271,7 +307,6 @@ function processEvents(state: GameState, listenerPlayerId?: number) {
       // 别人胡牌也震一下，提醒这局结束了
       vibrate(mine ? [0, 55, 65, 55, 65, 110] : 28)
     } else if (event.type === 'draw-game') {
-      playEffect('draw-game', delay)
       vibrate(20)
     }
     else if (event.type === 'match-over') {
@@ -314,18 +349,14 @@ function vibrate(pattern: number | number[]): void {
 
 function buttonFeedback(): void {
   unlock()
-  playEffect('button')
   haptics.light()
 }
 
 function turnFeedback(): void {
-  playEffect('turn')
   haptics.light()
 }
 
-function countdownFeedback(): void {
-  playEffect('countdown')
-}
+function countdownFeedback(): void { /* 浏览器合成提示音已停用 */ }
 
 export const gameAudio = {
   settings: gameAudioSettings,

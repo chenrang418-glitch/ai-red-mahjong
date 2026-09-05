@@ -116,6 +116,9 @@ onBeforeUnmount(() => {
 watch(() => props.presentationEvents.map((event) => event.id), () => {
   sgsAudio.processEvents(props.presentationEvents, props.view.viewerId)
 })
+watch(() => props.view.result, (result, previous) => {
+  if (result && !previous) sgsAudio.playResult(result.winnerIds.includes(props.view.viewerId))
+})
 
 watch(() => props.view.seq, () => {
   if (selectedCardId.value && !me.value.hand?.some((card) => card.id === selectedCardId.value)) resetSelection()
