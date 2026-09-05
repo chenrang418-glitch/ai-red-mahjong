@@ -20,6 +20,9 @@ import { SHENLIUBEI } from './god-shenliubei'
 import { SHENLUXUN } from './god-shenluxun'
 import { SHENGANNING } from './god-shenganning'
 import { SHENGUOJIA } from './god-shenguojia'
+import { SHENXUNYU } from './god-shenxunyu'
+import { SHENSUNCE } from './god-shensunce'
+import { SHENTAISHICI } from './god-shentaishici'
 import { SHENZHANGLIAO } from './god-shenzhangliao'
 import { SHENSIMAYI } from './god-shensimayi'
 import { SHENZHAOYUN } from './god-shenzhaoyun'
@@ -38,5 +41,8 @@ export const GOD_CHARACTERS: readonly CharacterDefinition[] = [
   SHENLUXUN,
   SHENZHANGLIAO,
   SHENGUOJIA,
+  SHENXUNYU,
+  SHENSUNCE,
+  SHENTAISHICI,
   SHENGANNING,
 ] as const

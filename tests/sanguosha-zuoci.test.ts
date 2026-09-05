@@ -6,7 +6,7 @@ import {
   activateHuashen, effectiveGenderOf, effectiveKingdomOf, huashenCharacter, huashenEligibilityReport,
 } from '@/sanguosha/engine/huashen'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
-import { ownedSkillIds, skillsOf } from '@/sanguosha/engine/skills/runtime'
+import { getSkillRuntime, ownedSkillIds, skillsOf } from '@/sanguosha/engine/skills/runtime'
 import type { GameSetup, Identity, SanguoshaState } from '@/sanguosha/engine/types'
 
 function gameWith(characters = ['zuoci', 'caocao', 'liubei', 'sunquan', 'caiwenji']): SanguoshaGame {
@@ -33,14 +33,39 @@ function answer(game: SanguoshaGame, payload: Record<string, unknown>): void {
   game.respond({ requestId: request.id, playerId: request.playerId, payload })
 }
 
-function finishInitialHuashen(game: SanguoshaGame, characterIndex = 0, skillIndex = 0): { characterId: string; skillId: string } {
+/**
+ * 选一个**在受到伤害时什么都不做**的化身技能。
+ *
+ * 下面几条测试要用 `Damaged` 事件驱动新生，如果化身技能自己也挂在
+ * 受伤时机上（遗计那类要弃牌 / 分牌的），弹出来的就不是新生那个是否发动，
+ * 测试会拿着「是/否」去回一个选牌请求。
+ *
+ * 化身池是全体武将里不在场的那些，**加一个新武将就会重排**，
+ * 所以不能靠「第 0 个候选恰好安全」这种默认值，必须显式挑。
+ */
+function inertSkillIndex(options: readonly { id: string }[]): number {
+  const index = options.findIndex((option) => {
+    const runtime = getSkillRuntime(option.id)
+    return !!runtime && !runtime.triggers?.length
+  })
+  return index >= 0 ? index : 0
+}
+
+function finishInitialHuashen(
+  game: SanguoshaGame,
+  characterIndex = 0,
+  skillIndex: number | 'inert' = 0,
+): { characterId: string; skillId: string } {
   const characterRequest = game.state.pendingRequests[0]
   expect(characterRequest.kind).toBe('choose-option')
   const characterId = characterRequest.kind === 'choose-option' ? characterRequest.options[characterIndex].id : ''
   answer(game, { optionId: characterId })
   const skillRequest = game.state.pendingRequests[0]
   expect(skillRequest.kind).toBe('choose-option')
-  const skillId = skillRequest.kind === 'choose-option' ? skillRequest.options[skillIndex].id : ''
+  const chosenIndex = skillRequest.kind === 'choose-option' && skillIndex === 'inert'
+    ? inertSkillIndex(skillRequest.options)
+    : (skillIndex as number)
+  const skillId = skillRequest.kind === 'choose-option' ? skillRequest.options[chosenIndex].id : ''
   answer(game, { optionId: skillId })
   return { characterId, skillId }
 }
@@ -139,7 +164,7 @@ describe('山包左慈', () => {
 
   it('每点伤害各询问一次新生，获得新牌不改变当前化身且池耗尽时安全停止', () => {
     const game = gameWith()
-    const selected = finishInitialHuashen(game)
+    const selected = finishInitialHuashen(game, 0, 'inert')
     const before = huashenState(game).characterIds.length
     game.dispatch('Damaged', { amount: 2 }, { sourceId: 'p1', targetId: 'p0' })
     ;(game as unknown as { settle(): void }).settle()
@@ -156,7 +181,7 @@ describe('山包左慈', () => {
 
   it('新生中途序列化恢复后只继续剩余次数，不重复抽取', () => {
     const game = gameWith()
-    finishInitialHuashen(game)
+    finishInitialHuashen(game, 0, 'inert')
     game.dispatch('Damaged', { amount: 2 }, { sourceId: 'p1', targetId: 'p0' })
     ;(game as unknown as { settle(): void }).settle()
     answer(game, { optionId: 'yes' })
@@ -277,7 +302,7 @@ describe('山包左慈', () => {
 
   it('新生公开事件不携带新化身身份，旁观请求视图也不泄漏', () => {
     const game = gameWith()
-    finishInitialHuashen(game)
+    finishInitialHuashen(game, 0, 'inert')
     const publicPayloads: unknown[] = []
     game.events.on('SkillActivated', (context) => { publicPayloads.push(context.event.payload) })
     game.dispatch('Damaged', { amount: 1 }, { sourceId: 'p1', targetId: 'p0' }); (game as unknown as { settle(): void }).settle()
