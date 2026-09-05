@@ -5,6 +5,8 @@ export const AI_TRIVIAL_STEP_MS = 60
 export const AI_PICK_GENERAL_MS = 150
 
 const PRESENTATION_DURATION_MS: Record<PresentationEventKind, number> = {
+  // 开局音只是一声提示，不占舞台时间
+  'game-start': 260,
   death: 1200, dying: 1050, damage: 900, 'lose-hp': 800, judge: 800,
   skill: 700, recover: 700, 'card-use': 620, 'card-response': 620,
   'turn-start': 420, draw: 380, discard: 380, equipment: 380, status: 340,
@@ -12,6 +14,7 @@ const PRESENTATION_DURATION_MS: Record<PresentationEventKind, number> = {
 
 /** 中央文字的阅读寿命；0 表示只播放动画，不占用 sticky 信息位。 */
 const STICKY_PRESENTATION_MS: Record<PresentationEventKind, number> = {
+  'game-start': 0,
   death: 2500, dying: 2000, damage: 1500, 'lose-hp': 1500, recover: 1500,
   judge: 1800, skill: 2200, 'card-use': 1800, 'card-response': 1500,
   'turn-start': 900, draw: 0, discard: 0, equipment: 0, status: 0,

@@ -37,6 +37,8 @@ const WEIGHT: Record<PresentationEventKind, 0 | 1 | 2> = {
   death: 2, dying: 2, damage: 2, 'lose-hp': 2, recover: 2,
   judge: 2, skill: 1, 'card-use': 1, 'card-response': 1, 'turn-start': 1,
   draw: 0, discard: 0, equipment: 0, status: 0,
+  // 开局音没有画面，积压时直接扔掉舞台部分；音效那一路不经过这里
+  'game-start': 0,
 }
 
 /** 超过这个积压条数就开始按权重丢弃。 */

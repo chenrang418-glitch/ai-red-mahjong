@@ -1,8 +1,10 @@
 import type { GameEvent } from './events'
+import { delayedTrickHits } from './delayed-trick-rules'
 import type { DamageNature, PlayerId, SanguoshaState, Suit } from './types'
 import { displayCharacterName, ALL_CHARACTERS } from '../data/characters/standard'
 
 export type PresentationEventKind =
+  | 'game-start'
   | 'turn-start' | 'card-use' | 'card-response' | 'skill' | 'damage' | 'recover'
   | 'lose-hp' | 'dying' | 'death' | 'judge' | 'draw' | 'discard' | 'equipment' | 'status'
 
@@ -19,6 +21,19 @@ export interface PresentationEvent {
   skillName?: string
   amount?: number
   nature?: DamageNature
+  /**
+   * 判定是为哪张延时锦囊做的（乐不思蜀 / 兵粮寸断 / 闪电）。
+   * 普通技能判定没有这个字段。
+   */
+  judgeReason?: string
+  /**
+   * 这张延时锦囊有没有真的生效。
+   *
+   * 牌**放进判定区**时不该播它的效果音——那时候还什么都没发生；
+   * 只有判定真正命中（乐不思蜀跳过出牌、兵粮寸断跳过摸牌、闪电劈中）
+   * 才播。所以表现层需要这一位，不能只看「有一次判定」。
+   */
+  judgeHit?: boolean
   text: string
 }
 
@@ -168,6 +183,17 @@ export function buildPresentationEvent(
       }
     }
 
+    /*
+     * 开局音靠这条事件触发，而不是靠「表格挂载时还没有历史事件」去猜。
+     * 那个猜法是错的：牌局开起来时引擎已经产生了若干条事件，
+     * 表格挂载时 `presentationEvents` 根本不是空的，开局音永远不会响。
+     *
+     * 也不能用 `GameStart`——它在构造函数里发，外部监听器还没挂上。
+     * 重连回到打了一半的牌局时，这条事件早已滚出保留窗口，不会重放。
+     */
+    case 'PlayBegin':
+      return { id: event.id, seq: event.seq, kind: 'game-start', text: '牌局开始' }
+
     case 'JudgeResult': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId
       const judged = cardName(state, payload.judgeCardId as string)
@@ -176,7 +202,14 @@ export function buildPresentationEvent(
       // 花色由事件携带（技能可能改判、也可能改花色），这里不回头读印刷花色。
       const face = judgeFace(payload.suit as Suit | undefined, payload.rank as number | undefined)
       const result = judged ? `【${judged}】${face}` : '完成'
-      return { id: event.id, seq: event.seq, kind: 'judge', targetIds: actorId ? [actorId] : [], cardName: judged, text: `${playerName(state, actorId)}判定${reason ? `【${reason}】` : ''}：${result}` }
+      const suit = payload.suit as Suit | undefined
+      const rank = payload.rank as number | undefined
+      const judgeHit = suit !== undefined && rank !== undefined ? delayedTrickHits(reason, suit, rank) : undefined
+      return {
+        id: event.id, seq: event.seq, kind: 'judge', targetIds: actorId ? [actorId] : [], cardName: judged,
+        judgeReason: reason || undefined, judgeHit,
+        text: `${playerName(state, actorId)}判定${reason ? `【${reason}】` : ''}：${result}`,
+      }
     }
     case 'GainCard': {
       const actorId = (payload.playerId as PlayerId) ?? event.targetId

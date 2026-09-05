@@ -1,4 +1,5 @@
 import { canUseCardAs } from './forced-identity'
+import { delayedTrickHits } from './delayed-trick-rules'
 import { multiCardGrantedAs } from './multi-card-viewas'
 import { resolveDamage } from './damage'
 import type { EventContext, GameEvent, GameEventName } from './events'
@@ -256,14 +257,16 @@ registerJudgmentContinuation(DELAYED_TRICK_TAG, (host, judged, data) => {
   const delayedCardId = data.delayedCardId as CardId
   const delayedName = data.delayedName as string
 
+  // 命中判断走公共规则，表现层用的是同一份，两边不会漂移
+  const hit = delayedTrickHits(delayedName, judged.suit, judged.rank)
   if (delayedName === '乐不思蜀') {
-    if (judged.suit !== 'heart') skipPhase(host.state, 'play')
+    if (hit) skipPhase(host.state, 'play')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   } else if (delayedName === '兵粮寸断') {
-    if (judged.suit !== 'club') skipPhase(host.state, 'draw')
+    if (hit) skipPhase(host.state, 'draw')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   } else if (delayedName === '闪电') {
-    if (judged.suit === 'spade' && judged.rank >= 2 && judged.rank <= 9) {
+    if (hit) {
       host.state.judgment = { playerId: ownerId, delayedCardId, stage: 'awaiting-damage' }
       resolveDamage(host, { targetId: ownerId, amount: 3, nature: 'thunder', cardName: '闪电', cardId: delayedCardId })
       if (!host.state.dying && !host.state.damageChain) finishLightningDamage(host)

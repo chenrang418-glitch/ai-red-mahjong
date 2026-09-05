@@ -14,6 +14,9 @@ import { AI_PACE_MS, AI_TRIVIAL_STEP_MS, phaseDelay, playActionDelay } from '../
 
 /** 会写进战报的事件。只挑对玩家有意义的，避免把每一次内部时机都刷上去。 */
 const LOGGED_EVENTS: readonly GameEventName[] = [
+  // PlayBegin 用来触发开局音。它不会进战报——describeEvent 没有对应分支，
+  // 下面是 `if (text) pushLog(text)`，返回空就跳过；只会产生一条表现事件。
+  'PlayBegin',
   'TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
   'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard',
   'LoseEquipment',

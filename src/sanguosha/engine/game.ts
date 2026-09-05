@@ -580,6 +580,14 @@ export class SanguoshaGame {
      * 任何动到公共区域的 onGameStart 都会踩同一个坑，所以修在这里而不是修某个技能。
      */
     initializeGameSkills(this)
+    /*
+     * 「正式进入对局」的时刻。
+     *
+     * 不能复用 `GameStart`：那一条是在**构造函数里**发的，那时候外部还没来得及
+     * 挂监听器，谁都听不到——它只服务于构造期就注册好的技能触发器。
+     * 表现层要的是这一刻：选将结束、起始手牌发完、第一个回合即将开始。
+     */
+    this.emit('PlayBegin', { playerCount: this.state.players.length })
     startPlaying(this.state, (name, payload) => { this.emit(name, payload) })
     // 开局排队的发问（牛来认麻麻）在这里就放出去，
     // 否则要等到第一次 act/advancePhase 才轮到，第一个准备阶段已经过去了
