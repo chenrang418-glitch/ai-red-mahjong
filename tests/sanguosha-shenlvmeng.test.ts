@@ -270,13 +270,24 @@ describe('攻心：看牌与处置', () => {
     const view = pending(game)
     expect(view.kind).toBe('choose-cards')
     expect(view.playerId, '请求发给神吕蒙自己').toBe('p0')
-    expect(view.cardIds.sort(), '候选是目标手上的红桃').toEqual([...hearts].sort())
+    expect(view.cardIds.sort(), '能选的只有目标手上的红桃').toEqual([...hearts].sort())
+
+    /*
+     * **技能的第一步是「观看手牌」，不是「系统把红桃挑出来给他」。**
+     *
+     * 只把红桃放进 `cardIds` 的话，玩家从头到尾没看见对面的手牌，
+     * 情报价值全没了。整副手牌必须真的送到他的视图里。
+     */
+    const owner = game.viewFor('p0')
+    const visibleIds = owner.requestCards.map((card) => card.id).sort()
+    expect(visibleIds, '整副手牌都要送到神吕蒙眼前').toEqual([...hearts, ...spade].sort())
+    expect(view.viewOnlyCardIds?.sort(), '非红桃只能看不能选').toEqual([...spade].sort())
 
     // **隐私**：第三方的 PlayerView 里既看不到这条请求，也看不到目标手牌
     const outsider = game.viewFor('p2')
     expect(outsider.pendingRequest, '别人看不到神吕蒙的攻心请求').toBeNull()
     expect(outsider.players.find((player) => player.id === 'p1')!.hand, '别人看不到 p1 的手牌').toBeNull()
-    const owner = game.viewFor('p0')
+    expect(outsider.requestCards, '别人的视图里不该出现这些牌面').toEqual([])
     expect(owner.pendingRequest, '神吕蒙自己看得到').not.toBeNull()
   })
 
@@ -290,6 +301,8 @@ describe('攻心：看牌与处置', () => {
     expect(view.kind, '没有红桃也要给他看完').toBe('choose-cards')
     expect(view.cardIds, '但没有可处理的红桃').toEqual([])
     expect(view.max).toBe(0)
+    // 一张都选不了，但手牌照样要给他看：这才是「观看手牌」
+    expect(game.viewFor('p0').requestCards, '没有红桃也要看得到整副手牌').toHaveLength(2)
     game.respond({ requestId: view.id, playerId: 'p0', payload: { cardIds: [] } })
     expect(pending(game), '看完就结束，不强行弃牌 / 置顶').toBeUndefined()
   })

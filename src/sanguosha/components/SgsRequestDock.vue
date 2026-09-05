@@ -94,6 +94,13 @@ const cardChoices = computed(() => {
   if (!request) return []
   return [...request.cardIds, ...request.hiddenCardSlots]
 })
+/**
+ * 只给我看、但我不能选的牌（神吕蒙【攻心】看到的非红桃手牌）。
+ *
+ * 单独一行画，不混进可选那一行——混在一起玩家会一直点不动，
+ * 以为是界面卡住了。
+ */
+const viewOnlyCards = computed(() => cardRequest.value?.viewOnlyCardIds ?? [])
 const cardCountOk = computed(() => {
   const request = cardRequest.value
   if (!request) return false
@@ -253,6 +260,13 @@ function withCharacterNames(text: string): string {
 
     <!-- 选牌：暗槽只显示牌背，绝不泄露牌面 -->
     <template v-else-if="request.kind === 'choose-cards'">
+      <!-- 只看不可选的那部分：观看手牌类技能靠它把整副牌摆出来 -->
+      <template v-if="viewOnlyCards.length > 0">
+        <p class="sgs-dock__hint">以下是对方的其余手牌，只能看，不能选</p>
+        <div class="sgs-dock__cards sgs-dock__cards--readonly">
+          <SgsCard v-for="cardId in viewOnlyCards" :key="cardId" :card="cardOf(cardId)" :back-index="null" />
+        </div>
+      </template>
       <div class="sgs-dock__cards">
         <SgsCard
           v-for="(cardId, index) in cardChoices"
@@ -428,6 +442,8 @@ function withCharacterNames(text: string): string {
 
 .sgs-dock__prompt { margin: 0; color: #e9d9a6; font-size: 13px; font-weight: 700; }
 .sgs-dock__hint { margin: 0; color: #93a49b; font-size: 11px; line-height: 1.5; }
+/* 只看不可选：压暗并挡住点击，免得玩家一直戳不动还以为界面坏了 */
+.sgs-dock__cards--readonly { opacity: 0.72; pointer-events: none; }
 .sgs-dock__cards { display: flex; flex-wrap: wrap; gap: 5px; max-height: 30vh; overflow-y: auto; }
 /* 确认/放弃这一行不能被滚出去：面板封顶之后内容会滚，这行 sticky 贴底 */
 .sgs-dock__actions {

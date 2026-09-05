@@ -195,6 +195,15 @@ export interface StoredSgsRoomState {
 
 export class InvalidSgsCommandError extends Error {}
 
+/**
+ * 同一个 `actionId` 被送来第二次。
+ *
+ * 这**不是**玩家犯的错，而是「服务端已经执行成功，但回执在网络里丢了，
+ * 客户端原样重发」的正常路径。调用方要能一眼把它和真正的业务拒绝分开：
+ * 前者应该回一个「接受，但没有重复执行」的回执，后者才该报错。
+ */
+export class DuplicateSgsActionError extends InvalidSgsCommandError {}
+
 const MIN_PLAYERS = 5
 const MAX_PLAYERS = 8
 const DEFAULT_TURN_SECONDS = 30
@@ -261,6 +270,40 @@ export function timerKindOf(status: string, request: GameRequest | undefined): S
    */
   if (request.kind === 'respond-card' && request.requiredCardName === '无懈可击') return 'claim'
   return 'response'
+}
+
+/**
+ * 别人能不能看见这个座位的计时条。
+ *
+ * 计时条本身就是情报：引擎在很多地方会**因为你手上没有牌而静默跳过询问**
+ * ——无懈可击（手上没有就不问）、濒死求桃（没有桃酒就不问）、
+ * 改判（没有可用的牌就不问）都是这样。于是「某人身上出现了倒计时」
+ * 直接等于「他手里有那张牌」，牌桌上所有人都看得见。
+ *
+ * 所以这里用**白名单**：只有「不看私有区也能推断出这个人得动」的等待
+ * 才对外可见，其余一律只有本人看得到。新技能新加的询问默认落进「不可见」，
+ * 不会因为漏改而泄露手牌。
+ *
+ * 公开的三类：
+ * 1. 选将——全场同时在选，谁都知道；
+ * 2. 当前回合角色在自己的回合里——他在行动是明摆着的；
+ * 3. 正在结算的那张牌的**当前目标**被要求响应——牌和目标都是公开信息，
+ *    而且求闪/求杀这类询问是无条件发出的，不看手牌。
+ */
+function timerPubliclyVisible(state: SanguoshaState, playerId: PlayerId, request: GameRequest | undefined): boolean {
+  if (state.status === 'choosing-general' || request?.kind === 'choose-general') return true
+  if (state.currentPlayerId === playerId) return true
+  if (request?.kind !== 'respond-card') return false
+  /*
+   * 求【无懈可击】永远不公开：它恰恰是按「手上有没有」筛过的那一种，
+   * 而且轮询会问遍全场，不限于当前目标。
+   */
+  if (request.requiredCardName === '无懈可击') return false
+  const resolution = state.cardResolution
+  if (!resolution) return false
+  if (resolution.kind === 'slash') return resolution.targetId === playerId
+  if (resolution.kind === 'trick') return resolution.targetIds[resolution.targetIndex] === playerId
+  return false
 }
 
 /** 座位 id 和引擎里的 playerId 是一一对应的，转换只在这里发生。 */
@@ -427,7 +470,7 @@ export class SanguoshaRoomCoordinator {
     if (hasActionId !== hasBaseSeq) throw new InvalidSgsCommandError('操作元数据不完整')
     if (command.actionId) {
       // 重放保护：同一个 actionId 只执行一次。这条是必须的。
-      if (this.state.processedActionIds!.includes(command.actionId)) throw new InvalidSgsCommandError('这个操作已经处理过了')
+      if (this.state.processedActionIds!.includes(command.actionId)) throw new DuplicateSgsActionError('这个操作已经处理过了')
       // 陈旧检查**不能**用 `baseSeq !== version`：version 在 AI 每走一步、
       // 每条聊天、每次断连时都会变，玩家点一下几乎必然「陈旧」，指令会被无故拒绝。
       // 真正的陈旧由引擎自己挡住，而且挡得更准：
@@ -1356,7 +1399,7 @@ export class SanguoshaRoomCoordinator {
       log: seat ? (this.state.log[playerIdOf(seat.seatId)] ?? []) : [],
       presentationEvents: seat ? (this.state.presentationEvents ?? []) : [],
       deadlineAt: waitingJob ? waitingJob.dueAt : null,
-      timers: this.seatTimers(),
+      timers: this.seatTimers(seat?.seatId ?? null),
       serverNow: Date.now(),
       aiThinking: phase === 'playing' && !!actorSeat && (actorSeat.kind === 'ai' || actorSeat.trustee),
     }
@@ -1370,7 +1413,7 @@ export class SanguoshaRoomCoordinator {
    * `ai-step` 的 `dueAt` 决定，和这里无关——它通常远早于窗口结束就答完了，
    * 那一刻这一项直接消失。
    */
-  private seatTimers(): SgsSeatTimer[] {
+  private seatTimers(viewerSeatId: number | null): SgsSeatTimer[] {
     const state = this.state.game
     if (!state || (state.status !== 'playing' && state.status !== 'choosing-general')) return []
     const timers: SgsSeatTimer[] = []
@@ -1382,6 +1425,11 @@ export class SanguoshaRoomCoordinator {
       const request = job.requestId === undefined
         ? undefined
         : state.pendingRequests.find((candidate) => candidate.id === job.requestId)
+      /*
+       * 不是自己的座位，就只画「不看手牌也推断得出」的那几种等待。
+       * 详见 `timerPubliclyVisible`——这条是防手牌泄露的，不是显示偏好。
+       */
+      if (job.seatId !== viewerSeatId && !timerPubliclyVisible(state, playerIdOf(job.seatId), request)) continue
       const ai = job.kind === 'ai-step'
       const startedAt = job.startedAt ?? job.dueAt
       const windowEndsAt = job.windowEndsAt ?? job.dueAt

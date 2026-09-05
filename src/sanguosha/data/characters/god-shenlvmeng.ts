@@ -227,8 +227,15 @@ registerSkillRuntime({
             ? `【攻心】：${target.nickname}的手牌（可展示其中一张红桃）`
             : `【攻心】：${target.nickname}的手牌里没有红桃`,
           timeoutMs: 30_000, optional: true, purpose: 'skill',
-          // 全部手牌都发给神吕蒙看；只有红桃能被选中处理
-          cardIds: hearts, hiddenCardSlots: [],
+          /*
+           * **整副手牌都发过去看，只有红桃能被选中。**
+           *
+           * 只把红桃放进 `cardIds` 的话，玩家看到的只是系统替他挑好的几张红桃，
+           * 「观看手牌」这一步从来没有发生过——技能的信息价值全没了。
+           */
+          cardIds: hearts,
+          viewOnlyCardIds: target.zones.hand.filter((cardId) => !hearts.includes(cardId)),
+          hiddenCardSlots: [],
           min: 0, max: hearts.length > 0 ? 1 : 0,
         }),
       })

@@ -111,7 +111,16 @@ function cards(state: SanguoshaState, ids: readonly CardId[]): PhysicalCard[] {
 export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): PlayerView {
   if (!state.players.some((player) => player.id === viewerId)) throw new Error('观察者不属于本局')
   const pendingRequest = state.pendingRequests.find((request) => request.playerId === viewerId) ?? null
-  const requestCardIds = pendingRequest && 'cardIds' in pendingRequest ? pendingRequest.cardIds : []
+  /*
+   * 请求里引用到的牌面。
+   *
+   * 除了可选的 `cardIds`，还要带上「只看不可选」的那部分——
+   * 神吕蒙【攻心】要看整副手牌，但只有红桃能被选中。漏掉它，
+   * 客户端就拿不到那些牌的牌面，只能画一堆牌背。
+   */
+  const requestCardIds = pendingRequest && 'cardIds' in pendingRequest
+    ? [...pendingRequest.cardIds, ...('viewOnlyCardIds' in pendingRequest ? pendingRequest.viewOnlyCardIds ?? [] : [])]
+    : []
   return {
     rulesetVersion: state.rulesetVersion,
     seq: state.seq,

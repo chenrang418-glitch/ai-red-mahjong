@@ -22,6 +22,17 @@ export type ChooseGeneralRequest = RequestBase<'choose-general'> & {
 export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   cardIds: CardId[]
   hiddenCardSlots: string[]
+  /**
+   * **只给这名玩家看、但不能选**的牌。
+   *
+   * 神吕蒙【攻心】是「观看一名角色的手牌，然后可以展示其中一张红桃牌」：
+   * 该看到的是**整副手牌**，能选的只有红桃。只把红桃放进 `cardIds` 的话，
+   * 玩家根本没看到对面的手牌，技能退化成「系统替他把红桃挑出来」。
+   *
+   * 和 `cardIds` 一样只下发给请求本人：`buildPlayerView` 只取观看者自己
+   * 那一条 pendingRequest，第三方连这条请求的存在都读不到。
+   */
+  viewOnlyCardIds?: CardId[]
   min: number
   max: number
   purpose?: 'discard-phase' | 'card-effect' | 'skill' | 'retrial' | 'pindian'
