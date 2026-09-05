@@ -8,7 +8,7 @@ export type Gender = 'male' | 'female'
 /**
  * 武将包。**只注册技能全部实现完的武将，不放空壳。**
  *
- * `wind` / `fire` / `forest` / `mountain` / `god` 是神话再临的风、火、林、山、神五包。加包时要同时更新
+ * `wind` / `fire` / `forest` / `mountain` / `god` 是本项目的五个角色分包。加包时要同时更新
  * `ALL_CHARACTERS` 的汇入，否则新武将进不了候选池。
  */
 export type CharacterPack = 'standard' | 'wind' | 'fire' | 'forest' | 'mountain' | 'god' | 'entertainment'

@@ -8,7 +8,7 @@ import { skillIdsOf } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 山包·姜维。经典「神话再临·山」首版。
+ * 山包·姜维。本项目自研表述。。
  *
  * 最要紧的一条：**挑衅选的是「攻击范围里包含姜维」的角色，
  * 不是「姜维攻击范围里」的角色**。方向反了就是另一个技能，

@@ -3,7 +3,7 @@ defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
 </script>
 
 <!--
-  首页结构和三国杀 1:1 对齐：顶栏（返回 + 站点标注）、居中 hero（印章 / 小标注 /
+  首页结构和纸上三国 1:1 对齐：顶栏（返回 + 站点标注）、居中 hero（印章 / 小标注 /
   标题 / 一句说明）、底部三个入口。两个游戏只有主色和文案不同。
   改动之前请对照 src/sanguosha/SanguoshaApp.vue 里的 .sgs-home 部分。
 -->
@@ -44,7 +44,7 @@ defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
 .home header { display: flex; justify-content: space-between; align-items: center; color: var(--ink-text-muted); font-size: 11px; letter-spacing: .15em; }
 .home header button {
   min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px;
-  /* 麻将站有全局按钮样式，这里显式写死字号，才和三国杀的顶栏按钮一致 */
+  /* 麻将站有全局按钮样式，这里显式写死字号，才和纸上三国的顶栏按钮一致 */
   color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer; font-size: 13.3333px;
 }
 .home header button:hover { border-color: var(--accent-gold); color: var(--ink-text); }
@@ -65,7 +65,7 @@ defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
   border: 1px solid var(--ink-line); border-radius: 15px; color: var(--ink-text-soft); background: rgba(34, 50, 42, .85);
   cursor: pointer; font: inherit; transition: filter .16s ease, transform .16s ease;
 }
-/* 三个入口的配色和三国杀一致：金 / 红 / 绿。暗底上底色压暗、字色提亮保对比度 */
+/* 三个入口的配色和纸上三国一致：金 / 红 / 绿。暗底上底色压暗、字色提亮保对比度 */
 .home nav .home__main { border-color: var(--accent-gold); color: #ffeec0; background: linear-gradient(180deg, var(--accent-gold-fill-top), var(--accent-gold-fill-bottom)); }
 .home nav .home__online { border-color: var(--accent-red); color: #ffd9d2; background: linear-gradient(180deg, var(--accent-red-fill-top), var(--accent-red-fill-bottom)); }
 .home nav .home__rules { border-color: var(--accent-green); color: #d3f3da; background: linear-gradient(180deg, var(--accent-green-fill-top), var(--accent-green-fill-bottom)); }
@@ -75,7 +75,7 @@ defineEmits<{ local: []; online: []; rules: []; portal: [] }>()
 .home nav b { font-size: 16px; }
 .home nav span { font-size: 10px; }
 
-/* 断点和三国杀逐条对齐，改一边就要改另一边 */
+/* 断点和纸上三国逐条对齐，改一边就要改另一边 */
 @media (max-width: 620px) and (orientation: portrait) {
   .home nav { grid-template-columns: 1fr; }
   .home nav button { min-height: 58px; }

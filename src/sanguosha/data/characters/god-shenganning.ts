@@ -10,7 +10,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神甘宁。**三国杀移动版当前官方技能页现行版本**（规则源锁定 2026-09-04）。
+ * 神甘宁。本项目的自研玩法表述。
  * 体力上限 6 / **初始体力 3**。
  *
  * 【魄袭】：出牌阶段限一次，你可以观看一名其他角色的手牌，
@@ -232,7 +232,7 @@ registerSkillRuntime({
             id: requestId, kind: 'choose-targets', playerId: ownerId,
             prompt: '【劫营】：可以将「营」放到一名其他角色武将旁（不发动就留在自己身上）',
             timeoutMs: 30_000,
-            // 官方文本是「一名其他角色」，所以候选里没有自己；不发动＝继续留着
+            // 本项目表述是「一名其他角色」，所以候选里没有自己；不发动＝继续留着
             optional: true, candidateIds, min: 0, max: 1,
           }),
         })

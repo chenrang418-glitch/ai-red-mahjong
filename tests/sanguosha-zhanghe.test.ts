@@ -5,7 +5,7 @@ import { assertCardConservation } from '@/sanguosha/engine/zones'
 import type { GameSetup, Identity, PlayerId, Suit, TurnPhase } from '@/sanguosha/engine/types'
 
 /**
- * 山包·张郃【巧变】。经典「神话再临·山」首版。
+ * 山包·张郃【巧变】。本项目自研表述。。
  *
  * 这一组守的重点不是「技能能发动」，而是**跳过必须是真跳过**：
  * 走公共 `skippedPhases`，被跳过的阶段既不发 `PhaseStart` 也不跑阶段内容，

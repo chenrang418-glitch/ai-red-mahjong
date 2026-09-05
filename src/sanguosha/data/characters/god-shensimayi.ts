@@ -9,7 +9,7 @@ import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神司马懿。经典「神话再临·神」。
+ * 神司马懿。本项目自研表述。
  *
  * 【忍戒】：锁定技，你受到伤害后获得 X 枚「忍」（X 为伤害值）；
  *   你于弃牌阶段内弃置手牌后，获得 X 枚「忍」（X 为弃置的手牌数）。

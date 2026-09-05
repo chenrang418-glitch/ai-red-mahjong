@@ -92,7 +92,7 @@ describe('管理端房间与联机设置', () => {
     expect(entries.some((entry) => entry.action === 'destroy-room' && entry.target === code)).toBe(true)
   })
 
-  it('能区分并强制解散三国杀房间', async () => {
+  it('能区分并强制解散纸上三国房间', async () => {
     const cookie = await loginAs('三国管理房主')
     const created = await api('/api/sanguosha/rooms', {
       method: 'POST', headers: { cookie, 'content-type': 'application/json' },

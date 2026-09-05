@@ -4,11 +4,11 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(new URL('../src/components/AdminPanel.vue', import.meta.url), 'utf8')
 
 describe('双游戏管理员界面', () => {
-  it('总览和房间筛选同时覆盖麻将与三国杀', () => {
+  it('总览和房间筛选同时覆盖麻将与纸上三国', () => {
     expect(source).toContain('双游戏服务器管理')
     expect(source).toContain('roomGameFilter')
     expect(source).toContain('红中麻将')
-    expect(source).toContain('三国杀')
+    expect(source).toContain('纸上三国')
     expect(source).toContain('roomDetail(room)')
   })
 

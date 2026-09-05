@@ -41,9 +41,9 @@ describe('视口偏移变量', () => {
       ['麻将模式首页', read('components/ModeHome.vue')],
       ['麻将联机大厅', mahjongHub],
       ['麻将联机房间', read('components/online/OnlineRoom.vue')],
-      ['三国杀首页', read('sanguosha/SanguoshaApp.vue')],
-      ['三国杀联机大厅', sgsHub],
-      ['三国杀牌桌', read('sanguosha/components/SgsTable.vue')],
+      ['纸上三国首页', read('sanguosha/SanguoshaApp.vue')],
+      ['纸上三国联机大厅', sgsHub],
+      ['纸上三国牌桌', read('sanguosha/components/SgsTable.vue')],
     ]
     for (const [name, source] of surfaces) {
       expect(source, `${name} 没有扣掉公告横幅的高度`).toContain(OFFSET)
@@ -86,7 +86,7 @@ describe('常驻公告横幅', () => {
   it('门户和两款游戏共用 RootApp 里的同一条，不各写一份', () => {
     expect(rootApp).toContain('class="admin-notice"')
     expect(rootCss).toContain('.admin-notice')
-    for (const [name, source] of [['麻将大厅', mahjongHub], ['三国杀大厅', sgsHub]] as const) {
+    for (const [name, source] of [['麻将大厅', mahjongHub], ['纸上三国大厅', sgsHub]] as const) {
       expect(source, `${name} 不该自己再画一条公告横幅`).not.toContain('admin-notice')
     }
   })
@@ -103,8 +103,8 @@ describe('常驻公告横幅', () => {
 })
 
 describe('维护态在两款游戏里表现一致', () => {
-  it('三国杀的创建房间会灰成暗色「维护中」，和麻将一样', () => {
-    for (const [name, source] of [['麻将', mahjongHub], ['三国杀', sgsHub]] as const) {
+  it('纸上三国的创建房间会灰成暗色「维护中」，和麻将一样', () => {
+    for (const [name, source] of [['麻将', mahjongHub], ['纸上三国', sgsHub]] as const) {
       expect(source, `${name} 没有维护中文案`).toContain("'维护中'")
       expect(source, `${name} 维护时没有禁用按钮`).toMatch(/:disabled="[^"]*maintenance/)
       expect(source, `${name} 维护时按钮没有压暗`).toContain('is-maintenance')

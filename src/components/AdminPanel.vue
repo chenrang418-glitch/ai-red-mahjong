@@ -62,7 +62,7 @@ const DIFFICULTY_TEXT: Record<ServerSettings['trusteeDifficulty'], string> = {
 const ACTION_TEXT: Record<string, string> = {
   'delete-user': '删除用户',
   'destroy-room': '解散房间',
-  'destroy-sanguosha-room': '解散三国杀房间',
+  'destroy-sanguosha-room': '解散纸上三国房间',
   'update-settings': '修改设置',
 }
 
@@ -170,7 +170,7 @@ async function saveSettings() {
 }
 
 async function destroyRoom(room: AdminRoom) {
-  const gameName = room.game === 'sanguosha' ? '三国杀' : '红中麻将'
+  const gameName = room.game === 'sanguosha' ? '纸上三国' : '红中麻将'
   const warning = room.phase === 'playing'
     ? `${gameName}房间 ${room.code} 正在进行牌局，解散会把里面的人直接踢出去。`
     : `解散${gameName}房间 ${room.code}？`
@@ -284,7 +284,7 @@ void restoreSession()
         <article><small>注册用户</small><strong>{{ users.length }}</strong></article>
         <article><small>全部房间</small><strong>{{ roomStats.total }}</strong></article>
         <article class="mahjong"><small>红中麻将</small><strong>{{ roomStats.mahjong }}</strong></article>
-        <article class="sanguosha"><small>三国杀</small><strong>{{ roomStats.sanguosha }}</strong></article>
+        <article class="sanguosha"><small>纸上三国</small><strong>{{ roomStats.sanguosha }}</strong></article>
         <article><small>进行中</small><strong>{{ roomStats.playing }}</strong></article>
       </section>
 
@@ -325,7 +325,7 @@ void restoreSession()
           <div class="game-filters" aria-label="按游戏筛选">
             <button type="button" :class="{ active: roomGameFilter === 'all' }" @click="roomGameFilter = 'all'">全部 {{ roomStats.total }}</button>
             <button type="button" :class="{ active: roomGameFilter === 'mahjong' }" @click="roomGameFilter = 'mahjong'">麻将 {{ roomStats.mahjong }}</button>
-            <button type="button" :class="{ active: roomGameFilter === 'sanguosha' }" @click="roomGameFilter = 'sanguosha'">三国杀 {{ roomStats.sanguosha }}</button>
+            <button type="button" :class="{ active: roomGameFilter === 'sanguosha' }" @click="roomGameFilter = 'sanguosha'">纸上三国 {{ roomStats.sanguosha }}</button>
           </div>
           <span class="table-note">解散会把房间里的人直接踢出去，正在进行的牌局也会中断。</span>
         </div>
@@ -335,7 +335,7 @@ void restoreSession()
           </thead>
           <tbody>
             <tr v-for="room in filteredRooms" :key="`${room.game}-${room.code}`">
-              <td><span class="game-badge" :class="room.game">{{ room.game === 'sanguosha' ? '三国杀' : '红中麻将' }}</span></td>
+              <td><span class="game-badge" :class="room.game">{{ room.game === 'sanguosha' ? '纸上三国' : '红中麻将' }}</span></td>
               <td class="nickname">{{ room.code }}</td>
               <td><span class="phase" :class="room.phase">{{ room.phase === 'playing' ? '牌局中' : room.phase === 'finished' ? '已结束' : '等待开局' }}</span></td>
               <td>{{ room.hostNickname }}</td>
@@ -358,20 +358,20 @@ void restoreSession()
         <section class="settings-card" v-if="settings">
           <h2>双游戏联机设置</h2>
           <label class="setting-row">
-            <span><b>麻将托管 AI 档位</b><small>红中麻将玩家掉线后接管座位的 AI；三国杀沿用房间创建时选择的 AI 难度。</small></span>
+            <span><b>麻将托管 AI 档位</b><small>红中麻将玩家掉线后接管座位的 AI；纸上三国沿用房间创建时选择的 AI 难度。</small></span>
             <select v-model="settings.trusteeDifficulty">
               <option v-for="(text, value) in DIFFICULTY_TEXT" :key="value" :value="value">{{ text }}</option>
             </select>
           </label>
           <label class="setting-row">
-            <span><b>全站维护模式</b><small>同时停止创建红中麻将和三国杀新房间；已有牌局与重连不受影响。</small></span>
+            <span><b>全站维护模式</b><small>同时停止创建红中麻将和纸上三国新房间；已有牌局与重连不受影响。</small></span>
             <input v-model="settings.maintenance" type="checkbox">
           </label>
           <label class="setting-row column">
             <span><b>维护提示文案</b><small>玩家点「创建房间」时看到的话。</small></span>
             <input v-model="settings.maintenanceMessage" maxlength="120" placeholder="服务器正在维护更新…">
           </label>
-          <p class="settings-note">两款游戏共用维护开关。麻将房主可另选空位 AI 档位；三国杀的玩家人数、AI 难度和回合时限由各房间创建时确定。</p>
+          <p class="settings-note">两款游戏共用维护开关。麻将房主可另选空位 AI 档位；纸上三国的玩家人数、AI 难度和回合时限由各房间创建时确定。</p>
           <button class="primary" type="button" :disabled="busy" @click="saveSettings">保存设置</button>
         </section>
 

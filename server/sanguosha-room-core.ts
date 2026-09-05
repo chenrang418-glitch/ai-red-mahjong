@@ -38,7 +38,7 @@ export const TEST_SGS_ROOM_TIMING: SgsRoomTiming = {
 }
 
 /**
- * 三国杀联机房间的纯逻辑核心。
+ * 纸上三国联机房间的纯逻辑核心。
  *
  * 三条硬约束，都写在任务书里：
  *

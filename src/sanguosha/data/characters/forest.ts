@@ -3,8 +3,7 @@ import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 林包（神话再临·林）。**一律采用首版实体扩展的技能文本**，
- * 不混入界限突破、OL、十周年或移动版改动——每个技能的注释里都写明这一条。
+ * 林包。**技能文本为本项目自研表述**，* 每个技能的行为以本文件的注释为准。
  *
  * 本文件只放「技能本体足够短、不需要独立状态机」的武将；
  * 需要多步发问或公共机制的（孟获【再起】、祝融、孙坚）各自一个文件。

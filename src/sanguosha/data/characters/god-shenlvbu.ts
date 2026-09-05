@@ -11,7 +11,7 @@ import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神吕布。经典「神话再临·神」。
+ * 神吕布。本项目自研表述。
  *
  * 【狂暴】：锁定技，游戏开始时你获得 2 枚「暴怒」；此后每当你造成或受到 1 点伤害后，你获得 1 枚「暴怒」。
  * 【无谋】：锁定技，每当你使用一张非延时锦囊牌，你须移去 1 枚「暴怒」或失去 1 点体力。

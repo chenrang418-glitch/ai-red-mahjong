@@ -88,7 +88,7 @@ test.describe('全新访问 + 房间分享链接：URL 和房间号必须原样�
     await expect(page).toHaveURL(/room=ABC234/)
   })
 
-  test('三国杀房间链接：先看到项目说明，接受后继续进入联机身份局，URL 不变', async ({ page }) => {
+  test('纸上三国房间链接：先看到项目说明，接受后继续进入联机身份局，URL 不变', async ({ page }) => {
     await page.goto('/?game=sanguosha&room=ABC234')
 
     await expect(page.getByRole('heading', { name: '项目说明' })).toBeVisible()

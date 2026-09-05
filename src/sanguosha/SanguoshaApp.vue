@@ -116,7 +116,7 @@ function handleRespond(response: GameResponse): void {
     <section v-if="screen === 'home'" class="sgs-home">
       <header>
         <button type="button" @click="$emit('backToPortal')">← 返回游戏中心</button>
-        <span>CRPLAY · 三国杀</span>
+        <span>CRPLAY · 纸上三国</span>
         <div class="sgs-home__tools">
           <button type="button" class="sgs-home__art" @click="openArt('home')">艺术集</button>
           <SgsAudioControl v-model:open="audioOpen" />
@@ -125,24 +125,24 @@ function handleRespond(response: GameResponse): void {
       <div class="sgs-home__hero">
         <div class="sgs-home__copy">
           <p class="sgs-home__eyebrow"><span></span> 经典身份局 · 群雄共赴</p>
-          <h1>三国杀<span class="sgs-home__seal" aria-hidden="true">杀</span></h1>
+          <h1>纸上三国<span class="sgs-home__seal" aria-hidden="true">纸</span></h1>
           <h2>方寸之间，风云再起。</h2>
           <small>以谋略会友，以手牌决胜。<br>选一名武将，开启属于你的三国。</small>
           <div class="sgs-home__stats"><span><b>{{ ALL_CHARACTERS.length }}</b> 名武将</span><i></i><span><b>5–8</b> 人身份局</span><i></i><span>单机 · 好友联机</span></div>
         </div>
         <SgsHomePortrait />
       </div>
-      <nav aria-label="三国杀模式">
+      <nav aria-label="纸上三国模式">
         <button type="button" class="sgs-home__main" @click="screen = 'setup'"><em aria-hidden="true">弈</em><b>单机游戏</b><span>与电脑对战 · 随时开局</span><i aria-hidden="true">↗</i></button>
         <button type="button" class="sgs-home__online" @click="screen = 'online'"><em aria-hidden="true">聚</em><b>联机游戏</b><span>创建或加入房间 · 与好友过招</span><i aria-hidden="true">↗</i></button>
         <button type="button" class="sgs-home__rules" @click="screen = 'rules'"><em aria-hidden="true">策</em><b>规则</b><span>玩法与武将 · 运筹帷幄</span><i aria-hidden="true">↗</i></button>
       </nav>
-      <footer class="sgs-home__footer"><span>一局三国，万般可能</span><span>CRPLAY / SANGUOSHA</span></footer>
+      <footer class="sgs-home__footer"><span>一局三国，万般可能</span><span>CRPLAY / PAPER SANGUO</span></footer>
     </section>
 
     <section v-else-if="screen === 'setup'" class="sgs-panel sgs-panel--setup">
       <header>
-        <button type="button" aria-label="返回三国杀首页" @click="screen = 'home'">‹</button>
+        <button type="button" aria-label="返回纸上三国首页" @click="screen = 'home'">‹</button>
         <h1>单机设置</h1>
       </header>
       <p class="sgs-panel__intro">安排你的下一局。选择人数与电脑节奏，再挑选出战武将。</p>
@@ -279,7 +279,7 @@ function handleRespond(response: GameResponse): void {
 <style scoped>
 .sgs-app {
   width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; color: var(--ink-text);
-  /* 三国杀主色是金色，和门户上那张卡片的强调色一致；麻将那边保持红色 */
+  /* 纸上三国主色是金色，和门户上那张卡片的强调色一致；麻将那边保持红色 */
   background: radial-gradient(circle at 75% 20%, rgba(207, 164, 86, .24), transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }
 .sgs-home, .sgs-panel {

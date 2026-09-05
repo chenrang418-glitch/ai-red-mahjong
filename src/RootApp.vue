@@ -13,8 +13,8 @@ const adminRoute = ref(isAdminRoute(new URL(window.location.href)))
 
 /*
  * 全站停服和常驻公告都在这一层处理，而不是各游戏里各写一份：
- * 门户、麻将、三国杀共用同一个入口，才不会出现「门户说在维护、
- * 三国杀大厅说没在维护」这种自相矛盾的界面。
+ * 门户、麻将、纸上三国共用同一个入口，才不会出现「门户说在维护、
+ * 纸上三国大厅说没在维护」这种自相矛盾的界面。
  */
 const service = useServiceStatus()
 const noticeEl = ref<HTMLElement | null>(null)
@@ -126,7 +126,7 @@ onErrorCaptured((cause) => {
 
 <template>
   <!--
-    全站首次访问门槛必须包在最外层、其它一切之前：门户、麻将、三国杀
+    全站首次访问门槛必须包在最外层、其它一切之前：门户、麻将、纸上三国
     的自动建房/加房逻辑都在下面这棵树里，用户点「我知道了」之前
     这棵树根本不会挂载，也就不存在「弹窗还没关就已经在联机了」。
   -->

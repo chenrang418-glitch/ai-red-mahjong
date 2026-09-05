@@ -10,7 +10,7 @@ import type { CharacterDefinition } from './types'
 import { queueOnDamaged } from './wei-damage'
 
 /**
- * 火包·荀彧。经典火包版本，不是界限突破。
+ * 火包·荀彧。本项目自研表述。
  *
  * 【驱虎】是第一个拼点消费者：它**不实现任何拼点流程**，只负责发起、拿结果、
  * 决定后续。选牌、隐藏、揭示、比点、弃置全在 `engine/pindian.ts` 里。

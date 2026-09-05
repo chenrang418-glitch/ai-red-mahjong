@@ -7,7 +7,7 @@ function cardEvent(cardName: string, kind: 'card-use' | 'card-response' = 'card-
   return { id: `sound-${cardName}`, seq: 1, kind, sourceId: 'p0', targetIds: ['p1'], cardName, text: cardName }
 }
 
-describe('三国杀声音映射', () => {
+describe('纸上三国声音映射', () => {
   it('音乐和动作音效默认均为 100%', () => {
     expect(SGS_AUDIO_DEFAULTS.musicVolume).toBe(1)
     expect(SGS_AUDIO_DEFAULTS.effectsVolume).toBe(1)

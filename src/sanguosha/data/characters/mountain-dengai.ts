@@ -7,7 +7,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 山包·邓艾。经典「神话再临·山」首版。
+ * 山包·邓艾。本项目自研表述。。
  *
  * 原文：
  * - **屯田**：当你于回合外失去牌后，你可以进行一次判定，若结果不为红桃，

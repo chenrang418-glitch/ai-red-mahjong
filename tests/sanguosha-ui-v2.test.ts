@@ -11,7 +11,7 @@ function setup(count: number): GameSetup {
   return { mode: 'identity', generalChoices: 1, players: Array.from({ length: count }, (_, index) => ({ id: `p${index}`, nickname: index ? `电脑${index}` : '你', isHuman: index === 0 })) }
 }
 
-describe('三国杀牌桌 V2 座位', () => {
+describe('纸上三国牌桌 V2 座位', () => {
   it.each([
     [5, ['self', 'right-bottom', 'right-top', 'top-left', 'left-bottom']],
     [6, ['self', 'right-bottom', 'right-top', 'top-center', 'left-top', 'left-bottom']],
@@ -87,7 +87,7 @@ describe('三国杀牌桌 V2 座位', () => {
   })
 })
 
-describe('三国杀公开表现事件', () => {
+describe('纸上三国公开表现事件', () => {
   it('杀、闪、伤害与回复保留来源目标和结果', () => {
     const game = new SanguoshaGame({ seed: 'ui-events', setup: setup(5) })
     const characters = ['caocao', 'guanyu', 'zhangfei', 'zhaoyun', 'machao'] as const

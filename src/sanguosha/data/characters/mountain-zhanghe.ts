@@ -8,7 +8,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 山包·张郃【巧变】。经典「神话再临·山」首版。
+ * 山包·张郃【巧变】。本项目自研表述。。
  *
  * 原文：「你可以弃置一张手牌，跳过一个阶段。若你以此法跳过了摸牌阶段，
  *   你可以获得至多两名其他角色各一张手牌；若你以此法跳过了出牌阶段，

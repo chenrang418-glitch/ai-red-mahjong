@@ -27,10 +27,10 @@ export const gameManifest: readonly GameDefinition[] = [
   },
   {
     id: 'sanguosha',
-    name: '三国杀',
+    name: '纸上三国',
     subtitle: '经典身份局 · 单机与好友联机',
     status: '可游玩',
-    cover: '杀',
+    cover: '纸',
     accent: '#d6aa55',
     enabled: true,
     loadApp: () => import('../sanguosha/SanguoshaApp.vue'),

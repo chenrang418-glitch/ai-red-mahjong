@@ -479,7 +479,7 @@ async function adminDestroySgsRoom(env: Env, code: string): Promise<Response> {
     await env.DB.prepare('DELETE FROM sanguosha_room_directory WHERE code = ?').bind(code).run()
     return json({ ok: true, code, note: '房间已不存在，已清理目录记录' })
   }
-  await recordAudit(env, 'destroy-sanguosha-room', code, '强制解散三国杀房间')
+  await recordAudit(env, 'destroy-sanguosha-room', code, '强制解散纸上三国房间')
   return json({ ok: true, code })
 }
 
@@ -1289,7 +1289,7 @@ export class SanguoshaRoom {
       await this.notifyLobbyDirectory()
     } catch (cause) {
       // 目录只是可发现性索引，写失败不能终止权威房间本身。
-      console.error('同步三国杀房间列表失败', cause)
+      console.error('同步纸上三国房间列表失败', cause)
     }
   }
 
@@ -1303,7 +1303,7 @@ export class SanguoshaRoom {
       await this.env.DB.prepare('DELETE FROM sanguosha_room_directory WHERE code = ?').bind(code).run()
       await this.notifyLobbyDirectory()
     } catch (cause) {
-      console.error('移除三国杀房间失败', cause)
+      console.error('移除纸上三国房间失败', cause)
     }
     for (const socket of this.state.getWebSockets()) socket.close(1000, 'room deleted')
   }

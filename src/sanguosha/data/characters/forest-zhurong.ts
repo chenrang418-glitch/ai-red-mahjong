@@ -6,7 +6,7 @@ import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 林包·祝融。经典「神话再临·林」首版，不是界祝融。
+ * 林包·祝融。本项目自研表述。
  *
  * - 【巨象】的「南蛮入侵对你无效」和孟获【祸首】**共用同一个** `cardEffectInvalid`，
  *   没有第二份实现；「结算完毕进入弃牌堆时改由你获得」走 `resolvedCardRecipient`，

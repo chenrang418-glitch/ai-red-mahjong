@@ -7,7 +7,7 @@ import { effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
 
 /**
- * 火包·袁绍。经典火包版本，不是界限突破。
+ * 火包·袁绍。本项目自研表述。
  *
  * 【乱击】走的是「主动技 → 选两张牌 → 服务端校验 → 生成一次普通的万箭齐发使用」，
  * **不是**把所有两两组合都枚举成合法动作：十张手牌就是 45 种组合，越到后期越夸张，

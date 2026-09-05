@@ -8,7 +8,7 @@ import { FOOTER_COPYRIGHT, FOOTER_DISCLAIMER_LINK, FOOTER_CONTACT_LINK, FOOTER_L
  * 游戏中心主页面的底部信息条。
  *
  * 这是除首次访问弹窗以外，**唯一**长期展示项目声明入口的地方——
- * 麻将、三国杀内部一律不加。两个弹窗组件和首次弹窗里「查看完整声明」
+ * 麻将、纸上三国内部一律不加。两个弹窗组件和首次弹窗里「查看完整声明」
  * 用的是同一份 `FullDisclaimerModal`，内容只维护一份。
  */
 const showDisclaimer = ref(false)

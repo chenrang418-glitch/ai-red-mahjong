@@ -1,8 +1,8 @@
-# 三国杀技术架构
+# 纸上三国技术架构
 
 ## 总体原则
 
-CRPlay 顶层由 `RootApp.vue` 管理，红中麻将仍保留在原 `App.vue`。游戏入口由 `portal/gameManifest.ts` 数据驱动，具体游戏通过动态 `import()` 加载。三国杀代码位于 `src/sanguosha/`，不引入第二套前端框架。
+CRPlay 顶层由 `RootApp.vue` 管理，红中麻将仍保留在原 `App.vue`。游戏入口由 `portal/gameManifest.ts` 数据驱动，具体游戏通过动态 `import()` 加载。纸上三国代码位于 `src/sanguosha/`，不引入第二套前端框架。
 
 ```text
 RootApp
@@ -21,8 +21,8 @@ RootApp
 - `/`：游戏中心。
 - `/?game=mahjong`：红中麻将。
 - `/?room=ABC234`：旧麻将分享链接，兼容为麻将。
-- `/?game=sanguosha`：三国杀。
-- `/?game=sanguosha&room=ABC234`：三国杀房间。
+- `/?game=sanguosha`：纸上三国。
+- `/?game=sanguosha&room=ABC234`：纸上三国房间。
 - `/#admin`：原麻将管理员入口，优先级最高。
 
 顶层导航由 `portal/navigation.ts` 的纯函数解析，不引入 Vue Router。`RootApp` 监听 `popstate` 与 `hashchange`，保证前进、后退和刷新恢复。
@@ -142,7 +142,7 @@ Wrangler DO migration 已追加到 tag `v3`；D1 migration 已追加到 `0006_sa
 
 ## 扩展武将包
 
-`CharacterPack` 只注册已完整实现的 characters 与 skills；标准、风、火、林、山五包目前均已完成，不注册界限突破或其他版本空壳。
+`CharacterPack` 只注册已完整实现的 characters 与 skills；标准、风、火、林、山五包目前均已完成，；不注册未实现的空壳。
 
 ## 扩展新游戏
 

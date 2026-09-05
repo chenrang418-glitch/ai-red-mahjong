@@ -7,7 +7,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto('/?game=sanguosha')
-    await expect(page.getByRole('heading', { name: '三国杀', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '纸上三国', exact: true })).toBeVisible()
     await expect(page.locator('.sgs-home__portrait img')).toHaveJSProperty('complete', true)
     for (const button of await page.locator('.sgs-home nav button').all()) {
       await expect(button).toBeInViewport({ ratio: 1 })
@@ -19,7 +19,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 
     await expect(page.locator('.sgs-panel__summary')).toContainText('8 人')
     await expect(page.getByRole('button', { name: '开始', exact: true })).toBeInViewport({ ratio: 1 })
     await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('setup.png') })
-    await page.getByRole('button', { name: '返回三国杀首页' }).click()
+    await page.getByRole('button', { name: '返回纸上三国首页' }).click()
     await page.getByRole('button', { name: '艺术集', exact: true }).click()
     await expect(page.locator('.sgs-art-gallery__grid button')).toHaveCount(ALL_CHARACTERS.length)
     await page.getByRole('group', { name: '阵营筛选' }).getByRole('button', { name: '蜀', exact: true }).click()

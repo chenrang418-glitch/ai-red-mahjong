@@ -5,7 +5,7 @@ import { assertCardConservation } from '@/sanguosha/engine/zones'
 import type { GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 林包·孟获【祸首】【再起】。经典首版，不是界孟获。
+ * 林包·孟获【祸首】【再起】。经典首版。
  *
  * 这一组要钉住的是**两个公共机制的语义**，而不只是「孟获能用」：
  *

@@ -7,7 +7,7 @@ import { JUNLUE_MARK, junlueOf } from '@/sanguosha/data/characters/god-shenluxun
 import type { CardId, GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 神陆逊。**三国杀移动版当前官方技能页现行版本**。
+ * 神陆逊。本项目的自研玩法表述。
  *
  * 四条最容易写错的：
  *

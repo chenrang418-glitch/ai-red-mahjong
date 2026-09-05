@@ -12,7 +12,7 @@ import { DEFAULT_SGS_ROOM_SETTINGS } from '../online/protocol'
 defineEmits<{ back: [] }>()
 
 /*
- * 维护态。以前三国杀这边**完全没接**：维护期间「创建房间」照样是亮的，
+ * 维护态。以前纸上三国这边**完全没接**：维护期间「创建房间」照样是亮的，
  * 点下去才收到服务端 503 弹一个红字，和麻将那边直接灰成「维护中」不一致。
  * 现在两边读的是同一份 useServiceStatus。
  */
@@ -125,10 +125,10 @@ async function shareRoom(): Promise<void> {
   const code = online.room.value?.code
   if (!code) return
   const link = shareLink.value
-  const text = `来打三国杀，房间号 ${code}`
+  const text = `来打纸上三国，房间号 ${code}`
   if (navigator.share) {
     try {
-      await navigator.share({ title: '三国杀', text, url: link })
+      await navigator.share({ title: '纸上三国', text, url: link })
       return
     } catch (cause) {
       // 用户自己取消的不算失败，不用再弹别的

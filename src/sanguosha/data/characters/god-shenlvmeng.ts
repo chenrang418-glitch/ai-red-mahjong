@@ -8,7 +8,7 @@ import { skillIdsOf } from './standard'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神吕蒙。经典「神话再临·神」版本。
+ * 神吕蒙。本项目自研表述。
  *
  * - **涉猎**：摸牌阶段，你可以放弃摸牌，改为亮出牌堆顶五张牌，
  *   然后获得其中每种花色的牌各一张，其余的牌置入弃牌堆。

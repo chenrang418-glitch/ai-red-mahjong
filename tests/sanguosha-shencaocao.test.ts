@@ -6,7 +6,7 @@ import { getDistance } from '@/sanguosha/engine/distance'
 import type { CardId, GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 神曹操。经典「神话再临·神」**原版**。
+ * 神曹操。本项目自研表述。**原版**。
  *
  * 三条最容易写错、也最值得钉死的：
  *

@@ -9,7 +9,7 @@ import { skillIdsOf } from './standard'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神周瑜。经典「神话再临·神」版本。
+ * 神周瑜。本项目自研表述。
  *
  * - **琴音**：弃牌阶段结束时，若你于此阶段内弃置过你的至少两张手牌，
  *   你可以选择一项：令所有角色各回复 1 点体力；或令所有角色各失去 1 点体力。

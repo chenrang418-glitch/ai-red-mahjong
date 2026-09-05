@@ -7,7 +7,7 @@ import SgsFactionBadge from '@/sanguosha/components/SgsFactionBadge.vue'
 import { ALL_CHARACTERS } from '@/sanguosha/data/characters/standard'
 import { FACTION_CONFIG, FACTION_ORDER, type Faction } from '@/sanguosha/shared/factions'
 
-describe('三国杀六势力基础数据', () => {
+describe('纸上三国六势力基础数据', () => {
   it('固定使用魏蜀吴群晋神顺序和唯一颜色配置', () => {
     expect(FACTION_ORDER).toEqual(['wei', 'shu', 'wu', 'qun', 'jin', 'shen'])
     expect(FACTION_ORDER.map((id) => FACTION_CONFIG[id].name)).toEqual(['魏', '蜀', '吴', '群', '晋', '神'])

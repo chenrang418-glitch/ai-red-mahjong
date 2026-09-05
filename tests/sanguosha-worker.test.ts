@@ -69,7 +69,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await mf?.dispose() })
 
-describe('三国杀 Worker 与 Durable Object', () => {
+describe('纸上三国 Worker 与 Durable Object', () => {
   it('创建、列出、进房并拒绝重复和陈旧动作', async () => {
     const cookie = await login('三国房主')
     const created = await api('/api/sanguosha/rooms', {

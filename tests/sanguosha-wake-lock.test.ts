@@ -11,7 +11,7 @@ class FakeSentinel extends EventTarget {
   release = vi.fn(async () => { this.released = true; this.dispatchEvent(new Event('release')) })
 }
 
-describe('三国杀对局防息屏', () => {
+describe('纸上三国对局防息屏', () => {
   it('单机和联机界面启用 Screen Wake Lock', () => {
     const app = readFileSync('src/sanguosha/SanguoshaApp.vue', 'utf8')
     expect(app).toContain("screen.value === 'playing' || screen.value === 'online'")
