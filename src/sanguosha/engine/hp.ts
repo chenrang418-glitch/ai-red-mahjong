@@ -63,3 +63,26 @@ export function loseMaxHp(host: HpEngineHost, playerId: PlayerId, amount: number
   // 上限被削到 0（或体力被裁到 0）时和失去体力一样进濒死，不在这里自己判死
   if (target.hp <= 0) host.enterDying(playerId)
 }
+
+/**
+ * 加体力上限的统一入口。
+ *
+ * 以前各武将都在直接写 `player.maxHp += 1`（无量、刘禅），
+ * 于是界面和战报收不到任何变化通知——`MaxHpChange` 只有减的那一半会发。
+ * 加上限本身不回复体力（神孙策 1/3 加 3 点上限是 1/6，不是 4/6），
+ * 所以这里只动上限，不碰当前体力。
+ *
+ * `cap` 给技能自己的封顶用（神郭嘉【慧识】不能把上限顶过 10）。
+ * 到顶就当作没加，不发事件。
+ */
+export function gainMaxHp(host: HpEngineHost, playerId: PlayerId, amount: number, reason: string, cap?: number): void {
+  const target = host.state.players.find((player) => player.id === playerId)
+  if (!target?.alive) return
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('加体力上限必须是正整数')
+  const ceiling = cap ?? Number.POSITIVE_INFINITY
+  const nextMax = Math.min(ceiling, target.maxHp + amount)
+  if (nextMax <= target.maxHp) return
+  const gained = nextMax - target.maxHp
+  target.maxHp = nextMax
+  host.dispatch('MaxHpChange', { playerId, maxHp: nextMax, hp: target.hp, amount: gained, trimmed: 0, reason }, { targetId: playerId })
+}

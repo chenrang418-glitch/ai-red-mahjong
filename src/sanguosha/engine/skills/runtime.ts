@@ -1,5 +1,6 @@
 
 import type { EventContext, GameEvent, GameEventName } from '../events'
+import { clearForcedAwakening, hasForcedAwakening } from '../forced-awakening'
 import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
@@ -744,13 +745,20 @@ export function registerSkillTriggers(
         // 一局一次，永不重置
         player.awakenedSkills ??= []
         if (player.awakenedSkills.includes(runtime.id)) return
-        if (!awakening.ready(host.state, ownerId)) return
+        /*
+         * 外部技能（神郭嘉【辉逝】）可以令某个觉醒技「视为已满足觉醒条件」。
+         * 放行的只是这一关：时机、记账、效果全都照原样走。
+         */
+        const forced = hasForcedAwakening(host.state, ownerId, runtime.id)
+        if (!forced && !awakening.ready(host.state, ownerId)) return
         /*
          * **先记账再发动。** 觉醒过程里可能挂起发问（姜维【志继】要选
          * 回复还是摸牌），挂起期间这条 PhaseStart 已经走完，
          * 后面再有事件把这个技能问一遍就会重复觉醒。
          */
         player.awakenedSkills.push(runtime.id)
+        // 用掉就清，留着没意义而且会让后面的判断读到过期的放行
+        if (forced) clearForcedAwakening(host.state, ownerId, runtime.id)
         host.dispatch('SkillAwakened', { playerId: ownerId, skillId: runtime.id }, { sourceId: ownerId })
         awakening.invoke(host, ownerId)
       }, awakening.priority ?? 0)

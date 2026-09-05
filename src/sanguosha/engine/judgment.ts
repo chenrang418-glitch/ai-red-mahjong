@@ -5,6 +5,7 @@ import type { EventContext, GameEvent, GameEventName } from './events'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from './requests'
 import { validateResponse } from './requests'
 import type { GameRng } from './rng'
+import { retainJudgmentCard, shouldRetainJudgment } from './judgment-retention'
 import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 import { effectiveCardName, moveCard } from './zones'
@@ -163,7 +164,14 @@ function finishJudgment(host: JudgmentEngineHost): void {
   const color = suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
   host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit, rank: judgeCard.rank, color }, { targetId: playerId, cardIds: [judgeCardId] })
   host.dispatch('JudgeEnd', { playerId, reason, judgeCardId }, { targetId: playerId, cardIds: [judgeCardId] })
-  moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+  /*
+   * 暂存中的判定不进弃牌堆，留在处理区等技能统一处置（神郭嘉【慧识】）。
+   * 按续接 tag 认领，不能把别的技能顺手插进来的判定也收走。
+   * 改判换下来的旧牌在改判当场就进了弃牌堆，走不到这里——所以这里收到的
+   * 一定只有最终生效的那一张。
+   */
+  if (shouldRetainJudgment(host.state, tag)) retainJudgmentCard(host.state, judgeCardId, suit)
+  else moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   // 先清空再跑续接：续接里可能又发起一次判定（洛神连判）
   host.state.retrial = null
   const run = continuations.get(tag)

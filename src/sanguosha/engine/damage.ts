@@ -380,6 +380,15 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   }
 
   target.hp -= amount
+  /*
+   * 「本局是否受到过伤害」记在这里，一次成立终局有效。
+   *
+   * 只有**真正受到伤害**才算：失去体力（崩坏、无谋）不是伤害，
+   * 伤害被防止（大雾、神孙策【冯河】）也走不到这一行。
+   * 神郭嘉【天翊】要判断「所有存活角色均受到过伤害」，靠扫战报字符串
+   * 既不可靠也扛不住重连，所以落成可序列化的状态位。
+   */
+  target.hasTakenDamage = true
   dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
   dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
   if (target.hp > 0) return

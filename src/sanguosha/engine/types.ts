@@ -1,4 +1,7 @@
 import type { GameRequest } from './requests'
+import type { JudgmentRetentionState } from './judgment-retention'
+import type { ForcedAwakening } from './forced-awakening'
+import type { SkillGrantSource } from './skill-grant-source'
 import type { Faction } from '../shared/factions'
 
 export const RULESET_VERSION = 'ruleset-v1' as const
@@ -111,6 +114,14 @@ export interface PlayerState {
    * 觉醒技是条件满足即强制发动，两者的判定时机和 UI 呈现都不一样。
    */
   awakenedSkills: string[]
+  /**
+   * 本局是否真正受到过伤害。一次成立终局有效，死亡也不清除。
+   *
+   * 失去体力不算，伤害被防止也不算——见 engine/damage.ts 的写入点。
+   * 神郭嘉【天翊】要判断「所有存活角色均受到过伤害」，扫战报字符串既不可靠
+   * 也扛不住重连，所以落成可序列化的状态位。
+   */
+  hasTakenDamage?: boolean
   distanceFromOthers: number
   distanceToOthers: number
   attackRangeBonus: number
@@ -689,6 +700,21 @@ export interface SanguoshaState {
   mamaBonds: Record<PlayerId, PlayerId>
   /** 判定牌的改判窗口；没有改判技能在场时始终为 null，判定仍然一步走完。 */
   retrial: JudgmentRetrialState | null
+  /**
+   * 连续判定的暂存堆；见 engine/judgment-retention.ts。
+   *
+   * 暂存期间判定牌留在处理区（公开），结束时统一交给某人或进弃牌堆。
+   * 没有技能在用时始终为 null。
+   */
+  judgmentRetention?: JudgmentRetentionState | null
+  /**
+   * 被外部技能放行的觉醒条件；见 engine/forced-awakening.ts。
+   *
+   * 只放行条件，不改时机也不改记账。觉醒完成后清除。
+   */
+  forcedAwakenings?: ForcedAwakening[]
+  /** 被授予的技能记住授予者；见 engine/skill-grant-source.ts。 */
+  skillGrantSources?: SkillGrantSource[]
   /**
    * 本回合判定阶段已经结算过的延时锦囊。
    *

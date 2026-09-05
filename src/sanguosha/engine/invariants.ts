@@ -140,6 +140,26 @@ export function assertGameInvariants(state: SanguoshaState): void {
       throw new Error('改判窗口缺少对应的 Request')
     }
   }
+  if (state.judgmentRetention) {
+    /*
+     * 暂存中的判定牌必须还在处理区，而且不能重复收同一张。
+     * 漏在别的区域说明有人把它当普通判定牌处理掉了，
+     * 之后「统一交给某人」就会凭空多牌或少牌。
+     */
+    const retained = state.judgmentRetention.cardIds
+    for (const cardId of retained) {
+      if (!state.zones.processingArea.includes(cardId)) throw new Error(`暂存的判定牌不在处理区：${cardId}`)
+    }
+    if (new Set(retained).size !== retained.length) throw new Error('同一张判定牌被暂存了多次')
+    if (state.judgmentRetention.suits.length !== retained.length) throw new Error('暂存判定牌与花色记录数量对不上')
+  }
+  for (const forced of state.forcedAwakenings ?? []) {
+    // 已经觉醒过还留着放行记录，说明清理漏了；留着会让下一次判断读到过期状态
+    const owner = state.players.find((candidate) => candidate.id === forced.playerId)
+    if (owner?.awakenedSkills?.includes(forced.skillId)) {
+      throw new Error(`已经觉醒的技能仍留着强制觉醒记录：${forced.playerId}/${forced.skillId}`)
+    }
+  }
   if (state.turnUsage.slashUses < 0 || state.turnUsage.wineUses < 0 || state.turnUsage.wineDamageBonus < 0) throw new Error('回合用牌计数非法')
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')
