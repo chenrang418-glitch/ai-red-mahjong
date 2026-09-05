@@ -16,6 +16,7 @@ import type { GameResponse } from './engine/requests'
 import type { AIDifficulty } from './ai'
 import { AI_PACE_MS } from './shared/timing'
 import { FACTION_CONFIG, FACTION_ORDER } from './shared/factions'
+import SgsHomePortrait from './components/SgsHomePortrait.vue'
 
 defineEmits<{ backToPortal: [] }>()
 
@@ -122,23 +123,29 @@ function handleRespond(response: GameResponse): void {
         </div>
       </header>
       <div class="sgs-home__hero">
-        <div class="sgs-home__seal" aria-hidden="true">杀</div>
-        <p>经典身份局</p>
-        <h1>三国杀</h1>
-        <small>当前共 {{ ALL_CHARACTERS.length }} 名完整可玩武将、全部装备均已实现，支持单机与好友联机。</small>
+        <div class="sgs-home__copy">
+          <p class="sgs-home__eyebrow"><span></span> 经典身份局 · 群雄共赴</p>
+          <h1>三国杀<span class="sgs-home__seal" aria-hidden="true">杀</span></h1>
+          <h2>方寸之间，风云再起。</h2>
+          <small>以谋略会友，以手牌决胜。<br>选一名武将，开启属于你的三国。</small>
+          <div class="sgs-home__stats"><span><b>{{ ALL_CHARACTERS.length }}</b> 名武将</span><i></i><span><b>5–8</b> 人身份局</span><i></i><span>单机 · 好友联机</span></div>
+        </div>
+        <SgsHomePortrait />
       </div>
       <nav aria-label="三国杀模式">
-        <button type="button" class="sgs-home__main" @click="screen = 'setup'"><b>单机游戏</b><span>与电脑对战</span></button>
-        <button type="button" class="sgs-home__online" @click="screen = 'online'"><b>联机游戏</b><span>创建或加入房间</span></button>
-        <button type="button" class="sgs-home__rules" @click="screen = 'rules'"><b>规则</b><span>玩法与武将</span></button>
+        <button type="button" class="sgs-home__main" @click="screen = 'setup'"><em aria-hidden="true">弈</em><b>单机游戏</b><span>与电脑对战 · 随时开局</span><i aria-hidden="true">↗</i></button>
+        <button type="button" class="sgs-home__online" @click="screen = 'online'"><em aria-hidden="true">聚</em><b>联机游戏</b><span>创建或加入房间 · 与好友过招</span><i aria-hidden="true">↗</i></button>
+        <button type="button" class="sgs-home__rules" @click="screen = 'rules'"><em aria-hidden="true">策</em><b>规则</b><span>玩法与武将 · 运筹帷幄</span><i aria-hidden="true">↗</i></button>
       </nav>
+      <footer class="sgs-home__footer"><span>一局三国，万般可能</span><span>CRPLAY / SANGUOSHA</span></footer>
     </section>
 
-    <section v-else-if="screen === 'setup'" class="sgs-panel">
+    <section v-else-if="screen === 'setup'" class="sgs-panel sgs-panel--setup">
       <header>
-        <button type="button" @click="screen = 'home'">‹</button>
+        <button type="button" aria-label="返回三国杀首页" @click="screen = 'home'">‹</button>
         <h1>单机设置</h1>
       </header>
+      <p class="sgs-panel__intro">安排你的下一局。选择人数与电脑节奏，再挑选出战武将。</p>
       <!--
         这三行是「带标题的选项组」，不是表单 label。
         原来用 <label> 包着一组 button，会让每个按钮的可访问名都变成整行文字
@@ -152,6 +159,7 @@ function handleRespond(response: GameResponse): void {
             :key="count"
             type="button"
             :class="{ active: config.playerCount === count }"
+            :aria-pressed="config.playerCount === count"
             @click="config.playerCount = count"
           >{{ count }} 人</button>
         </div>
@@ -159,7 +167,7 @@ function handleRespond(response: GameResponse): void {
       <div role="group" aria-label="电脑节奏">
         <span>电脑节奏</span>
         <div class="sgs-panel__choices">
-          <button v-for="(label, value) in AI_PACE_LABEL" :key="value" type="button" :class="{ active: config.aiPace === value }" @click="config.aiPace = value as AIPace">{{ label }}</button>
+          <button v-for="(label, value) in AI_PACE_LABEL" :key="value" type="button" :class="{ active: config.aiPace === value }" :aria-pressed="config.aiPace === value" @click="config.aiPace = value as AIPace">{{ label }}</button>
         </div>
       </div>
       <div role="group" aria-label="电脑难度">
@@ -170,11 +178,13 @@ function handleRespond(response: GameResponse): void {
             :key="value"
             type="button"
             :class="{ active: config.difficulty === value }"
+            :aria-pressed="config.difficulty === value"
             @click="config.difficulty = value as AIDifficulty"
           >{{ label }}</button>
         </div>
       </div>
       <p class="sgs-panel__note">当前已实现 {{ ALL_CHARACTERS.length }} 名武将，每人随机分配候选。</p>
+      <p class="sgs-panel__summary"><b>{{ config.playerCount }} 人 · {{ DIFFICULTY_LABEL[config.difficulty] }}难度 · {{ AI_PACE_LABEL[config.aiPace] }}节奏</b><span>下一步：选择武将</span></p>
       <button type="button" class="primary sgs-panel__start" @click="startMatch">开始</button>
     </section>
 
@@ -276,48 +286,6 @@ function handleRespond(response: GameResponse): void {
   width: min(980px, 100%); height: 100%; margin: auto; display: flex; flex-direction: column;
   padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
 }
-.sgs-home header { display: flex; justify-content: space-between; align-items: center; color: var(--ink-text-muted); font-size: 11px; letter-spacing: .15em; }
-.sgs-home header button, .sgs-panel header button {
-  min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px;
-  color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer;
-}
-.sgs-home__tools { display: flex; align-items: center; gap: 8px; }
-/*
-  顶栏现在有四样东西（返回、站名、艺术集、声音）。窄屏放不下时，
-  第一个牺牲的是中间那行站名——它纯装饰，下方的大标题已经说清是哪个游戏；
-  返回键的文案也收成一个箭头。不这样做的话「返回游戏中心」会折成两行
-  并压到站名上（375px 实测）。
-*/
-@media (max-width: 430px) {
-  /*
-    只藏中间那行站名，**不动返回键**——两个游戏的首页要保持 1:1，
-    改了返回键的字号，responsive.spec 里逐项比对的 headerButton 就对不上了。
-    站名是纯装饰，下方的大标题已经说清是哪个游戏。
-  */
-  .sgs-home header > span { display: none; }
-}
-.sgs-home__hero { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; }
-.sgs-home__seal {
-  width: 88px; height: 88px; display: grid; place-items: center;
-  border: 2px solid var(--accent-gold); border-radius: 23px; color: #efc477;
-  font: 900 48px/1 STKaiti, KaiTi, serif; transform: rotate(-4deg); box-shadow: 0 0 50px rgba(207, 164, 86, .18);
-}
-.sgs-home__hero p { margin: 24px 0 8px; color: var(--accent-gold); font-size: 12px; letter-spacing: .18em; }
-.sgs-home__hero h1 { margin: 0; font-size: clamp(55px, 10vw, 92px); line-height: 1; letter-spacing: -.08em; }
-.sgs-home__hero small { max-width: 560px; margin-top: 22px; color: var(--ink-text-muted); line-height: 1.7; }
-.sgs-home nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.sgs-home nav button {
-  min-height: 74px; display: grid; align-content: center; gap: 4px;
-  border: 1px solid var(--ink-line); border-radius: 15px; color: var(--ink-text-soft); background: rgba(34, 50, 42, .85); cursor: pointer;
-}
-.sgs-home nav button:disabled { color: #767f7a; cursor: default; }
-.sgs-home nav .sgs-home__main { border-color: var(--accent-gold); color: #ffeec0; background: linear-gradient(180deg, var(--accent-gold-fill-top), var(--accent-gold-fill-bottom)); }
-/* 三个入口各用一种颜色，暗底上要保证文字对比度，所以底色压暗、字色提亮 */
-.sgs-home nav .sgs-home__online { border-color: var(--accent-red); color: #ffd9d2; background: linear-gradient(180deg, var(--accent-red-fill-top), var(--accent-red-fill-bottom)); }
-.sgs-home nav .sgs-home__rules { border-color: var(--accent-green); color: #d3f3da; background: linear-gradient(180deg, var(--accent-green-fill-top), var(--accent-green-fill-bottom)); }
-.sgs-home nav b { font-size: 16px; }
-.sgs-home nav span { font-size: 10px; }
-
 .sgs-panel { gap: 16px; }
 .sgs-panel header { display: flex; align-items: center; gap: 12px; }
 .sgs-panel__choose-header { flex: none; }
@@ -389,18 +357,7 @@ function handleRespond(response: GameResponse): void {
 .sgs-confirm__actions button { flex: 1; min-height: 42px; border-radius: 10px; border: 1px solid var(--ink-line); background: var(--ink-panel-deep); color: var(--ink-text-soft); cursor: pointer; font: inherit; font-weight: 700; }
 .sgs-confirm__actions .danger { border-color: var(--accent-red); color: #ffd9d2; background: linear-gradient(180deg, var(--accent-red-fill-top), var(--accent-red-fill-bottom)); }
 
-@media (max-width: 620px) and (orientation: portrait) {
-  .sgs-home nav { grid-template-columns: 1fr; }
-  .sgs-home nav button { min-height: 58px; }
-}
-@media (orientation: landscape) and (max-height: 500px) {
-  .sgs-home__seal { width: 58px; height: 58px; font-size: 32px; }
-  .sgs-home__hero p { margin-top: 12px; }
-  .sgs-home__hero h1 { font-size: 48px; }
-  .sgs-home__hero small { margin-top: 8px; }
-  .sgs-home nav button { min-height: 54px; }
-  .sgs-panel { gap: 10px; }
-  .sgs-panel__choices button { min-height: 38px; }
-  .primary { min-height: 42px; }
-}
 </style>
+<style scoped src="/src/sanguosha/styles/home.css"></style>
+<!-- Load after component styles so responsive layout rules have deterministic precedence. -->
+<style src="/src/sanguosha/styles/refresh.css"></style>

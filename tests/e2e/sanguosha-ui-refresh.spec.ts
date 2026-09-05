@@ -1,0 +1,90 @@
+import { expect, test } from '@playwright/test'
+import { ALL_CHARACTERS } from '../../src/sanguosha/data/characters/standard'
+
+for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 }, { width: 852, height: 393 }, { width: 320, height: 568 }]) {
+  test(`新界面 ${viewport.width}x${viewport.height} 入口、设置、筛选与返回可用`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport)
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await page.goto('/?game=sanguosha')
+    await expect(page.getByRole('heading', { name: '三国杀', exact: true })).toBeVisible()
+    await expect(page.locator('.sgs-home__portrait img')).toHaveJSProperty('complete', true)
+    for (const button of await page.locator('.sgs-home nav button').all()) {
+      await expect(button).toBeInViewport({ ratio: 1 })
+    }
+    await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('home.png') })
+    await page.getByRole('button', { name: /单机游戏/ }).click()
+    await page.getByRole('button', { name: '8 人', exact: true }).click()
+    await expect(page.getByRole('button', { name: '8 人', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.sgs-panel__summary')).toContainText('8 人')
+    await expect(page.getByRole('button', { name: '开始', exact: true })).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('setup.png') })
+    await page.getByRole('button', { name: '返回三国杀首页' }).click()
+    await page.getByRole('button', { name: '艺术集', exact: true }).click()
+    await expect(page.locator('.sgs-art-gallery__grid button')).toHaveCount(ALL_CHARACTERS.length)
+    await page.getByRole('group', { name: '阵营筛选' }).getByRole('button', { name: '蜀', exact: true }).click()
+    await expect(page.locator('.sgs-art-gallery__grid button')).toHaveCount(ALL_CHARACTERS.filter((c) => c.kingdom === 'shu').length)
+    await page.getByRole('searchbox', { name: '搜索武将名称' }).fill('卧龙诸葛')
+    await expect(page.locator('.sgs-art-gallery__grid button')).toHaveCount(1)
+    await expect(page.locator('.sgs-art-gallery__grid button')).toContainText('卧龙诸葛')
+    await page.locator('.sgs-art-gallery__grid button').click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCSS('height', `${viewport.height}px`)
+    await page.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.getByRole('searchbox', { name: '搜索武将名称' }).fill('不存在的武将')
+    await expect(page.getByText('未找到这位武将')).toBeVisible()
+    await page.getByRole('button', { name: '重置筛选' }).click()
+    await expect(page.locator('.sgs-art-gallery__grid button')).toHaveCount(ALL_CHARACTERS.length)
+    await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('gallery.png') })
+    expect(errors).toEqual([])
+  })
+}
+
+test('减少动态效果时保留反馈并关闭新增动画', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/?game=sanguosha')
+  await expect(page.locator('.sgs-home')).toHaveCSS('animation-name', 'none')
+  await page.getByRole('button', { name: /单机游戏/ }).click()
+  await expect(page.locator('.sgs-panel')).toHaveCSS('animation-name', 'none')
+  await expect(page.getByRole('button', { name: '5 人', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('首页立绘定时随机轮换、暂停、手动切换且短轮次不重复', async ({ page }) => {
+  await page.clock.install()
+  await page.goto('/?game=sanguosha')
+  const name = page.locator('.sgs-home__portrait figcaption strong')
+  await expect(name).not.toBeEmpty()
+  const first = await name.innerText()
+  await page.clock.fastForward(12_100)
+  await expect(name).not.toHaveText(first)
+  await page.getByRole('button', { name: '暂停轮播' }).click()
+  const paused = await name.innerText()
+  await page.clock.fastForward(25_000)
+  await expect(name).toHaveText(paused)
+  const seen = new Set([first, paused])
+  for (let index = 0; index < 4; index++) {
+    const previous = await name.innerText()
+    await page.getByRole('button', { name: '换一位' }).click()
+    await expect(name).not.toHaveText(previous)
+    const next = await name.innerText()
+    expect(seen.has(next)).toBe(false)
+    seen.add(next)
+  }
+  await page.getByRole('button', { name: '继续轮播' }).click()
+  const beforeResume = await name.innerText()
+  await page.clock.fastForward(12_100)
+  await expect(name).not.toHaveText(beforeResume)
+})
+
+test('下一张立绘加载失败时保留原图并允许重试', async ({ page }) => {
+  await page.goto('/?game=sanguosha')
+  const name = page.locator('.sgs-home__portrait figcaption strong')
+  await expect(name).not.toBeEmpty()
+  await page.getByRole('button', { name: '暂停轮播' }).click()
+  const original = await name.innerText()
+  await page.route('**/*.webp', (route) => route.abort())
+  await page.getByRole('button', { name: '换一位' }).click()
+  await expect(page.getByRole('status')).toHaveText('暂时无法切换，请再试一次')
+  await expect(name).toHaveText(original)
+  await expect(page.getByRole('button', { name: '换一位' })).toBeEnabled()
+})

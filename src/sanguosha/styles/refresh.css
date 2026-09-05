@@ -1,0 +1,102 @@
+/* Only Sanguosha roots receive these tokens; the Mahjong bundle keeps its palette. */
+:is(.sgs-app, .sgs-online, .sgs-table, .sgs-confirm-backdrop, .sgs-result-backdrop, .sgs-glossary-mask) {
+  --ink-bg-top: #14292b;
+  --ink-bg-bottom: #081416;
+  --ink-panel: #192e30;
+  --ink-panel-deep: #102124;
+  --ink-line: #385052;
+  --ink-text: #f4eee1;
+  --ink-text-soft: #bac9c5;
+  --ink-text-muted: #98aaa7;
+  --accent-gold: #d8b777;
+  --sgs-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+:is(.sgs-app, .sgs-online, .sgs-table, .sgs-result, .sgs-glossary-sheet) button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+:is(.sgs-app, .sgs-online, .sgs-table, .sgs-result, .sgs-glossary-sheet) :is(button, input, select):focus-visible {
+  outline: 2px solid #f2d39a;
+  outline-offset: 3px;
+}
+:is(.sgs-app, .sgs-online, .sgs-table, .sgs-result) button:active:not(:disabled) { transform: translateY(1px); }
+:is(.sgs-app, .sgs-online, .sgs-table, .sgs-glossary-sheet) * {
+  scrollbar-width: thin;
+  scrollbar-color: #526764 transparent;
+}
+.sgs-app .sgs-panel { padding-top: max(28px, env(safe-area-inset-top)); gap: 20px; }
+.sgs-app .sgs-panel > header { padding-bottom: 16px; border-bottom: 1px solid #d8b77730; flex: none; }
+.sgs-app .sgs-panel h1 { color: #f3e6cb; letter-spacing: .08em; }
+.sgs-app .sgs-panel--setup { width: min(780px, 100%); }
+.sgs-app .sgs-panel--setup [role="group"] { padding: 16px 20px; border: 1px solid #385052; border-radius: 14px; background: #102124; gap: 12px; }
+.sgs-app .sgs-panel [role="group"] > span { color: #bac9c5; font-size: 13px; }
+.sgs-app .sgs-panel__choices { gap: 10px; }
+.sgs-app .sgs-panel__choices button { flex: 1; border-color: #385052; }
+.sgs-app .sgs-panel__choices button.active { color: #ffe0a3; border-color: #d8b777; background: #343225; box-shadow: inset 0 -2px #d8b777; }
+.sgs-app .sgs-panel__intro { margin: 0; color: #aebfba; font-size: 13px; line-height: 1.7; }
+.sgs-app .sgs-panel__summary { margin: auto 0 0; display: flex; justify-content: space-between; gap: 12px; color: #d8b777; font-size: 13px; }
+.sgs-app .sgs-panel__summary span { color: #98aaa7; }
+.sgs-app .sgs-panel__start { margin-top: 0; flex: none; }
+.sgs-app .sgs-panel--choose { padding-top: max(12px, env(safe-area-inset-top)); gap: 12px; }
+.sgs-app .sgs-panel--choose > header { padding-bottom: 10px; }
+.sgs-app .sgs-rules { align-content: start; gap: 14px; }
+.sgs-app .sgs-rules article { padding: 18px 20px; background: #102124; border-color: #334b4c; border-radius: 14px; }
+.sgs-app .sgs-rules b { font-size: 14px; margin-bottom: 8px; }
+.sgs-app .sgs-rules p { color: #bac9c5; font-size: 13px; line-height: 1.85; }
+.sgs-app .sgs-rules__kingdom h2 { background: #112426; padding: 13px 8px; }
+.sgs-app .sgs-dock__general { background: #13272a; border-color: #48605c; }
+.sgs-app .sgs-dock__general.selected { background: #343225; border-color: #e7c763; }
+.sgs-app .sgs-dock__general span { color: #c1cfca; font-size: 11px; line-height: 1.7; }
+.sgs-app .sgs-dock__general small { color: #a4b7b0; }
+.sgs-online.sgs-online { background: radial-gradient(ellipse at 85% 0, #34535070, transparent 55%), linear-gradient(145deg, #14292b, #081416); }
+.sgs-online .sgs-online__panel, .sgs-online .sgs-online__identity { border-color: #385052; background: #102124; box-shadow: 0 12px 40px #0000001a; }
+.sgs-online .sgs-online__panel h2 { padding-bottom: 12px; border-bottom: 1px solid #385052; font-size: 16px; color: #e8d6b2; }
+.sgs-online .sgs-online__panel :is(input, select) { background: #0b1b1e; border-color: #40585a; }
+.sgs-online .sgs-online__seats article { background: #192e30; border-color: #40585a; }
+.sgs-online .sgs-online__seats article.empty { background: #0d1d20; color: #97aba6; }
+.sgs-table.sgs-table { background: radial-gradient(ellipse at 50% 42%, #2b514b 0, #152f2e 48%, #09191c 100%); }
+.sgs-table .sgs-table__bar { background: #0b1b1ecc; border-bottom: 1px solid #d8b77724; }
+.sgs-table .sgs-table__hand { background: linear-gradient(0deg, #09191cbb, transparent); }
+.sgs-table .sgs-table__dock { border-color: #d8b77745; background: linear-gradient(180deg, #162a2c, #0b1a1d); }
+.sgs-table .sgs-table__dock--idle { color: #adc0b8; }
+.sgs-table .sgs-table__log { background: #102124; border-color: #536159; }
+.sgs-table .sgs-table__log li { padding: 6px 0; border-bottom: 1px solid #ffffff0d; }
+.sgs-table .sgs-seat--active { box-shadow: 0 0 0 1px #e1bd79, 0 0 22px #e1bd792e; animation-iteration-count: 2; }
+.sgs-result.sgs-result, .sgs-glossary-sheet.sgs-glossary-sheet { background: linear-gradient(150deg, #233a3a, #0e2023); border-color: #9b855b; }
+
+@keyframes sgs-surface-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes sgs-drawer-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .sgs-app > section, .sgs-online__panel, .sgs-confirm, .sgs-result, .sgs-glossary-sheet, .sgs-art-gallery__viewer { animation: sgs-surface-in .28s cubic-bezier(.22, 1, .36, 1) backwards; }
+  .sgs-table .sgs-table__log { animation: sgs-drawer-in .24s ease-out backwards; }
+}
+@media (hover: hover) {
+  .sgs-app .sgs-panel__choices button:hover, .sgs-online button:hover:not(:disabled) { border-color: #d8b777; }
+  .sgs-app .sgs-art-gallery__grid button:hover { border-color: #e4c288; box-shadow: 0 8px 22px #0005; }
+}
+@media (min-width: 1000px) and (min-height: 600px) {
+  .sgs-online.sgs-online { padding-inline: max(32px, calc((100vw - 1160px) / 2)); padding-block: 28px; gap: 18px; }
+  .sgs-app .sgs-dock__generals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-height: 650px) {
+  .sgs-app .sgs-panel { padding-top: max(12px, env(safe-area-inset-top)); gap: 10px; }
+  .sgs-app .sgs-panel > header { padding-bottom: 8px; }
+  .sgs-app .sgs-panel--setup [role="group"] { padding: 8px 12px; gap: 6px; }
+  .sgs-app .sgs-panel__choices button { min-height: 38px; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .sgs-app .sgs-panel--setup { display: grid; width: min(1000px, 100%); grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto 1fr auto; }
+  .sgs-panel--setup > header, .sgs-panel--setup > .sgs-panel__intro { grid-column: 1 / -1; }
+  .sgs-app .sgs-panel--setup [role="group"]:nth-of-type(1) { grid-row: 3 / 5; align-content: center; }
+  .sgs-app .sgs-panel--setup [role="group"]:nth-of-type(2), .sgs-app .sgs-panel--setup [role="group"]:nth-of-type(3) { grid-column: 2; }
+  .sgs-panel--setup > .sgs-panel__note { display: none; }
+  .sgs-app .sgs-panel__summary { align-self: center; margin: 0; }
+  .sgs-app .sgs-panel__summary span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.sgs-app, .sgs-online, .sgs-table, .sgs-result, .sgs-glossary-sheet) *,
+  :is(.sgs-app, .sgs-online, .sgs-table) *::before,
+  :is(.sgs-app, .sgs-online, .sgs-table) *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
