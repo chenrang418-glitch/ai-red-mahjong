@@ -130,11 +130,60 @@ export interface SgsRoomDirectoryEntry {
   updatedAt: number
 }
 
+/**
+ * 服务端主动心跳。
+ *
+ * 为什么不能只靠客户端 `setInterval` 发 ping：手机浏览器把页面切到后台之后
+ * JS 定时器会被节流甚至冻结，客户端自己发不出心跳，也就永远发现不了
+ * 「socket 还是 OPEN、数据其实已经不通」这种半死连接。服务端主动发才是主机制。
+ *
+ * 它同时兼三件事：把 Durable Object 维持在热状态、探活两个方向的链路、
+ * 顺路把当前房间版本捎给客户端做漂移检测。
+ */
+export interface SgsServerHeartbeat {
+  type: 'server-heartbeat'
+  heartbeatId: number
+  serverNow: number
+  roomVersion: number
+}
+
+/**
+ * 一条指令的处理回执。
+ *
+ * 没有它的话，客户端只能靠「下一帧房间状态好像变了」来猜按钮有没有生效——
+ * 而房间状态因为 AI 走子、聊天、别人进出也会变，猜不准。
+ *
+ * `duplicate` 为真表示这个 `actionId` 之前已经执行过，这次**没有再执行一遍**。
+ * 客户端因为没收到回执而原样重发时走的就是这条路。
+ */
+export interface SgsActionAck {
+  type: 'action-ack'
+  actionId: string
+  accepted: boolean
+  duplicate?: boolean
+  reason?: string
+  serverVersion: number
+  serverReceivedAt: number
+  serverProcessedAt: number
+}
+
 export type SgsRoomServerMessage =
   | { type: 'room-state'; room: SgsRoomView }
   | { type: 'chat'; message: SgsChatMessage }
   | { type: 'error'; message: string }
   | { type: 'pong'; at: number }
+  | SgsServerHeartbeat
+  | SgsActionAck
+
+/**
+ * 不改变房间状态的连接层消息，走在 `SgsRoomCommand` 之外。
+ *
+ * 它们不能混进 `SgsRoomCommand`：那套指令一律要过 `actionId`/`baseSeq` 校验
+ * 和幂等记账，而心跳回执和补包请求既不该占用 actionId 额度，也不该被去重挡掉。
+ */
+export type SgsConnectionMessage =
+  | { type: 'client-heartbeat-ack'; heartbeatId: number; lastKnownVersion: number }
+  | { type: 'request-sync'; lastKnownVersion?: number }
 
 export const DEFAULT_SGS_ROOM_SETTINGS: SgsRoomSettings = {
   playerCount: 5,

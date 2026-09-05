@@ -12,6 +12,7 @@ import {
   normalizeSettings as normalizeSgsSettings,
   type SgsRoomSettings,
   type StoredSgsRoomState,
+  DuplicateSgsActionError,
 } from './sanguosha-room-core'
 import { ROOM_CLOSED_BY_ADMIN_CODE, ROOM_REJECT_CLOSE_CODE, SESSION_SUPERSEDED_CODE } from '../src/online/types'
 import type {
@@ -676,12 +677,48 @@ async function listSgsRooms(request: Request, env: Env): Promise<Response> {
   return json({ rooms })
 }
 
+/**
+ * 最近一次建房的结果，按 `createRequestId` 记账。
+ *
+ * 建房是 POST，天然不幂等：客户端因为超时重试一次，就会凭空多出一个房间，
+ * 而房主只会进其中一个，另一个变成永远没人的僵尸房。带上同一个
+ * `createRequestId` 重试时直接把上次的房间号还回去。
+ *
+ * 放在模块作用域（Worker isolate 内存）而不是 D1：它只需要覆盖
+ * 「同一次点击的重试」这个几秒钟的窗口，为它加一次数据库往返反而拖慢建房。
+ * isolate 被回收导致记录丢失的最坏结果，就是退回到今天的行为。
+ */
+const recentRoomCreations = new Map<string, { code: string; at: number }>()
+const CREATE_DEDUPE_TTL_MS = 60_000
+
+function rememberCreation(requestId: string, code: string): void {
+  const now = Date.now()
+  for (const [key, entry] of recentRoomCreations) {
+    if (now - entry.at > CREATE_DEDUPE_TTL_MS) recentRoomCreations.delete(key)
+  }
+  recentRoomCreations.set(requestId, { code, at: now })
+}
+
 async function createSgsRoom(request: Request, env: Env): Promise<Response> {
-  const user = await readSession(request, env)
-  const body = await request.json<{ settings?: Partial<SgsRoomSettings> }>()
-  const server = await readServerSettings(env)
+  const startedAt = Date.now()
+  const body = await request.json<{ settings?: Partial<SgsRoomSettings>; createRequestId?: string }>()
+  const requestId = typeof body.createRequestId === 'string' ? body.createRequestId.slice(0, 64) : ''
+  if (requestId) {
+    const previous = recentRoomCreations.get(requestId)
+    if (previous && Date.now() - previous.at <= CREATE_DEDUPE_TTL_MS) return json({ code: previous.code }, 201)
+  }
+  /*
+   * 会话和服务端设置**并行取**。
+   *
+   * 两者都要往 Lobby Durable Object 走一趟，而且互相没有数据依赖；
+   * 原来是一前一后串着 await，白白多付一整个往返——冷启动时这一下就是好几百毫秒。
+   */
+  const sessionStartedAt = Date.now()
+  const [user, server] = await Promise.all([readSession(request, env), readServerSettings(env)])
+  const sessionMs = Date.now() - sessionStartedAt
   if (server.maintenance) return json({ error: server.maintenanceMessage, maintenance: true }, 503)
   const settings = normalizeSgsSettings(body.settings)
+  const roomInitStartedAt = Date.now()
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const code = roomCode()
     const stub = env.SGS_ROOMS.get(env.SGS_ROOMS.idFromName(code))
@@ -689,7 +726,18 @@ async function createSgsRoom(request: Request, env: Env): Promise<Response> {
       method: 'POST',
       body: JSON.stringify({ code, user: { userId: user.userId, nickname: user.nickname }, settings }),
     })
-    if (response.status === 201) return json({ code }, 201)
+    if (response.status === 201) {
+      if (requestId) rememberCreation(requestId, code)
+      const total = Date.now() - startedAt
+      // 建房慢是用户报的主要问题之一，这里把各段耗时留在日志里，不用再猜
+      if (total > 1_500) {
+        console.log('[net-metric]', JSON.stringify({
+          scope: 'sgs', event: 'slow-create-room', code,
+          totalMs: total, sessionMs, roomInitMs: Date.now() - roomInitStartedAt,
+        }))
+      }
+      return json({ code }, 201)
+    }
     if (response.status !== 409) return response
   }
   throw new Error('房间号生成失败，请重试')
@@ -769,13 +817,33 @@ export default {
   },
 }
 
+/**
+ * 麻将房间的服务端心跳节奏。和纸上三国同一套口径：
+ * 房间里有人就保持热状态，最后一个人走了再热身一分钟等他回来。
+ */
+const MJ_HEARTBEAT_INTERVAL_MS = 4_500
+const MJ_HEARTBEAT_DEAD_AFTER_MS = 31_000
+const MJ_WARM_GRACE_MS = 60_000
+
 export class MahjongRoom {
   private coordinator: RoomCoordinator | null = null
   private readonly ready: Promise<void>
   private readonly chatRate = new Map<string, number[]>()
+  /** 下一次该发服务端心跳的时刻。0 表示当前不需要心跳。 */
+  private heartbeatDueAt = 0
+  private heartbeatSeq = 0
+  /** 每条连接的存活记账。只用于保活/探活，不承载任何正确性。 */
+  private readonly liveness = new WeakMap<WebSocket, { lastSeenAt: number }>()
+  private warmUntil = 0
 
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
-    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+    /*
+     * **不再用 `setWebSocketAutoResponse` 自动应答 ping。**
+     *
+     * 那个机制让 Cloudflare 在边缘直接回 pong、不唤醒 Durable Object，省的是
+     * Duration。代价是客户端的探活只到边缘为止（DO 本身卡住了照样探不出来），
+     * 而且房间里明明有人 DO 仍会一路休眠，下一次操作要付冷启动。
+     */
     this.ready = state.blockConcurrencyWhile(async () => {
       const stored = await state.storage.get<StoredRoomState>('room')
       if (stored) {
@@ -783,6 +851,39 @@ export class MahjongRoom {
         if (this.coordinator.ensureOfflineExpiry()) await this.persist()
       }
     })
+    // 部署、节点迁移、runtime 重启之后如果还挂着连接，心跳要重新拉起来
+    if (state.getWebSockets().length > 0) this.armHeartbeat(Date.now())
+  }
+
+  private armHeartbeat(now: number): void {
+    if (this.heartbeatDueAt === 0 || this.heartbeatDueAt > now + MJ_HEARTBEAT_INTERVAL_MS) {
+      this.heartbeatDueAt = now + MJ_HEARTBEAT_INTERVAL_MS
+    }
+  }
+
+  /** 发一轮心跳并清掉真正死掉的连接；返回是否还要继续。 */
+  private runHeartbeat(now: number): boolean {
+    const sockets = this.state.getWebSockets()
+    if (sockets.length === 0) {
+      if (this.warmUntil === 0) this.warmUntil = now + MJ_WARM_GRACE_MS
+      return now < this.warmUntil
+    }
+    this.warmUntil = 0
+    this.heartbeatSeq += 1
+    const roomVersion = this.coordinator?.state.version ?? 0
+    for (const socket of sockets) {
+      if (socket.readyState !== WebSocket.OPEN) continue
+      const seen = this.liveness.get(socket)
+      if (!seen) {
+        this.liveness.set(socket, { lastSeenAt: now })
+      } else if (now - seen.lastSeenAt > MJ_HEARTBEAT_DEAD_AFTER_MS) {
+        // 浏览器那边可能还是 OPEN，但这条连接已经不通了。主动关掉让它重连。
+        try { socket.close(1001, 'heartbeat timeout') } catch { /* 已经断了 */ }
+        continue
+      }
+      this.send(socket, { type: 'server-heartbeat', heartbeatId: this.heartbeatSeq, serverNow: now, roomVersion })
+    }
+    return true
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -833,6 +934,9 @@ export class MahjongRoom {
       const attachment: SocketAttachment = user
       server.serializeAttachment(attachment)
       this.state.acceptWebSocket(server, [`user:${user.userId}`])
+      this.liveness.set(server, { lastSeenAt: Date.now() })
+      this.warmUntil = 0
+      this.armHeartbeat(Date.now())
       await this.persist()
       this.state.waitUntil(this.syncRoomDirectory())
       this.broadcastState()
@@ -848,6 +952,10 @@ export class MahjongRoom {
     if (!user) return this.send(socket, { type: 'error', message: '连接身份无效' })
     try {
       const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
+      // 客户端发了任何东西，就说明这条链路还活着
+      const seenAt = Date.now()
+      this.liveness.set(socket, { lastSeenAt: seenAt })
+      this.armHeartbeat(seenAt)
       if (text === 'ping') {
         socket.send('pong')
         return
@@ -857,6 +965,22 @@ export class MahjongRoom {
       const payload = JSON.parse(text) as unknown
       if (isRecord(payload) && payload.type === 'ping') {
         this.send(socket, { type: 'pong', at: Date.now() })
+        return
+      }
+      /*
+       * 连接层消息走在房间指令之外：它们不改变房间状态，
+       * 也不该被指令校验挡下来。
+       */
+      if (isRecord(payload) && payload.type === 'client-heartbeat-ack') {
+        // 版本漂移自愈：某一帧房间状态在网络里丢了，客户端自己发现不了，
+        // 心跳把版本捎过来一比就补一份完整快照
+        if (Number(payload.lastKnownVersion ?? -1) !== (this.coordinator?.state.version ?? 0)) {
+          this.sendState(socket, user.userId)
+        }
+        return
+      }
+      if (isRecord(payload) && payload.type === 'request-sync') {
+        this.sendState(socket, user.userId)
         return
       }
       const parsed = parseRoomCommand(payload)
@@ -914,7 +1038,19 @@ export class MahjongRoom {
 
   async alarm(): Promise<void> {
     await this.ready
-    if (!this.coordinator) return
+    /*
+     * 心跳和牌局推进共用同一个 alarm：Durable Object 只有一个槽位，
+     * `persist()` 取两者的较早者，这里到点先跑心跳再跑牌局任务。
+     */
+    const heartbeatNow = Date.now()
+    if (this.heartbeatDueAt !== 0 && this.heartbeatDueAt <= heartbeatNow) {
+      const keepGoing = this.runHeartbeat(heartbeatNow)
+      this.heartbeatDueAt = keepGoing ? heartbeatNow + MJ_HEARTBEAT_INTERVAL_MS : 0
+    }
+    if (!this.coordinator) {
+      if (this.heartbeatDueAt !== 0) await this.state.storage.setAlarm(this.heartbeatDueAt)
+      return
+    }
     const directoryBefore = this.directorySignature()
     let changed = false
     try {
@@ -936,8 +1072,14 @@ export class MahjongRoom {
     if (!this.coordinator) return
     await this.state.storage.put('room', this.coordinator.snapshot())
     const alarmAt = this.coordinator.nextAlarmAt()
-    if (alarmAt === null) await this.state.storage.deleteAlarm()
-    else await this.state.storage.setAlarm(alarmAt)
+    /*
+     * 心跳到期时刻也要参与。只按牌局任务排 alarm 的话，大厅里静静等人的房间
+     * 会一路休眠，保活和探活全都不会发生。
+     */
+    const candidates = [alarmAt, this.heartbeatDueAt === 0 ? null : this.heartbeatDueAt]
+      .filter((value): value is number => value !== null)
+    if (candidates.length === 0) await this.state.storage.deleteAlarm()
+    else await this.state.storage.setAlarm(Math.min(...candidates))
   }
 
   private async syncRoomDirectory(): Promise<void> {
@@ -1078,19 +1220,127 @@ export class MahjongRoom {
   }
 }
 
+/**
+ * 服务端主动心跳的节奏。
+ *
+ * 这个项目同时最多一个房间、一天几局，Cloudflare 免费额度剩得非常多，
+ * 所以这里的取舍是**稳定优先**，不是省 Duration：
+ *
+ * - 4.5 秒一次意味着半死连接最多 30 秒就会被发现并重连，而不是原来的
+ *   「15 秒心跳 + 35 秒超时」最坏 50 秒；
+ * - 房间里只要还有连接，alarm 就一直在跑，Durable Object 因此保持热状态，
+ *   玩家点「准备」不再撞上一次冷启动。
+ *
+ * 连续 7 次（约 31 秒）收不到任何回应才判定连接死亡：偶发一两次丢包
+ * 不能把人踢下线。
+ */
+const SGS_HEARTBEAT_INTERVAL_MS = 4_500
+const SGS_HEARTBEAT_DEAD_AFTER_MS = 31_000
+/**
+ * 最后一条连接断开后，继续保持热状态的时长。
+ *
+ * Wi-Fi 瞬断、切换网络、手机回前台重连时不必再经历一次冷恢复。
+ * 超过这个时间仍然没人回来，就停掉心跳让 Durable Object 正常休眠——
+ * 没有玩家还常驻是纯浪费。
+ */
+const SGS_WARM_GRACE_MS = 60_000
+
 export class SanguoshaRoom {
   private coordinator: SanguoshaRoomCoordinator | null = null
   private readonly ready: Promise<void>
   private readonly chatRate = new Map<string, number[]>()
   private readonly timing
+  /** 下一次该发服务端心跳的时刻。0 表示当前不需要心跳。 */
+  private heartbeatDueAt = 0
+  private heartbeatSeq = 0
+  /**
+   * 每条连接的存活记账。
+   *
+   * 只是保活/探活用的辅助信息，**不承载任何正确性**，所以放在内存里就够了：
+   * Durable Object 重建之后从 `getWebSockets()` 重新起账即可。
+   */
+  private readonly liveness = new WeakMap<WebSocket, { lastSeenAt: number }>()
+  /** 最后一条连接断开之后，热状态保留到什么时候。 */
+  private warmUntil = 0
 
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
     this.timing = env.SGS_AI_PACING === 'instant' ? TEST_SGS_ROOM_TIMING : PRODUCTION_SGS_ROOM_TIMING
-    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+    /*
+     * **不再用 `setWebSocketAutoResponse` 自动应答 ping。**
+     *
+     * 那个机制的用途是让 Cloudflare 在边缘直接回 pong、不唤醒 Durable Object，
+     * 目的是省 Duration。代价是两件我们现在更在意的事：
+     * 1. 客户端的探活只到边缘为止，DO 本身卡住了照样探不出来；
+     * 2. 房间里明明有人，DO 仍会一路休眠，下一次操作要付冷启动。
+     * 现在改成心跳走真正的 handler，房间有人时 DO 保持热状态。
+     */
     this.ready = state.blockConcurrencyWhile(async () => {
       const stored = await state.storage.get<StoredSgsRoomState>('room')
       if (stored) this.coordinator = new SanguoshaRoomCoordinator(stored, this.timing)
     })
+    /*
+     * 重建之后如果还挂着连接（部署、节点迁移、runtime 重启都会这样），
+     * 要把心跳重新拉起来，否则这个房间从此再也没有保活和探活。
+     */
+    if (state.getWebSockets().length > 0) this.armHeartbeat(Date.now())
+  }
+
+  /** 房间里还有人（或还在热身宽限期内）时，保证心跳在跑。 */
+  private armHeartbeat(now: number): void {
+    if (this.heartbeatDueAt === 0 || this.heartbeatDueAt > now + SGS_HEARTBEAT_INTERVAL_MS) {
+      this.heartbeatDueAt = now + SGS_HEARTBEAT_INTERVAL_MS
+    }
+  }
+
+  /**
+   * 发一轮服务端心跳，顺手清掉真正死掉的连接。
+   *
+   * 返回是否还需要继续心跳：房间里还有连接就继续；一个都没有了，
+   * 再热身 `SGS_WARM_GRACE_MS` 等人回来，之后停掉让 DO 正常休眠。
+   */
+  private runHeartbeat(now: number): boolean {
+    const sockets = this.state.getWebSockets()
+    if (sockets.length === 0) {
+      if (this.warmUntil === 0) this.warmUntil = now + SGS_WARM_GRACE_MS
+      return now < this.warmUntil
+    }
+    this.warmUntil = 0
+    this.heartbeatSeq += 1
+    const roomVersion = this.coordinator?.state.version ?? 0
+    for (const socket of sockets) {
+      if (socket.readyState !== WebSocket.OPEN) continue
+      const seen = this.liveness.get(socket)
+      if (!seen) {
+        // 第一次见到（新连接，或 DO 重建之后重新起账）：先给它一个宽限起点
+        this.liveness.set(socket, { lastSeenAt: now })
+      } else if (now - seen.lastSeenAt > SGS_HEARTBEAT_DEAD_AFTER_MS) {
+        /*
+         * 连续多轮心跳一点回应都没有：这条连接多半已经死了，
+         * 但浏览器那边 `readyState` 仍然是 OPEN。主动关掉，
+         * 让客户端走正常重连，而不是让半死连接一直占着座位。
+         */
+        console.log('[net-metric]', JSON.stringify({
+          scope: 'sgs', event: 'reap-dead-socket',
+          roomCode: this.coordinator?.state.code, silentMs: now - seen.lastSeenAt,
+        }))
+        try { socket.close(1001, 'heartbeat timeout') } catch { /* 已经断了 */ }
+        continue
+      }
+      this.send(socket, { type: 'server-heartbeat', heartbeatId: this.heartbeatSeq, serverNow: now, roomVersion })
+    }
+    return true
+  }
+
+  /** 收到客户端的心跳回执：记活，并在版本落后时补一帧权威状态。 */
+  private onClientHeartbeatAck(socket: WebSocket, userId: string, lastKnownVersion: number, now: number): void {
+    this.liveness.set(socket, { lastSeenAt: now })
+    const version = this.coordinator?.state.version ?? 0
+    /*
+     * 版本漂移自愈：某一帧 room-state 在网络里丢了，客户端会一直停在旧状态，
+     * 而且它自己不知道。心跳把版本捎过去一比就发现了，这里直接补一帧完整快照，
+     * 不必等玩家下一次操作才暴露。
+     */
+    if (lastKnownVersion !== version) this.sendState(socket, userId)
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -1101,8 +1351,19 @@ export class SanguoshaRoom {
       if (this.coordinator) return json({ error: '房间号已存在' }, 409)
       const body = await request.json<{ code: string; user: RoomUser; settings: SgsRoomSettings }>()
       this.coordinator = SanguoshaRoomCoordinator.create(body.code, body.user, normalizeSgsSettings(body.settings), Date.now(), this.timing)
+      // 房间必须先真正落盘才能对外宣布存在，否则房主可能连进一个还不存在的房间
       await this.persist()
-      await this.syncRoomDirectory()
+      /*
+       * 房间目录（D1 写 + 通知大厅）**不挡建房返回**。
+       *
+       * 它只影响别人在大厅列表里多久能看到这个房间，和「房主能不能安全进入
+       * 刚建好的房间」无关。原来串在关键路径上，等于让每次建房都多付一次
+       * D1 写入加一次 Durable Object 往返。
+       */
+      this.state.waitUntil(this.syncRoomDirectory())
+      // 建好就开始保活：房主马上就会连进来，别让他撞上一次冷启动
+      this.armHeartbeat(Date.now())
+      await this.state.storage.setAlarm(this.heartbeatDueAt)
       return json({ code: body.code }, 201)
     }
     if (url.pathname === '/admin/destroy' && request.method === 'POST') {
@@ -1128,6 +1389,10 @@ export class SanguoshaRoom {
       this.state.acceptWebSocket(server, [`user:${user.userId}`])
       // 新连接已经生效，再关旧的：反过来会让 webSocketClose 把玩家误判成掉线
       this.closeSupersededSockets(user.userId, server)
+      const now = Date.now()
+      this.liveness.set(server, { lastSeenAt: now })
+      this.warmUntil = 0
+      this.armHeartbeat(now)
       await this.persist()
       this.state.waitUntil(this.syncRoomDirectory())
       this.broadcastState()
@@ -1141,17 +1406,36 @@ export class SanguoshaRoom {
     if (!this.coordinator) return
     const user = socket.deserializeAttachment() as SocketAttachment | null
     if (!user) return this.send(socket, { type: 'error', message: '连接身份无效' })
+    let commandActionId = ''
     try {
       const byteLength = typeof raw === 'string' ? new TextEncoder().encode(raw).byteLength : raw.byteLength
       if (byteLength > 64 * 1024) throw new InvalidSgsWireCommandError()
       const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
+      // 客户端只要发了任何东西，就说明这条链路还活着
+      const receivedAt = Date.now()
+      this.liveness.set(socket, { lastSeenAt: receivedAt })
+      this.armHeartbeat(receivedAt)
       if (text === 'ping') {
         socket.send('pong')
         return
       }
       const payload = JSON.parse(text) as unknown
+      // 先留一份 actionId：下面任何一步抛出来，catch 里都要靠它回执
+      if (isRecord(payload) && typeof payload.actionId === 'string') commandActionId = payload.actionId
       if (isRecord(payload) && payload.type === 'ping') {
         this.send(socket, { type: 'pong', at: Date.now() })
+        return
+      }
+      /*
+       * 连接层消息走在房间指令之外：它们既不改变房间状态，
+       * 也不该占用 actionId 额度或被幂等去重挡下来。
+       */
+      if (isRecord(payload) && payload.type === 'client-heartbeat-ack') {
+        this.onClientHeartbeatAck(socket, user.userId, Number(payload.lastKnownVersion ?? -1), receivedAt)
+        return
+      }
+      if (isRecord(payload) && payload.type === 'request-sync') {
+        this.sendState(socket, user.userId)
         return
       }
       const parsed = parseSgsRoomCommand(payload)
@@ -1159,19 +1443,69 @@ export class SanguoshaRoom {
       if (parsed.type === 'leave-room') socket.serializeAttachment({ ...user, leaving: true })
       const chat = this.coordinator.handle(user.userId, parsed)
       if (this.coordinator.shouldDeleteRoom()) {
+        this.ack(socket, parsed.actionId, { accepted: true, receivedAt })
         await this.deleteRoom()
         return
       }
       await this.persist()
       this.state.waitUntil(this.syncRoomDirectory())
+      /*
+       * **先回执，再广播。**
+       *
+       * 回执是这一次点击的直接反馈，广播是给全桌的。先发回执能让点按钮的人
+       * 最快拿到「收到了」，也让客户端可以按 actionId 把 pending 清掉。
+       */
+      this.ack(socket, parsed.actionId, { accepted: true, receivedAt })
       if (chat) this.broadcast({ type: 'chat', message: chat })
       else this.broadcastState()
       if (parsed.type === 'leave-room') socket.close(1000, 'left room')
     } catch (cause) {
-      this.send(socket, { type: 'error', message: cause instanceof Error ? cause.message : String(cause) })
+      const actionId = commandActionId
+      const message = cause instanceof Error ? cause.message : String(cause)
+      /*
+       * 重复的 actionId 不是错误，是**客户端没收到回执之后原样重发**。
+       *
+       * 之前这里会回一条 error，玩家会看到一个莫名其妙的失败提示，
+       * 而客户端也无法区分「真的被拒了」和「其实早就成功了」。
+       * 现在明确告诉它：接受，但这次没有再执行一遍。
+       */
+      if (cause instanceof DuplicateSgsActionError && actionId) {
+        this.ack(socket, actionId, { accepted: true, duplicate: true, receivedAt: Date.now() })
+        this.sendState(socket, user.userId)
+        return
+      }
+      if (actionId) this.ack(socket, actionId, { accepted: false, reason: message, receivedAt: Date.now() })
+      this.send(socket, { type: 'error', message })
       // 格式错误不附送昂贵快照；业务拒绝则回当前权威状态，供客户端同步 baseSeq。
       if (!(cause instanceof InvalidSgsWireCommandError)) this.sendState(socket, user.userId)
     }
+  }
+
+  /** 一条指令的处理回执。没有 actionId 的旧客户端不发。 */
+  private ack(
+    socket: WebSocket,
+    actionId: string | undefined,
+    result: { accepted: boolean; duplicate?: boolean; reason?: string; receivedAt: number },
+  ): void {
+    if (!actionId) return
+    const processedAt = Date.now()
+    const elapsed = processedAt - result.receivedAt
+    // 只记异常的那些，正常操作不刷日志
+    if (elapsed > 800) {
+      console.log('[net-metric]', JSON.stringify({
+        scope: 'sgs', event: 'slow-action', roomCode: this.coordinator?.state.code, actionId, elapsed,
+      }))
+    }
+    this.send(socket, {
+      type: 'action-ack',
+      actionId,
+      accepted: result.accepted,
+      ...(result.duplicate ? { duplicate: true } : {}),
+      ...(result.reason ? { reason: result.reason } : {}),
+      serverVersion: this.coordinator?.state.version ?? 0,
+      serverReceivedAt: result.receivedAt,
+      serverProcessedAt: processedAt,
+    })
   }
 
   async webSocketClose(socket: WebSocket): Promise<void> {
@@ -1182,6 +1516,11 @@ export class SanguoshaRoom {
     const remaining = this.state.getWebSockets(`user:${user.userId}`)
       .filter((candidate) => candidate !== socket && candidate.readyState === WebSocket.OPEN)
     if (remaining.length === 0) this.coordinator.disconnect(user.userId)
+    /*
+     * 最后一个人断开之后**不立刻停心跳**：再热身一段时间等他回来。
+     * Wi-Fi 瞬断、切网络、手机回前台都在这个窗口里，能省掉一次冷恢复。
+     */
+    this.armHeartbeat(Date.now())
     if (this.coordinator.shouldDeleteRoom()) {
       await this.deleteRoom()
       return
@@ -1193,7 +1532,22 @@ export class SanguoshaRoom {
 
   async alarm(): Promise<void> {
     await this.ready
-    if (!this.coordinator) return
+    /*
+     * 心跳和牌局推进共用同一个 alarm。
+     *
+     * Durable Object 只有一个 alarm 槽位，所以 `persist()` 里取两者的较早者；
+     * 这里到点之后先跑心跳、再跑牌局任务。心跳这条路让房间有人时 alarm
+     * 一直在转，DO 因此保持热状态——玩家点按钮不再撞冷启动。
+     */
+    const now = Date.now()
+    if (this.heartbeatDueAt !== 0 && this.heartbeatDueAt <= now) {
+      const keepGoing = this.runHeartbeat(now)
+      this.heartbeatDueAt = keepGoing ? now + SGS_HEARTBEAT_INTERVAL_MS : 0
+    }
+    if (!this.coordinator) {
+      if (this.heartbeatDueAt !== 0) await this.state.storage.setAlarm(this.heartbeatDueAt)
+      return
+    }
     try {
       const changed = this.coordinator.runDueJobs()
       if (this.coordinator.shouldDeleteRoom() || this.coordinator.isStale()) {
@@ -1250,7 +1604,13 @@ export class SanguoshaRoom {
      * 玩家在最后一秒里随便点一下，操作窗口就白白多出最多 1 秒。
      */
     const now = Date.now()
-    await this.state.storage.setAlarm(alarmAt <= now ? now + this.timing.alarmFloorMs : alarmAt)
+    const jobAlarmAt = alarmAt <= now ? now + this.timing.alarmFloorMs : alarmAt
+    /*
+     * 心跳到期时刻也要参与：只按牌局任务排 alarm 的话，大厅里静静等人的房间
+     * 会一路睡到 6 小时后的回收任务，保活和探活全都不会发生。
+     */
+    const next = this.heartbeatDueAt === 0 ? jobAlarmAt : Math.min(jobAlarmAt, Math.max(this.heartbeatDueAt, now + 1))
+    await this.state.storage.setAlarm(next)
   }
 
   private async syncRoomDirectory(): Promise<void> {

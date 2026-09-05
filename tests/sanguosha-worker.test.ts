@@ -88,27 +88,42 @@ describe('纸上三国 Worker 与 Durable Object', () => {
 
     const actionId = 'ready-exactly-once'
     send(socket, message.room, { type: 'toggle-ready' }, actionId)
+    const firstAck = await nextMessage(socket, 'action-ack') as Extract<SgsRoomServerMessage, { type: 'action-ack' }>
+    expect(firstAck, '每条指令都要有明确回执').toMatchObject({ actionId, accepted: true })
+    expect(firstAck.duplicate ?? false).toBe(false)
     message = await nextMessage(socket, 'room-state') as typeof message
     expect(message.room.seats[0].ready).toBe(true)
 
+    /*
+     * 同一个 actionId 再来一次。
+     *
+     * 这**不是**错误，而是「服务端已经执行成功、回执在网络里丢了、
+     * 客户端原样重发」的正常路径。所以要回一个「接受，但这次没有再执行一遍」，
+     * 而不是报错——报错会让玩家看到一个莫名其妙的失败提示，
+     * 客户端也分不清「真的被拒了」和「其实早就成功了」。
+     */
     send(socket, message.room, { type: 'toggle-ready' }, actionId)
-    const duplicate = await nextMessage(socket, 'error') as Extract<SgsRoomServerMessage, { type: 'error' }>
-    expect(duplicate.message).toContain('已经处理')
-    // 业务拒绝会连发两帧：error 之后还有一份权威状态。不读掉的话，
-    // 它会在下一次等待里被当成新消息返回——这个坑让上一版测试读到了旧状态。
+    const duplicate = await nextMessage(socket, 'action-ack') as Extract<SgsRoomServerMessage, { type: 'action-ack' }>
+    expect(duplicate).toMatchObject({ actionId, accepted: true, duplicate: true })
+    // 回执之后还有一份权威状态。不读掉的话，它会在下一次等待里被当成新消息返回。
     message = await nextMessage(socket, 'room-state') as typeof message
+    expect(message.room.seats[0].ready, '重发绝不能把准备状态又切回去').toBe(true)
 
     // 稍旧的 baseSeq 必须仍然被接受：version 在 AI 走子、聊天、断连时都会变，
     // 一律拒绝的话玩家点一下就会被无故驳回。真正的陈旧由引擎按 requestId /
     // legalActionId 挡住，挡得更准。
     socket.send(JSON.stringify({ type: 'toggle-ready', actionId: 'older-base', baseSeq: 1 }))
-    const olderBase = await nextMessage(socket) as SgsRoomServerMessage
-    expect(olderBase.type, olderBase.type === 'error' ? olderBase.message : '').toBe('room-state')
-    expect((olderBase as typeof message).room.seats[0].ready).toBe(false)
-    message = olderBase as typeof message
+    const olderAck = await nextMessage(socket, 'action-ack') as Extract<SgsRoomServerMessage, { type: 'action-ack' }>
+    expect(olderAck, '稍旧的 baseSeq 要被接受').toMatchObject({ actionId: 'older-base', accepted: true })
+    const olderBase = await nextMessage(socket, 'room-state') as typeof message
+    expect(olderBase.room.seats[0].ready).toBe(false)
+    message = olderBase
 
     // 比服务端还新的版本号说明连的不是同一个房间状态，这个要拒绝
     socket.send(JSON.stringify({ type: 'toggle-ready', actionId: 'from-future', baseSeq: 9_999 }))
+    const rejected = await nextMessage(socket, 'action-ack') as Extract<SgsRoomServerMessage, { type: 'action-ack' }>
+    expect(rejected, '真正的拒绝要说明白').toMatchObject({ actionId: 'from-future', accepted: false })
+    expect(rejected.reason).toContain('不一致')
     const impossible = await nextMessage(socket, 'error') as Extract<SgsRoomServerMessage, { type: 'error' }>
     expect(impossible.message).toContain('不一致')
     await nextMessage(socket, 'room-state')
@@ -267,3 +282,76 @@ async function track(socket: WebSocket) {
   await handle.waitFor(() => true)
   return handle
 }
+
+describe('纸上三国联机连接层', () => {
+  it('服务端主动发心跳，并按客户端报上来的版本补发丢失的帧', async () => {
+    const cookie = await login('心跳房主')
+    const created = await api('/api/sanguosha/rooms', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ settings: { playerCount: 5, difficulty: 'normal', turnSeconds: 30 } }),
+    })
+    const { code } = await created.json() as { code: string }
+    const socket = await openSocket(code, cookie)
+    await nextMessage(socket, 'room-state')
+
+    /*
+     * 心跳必须由**服务端**主动发。
+     *
+     * 只靠客户端 setInterval 的话，手机把页面切到后台之后定时器会被节流甚至冻结，
+     * 「socket 还是 OPEN、数据其实不通」这种半死连接就永远发现不了——
+     * 用户的体感正是「按键失灵，只能大退」。
+     */
+    const heartbeat = await nextMessage(socket, 'server-heartbeat') as Extract<SgsRoomServerMessage, { type: 'server-heartbeat' }>
+    expect(heartbeat.heartbeatId).toBeGreaterThan(0)
+    expect(heartbeat.serverNow).toBeGreaterThan(0)
+    expect(typeof heartbeat.roomVersion).toBe('number')
+
+    /*
+     * 版本漂移自愈：客户端报一个明显落后的版本，服务端应当立刻补一份完整快照，
+     * 而不是等玩家下一次操作才暴露出状态分叉。
+     */
+    socket.send(JSON.stringify({ type: 'client-heartbeat-ack', heartbeatId: heartbeat.heartbeatId, lastKnownVersion: -1 }))
+    const resynced = await nextMessage(socket, 'room-state') as Extract<SgsRoomServerMessage, { type: 'room-state' }>
+    expect(resynced.room.code).toBe(code)
+    socket.close()
+  }, 30_000)
+
+  it('request-sync 立刻拿到一份权威快照', async () => {
+    const cookie = await login('补包房主')
+    const created = await api('/api/sanguosha/rooms', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ settings: { playerCount: 5, difficulty: 'normal', turnSeconds: 30 } }),
+    })
+    const { code } = await created.json() as { code: string }
+    const socket = await openSocket(code, cookie)
+    await nextMessage(socket, 'room-state')
+
+    socket.send(JSON.stringify({ type: 'request-sync', lastKnownVersion: 0 }))
+    const snapshot = await nextMessage(socket, 'room-state') as Extract<SgsRoomServerMessage, { type: 'room-state' }>
+    expect(snapshot.room.code).toBe(code)
+    // 连接层消息不该占用 actionId 额度，也就不该产生回执
+    socket.close()
+  }, 30_000)
+
+  it('同一个 createRequestId 重试只建出一个房间', async () => {
+    const cookie = await login('重试房主')
+    const body = JSON.stringify({
+      settings: { playerCount: 5, difficulty: 'normal', turnSeconds: 30 },
+      createRequestId: 'create-once-please',
+    })
+    const first = await api('/api/sanguosha/rooms', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body,
+    })
+    const second = await api('/api/sanguosha/rooms', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body,
+    })
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(201)
+    /*
+     * 建房是 POST，天生不幂等：用户因为慢而多点一次、或者前端自己重试，
+     * 就会凭空多出一个房间——房主只进其中一个，另一个成了永远没人的僵尸房。
+     */
+    expect((await second.json() as { code: string }).code)
+      .toBe((await first.json() as { code: string }).code)
+  }, 30_000)
+})

@@ -143,7 +143,61 @@ async function shareRoom(): Promise<void> {
   }
 }
 
+/**
+ * 红色错误提示：过一会儿自己消失，点一下立刻消失。
+ *
+ * 之前它一旦出现就永远挂在那儿，一条早就过时的提示会一直盖在牌桌上，
+ * 玩家还以为现在仍然是错的。错误提示是**一次性通知**，不是常驻状态显示。
+ *
+ * 6 秒：够看完一句话，又不至于把下一次真正的错误挡住。
+ */
+const ERROR_VISIBLE_MS = 6_000
+let errorTimer: number | null = null
+
+function dismissError(): void {
+  if (errorTimer !== null) window.clearTimeout(errorTimer)
+  errorTimer = null
+  online.error.value = ''
+}
+
+watch(() => online.error.value, (message) => {
+  if (errorTimer !== null) window.clearTimeout(errorTimer)
+  errorTimer = null
+  if (!message) return
+  // 每来一条新错误都重新计时，不会因为上一条的残余计时被提前抹掉
+  errorTimer = window.setTimeout(() => {
+    errorTimer = null
+    online.error.value = ''
+  }, ERROR_VISIBLE_MS)
+})
+
+/**
+ * 连接状态提示。
+ *
+ * 用户报的「点了没反应、只能大退」里，最难受的一段是**根本不知道发生了什么**。
+ * 只要连接不是健康的（正在重连、正在同步、有操作还没拿到回执），
+ * 就给一条明确的横幅，而不是让界面静静地什么都不变。
+ */
+const netNotice = computed(() => {
+  const state = online.connectionState.value
+  if (state === 'reconnecting') return '正在恢复连接…'
+  if (state === 'connecting') return '正在连接…'
+  if (state === 'resyncing') return '正在同步牌局…'
+  if (online.pendingCount.value > 0) return '正在处理…'
+  return ''
+})
+
+/**
+ * 网络调试浮层。默认完全不显示，真机测试时用 `?netdebug=1` 打开。
+ * 正式界面上一个像素都看不到。
+ */
+const netDebug = (() => {
+  try { return new URLSearchParams(window.location.search).get('netdebug') === '1' }
+  catch { return false }
+})()
+
 onBeforeUnmount(() => {
+  if (errorTimer !== null) window.clearTimeout(errorTimer)
   service.stop()
   if (shareResetTimer !== null) window.clearTimeout(shareResetTimer)
   if (pickerTimer !== null) window.clearInterval(pickerTimer)
@@ -151,6 +205,30 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!--
+    错误提示：牌桌和大厅共用一条，点一下立刻消失，不点也会自己消失。
+    原来它只画在大厅那一支里，牌局中根本看不到；而且一旦出现就永远不走。
+  -->
+  <button
+    v-if="online.error.value"
+    type="button"
+    class="sgs-online__error"
+    role="alert"
+    title="点击关闭"
+    @click="dismissError"
+  >{{ online.error.value }}</button>
+
+  <!-- 连接状态：任何时候都盖在最上面，牌桌和大厅共用 -->
+  <div v-if="netNotice" class="sgs-netstatus" role="status">{{ netNotice }}</div>
+  <!-- 真机联调用的网络浮层，默认不存在 -->
+  <div v-if="netDebug" class="sgs-netdebug">
+    <div>WS: {{ online.connectionState.value }}</div>
+    <div>RTT: {{ online.heartbeatRtt.value }}ms</div>
+    <div>Version: {{ online.room.value?.version ?? '-' }}</div>
+    <div>Pending: {{ online.pendingCount.value }}</div>
+    <div>Reconnects: {{ online.reconnectCount.value }}</div>
+  </div>
+
   <SgsTable
     v-if="tableVisible"
     :view="online.room.value!.playerView!"
@@ -284,7 +362,6 @@ onBeforeUnmount(() => {
       @send="(text) => online.send({ type: 'chat', text })"
     />
 
-    <p v-if="online.error.value" class="sgs-online__error" role="alert">{{ online.error.value }}</p>
   </main>
 
   <!--
@@ -341,8 +418,27 @@ onBeforeUnmount(() => {
 .sgs-online input, .sgs-online select, .sgs-online button { min-height: 42px; border: 1px solid #465049; border-radius: 9px; background: #15201a; color: #e8dfca; font: inherit; }.sgs-online input { min-width: 0; flex: 1; padding: 0 12px; }.sgs-online select, .sgs-online button { padding: 0 13px; }.sgs-online button { cursor: pointer; }.sgs-online button:disabled { opacity: .45; cursor: default; }.sgs-online .primary { border-color: #a88438; background: #5d471f; color: #ffe8aa; }
 .sgs-online__login, .sgs-online__waiting, .sgs-online__choose, .sgs-online__finished { grid-column: 1 / -1; align-self: center; justify-self: center; width: min(680px, 100%); }.sgs-online__login { width: min(430px, 100%); padding: 28px; }.sgs-online__login > strong { display: block; margin-bottom: 18px; color: #efd58c; font-size: 25px; }.sgs-online__login form { display: grid; gap: 12px; }
 .sgs-online__create { grid-column: 1; grid-row: 3 / 5; }.sgs-online__join { grid-column: 2; grid-row: 3; }.sgs-online__rooms { grid-column: 2; grid-row: 4; overflow-y: auto; }.sgs-online__rooms header { display: flex; justify-content: space-between; align-items: center; }.sgs-online__rooms > button { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; text-align: left; }.sgs-online__rooms span { display: grid; }.sgs-online__rooms small { color: #849088; }.sgs-online__rooms em { color: #d0b46c; font-style: normal; }
-.sgs-online__code { display: flex; align-items: center; gap: 12px; }.sgs-online__code strong { font-size: 25px; letter-spacing: .12em; }.sgs-online__code button { margin-left: auto; }.sgs-online__seats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }.sgs-online__seats article { min-height: 78px; display: grid; align-content: center; gap: 3px; padding: 10px; border: 1px solid #465049; border-radius: 10px; }.sgs-online__seats article.empty { color: #6f7b73; border-style: dashed; }.sgs-online__seats small { color: #89968e; }.sgs-online__seats button { min-height: 28px; margin-top: 4px; }.sgs-online__actions { display: flex; justify-content: flex-end; gap: 8px; }.sgs-online__error { position: fixed; left: 50%; bottom: 18px; z-index: 60; transform: translateX(-50%); margin: 0; padding: 10px 14px; border-radius: 10px; background: #783d36; color: #ffe0db; }
+.sgs-online__code { display: flex; align-items: center; gap: 12px; }.sgs-online__code strong { font-size: 25px; letter-spacing: .12em; }.sgs-online__code button { margin-left: auto; }.sgs-online__seats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }.sgs-online__seats article { min-height: 78px; display: grid; align-content: center; gap: 3px; padding: 10px; border: 1px solid #465049; border-radius: 10px; }.sgs-online__seats article.empty { color: #6f7b73; border-style: dashed; }.sgs-online__seats small { color: #89968e; }.sgs-online__seats button { min-height: 28px; margin-top: 4px; }.sgs-online__actions { display: flex; justify-content: flex-end; gap: 8px; }.sgs-online__error { position: fixed; left: 50%; bottom: 18px; z-index: 95; transform: translateX(-50%); margin: 0; padding: 10px 14px; border: none; border-radius: 10px; background: #783d36; color: #ffe0db; font: inherit; text-align: left; cursor: pointer; max-width: min(88vw, 420px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
 .sgs-online__mask { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .72); }.sgs-online__confirm { width: min(390px, 100%); padding: 20px; border: 1px solid #5b5040; border-radius: 16px; background: #172019; color: #e8dfca; }.sgs-online__confirm h2 { margin-top: 0; }.sgs-online__confirm p { color: #9ba49d; }.sgs-online__confirm div { display: flex; justify-content: flex-end; gap: 8px; }.sgs-online__confirm button { min-height: 42px; padding: 0 14px; border: 1px solid #485249; border-radius: 9px; background: #202a23; color: #e8dfca; }.sgs-online__confirm .danger { border-color: #8d4c43; background: #62362f; }
 @media (max-width: 620px) and (orientation: portrait) { .sgs-online { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto minmax(0, 1fr); overflow-y: auto; }.sgs-online__identity { padding: 8px 14px; }.sgs-online__identity span { font-size: 11px; }.sgs-online__identity strong { font-size: 14px; }.sgs-online__bar, .sgs-online__identity, .sgs-online__login, .sgs-online__waiting, .sgs-online__choose, .sgs-online__finished, .sgs-online__create, .sgs-online__join, .sgs-online__rooms { grid-column: 1; grid-row: auto; }.sgs-online__login { padding: 20px; }.sgs-online__seats { grid-template-columns: repeat(2, 1fr); }.sgs-online__actions { flex-wrap: wrap; } }
 @media (orientation: landscape) and (max-height: 500px) { .sgs-online { grid-template-rows: auto auto 1fr; }.sgs-online__identity { padding: 5px 12px; }.sgs-online__identity span { font-size: 10px; }.sgs-online__identity strong { font-size: 13px; }.sgs-online__create { grid-row: 3; }.sgs-online__join { display: none; }.sgs-online__rooms { grid-row: 3; }.sgs-online__waiting { max-height: 100%; overflow-y: auto; }.sgs-online__seats { grid-template-columns: repeat(4, 1fr); margin: 8px 0; }.sgs-online__seats article { min-height: 58px; } }
+
+/*
+ * 连接提示。放在顶部居中、不拦截点击：它只是告诉用户「系统在动」，
+ * 不该挡住牌桌上任何一个按钮。
+ */
+.sgs-netstatus {
+  position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 90; pointer-events: none;
+  padding: 4px 12px; border-radius: 999px;
+  background: rgba(20, 26, 22, 0.86); color: #d8e6dc;
+  font-size: 12px; letter-spacing: 0.02em;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.sgs-netdebug {
+  position: fixed; right: 6px; bottom: 6px; z-index: 91; pointer-events: none;
+  padding: 6px 8px; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72); color: #9fe8bb;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 </style>

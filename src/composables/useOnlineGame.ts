@@ -14,9 +14,20 @@ import type {
   RoomServerMessage,
 } from '@/online/types'
 
-export const ONLINE_HEARTBEAT_INTERVAL_MS = 20_000
-export const ONLINE_PONG_TIMEOUT_MS = 10_000
-export const ONLINE_CONNECT_TIMEOUT_MS = 15_000
+/*
+ * 恢复相关的时间全部收紧。
+ *
+ * 原来的一套（20 秒心跳 + 10 秒 pong 超时 + 15 秒建连超时 + 800ms 起步的
+ * 指数退避）是按「怕重连风暴」调的。这个项目同时最多一个房间、玩家个位数，
+ * 压根形成不了风暴；真正的代价是用户在半死连接上要干等半分钟，
+ * 体感就是「按键失灵，只能大退」。
+ *
+ * 主心跳现在由服务端主动发（约 4.5 秒一次），客户端这条是辅助探针，
+ * 负责探上行方向。
+ */
+export const ONLINE_HEARTBEAT_INTERVAL_MS = 5_000
+export const ONLINE_PONG_TIMEOUT_MS = 8_000
+export const ONLINE_CONNECT_TIMEOUT_MS = 8_000
 export const ONLINE_ERROR_VISIBLE_MS = 5_000
 export const CHAT_BUBBLE_VISIBLE_MS = 4_000
 const ONLINE_REQUEST_TIMEOUT_MS = 20_000
@@ -312,6 +323,29 @@ export function useOnlineGame() {
       return
     }
     const message = JSON.parse(raw) as RoomServerMessage
+    /*
+     * 服务端主动心跳。
+     *
+     * 收到它本身就证明下行还通，所以顺手当成一次 pong 记账；
+     * 回执里带上本地版本，服务端一比对就能发现「某一帧房间状态在网络里丢了」，
+     * 立刻补一份完整快照——不必等玩家下一次操作才暴露状态分叉。
+     */
+    if (message.type === 'server-heartbeat') {
+      lastPongAt = Date.now()
+      clearHeartbeatDeadline()
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'client-heartbeat-ack',
+          heartbeatId: message.heartbeatId,
+          lastKnownVersion: room.value?.version ?? -1,
+        }))
+        // 反向也查一次：服务端版本比我新，说明我漏了帧，主动要一份
+        if (room.value && message.roomVersion > room.value.version) {
+          socket.send(JSON.stringify({ type: 'request-sync', lastKnownVersion: room.value.version }))
+        }
+      }
+      return
+    }
     if (message.type === 'room-state') {
       room.value = message.room
       reconcilePendingAction(message.room)
@@ -332,7 +366,14 @@ export function useOnlineGame() {
 
   function send(command: RoomCommand) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      setError('尚未连接到房间')
+      /*
+       * **不能只报一句「尚未连接」了事。**
+       *
+       * 用户看到的是「按下去什么都没发生」。连接已经断了就地开始恢复，
+       * 让重连尽快发生，而不是把责任丢回给用户去猜要不要大退。
+       */
+      setError('连接已断开，正在重新连接')
+      if (!socket || socket.readyState === WebSocket.CLOSED) scheduleReconnect(true)
       return
     }
     if ((command.type === 'discard' || command.type === 'trustee') && pendingAction.value) return
@@ -395,7 +436,12 @@ export function useOnlineGame() {
 
   function scheduleReconnect(immediate = false) {
     cancelReconnect()
-    const delay = immediate ? 0 : Math.min(10_000, 800 * (2 ** reconnectAttempt))
+    /*
+     * 第一次立刻重连，之后 250 / 500 / 1000 / 2000 / 4000ms 逐步退，上限 5 秒。
+     * 一次正常的网络瞬断先空等 800ms 只是让用户多盯一会儿黑屏。
+     */
+    const backoff = [0, 250, 500, 1_000, 2_000, 4_000, 5_000]
+    const delay = immediate ? 0 : backoff[Math.min(reconnectAttempt, backoff.length - 1)]
     reconnectAttempt += 1
     const expectedRoomCode = roomCode
     reconnectTimer = window.setTimeout(() => {
@@ -413,15 +459,20 @@ export function useOnlineGame() {
 
   function sendHeartbeat(currentSocket: WebSocket, generation: number) {
     if (socket !== currentSocket || socketGeneration !== generation || currentSocket.readyState !== WebSocket.OPEN) return
+    /*
+     * **先判静默，再发 ping。**
+     *
+     * 原来是每发一次 ping 就重排一个「PONG_TIMEOUT 之后检查」的定时器。
+     * 那套写法只在「心跳间隔 > 超时」时成立：一旦把间隔收得比超时短，
+     * 每次 ping 都会把上一个截止定时器清掉，超时就**永远不会触发**，
+     * 半死连接反而再也发现不了。改成在心跳里直接判静默，和间隔取值无关。
+     */
+    if (lastPongAt > 0 && Date.now() - lastPongAt >= ONLINE_PONG_TIMEOUT_MS) {
+      setError('连接响应超时，正在重新连接')
+      currentSocket.close()
+      return
+    }
     currentSocket.send('ping')
-    clearHeartbeatDeadline()
-    heartbeatDeadlineTimer = window.setTimeout(() => {
-      if (socket !== currentSocket || socketGeneration !== generation || currentSocket.readyState !== WebSocket.OPEN) return
-      if (Date.now() - lastPongAt >= ONLINE_PONG_TIMEOUT_MS) {
-        setError('连接响应超时，正在重新连接')
-        currentSocket.close()
-      }
-    }, ONLINE_PONG_TIMEOUT_MS)
   }
 
   function stopHeartbeat() {
@@ -510,15 +561,17 @@ export function useOnlineGame() {
    */
   function sendDirectoryHeartbeat(currentSocket: WebSocket) {
     if (directorySocket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) return
+    /*
+     * **先判静默，再发 ping**，理由和房间连接那边一样：
+     * 「发完 ping 排一个截止定时器」只在心跳间隔大于超时时成立，
+     * 间隔一收短，每次 ping 都会把上一个截止定时器清掉，超时永远不触发。
+     */
+    if (directoryLastPongAt > 0 && Date.now() - directoryLastPongAt >= ONLINE_PONG_TIMEOUT_MS) {
+      // 关掉就会走 close 分支，按既有的重连策略恢复
+      currentSocket.close()
+      return
+    }
     currentSocket.send('ping')
-    clearDirectoryDeadline()
-    directoryDeadlineTimer = window.setTimeout(() => {
-      if (directorySocket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) return
-      if (Date.now() - directoryLastPongAt >= ONLINE_PONG_TIMEOUT_MS) {
-        // 关掉就会走 close 分支，按既有的 1500ms 策略重连
-        currentSocket.close()
-      }
-    }, ONLINE_PONG_TIMEOUT_MS)
   }
 
   function connectDirectorySocket() {

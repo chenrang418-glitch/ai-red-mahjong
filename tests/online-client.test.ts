@@ -145,7 +145,12 @@ describe('大厅目录连接的心跳', () => {
     // 从这里开始只发 ping 不回 pong：连接看上去还是 OPEN，但房间列表其实已经不更新了
     await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
     expect(socket.sent.filter((payload) => payload === 'ping').length).toBeGreaterThan(0)
-    await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS)
+    /*
+     * 静默判定发生在**下一次心跳滴答**上，不再是一个独立的截止定时器：
+     * 那种写法只在「间隔 > 超时」时成立，间隔一收短就会被下一次 ping 清掉，
+     * 超时永远不触发。所以这里要多推一个间隔，让判定那一拍真的发生。
+     */
+    await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS + ONLINE_HEARTBEAT_INTERVAL_MS)
 
     expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
     // 按既有的 1500ms 策略重连
@@ -161,8 +166,12 @@ describe('大厅目录连接的心跳', () => {
     socket.open()
     socket.rawMessage('pong')
 
-    // 中间漏掉一次 pong，但还没到超时线
-    await vi.advanceTimersByTimeAsync(ONLINE_HEARTBEAT_INTERVAL_MS)
+    /*
+     * 中间漏掉一次 pong，但还没到静默阈值。
+     *
+     * 阈值是「距离上一次 pong 多久」，不是「心跳间隔加超时」——
+     * 按后者推进会直接越过阈值，这条用例就变成在测超时而不是测容忍。
+     */
     await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS - 1)
     expect(socket.readyState).toBe(FakeWebSocket.OPEN)
 
@@ -209,9 +218,14 @@ describe('联机客户端连接恢复', () => {
     socket.rawMessage('pong')
     socket.close()
 
-    await vi.advanceTimersByTimeAsync(799)
+    /*
+     * 第一次重连是**立刻**的。
+     *
+     * 原来先空等 800ms，用户看到的就是多盯一会儿黑屏；这个项目同时最多
+     * 一个房间、玩家个位数，压根形成不了需要退避的重连风暴。
+     */
     expect(FakeWebSocket.instances).toHaveLength(2)
-    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(0)
     expect(FakeWebSocket.instances).toHaveLength(3)
 
     const reconnected = FakeWebSocket.instances[2]
@@ -223,15 +237,17 @@ describe('联机客户端连接恢复', () => {
     expect(FakeWebSocket.instances).toHaveLength(3)
   })
 
-  it('心跳超过10秒没有应答时关闭旧连接并重连', async () => {
+  it('长时间没有应答时关闭旧连接并重连', async () => {
     const { online, socket } = await connectedClient()
     expect(socket.sent[0]).toBe('ping')
 
-    await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS)
+    // 判定发生在超过静默阈值之后的第一次心跳滴答上
+    await vi.advanceTimersByTimeAsync(ONLINE_PONG_TIMEOUT_MS + ONLINE_HEARTBEAT_INTERVAL_MS)
     expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
     expect(online.error.value).toContain('连接响应超时')
 
-    await vi.advanceTimersByTimeAsync(800)
+    // 第一次重连立刻发生
+    await vi.advanceTimersByTimeAsync(0)
     expect(FakeWebSocket.instances).toHaveLength(3)
   })
 
