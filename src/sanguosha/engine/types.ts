@@ -2,6 +2,7 @@ import type { GameRequest } from './requests'
 import type { JudgmentRetentionState } from './judgment-retention'
 import type { ForcedAwakening } from './forced-awakening'
 import type { SkillGrantSource } from './skill-grant-source'
+import type { CardNameHistory } from './card-name-history'
 import type { Faction } from '../shared/factions'
 
 export const RULESET_VERSION = 'ruleset-v1' as const
@@ -249,6 +250,9 @@ import type { ArmorSuppression } from './armor-suppression'
 import type { MultiCardViewAsState } from './multi-card-viewas'
 import type { ForcedCardIdentity } from './forced-identity'
 import type { GlobalToken } from './global-token'
+import type { AttackRangeOverride } from './attack-range-override'
+import type { MissionStatus } from './mission-skill'
+import type { MovableToken } from './movable-tokens'
 import type { SkillSuppression } from './skill-suppression'
 import type { TurnKillRecord } from './turn-kills'
 
@@ -392,6 +396,22 @@ export type TrickEffectState =
   | { kind: 'harvest'; targetId: PlayerId; revealedCardIds: CardId[]; requestId: string }
   /** 火攻第一步：目标展示一张手牌 */
   | { kind: 'fire-reveal'; targetId: PlayerId; requestId: string }
+  /**
+   * 奇正相生第一步：使用者秘密选「奇兵」还是「正兵」。
+   *
+   * 这一步的请求只发给使用者本人，别人看不到；`PlayerView` 只下发
+   * 观看者自己的那一条 pendingRequest。
+   */
+  | { kind: 'qizheng-mode'; targetId: PlayerId; requestId: string }
+  /**
+   * 奇正相生第二步：目标打出【杀】或【闪】。
+   *
+   * **`mode` 是这一局里唯一记着秘密选择的地方，绝不能下发给目标。**
+   * `PlayerView.cardResolution` 是白名单投影（只给 kind / card / sourceId /
+   * targetIds / currentTargetId / stage），`effect` 整个不在里面，所以
+   * 把秘密放在这里是安全的——但任何时候往视图里加字段都要重新确认这一条。
+   */
+  | { kind: 'qizheng'; targetId: PlayerId; mode: 'qi' | 'zheng'; requestId: string }
   /** 火攻第二步：使用者弃一张同花色的牌才能造成火焰伤害 */
   | { kind: 'fire-discard'; targetId: PlayerId; revealedCardId: CardId; suit: Suit; requestId: string }
   /** 借刀杀人：目标要对第三人出杀，否则把武器交给使用者 */
@@ -715,6 +735,23 @@ export interface SanguoshaState {
   forcedAwakenings?: ForcedAwakening[]
   /** 被授予的技能记住授予者；见 engine/skill-grant-source.ts。 */
   skillGrantSources?: SkillGrantSource[]
+  /**
+   * 「每种牌名限一次」的历史，按 `玩家:技能` 索引；见 engine/card-name-history.ts。
+   *
+   * 记录集合和已用集合是分开的——移除记录**不**退还一次性资格。
+   */
+  cardNameHistories?: Record<string, CardNameHistory>
+  /**
+   * 来源绑定的可叠加标记（神孙策【平定】）。
+   * 形状是 `[targetId][key][sourceId] = count`，详见 engine/source-marks.ts。
+   */
+  sourceMarks?: Record<PlayerId, Record<string, Record<PlayerId, number>>>
+  /** 使命技的状态（神太史慈【破围】）。见 engine/mission-skill.ts。 */
+  missionSkills?: Record<string, MissionStatus>
+  /** 会移动、且记得来源的标记（「围」）。见 engine/movable-tokens.ts。 */
+  movableTokens?: MovableToken[]
+  /** 定向的「视为在攻击范围内」。见 engine/attack-range-override.ts。 */
+  attackRangeOverrides?: AttackRangeOverride[]
   /**
    * 本回合判定阶段已经结算过的延时锦囊。
    *

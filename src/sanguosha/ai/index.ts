@@ -1771,7 +1771,17 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
         return { ...base, payload: { actionId: 'rennai' } }
       }
       // 该出闪就出闪、该出无懈看价值。出不起就放弃。
+      /*
+       * 【奇正相生】：使用者秘密选了奇兵还是正兵，AI 无从得知，
+       * 只能真的猜。固定先出杀会被人摸清规律，所以两种各占一半。
+       */
+      const guessAs = request.alternativeCardName && context.rng.nextInt(2) === 0
+        ? 'respond-trick-as-dodge:'
+        : 'respond-trick-as-slash:'
       const played = preferPlay(request.actionIds, 'respond-dodge:')
+        ?? preferPlay(request.actionIds, guessAs)
+        ?? preferPlay(request.actionIds, 'respond-trick-as-slash:')
+        ?? preferPlay(request.actionIds, 'respond-trick-as-dodge:')
         ?? preferPlay(request.actionIds, 'respond-trick:')
         ?? (request.requiredCardName === '无懈可击' ? nullificationChoice(context, request.actionIds) : null)
         ?? (request.actionIds.includes('invoke-bagua') ? 'invoke-bagua' : null)

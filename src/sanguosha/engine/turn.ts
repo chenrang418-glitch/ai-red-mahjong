@@ -3,6 +3,7 @@ import type { SanguoshaState, TurnPhase } from './types'
 import { expireArmorSuppressions } from './armor-suppression'
 import { clearForcedIdentities } from './forced-identity'
 import { expireStolenSkills } from './skill-theft-expiry'
+import { clearAttackRangeOverrides } from './attack-range-override'
 import { clearTurnSlashRules } from './slash-rules'
 import { expireTargetStates } from './target-state'
 import { clearTurnKills } from './turn-kills'
@@ -199,6 +200,9 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   expireArmorSuppressions(state)
   // 龙怒的强制牌身份也是「本回合」，同样统一清
   clearForcedIdentities(state)
+  // 「视为在攻击范围内」的定向豁免（神太史慈【破围】）同样只管本回合，
+  // 额外回合结束也要清，所以挂在这里而不是按回合序号推算
+  clearAttackRangeOverrides(state)
   // 神甘宁【魄袭】「弃一张」留下的本回合手牌上限 -1，同样在这里统一清
   for (const player of state.players) delete player.marks['poxi-maxcards']
   /*

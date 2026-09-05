@@ -45,7 +45,18 @@ export type ChooseOptionRequest = RequestBase<'choose-option'> & { options: Arra
 export type ChooseSuitRequest = RequestBase<'choose-suit'> & { suits: Suit[] }
 export type ChooseNumberRequest = RequestBase<'choose-number'> & { min: number; max: number }
 export type UseCardRequest = RequestBase<'use-card'> & { actionIds: string[] }
-export type RespondCardRequest = RequestBase<'respond-card'> & { actionIds: string[]; requiredCardName: string }
+export type RespondCardRequest = RequestBase<'respond-card'> & {
+  actionIds: string[]
+  requiredCardName: string
+  /**
+   * 还可以打出的另一种牌名。
+   *
+   * 绝大多数求牌只认一种（求闪、求杀）。【奇正相生】是例外：目标可以自由选择
+   * 打出【杀】或【闪】，而**打错类型仍然消耗那张牌**，所以不能拆成两次询问，
+   * 必须一次把两种候选都摆出来。
+   */
+  alternativeCardName?: string
+}
 export type InvokeSkillRequest = RequestBase<'invoke-skill'> & { skillId: string; actionIds: string[] }
 export type ArrangeCardsRequest = RequestBase<'arrange-cards'> & { cardIds: CardId[]; minTop: number; maxTop: number; allowBottom: boolean }
 export type DistributeCardsRequest = RequestBase<'distribute-cards'> & { cardIds: CardId[]; recipientIds: PlayerId[]; min: number; max: number }

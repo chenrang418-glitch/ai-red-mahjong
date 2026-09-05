@@ -2,13 +2,13 @@ import { canUseCardAs } from '../forced-identity'
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import type { LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
-import { canTarget, getDistance } from '../distance'
+import { canTarget, getDistance, ignoresDistanceTo } from '../distance'
 import { drawCards } from '../draw'
 import { handleEquipmentLost, isCardIneffective } from '../equipment'
 import { getEngineCallbacks } from '../equipment-requests'
 import { ignoresTrickDistance, responseViewAsOptions } from '../../data/characters/standard'
 import { recover } from '../recover'
-import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest } from '../requests'
+import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCardRequest, ChooseOptionRequest} from '../requests'
 import { validateResponse } from '../requests'
 import { NULLIFICATION_TIMEOUT_MS, PASS_ROUND_ACTION, nullificationCardIds } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
@@ -45,6 +45,7 @@ export const DELAYED_TRICKS = new Set(['乐不思蜀', '兵粮寸断', '闪电']
 export const INSTANT_TRICKS = new Set([
   '无中生有', '桃园结义', '铁索连环', '南蛮入侵', '万箭齐发',
   '决斗', '过河拆桥', '顺手牵羊', '五谷丰登', '火攻', '借刀杀人',
+  '奇正相生',
 ])
 
 function alive(state: SanguoshaState): PlayerId[] {
@@ -131,6 +132,13 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【决斗】`))
       }
       return actions
+    case '奇正相生':
+      // 「对一名其他角色使用」——单目标，不含自己，没有距离限制
+      for (const target of others) {
+        if (!allowed(target.id)) continue
+        actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【奇正相生】`))
+      }
+      return actions
     case '过河拆桥':
       for (const target of others) {
         if (!allowed(target.id)) continue
@@ -142,7 +150,9 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       for (const target of others) {
         if (!allowed(target.id)) continue
         // 顺手牵羊受距离限制，拆桥不受；奇才无视这个限制
-        if (!ignoresTrickDistance(state, playerId) && getDistance(state, playerId, target.id) > 1) continue
+        if (!ignoresTrickDistance(state, playerId)
+          && !ignoresDistanceTo(state, playerId, target.id)
+          && getDistance(state, playerId, target.id) > 1) continue
         if (!hasAnyStealable(state, target.id)) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【顺手牵羊】`))
       }
@@ -364,6 +374,41 @@ function enterTrickTarget(host: CardEngineHost): void {
     return
   }
   const card = host.state.cards[resolution.cardId]
+  /*
+   * 「这个目标完全不能响应这张牌」（神孙策【覆海】）。
+   *
+   * 问的是**使用者**的技能，和【杀】那边的 `slashUndodgeable` 是同一件事；
+   * 只往 `unresponsiveTargetIds` 里加，不减——别的效果已经封住的不能被抹掉。
+   * 封的只有目标本人，别人替他出【无懈可击】走的是另一条链路。
+   */
+  for (const runtime of skillsOf(host.state, resolution.sourceId, skillIdsOf)) {
+    if (!runtime.trickUnresponsive?.(host.state, resolution.sourceId, targetId, resolution.cardName)) continue
+    if (!resolution.unresponsiveTargetIds.includes(targetId)) resolution.unresponsiveTargetIds.push(targetId)
+  }
+  /*
+   * 锁定技式的取消要放在**所有发问之前**。
+   *
+   * 神荀彧【定汉】取消的是「成为目标」这件事本身，那么后面的无懈询问、
+   * 效果结算都不该再为这个目标跑一遍——问了才取消等于白问一轮。
+   */
+  if (!resolution.cancelledTargetIds.includes(targetId)) {
+    for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
+      if (!runtime.cancelsBecomingTarget) continue
+      if (!runtime.cancelsBecomingTarget(host, targetId, {
+        sourceId: resolution.sourceId,
+        targetId,
+        cardId: resolution.cardId,
+        cardName: resolution.cardName,
+        category: card.category,
+      })) continue
+      if (!resolution.cancelledTargetIds.includes(targetId)) resolution.cancelledTargetIds.push(targetId)
+      break
+    }
+  }
+  if (resolution.cancelledTargetIds.includes(targetId)) {
+    advanceToNextTarget(host)
+    return
+  }
   for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
     if (!runtime.interceptTarget) continue
     const interceptId = `skill:${runtime.id}`
@@ -561,22 +606,84 @@ function askTrickSurrogate(
   return false
 }
 
+/**
+ * 让使用者秘密选「奇兵」还是「正兵」。
+ *
+ * 这条请求只发给使用者本人。`buildPlayerView` 只会把**观看者自己的**
+ * pendingRequest 放进视图，所以目标和旁观者都拿不到它，
+ * 连「有人正在做一个二选一」这件事都读不到具体内容。
+ */
+function askQizhengMode(host: CardEngineHost, resolution: TrickResolutionState, targetId: PlayerId): string {
+  const request: ChooseOptionRequest = {
+    id: `request-qizheng-${host.state.seq}-${host.state.decisions.length}`,
+    kind: 'choose-option',
+    playerId: resolution.sourceId,
+    prompt: `【奇正相生】：秘密选择对${playerOf(host.state, targetId).nickname}用「奇兵」还是「正兵」`,
+    timeoutMs: 25_000,
+    optional: false,
+    options: [
+      { id: 'qi', label: '奇兵（他没打出【杀】则受到 1 点伤害）' },
+      { id: 'zheng', label: '正兵（他没打出【闪】则被你获得一张牌）' },
+    ],
+  }
+  host.state.pendingRequests.push(request)
+  return request.id
+}
+
+/**
+ * 「明确声明打出哪一种牌」的 action 前缀。
+ *
+ * 【奇正相生】让目标在【杀】和【闪】之间自由选择，而同一张牌可能两种都算，
+ * 光凭牌 id 分不出他选的是哪一种。
+ */
+const RESPOND_AS_PREFIX: Record<'杀' | '闪', string> = {
+  杀: 'respond-trick-as-slash:',
+  闪: 'respond-trick-as-dodge:',
+}
+
 function askRespondCard(
   host: CardEngineHost,
   resolution: TrickResolutionState,
   responderId: PlayerId,
   requiredCardName: '杀' | '闪',
   prompt: string,
+  alternativeCardName?: '杀' | '闪',
 ): string {
   const responder = playerOf(host.state, responderId)
-  const responseCards = new Set(responder.zones.hand
-    .filter((cardId) => host.state.cards[cardId]?.name === requiredCardName)
-  )
-  // 武圣、龙胆等“打出”转化同样适用于南蛮、万箭和决斗，不能只在普通【杀】求闪时生效。
-  for (const option of responseViewAsOptions(host.state, responderId, requiredCardName)) responseCards.add(option.cardId)
-  const actionIds = [...responseCards]
-    .filter((cardId) => canUseCardAs(host.state, responderId, cardId, requiredCardName))
-    .map((cardId) => `respond-trick:${cardId}`)
+  /*
+   * 候选是两种牌名的并集。
+   *
+   * 【奇正相生】允许目标自由选择打出【杀】或【闪】，所以两条路的实体牌和
+   * 转化选项（武圣、龙胆、龙魂……）都要摆出来，不能只给其中一种。
+   */
+  const names: Array<'杀' | '闪'> = alternativeCardName ? [requiredCardName, alternativeCardName] : [requiredCardName]
+  /*
+   * 一张牌可能同时满足两种牌名——关羽【武圣】手里的红【闪】既是闪，
+   * 也能当【杀】打出。只记一种就等于替玩家做了决定，而【奇正相生】的
+   * 惩罚正好取决于打的是哪一种，所以这里要把两种资格都留着。
+   */
+  const responseCards = new Map<CardId, Array<'杀' | '闪'>>()
+  const allow = (cardId: CardId, name: '杀' | '闪') => {
+    const existing = responseCards.get(cardId) ?? []
+    if (!existing.includes(name)) existing.push(name)
+    responseCards.set(cardId, existing)
+  }
+  for (const name of names) {
+    for (const cardId of responder.zones.hand) {
+      if (host.state.cards[cardId]?.name === name) allow(cardId, name)
+    }
+    // 武圣、龙胆等“打出”转化同样适用于南蛮、万箭和决斗，不能只在普通【杀】求闪时生效。
+    for (const option of responseViewAsOptions(host.state, responderId, name)) allow(option.cardId, name)
+  }
+  const actionIds: string[] = []
+  for (const [cardId, cardNames] of responseCards) {
+    for (const name of cardNames) {
+      if (!canUseCardAs(host.state, responderId, cardId, name)) continue
+      // 只有二选一的求牌才需要在 action 里写死牌名；单一牌名沿用原格式，
+      // 免得把蛊惑、龙魂那些回填 `respond-trick:` 的地方一起改坏
+      actionIds.push(alternativeCardName ? `${RESPOND_AS_PREFIX[name]}${cardId}` : `respond-trick:${cardId}`)
+    }
+  }
   if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
   if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
   // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
@@ -590,6 +697,7 @@ function askRespondCard(
     kind: 'respond-card',
     playerId: responderId,
     prompt,
+    alternativeCardName,
     timeoutMs: 30_000,
     optional: true,
     actionIds,
@@ -681,6 +789,17 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       resolution.effect = { kind: 'ask-dodge', targetId, requestId }
       return
     }
+    case '奇正相生': {
+      /*
+       * 顺序：先让**使用者**秘密选奇兵/正兵，再问目标打杀还是闪。
+       *
+       * 秘密选择放在无懈之后：被无懈掉的目标根本不该走到猜测环节，
+       * 提前问一遍等于白白暴露一次决策。
+       */
+      const requestId = askQizhengMode(host, resolution, targetId)
+      resolution.effect = { kind: 'qizheng-mode', targetId, requestId }
+      return
+    }
     case '决斗': {
       // 决斗由目标先出杀，然后双方轮流；先出不出来的一方受伤
       if (cannotRespond) {
@@ -729,6 +848,71 @@ function dispatchDuelResult(host: CardEngineHost, winnerId: PlayerId, loserId: P
 }
 
 /** 效果阶段收到「打出杀/闪」或「放弃」的响应。 */
+/**
+ * 使用者选完奇兵 / 正兵。
+ *
+ * 选择只写进 `cardResolution.effect`，**不派发任何带 mode 的事件**——
+ * 表现事件是全场公开的，写进去就等于当场亮牌。
+ */
+export function resolveQizhengMode(host: CardEngineHost, request: ChooseOptionRequest, response: GameResponse): void {
+  const resolution = host.state.cardResolution
+  if (!resolution || resolution.kind !== 'trick') throw new Error('奇正相生结算状态缺失')
+  const effect = resolution.effect
+  if (effect?.kind !== 'qizheng-mode' || effect.requestId !== request.id) throw new Error('奇正相生 Request 已经过期')
+  const validationError = validateResponse(request, response)
+  if (validationError) throw new Error(validationError)
+  const mode = (response.payload as { optionId: string }).optionId === 'qi' ? 'qi' : 'zheng'
+
+  host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+  host.state.decisions.push({
+    index: host.state.decisions.length,
+    requestId: request.id,
+    playerId: response.playerId,
+    kind: request.kind,
+    // 决策记录同样不能留下 mode：它会被序列化进快照
+    payload: { optionId: 'hidden' },
+  })
+
+  const targetId = effect.targetId
+  // 完全不能响应的目标（神孙策【覆海】那类）走的是同一个登记表
+  if (resolution.unresponsiveTargetIds.includes(targetId)) {
+    // 目标完全不能响应（神孙策【覆海】）：直接进入对应的惩罚
+    resolution.effect = { kind: 'qizheng', targetId, mode, requestId: '' }
+    applyQizhengOutcome(host, resolution, targetId, mode, false)
+    return
+  }
+  const requestId = askRespondCard(
+    host, resolution, targetId, '杀',
+    `${playerOf(host.state, resolution.sourceId).nickname}对你使用【奇正相生】，你可以打出一张【杀】或【闪】`,
+    '闪',
+  )
+  resolution.effect = { kind: 'qizheng', targetId, mode, requestId }
+}
+
+/** 奇正相生的惩罚结算。`satisfied` 表示目标打出了对应的那一种牌。 */
+function applyQizhengOutcome(
+  host: CardEngineHost,
+  resolution: TrickResolutionState,
+  targetId: PlayerId,
+  mode: 'qi' | 'zheng',
+  satisfied: boolean,
+): void {
+  resolution.effect = null
+  if (satisfied) {
+    advanceToNextTarget(host)
+    return
+  }
+  if (mode === 'qi') {
+    resolveDamage(host, {
+      sourceId: resolution.sourceId, targetId, amount: 1,
+      nature: 'normal', cardName: resolution.cardName, cardId: resolution.cardId,
+    })
+    if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
+    return
+  }
+  askPickCard(host, resolution, targetId, 'steal')
+}
+
 export function resolveTrickEffectResponse(host: CardEngineHost, request: RespondCardRequest, response: GameResponse): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick' || resolution.requestId !== request.id) throw new Error('锦囊效果 Request 已经过期')
@@ -737,18 +921,34 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   const actionId = (response.payload as { actionId: string }).actionId
 
   let playedCardId: CardId | null = null
+  /*
+   * 实际打出的是哪一种牌名。
+   *
+   * 绝大多数求牌只认一种，这里就是 `requiredCardName`；【奇正相生】允许
+   * 杀或闪二选一，**打错类型仍然消耗那张牌**，所以必须记下实际打的是哪种，
+   * 后面才能判断惩罚要不要触发。
+   */
+  let playedName = request.requiredCardName
   if (actionId !== 'respond-pass') {
-    if (!actionId.startsWith('respond-trick:')) throw new Error('响应 action 类型不匹配')
-    playedCardId = actionId.slice('respond-trick:'.length)
+    // 声明式的 action 只认它自己那一种牌名，不再让引擎替玩家挑
+    const declared = (['杀', '闪'] as const).find((name) => actionId.startsWith(RESPOND_AS_PREFIX[name])) ?? null
+    if (declared) playedCardId = actionId.slice(RESPOND_AS_PREFIX[declared].length)
+    else if (actionId.startsWith('respond-trick:')) playedCardId = actionId.slice('respond-trick:'.length)
+    else throw new Error('响应 action 类型不匹配')
     const responder = playerOf(host.state, response.playerId)
-    const converted = responseViewAsOptions(host.state, response.playerId, request.requiredCardName)
-      .some((option) => option.cardId === playedCardId)
-    const granted = guhuoGrantedAs(host.state, response.playerId, playedCardId) === request.requiredCardName
-      || multiCardGrantedAs(host.state, response.playerId, playedCardId) === request.requiredCardName
-    if (!responder.zones.hand.includes(playedCardId)
-      || (host.state.cards[playedCardId]?.name !== request.requiredCardName && !converted && !granted)) {
-      throw new Error(`响应牌不是该玩家持有的${request.requiredCardName}`)
+    const candidates = declared
+      ? [declared]
+      : [request.requiredCardName, ...(request.alternativeCardName ? [request.alternativeCardName] : [])]
+    const matched = candidates.find((name) => {
+      const converted = responseViewAsOptions(host.state, response.playerId, name).some((option) => option.cardId === playedCardId)
+      const granted = guhuoGrantedAs(host.state, response.playerId, playedCardId!) === name
+        || multiCardGrantedAs(host.state, response.playerId, playedCardId!) === name
+      return host.state.cards[playedCardId!]?.name === name || converted || granted
+    })
+    if (!responder.zones.hand.includes(playedCardId) || !matched) {
+      throw new Error(`响应牌不是该玩家持有的${candidates.join('或')}`)
     }
+    playedName = matched
   }
 
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
@@ -764,7 +964,7 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   if (playedCardId) {
     const responder = playerOf(host.state, response.playerId)
     moveCard(host.state, playedCardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })
-    host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId: playedCardId, cardName: request.requiredCardName }, { sourceId: responder.id, cardIds: [playedCardId] })
+    host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId: playedCardId, cardName: playedName }, { sourceId: responder.id, cardIds: [playedCardId] })
     moveCard(host.state, playedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   }
 
@@ -784,6 +984,18 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
       return
     }
     advanceToNextTarget(host)
+    return
+  }
+
+  if (effect.kind === 'qizheng') {
+    /*
+     * 惩罚只看**有没有打出对应的那一种**。
+     *
+     * 打错类型（奇兵却打了闪）时那张牌已经真实打出并移走了，
+     * 但惩罚照样触发——这是这张牌的核心，不能因为"他出了一张牌"就放过。
+     */
+    const satisfied = playedCardId !== null && playedName === (effect.mode === 'qi' ? '杀' : '闪')
+    applyQizhengOutcome(host, resolution, effect.targetId, effect.mode, satisfied)
     return
   }
 

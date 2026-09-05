@@ -3,7 +3,7 @@ import { canUseCardAs, forcedIdentityFor } from '../forced-identity'
 import { isSlotAbolished } from '../equipment-slots'
 import { findLegalAction, type LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
-import { canTarget, getDistance } from '../distance'
+import { canTarget, getDistance, ignoresDistanceTo } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
@@ -55,6 +55,8 @@ function canPlaceDelayedTrick(state: SanguoshaState, sourceId: PlayerId, targetI
   if (isTargetProhibited(state, sourceId, targetId, name, skillIdsOf, cardId)) return false
   if (name !== '兵粮寸断') return true
   if (ignoresTrickDistance(state, sourceId)) return true
+  // 英霸：对有自己平定标记的角色使用牌不受距离限制，延时锦囊也算「使用牌」
+  if (ignoresDistanceTo(state, sourceId, targetId)) return true
   return getDistance(state, sourceId, targetId) <= 1 + trickDistanceBonusOf(state, sourceId, targetId, name, skillIdsOf)
 }
 
@@ -691,6 +693,21 @@ function placeDelayedTrick(host: CardEngineHost, action: Extract<LegalAction, { 
   const [cardId] = action.cardIds
   const [targetId] = action.targetIds
   if (!beginActionPhysicalCard(host, action.playerId, cardId, [targetId], action.asCardName)) return
+  const cardName = action.asCardName || host.state.cards[cardId].name
+  /*
+   * 延时锦囊也能被「取消目标」挡下来（神荀彧【定汉】）。
+   *
+   * 这条路径没有任何挂起点，所以只认不发问的锁定技式取消；
+   * 取消掉就当这张牌用出去但没贴上，直接进弃牌堆。
+   */
+  const cancelled = skillsOf(host.state, targetId, skillIdsOf).some((runtime) => runtime.cancelsBecomingTarget?.(
+    host, targetId,
+    { sourceId: action.playerId, targetId, cardId, cardName, category: host.state.cards[cardId].category },
+  ))
+  if (cancelled) {
+    finishPhysicalCard(host, action.playerId, cardId, [targetId], true, action.asCardName)
+    return
+  }
   // 转化过来的延时锦囊要把「当作什么用」记下来，判定时才按它结算
   if (action.asCardName) setCardAlias(host.state, cardId, action.asCardName)
   moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: targetId })

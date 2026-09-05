@@ -343,6 +343,21 @@ export interface SkillRuntime {
   prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
   /** 成为【杀】或普通锦囊目标后可插入发问；返回 true 表示结算已挂起。 */
   interceptTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
+  /**
+   * 锁定技式的「取消自己这个目标」（神荀彧【定汉】）。
+   *
+   * 和 `interceptTarget` 的区别是**不发问、当场给结论**，所以它能用在
+   * 延时锦囊上——那条路径是一路同步走完的，根本没有挂起点。
+   * 返回 true 表示这个目标被取消。
+   *
+   * 只在**锦囊牌**指定目标时被问到（即时锦囊逐个目标结算时、延时锦囊放置时），
+   * 【杀】不走这里。实现里仍然要自己确认 `context.category`，
+   * 因为转化技能可以把任何牌当锦囊用。
+   *
+   * 拿到的是 host 而不是 state：取消这件事要能报横幅、留记录。
+   * 同一个目标只会被问一次，可以在里面放一次性资源的消耗。
+   */
+  cancelsBecomingTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /** 拥有者使用【杀】时，目标需要连续打出多少张【闪】。 */
   slashDodgeResponses?: number
   /**
@@ -360,6 +375,23 @@ export interface SkillRuntime {
    * 不发问、不产生请求，所以放在这里而不是「成为目标时」的插入点链上。
    */
   slashUndodgeable?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  /**
+   * 锁定技：拥有者对某个目标使用的**锦囊**，那个目标完全不能响应
+   * （神孙策【覆海】）。
+   *
+   * 和 `slashUndodgeable` 是同一件事的锦囊版，问的同样是**使用者**的技能。
+   * 只封住这一个目标本人：别人替他出【无懈可击】不受影响，
+   * 那是另一条规则，不从这里走。
+   */
+  trickUnresponsive?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
+  /**
+   * 拥有者对某个特定角色**使用牌时不受距离限制**（神孙策【英霸】）。
+   *
+   * 和 `distanceModifier` 的区别：那个是把距离算小一点，这个是整条距离限制
+   * 直接不成立。文本说的是「使用牌」，所以【杀】的攻击范围、
+   * 【顺手牵羊】【兵粮寸断】的距离 1 都一并覆盖，不是只管杀。
+   */
+  ignoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
   /** 对方在与拥有者【决斗】时，每轮需要连续打出多少张【杀】。 */
   duelSlashResponses?: number
   /**

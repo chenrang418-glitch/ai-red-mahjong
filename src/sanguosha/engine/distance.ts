@@ -1,3 +1,4 @@
+import { isForcedInAttackRange } from './attack-range-override'
 import { isSlotAbolished } from './equipment-slots'
 import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
@@ -64,7 +65,21 @@ export function getAttackRange(state: SanguoshaState, playerId: PlayerId): numbe
   return Math.max(1, weapon?.attackRange ?? 1) + source.attackRangeBonus
 }
 
+/**
+ * 使用者对这个目标是不是完全不受距离限制（神孙策【英霸】）。
+ *
+ * 注意问的是**使用者**的技能，而且带上了具体目标——「对有我标记的人无距离」
+ * 不能写成「我对所有人无距离」。
+ */
+export function ignoresDistanceTo(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): boolean {
+  return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresDistanceTo?.(state, sourceId, targetId))
+}
+
 export function canTarget(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, range = getAttackRange(state, sourceId)): boolean {
   const target = player(state, targetId)
-  return sourceId !== targetId && target.alive && getDistance(state, sourceId, targetId) <= range
+  if (sourceId === targetId || !target.alive) return false
+  if (ignoresDistanceTo(state, sourceId, targetId)) return true
+  // 定向的「视为在攻击范围内」（神太史慈【破围】）：只对这一对角色成立
+  if (isForcedInAttackRange(state, sourceId, targetId)) return true
+  return getDistance(state, sourceId, targetId) <= range
 }

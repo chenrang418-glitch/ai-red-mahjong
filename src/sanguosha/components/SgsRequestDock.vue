@@ -162,6 +162,18 @@ function actionLabel(actionId: string): string {
   const separator = actionId.indexOf(':')
   const cardId = separator >= 0 ? actionId.slice(separator + 1) : ''
   const card = cardId ? cardOf(cardId) : null
+  /*
+   * 【奇正相生】那种「杀或闪二选一」的求牌，同一张牌可能两种都能打
+   * （武圣的红闪）。按钮上必须写清楚这一下算哪一种，否则玩家点完才发现
+   * 引擎替他选了另一种。
+   */
+  if (card && actionId.startsWith('respond-trick-as-')) {
+    const asName = actionId.startsWith('respond-trick-as-slash:') ? '杀' : '闪'
+    const printed = `${SUIT_MARK[card.suit] ?? ''}${rankText(card.rank)}`
+    return card.name === asName
+      ? `打出【${asName}】${printed}`
+      : `将${card.name}${printed}当【${asName}】打出`
+  }
   if (card) return `打出【${card.name}】${SUIT_MARK[card.suit] ?? ''}${rankText(card.rank)}`
   return actionId.startsWith('skill:') ? '发动技能' : '使用'
 }
