@@ -26,10 +26,6 @@
 
 仅研究 `seed + decisions`、纯 TypeScript Engine、Cloudflare Worker、一房间一 Durable Object、玩家视图、休眠恢复和无头压测的架构思想；没有复制其源代码。
 
-### 规则数据资料
-
-`ruleset-v1` 的标准包与军争篇逐张牌表依据纸上三国 BWIKI 对应页面核对。该事实数据在本项目中按自身 TypeScript 数据结构重新录入；页面链接与版本边界见 `docs/sanguosha-ruleset-v1.md`。
-
 ### Ma Shan Zheng（马善政毛笔楷书）
 
 - 项目：[google/fonts — ofl/mashanzheng](https://github.com/google/fonts/tree/main/ofl/mashanzheng)

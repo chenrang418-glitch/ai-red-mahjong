@@ -2,9 +2,9 @@ import { RULESET_VERSION, type CardCategory, type DamageNature, type EquipmentSl
 
 /**
  * ruleset-v1 精确牌表。
- * 数据核对：纸上三国 BWIKI「标准包卡牌」（108）与「军争篇卡牌」（52），2026-08-31 访问。
- * https://wiki.biligame.com/sgs/标准包卡牌
- * https://wiki.biligame.com/sgs/军争篇卡牌
+ *
+ * 本项目自研的牌堆组成：标准 108 张 + 军争 52 张，共 160 张。
+ * 逐张花色与点数由测试验证，改动这里必须同步改测试。
  */
 type Entry = readonly [name: string, suit: Suit, rank: Rank, nature?: DamageNature]
 
