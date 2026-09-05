@@ -71,6 +71,8 @@ function returnToPortal() {
 async function loadActiveGame(game: GameDefinition | null) {
   gameLoader.dispose()
   activeComponent.value = null
+  // 某个游戏的运行时错误不能污染门户以及随后打开的其他游戏。
+  fatalRuntimeError.value = ''
   loadError.value = ''
   if (!game?.loadApp) { loading.value = false; return }
   loading.value = true

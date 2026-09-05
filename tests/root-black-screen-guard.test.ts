@@ -106,6 +106,12 @@ describe('全站黑屏防护', () => {
       .resolves.toMatchObject({ status: 'error', error: expect.objectContaining({ message: 'chunk failed' }) })
   })
 
+  it('切换游戏时清除上一个游戏捕获的运行时错误', () => {
+    const source = readFileSync('src/RootApp.vue', 'utf8')
+    const loadActiveGame = source.slice(source.indexOf('async function loadActiveGame'), source.indexOf('function retryLoad'))
+    expect(loadActiveGame).toContain("fatalRuntimeError.value = ''")
+  })
+
   it('卸载会让在途加载失效并清理 timer', async () => {
     vi.useFakeTimers()
     const loader = new LatestGameLoader<string>(50)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import AudioControl from '@/components/game/AudioControl.vue'
 import MahjongTable from '@/components/game/MahjongTable.vue'
 import MahjongTile from '@/components/game/MahjongTile.vue'
@@ -131,10 +131,12 @@ const displayedGame = computed(() => {
   const player = game.players[props.room.selfSeatId]
   const tile = player.hand.find((candidate) => candidate.id === pending.tileId)
   if (!tile) return game
-  const optimistic = structuredClone(game)
+  // props 里的牌局会被 Vue 包成 Proxy，structuredClone 不能直接克隆 Proxy。
+  // 只有真人出牌会进入这条乐观更新路径，因此这个错误不会在 AI 托管时暴露。
+  const optimistic = structuredClone(toRaw(game))
   const optimisticPlayer = optimistic.players[props.room.selfSeatId]
   optimisticPlayer.hand = optimisticPlayer.hand.filter((candidate) => candidate.id !== pending.tileId)
-  optimisticPlayer.discards.push(structuredClone(tile))
+  optimisticPlayer.discards.push(structuredClone(toRaw(tile)))
   return optimistic
 })
 const displayedTrustee = computed(() => props.pendingAction?.type === 'trustee' ? props.pendingAction.enabled : selfSeat.value.trustee)

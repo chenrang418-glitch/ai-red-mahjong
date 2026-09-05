@@ -1064,7 +1064,17 @@ export class MahjongRoom {
   }
 
   private send(socket: WebSocket, message: RoomServerMessage): void {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+    if (socket.readyState !== WebSocket.OPEN) return
+    try {
+      socket.send(JSON.stringify(message))
+    } catch (cause) {
+      // 一条已经半断开的连接不能中断整个房间的状态广播。
+      console.error('[mahjong][socket-send-error]', JSON.stringify({
+        roomCode: this.coordinator?.state.code,
+        errorMessage: cause instanceof Error ? cause.message : String(cause),
+      }))
+      try { socket.close(1011, 'send failed') } catch { /* 已经断开就无需再处理 */ }
+    }
   }
 }
 
