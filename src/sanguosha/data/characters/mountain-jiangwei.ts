@@ -52,6 +52,15 @@ function tiaoxinCandidates(state: SanguoshaState, ownerId: PlayerId): PlayerId[]
 
 registerSkillRuntime({
   id: TIAOXIN,
+  /*
+   * 挑衅在选完目标之后**自己**播一条横幅（要带上目标）。
+   * 不声明这一条的话，引擎还会在同一步补一条兜底横幅，两条文案一模一样，
+   * 牌桌中央就会连播两遍。
+   *
+   * 以前没暴露出来，是因为兜底那条把技能 id 当成了显示名（显示成拼音），
+   * 两条文案碰巧不同；把拼音修掉之后这个重复才浮出来。
+   */
+  announcesSelf: true,
 
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []

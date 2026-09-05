@@ -118,7 +118,14 @@ export function buildPresentationEvent(
       return { id: event.id, seq: event.seq, kind: 'card-response', sourceId: actorId, cardName: name, text: `${playerName(state, actorId)}打出【${name}】` }
     }
     case 'SkillActivated': {
-      const skillName = String(payload.skillName ?? payload.skillId ?? '')
+      /*
+       * 技能没带 `skillName` 时**按 id 反查中文名**，不能直接把 id 甩出去。
+       *
+       * 原来是 `payload.skillName ?? payload.skillId`：任何一个技能忘了传
+       * `skillName`，中央提示就会显示拼音（刘禅【若愚】显示成 ruoyu 就是这么来的）。
+       * 逐个武将补 `skillName` 治不了根——下一个新技能照样会忘。
+       */
+      const skillName = String(payload.skillName ?? (payload.skillId ? skillDisplayName(String(payload.skillId)) : ''))
       const targetIds = (payload.targetIds as PlayerId[] | undefined) ?? []
       const targets = targetIds.map((id) => playerName(state, id)).join('、')
       // 技能可以自带一句战报文本。默认那句「A对B发动【X】」在认亲、
