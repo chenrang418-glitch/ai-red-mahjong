@@ -83,7 +83,7 @@ const meldLabel: Record<string, string> = {
 .seat.active {
   border-color: #f3ca69;
   box-shadow: 0 0 0 2px rgba(243,202,105,.16), 0 0 26px rgba(243,202,105,.16);
-  animation: seat-breathe 2.2s ease-in-out infinite;
+  animation: seat-breathe .8s ease-out 2;
 }
 .seat.active.urgent { animation-duration: .75s; }
 @keyframes seat-breathe {

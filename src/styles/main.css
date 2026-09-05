@@ -1,10 +1,10 @@
 :root {
-  --color-background: #07130f;
-  --color-surface: #102821;
-  --color-gold: #e2bf62;
+  --color-background: var(--ink-bg-bottom);
+  --color-surface: var(--ink-panel);
+  --color-gold: var(--accent-gold);
   --color-red: #c85148;
-  --color-text: #f4eedc;
-  --color-text-muted: #8fa49c;
+  --color-text: var(--ink-text);
+  --color-text-muted: var(--ink-text-muted);
   --color-success: #75c793;
   --color-warning: #e2b75e;
   --color-error: #d66a60;
@@ -32,7 +32,7 @@ body {
   height: calc(100vh - var(--app-viewport-offset, 0px));
   /* dvh 跟着地址栏收放变化，iOS 上比 vh 准 */
   height: calc(100dvh - var(--app-viewport-offset, 0px));
-  background: #091410;
+  background: var(--ink-bg-bottom);
 }
 #app { display: flex; flex-direction: column; }
 button, input, select { font: inherit; }
@@ -114,7 +114,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .action-dock button.gold { border-color: #b3944a; background: linear-gradient(180deg, #6b5729, #4d3f1f); color: #ffe49a; }
 .action-dock button.red { border-color: #b3564e; background: linear-gradient(180deg, #7c3733, #5c2926); color: #ffd8d4; font-size: 15px; box-shadow: 0 0 18px rgba(190, 86, 78, .25); }
 .action-dock .discard-button { min-width: 190px; background: linear-gradient(180deg, #2a5548, #1e4034); border-color: #457164; }
-.action-dock .discard-button:not(:disabled) { color: #fff3d6; animation: action-ready 2s ease-in-out infinite; }
+.action-dock .discard-button:not(:disabled) { color: #fff3d6; animation: action-ready .8s ease-out 2; }
 .action-status { color: #d9c98f; font-size: 13px; font-weight: 700; text-align: center; }
 @keyframes action-ready {
   50% { border-color: #f0cf71; box-shadow: 0 0 0 2px rgba(240,207,113,.12), 0 0 24px rgba(240,207,113,.24); }

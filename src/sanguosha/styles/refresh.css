@@ -1,17 +1,4 @@
-/* Only Sanguosha roots receive these tokens; the Mahjong bundle keeps its palette. */
-:is(.sgs-app, .sgs-online, .sgs-table, .sgs-confirm-backdrop, .sgs-result-backdrop, .sgs-glossary-mask) {
-  --ink-bg-top: #14292b;
-  --ink-bg-bottom: #081416;
-  --ink-panel: #192e30;
-  --ink-panel-deep: #102124;
-  --ink-line: #385052;
-  --ink-text: #f4eee1;
-  --ink-text-soft: #bac9c5;
-  --ink-text-muted: #98aaa7;
-  --accent-gold: #d8b777;
-  --sgs-ease: cubic-bezier(.22, 1, .36, 1);
-}
-
+/* Shared colors live in root.css; these rules only tune the card-game interface. */
 :is(.sgs-app, .sgs-online, .sgs-table, .sgs-result, .sgs-glossary-sheet) button {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;

@@ -30,6 +30,7 @@ function submit() {
         <h1>单机设置</h1>
         <div class="tools"><AudioControl /><button type="button" @click="emit('rules')">规则</button></div>
       </header>
+      <p class="setup-intro">安排你的下一局。选择积分模式与电脑难度，即可入座开局。</p>
       <form @submit.prevent="submit">
         <fieldset class="mode-switch">
           <legend>模式</legend>
@@ -39,6 +40,7 @@ function submit() {
         <label class="field"><span>昵称</span><input v-model="form.nickname" maxlength="8" autocomplete="nickname"></label>
         <label v-if="form.mode === 'finite'" class="field"><span>初始积分</span><input v-model.number="form.initialPoints" type="number" min="1" max="9999" inputmode="numeric"></label>
         <label class="field"><span>AI 难度</span><select v-model="form.difficulty"><option v-for="(label, value) in difficultyLabels" :key="value" :value="value">{{ label }}</option></select></label>
+        <p class="setup-summary"><b>4 人 · {{ form.mode === 'finite' ? '有限积分' : '无限模式' }} · {{ difficultyLabels[form.difficulty] }}难度</b><span>下一步：入座开局</span></p>
         <button class="start" type="submit">开始</button>
       </form>
     </section>
@@ -46,45 +48,44 @@ function submit() {
 </template>
 
 <style scoped>
-.setup-page { width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); display: grid; place-items: center; overflow: hidden; padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); background: radial-gradient(circle at 50% 0, #2f5741, transparent 46%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); color: var(--ink-text); }
-.setup-card { width: min(520px, 100%); padding: 28px; border: 1px solid rgba(220,187,96,.25); border-radius: 24px; background: rgba(13,34,28,.96); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
-header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin-bottom: 24px; }
-h1 { margin: 0; color: #f2d47c; font-size: 26px; }
-button { min-height: 44px; border: 1px solid #345248; border-radius: 11px; background: #112b24; color: #e8dfc7; cursor: pointer; font-weight: 800; }
-.back { width: 44px; padding: 0; font-size: 28px; }
+.setup-page { width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; color: var(--ink-text); }
+#app .setup-card { display: flex; flex-direction: column; gap: 20px; width: min(780px, 100%); height: 100%; margin: auto; padding: max(28px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+#app .setup-card > header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin: 0; padding-bottom: 16px; }
+h1 { margin: 0; font-size: 22px; }
+button { min-height: 38px; border: 1px solid var(--ink-line); border-radius: 9px; background: var(--ink-panel-deep); color: var(--ink-text-soft); cursor: pointer; font: inherit; }
+.back { width: 38px; padding: 0; font-size: 24px; }
 .tools { display: flex; align-items: center; gap: 8px; }
 .tools > button { padding: 0 13px; }
-form { display: grid; gap: 15px; }
-fieldset { margin: 0; padding: 0; border: 0; }
-legend, .field > span { margin-bottom: 7px; color: #94a9a1; font-size: 12px; font-weight: 700; }
+.setup-intro { margin: 0; color: #aebfba; font-size: 13px; line-height: 1.7; }
+form { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 14px; }
+fieldset { margin: 0; min-width: 0; }
+.mode-switch, .field { padding: 12px 20px; border: 1px solid var(--ink-line); border-radius: 14px; background: var(--ink-panel-deep); }
+legend, .field > span { color: var(--ink-text-soft); font-size: 13px; }
+legend { padding: 0 6px; }
 .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.mode-switch legend { grid-column: 1 / -1; }
-.mode-switch label { position: relative; min-height: 52px; display: grid; place-items: center; border: 1px solid #345248; border-radius: 12px; background: #102821; cursor: pointer; }
-.mode-switch label.selected { border-color: #d8b95f; background: rgba(216,185,95,.11); color: #f2d47c; }
-.mode-switch input { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; }
-.field { display: grid; }
-input, select { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid #345248; border-radius: 11px; outline: 0; background: #102821; color: #f6f0df; font-size: 15px; }
-input:focus, select:focus { border-color: #d8b95f; }
-.start { min-height: 54px; margin-top: 8px; border: 0; background: linear-gradient(135deg, #f0d27e, #cda84d); color: #172019; font-size: 18px; box-shadow: 0 10px 28px rgba(205,168,77,.2); }
-@media (pointer: coarse) and (orientation: portrait), (orientation: portrait) and (max-width: 820px) {
-  .setup-page { place-items: stretch; padding: max(14px, env(safe-area-inset-top)) 18px max(16px, env(safe-area-inset-bottom)); }
-  .setup-card { width: 100%; margin: auto 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
-  header { margin-bottom: 22px; }
-  h1 { font-size: 23px; }
-  form { gap: 17px; }
-  input, select { min-height: 52px; font-size: 16px; }
-  .mode-switch label { min-height: 58px; }
-  .start { min-height: 58px; }
+.mode-switch label { position: relative; min-height: 46px; display: grid; place-items: center; border: 1px solid var(--ink-line); border-radius: 10px; cursor: pointer; }
+.mode-switch input { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.mode-switch label:has(input:focus-visible) { outline: 2px solid #efd29a; outline-offset: 3px; }
+.field { display: grid; grid-template-columns: 88px 1fr; gap: 12px; align-items: center; }
+input, select { width: 100%; min-width: 0; min-height: 46px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 10px; font: inherit; }
+.setup-summary { margin: auto 0 0; display: flex; justify-content: space-between; gap: 12px; color: var(--accent-gold); font-size: 13px; }
+.setup-summary span { color: var(--ink-text-muted); }
+.start { flex: none; min-height: 48px; margin: 0; font-size: 16px; font-weight: 700; }
+@media (max-width: 400px) { .tools { gap: 5px; } .tools > button { padding-inline: 9px; } .setup-summary { font-size: 11px; } }
+@media (max-height: 700px) {
+  #app .setup-card { padding-top: max(12px, env(safe-area-inset-top)); gap: 12px; }
+  #app .setup-card > header { padding-bottom: 8px; }
+  form { gap: 10px; }
+  .mode-switch, .field { padding: 8px 12px; }
+  input, select, .mode-switch label { min-height: 40px; }
 }
-@media (pointer: coarse) and (orientation: landscape), (orientation: landscape) and (max-height: 620px) {
-  .setup-page { padding: max(8px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
-  .setup-card { width: min(760px, 100%); padding: 14px 18px; }
-  header { margin-bottom: 10px; }
-  h1 { font-size: 20px; }
-  form { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; align-items: end; }
-  .mode-switch { grid-column: 1 / 3; }
-  .mode-switch label { min-height: 42px; }
-  .field input, .field select { min-height: 42px; }
-  .start { min-height: 44px; margin: 0; }
+@media (orientation: landscape) and (max-height: 620px) {
+  #app .setup-card { width: min(1000px, 100%); gap: 10px; padding-bottom: 12px; }
+  form { display: grid; grid-template-columns: 1fr 1fr; align-content: start; gap: 10px 14px; }
+  .mode-switch { grid-row: span 2; align-content: center; }
+  .field { grid-column: 2; padding: 6px 12px; }
+  .setup-summary { align-self: center; flex-direction: column; gap: 4px; }
+  .start { grid-column: 2; }
+  input, select, .mode-switch label { min-height: 36px; }
 }
 </style>

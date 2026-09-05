@@ -125,7 +125,7 @@ function handleRespond(response: GameResponse): void {
       <div class="sgs-home__hero">
         <div class="sgs-home__copy">
           <p class="sgs-home__eyebrow"><span></span> 经典身份局 · 群雄共赴</p>
-          <h1>纸上三国<span class="sgs-home__seal" aria-hidden="true">纸</span></h1>
+          <h1>纸上三国</h1>
           <h2>方寸之间，风云再起。</h2>
           <small>以谋略会友，以手牌决胜。<br>选一名武将，开启属于你的三国。</small>
           <div class="sgs-home__stats"><span><b>{{ ALL_CHARACTERS.length }}</b> 名武将</span><i></i><span><b>5–8</b> 人身份局</span><i></i><span>单机 · 好友联机</span></div>

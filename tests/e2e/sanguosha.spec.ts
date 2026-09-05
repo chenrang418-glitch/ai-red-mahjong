@@ -82,7 +82,7 @@ async function enterDevLineup(page: Page, lineup: string[]) {
 for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
   const label = `${viewport.width}x${viewport.height}`
 
-  test(`${label} 单机牌桌一屏可玩`, async ({ page }) => {
+  test(`${label} 单机牌桌一屏可玩`, async ({ page }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.setViewportSize(viewport)
@@ -93,6 +93,7 @@ for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
     // 五人局：自己 + 四个其他角色
     await expect(page.locator('.sgs-seat')).toHaveCount(5)
     await expectNoPageScroll(page)
+    await page.screenshot({ path: testInfo.outputPath('paper-table.png'), animations: 'disabled' })
     expect(errors).toEqual([])
   })
 }

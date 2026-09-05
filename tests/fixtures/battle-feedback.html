@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对局反馈测试</title>
+<style>
+body { margin: 0; background: #102124; color: #f4eee1; font: 16px sans-serif; }
+.arena { position: relative; width: 100%; height: 400px; overflow: hidden; }
+.seat { position: absolute; top: 90px; width: 100px; height: 140px; border: 1px solid #55706b; border-radius: 12px; display: grid; place-items: center; }
+.source { left: 20px; } .target { right: 20px; }
+button { padding: 12px; margin: 8px; background: #192e30; border: 1px solid #55706b; border-radius: 9px; color: #f4eee1; }
+</style>
+<div id="fixture"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import SgsEffectLayer from '/src/sanguosha/components/SgsEffectLayer.vue'
+import MahjongTable from '/src/components/game/MahjongTable.vue'
+import { GameEngine } from '/src/game/engine.ts'
+if (new URLSearchParams(location.search).has('mahjong')) {
+  createApp({ setup() {
+    const engine = new GameEngine({ mode: 'finite', seed: 17, players: Array.from({ length: 4 }, (_, id) => ({ name: `玩家${id}`, isHuman: id === 0, initialPoints: 30, ai: id === 0 ? null : { difficulty: 'standard' } })) })
+    const state = ref(engine.state)
+    let seq = 0
+    const append = (type) => state.value.events.push({ id: `mj-${++seq}`, round: 1, type, playerId: 1, detail: type })
+    append('ming-gang')
+    return () => h('main', [
+      h('button', { onClick: () => { append('ming-gang'); append('draw') } }, '杠后补牌'),
+      h('button', { onClick: () => append('draw') }, '继续摸牌'),
+      h('div', { style: 'height: 600px; position: relative' }, [h(MahjongTable, { state: state.value, humanId: 0 })]),
+    ])
+  } }).mount('#fixture')
+} else {
+createApp({ setup() {
+  const staged = ref(null)
+  let sequence = 0
+  function play(kind) {
+    staged.value = { event: { id: `event-${++sequence}`, seq: sequence, kind, text: kind, sourceId: 'p0', targetIds: ['p1'], amount: 1 }, skin: kind === 'recover' ? 'heal' : 'strike' }
+  }
+  return () => h('main', [
+    h('button', { onClick: () => play('damage') }, '受击'),
+    h('button', { onClick: () => play('recover') }, '回血'),
+    h('button', { onClick: () => { staged.value = null } }, '清除'),
+    h('div', { class: 'arena' }, [
+      h('div', { class: 'seat source', 'data-seat-id': 'p0' }, '来源'),
+      h('button', { class: 'seat target', 'data-seat-id': 'p1', onClick: () => play('recover') }, '目标'),
+      h(SgsEffectLayer, { staged: staged.value }),
+    ]),
+  ])
+} }).mount('#fixture')
+}
+</script>
+</html>
