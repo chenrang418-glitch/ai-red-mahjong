@@ -8,7 +8,7 @@ import { RAGE_MARK } from '@/sanguosha/data/characters/god-shenlvbu'
 import type { CardId, GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 神吕布。经典「神话再临·神」。
+ * 神吕布。本项目自研表述。
  *
  * 最容易写错的四条：
  *

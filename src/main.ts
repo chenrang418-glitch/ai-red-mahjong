@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import RootApp from './RootApp.vue'
 import './styles/root.css'
+import './styles/interface.css'
 import { gameAudio } from './composables/useGameAudio'
 import { cleanupLegacyStorage } from './cleanupLegacyStorage'
 import { mountWithFallback } from './bootstrap'

@@ -4,7 +4,7 @@ import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神赵云。经典《神话再临·山》**原版**，2 体力。
+ * 神赵云。经典**原版**，2 体力。
  *
  * 【绝境】：锁定技，你的摸牌阶段额外摸 X 张牌（X 为你已损失的体力值）；你的手牌上限 +2。
  * 【龙魂】：你可以将 X 张花色相同的牌（X 为你的当前体力值且至少为 1）当作

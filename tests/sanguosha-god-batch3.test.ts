@@ -13,7 +13,7 @@ import { CAMP_TOKEN, POXI_MAXCARDS_MARK, SHENGANNING } from '@/sanguosha/data/ch
 import type { CardId, GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 神张辽 + 神甘宁。**三国杀移动版当前官方技能页现行版本**。
+ * 神张辽 + 神甘宁。本项目的自研玩法表述。
  *
  * 神张辽最要紧的：装备栏是**真的没了**（不能再装备、武器栏没了攻击范围跟着变）；
  * 夺锐期间不能再夺锐；技能失效和临时获得**成对结束**。

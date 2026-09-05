@@ -9,7 +9,7 @@ import { effectiveKingdomOf } from '../../engine/huashen'
  * 张角【雷击】【鬼道】【黄天】。
  *
  * 采用**经典风包版**，锁定的规则文本见 docs/sanguosha-ruleset-v1.md。
- * 界限突破、OL、十周年都不混进来。
+ * 行为以本文件的注释为准。
  *
  * 三个技能全部复用已有的公共机制，**没有为张角新建任何一套并行系统**：
  * - 雷击的判定走 `performJudgment` + 续接（和司马懿、刚烈、洛神同一条路）；

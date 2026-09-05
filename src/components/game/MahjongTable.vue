@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import MahjongTile from './MahjongTile.vue'
 import PlayerSeat from './PlayerSeat.vue'
 import SeatCountdown from './SeatCountdown.vue'
-import type { GameState, Tile } from '@/game/types'
+import ActionBurst from './ActionBurst.vue'
+import type { GameEvent, GameState, Tile } from '@/game/types'
 
 const props = withDefaults(defineProps<{
   state: GameState
@@ -49,6 +50,20 @@ const arrangedHumanHand = computed(() => human.value.hand.filter((tile) => tile.
 const lastDiscardId = computed(() => props.state.lastDiscard?.tile.id ?? '')
 // 这几类动作值得把提示条也强调一下，普通的摸打就不用了
 const STRONG_EVENTS = ['peng', 'ming-gang', 'an-gang', 'bu-gang', 'win', 'draw-game']
+const latestEvent = computed(() => props.state.events.at(-1))
+// 杠与补牌可能在同一份快照里到达，不能只看最后的摸牌事件。
+const latestBurstEvent = computed(() => props.state.events.slice().reverse().find((event) =>
+  ['peng', 'ming-gang', 'an-gang', 'bu-gang', 'win'].includes(event.type),
+))
+const burstEvent = shallowRef<GameEvent | null>(null)
+// 进入或重连时不重播历史动作；后续普通快照也不重新触发同一场粒子。
+watch(() => latestBurstEvent.value?.id, () => { burstEvent.value = latestBurstEvent.value ?? null })
+const burstPosition = computed(() => {
+  const event = burstEvent.value
+  if (!event || event.playerId == null) return null
+  const relativeSeat = (event.playerId - props.humanId + 4) % 4
+  return [{ left: '50%', top: '72%' }, { left: '84%', top: '45%' }, { left: '50%', top: '18%' }, { left: '16%', top: '45%' }][relativeSeat]
+})
 const activeCountdown = computed(() => {
   const timer = props.turnTimer
   if (!timer) return null
@@ -72,6 +87,7 @@ function countdownFor(seatId: number) {
 <template>
   <div class="table-shell" :class="{ 'my-turn': isHumanTurn }">
     <div class="felt-pattern"></div>
+    <ActionBurst v-if="burstPosition" :key="burstEvent?.id" :style="burstPosition" :tone="burstEvent?.type === 'win' ? 'gold' : 'blue'" />
 
     <PlayerSeat
       class="top-seat"
@@ -139,6 +155,7 @@ function countdownFor(seatId: number) {
         </div>
         <div
           v-if="state.events.length"
+          :key="latestEvent?.id"
           class="last-action"
           :class="{ strong: STRONG_EVENTS.includes(state.events.at(-1)?.type ?? '') }"
         >{{ state.events.at(-1)?.detail }}</div>
@@ -237,7 +254,7 @@ function countdownFor(seatId: number) {
   transition: border-color .3s, box-shadow .3s;
 }
 /* 轮到自己时整张桌子透一层光，比再加一行字更快被看到 */
-.table-shell.my-turn { border-color: rgba(243, 202, 105, .6); animation: table-breathe 2.4s ease-in-out infinite; }
+.table-shell.my-turn { border-color: rgba(243, 202, 105, .6); animation: table-breathe 1s ease-out 1; }
 .felt-pattern { position: absolute; inset: 0; opacity: .05; background-image: repeating-linear-gradient(45deg, transparent 0 16px, #fff 17px 18px); pointer-events: none; }
 .table-center, .table-strip { z-index: 1; min-width: 0; }
 /* 座位要压在牌河上面：气泡是从座位里冒出来的，座位低于牌河的话气泡就被牌河盖住了 */
@@ -393,7 +410,7 @@ function countdownFor(seatId: number) {
 .human-seat.active {
   border-color: #f3ca69;
   box-shadow: 0 0 0 2px rgba(243,202,105,.14), inset 0 1px 0 rgba(255,255,255,.06);
-  animation: human-seat-breathe 2.2s ease-in-out infinite;
+  animation: human-seat-breathe .8s ease-out 2;
 }
 @keyframes human-seat-breathe {
   50% { border-color: #ffe08a; box-shadow: 0 0 0 2px rgba(255,224,138,.2), 0 0 30px rgba(243,202,105,.18), inset 0 1px 0 rgba(255,255,255,.08); }

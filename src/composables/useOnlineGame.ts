@@ -188,7 +188,7 @@ export function useOnlineGame() {
   }
 
   // 大厅要知道服务器是不是在维护，好把「创建房间」按钮灰掉并说明原因。
-  // 状态本身走公共的 useServiceStatus——门户的公告横幅、三国杀大厅读的是同一份，
+  // 状态本身走公共的 useServiceStatus——门户的公告横幅、纸上三国大厅读的是同一份，
   // 各自再发一次请求会出现「这边说在维护、那边说没有」。
   async function refreshService() {
     await refreshServiceStatus()

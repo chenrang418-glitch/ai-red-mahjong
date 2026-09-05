@@ -8,7 +8,7 @@ import { setChained } from '@/sanguosha/engine/character-state'
 import type { CardId, GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 神刘备。**三国杀移动版当前官方技能页现行版本**。
+ * 神刘备。本项目的自研玩法表述。
  *
  * 三条最要紧的：
  *

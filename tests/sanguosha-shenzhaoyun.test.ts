@@ -7,7 +7,7 @@ import { SHENZHAOYUN, longhunRequiredCount } from '@/sanguosha/data/characters/g
 import type { CardId, GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 神赵云。经典《神话再临·山》**原版**，2 体力。
+ * 神赵云。经典**原版**，2 体力。
  *
  * 版本锁三条（2018 重做版一条都不要）：
  * - 绝境 = 摸牌阶段额外摸「已损失体力」张 + 手牌上限 +2

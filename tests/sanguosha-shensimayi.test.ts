@@ -8,7 +8,7 @@ import { REN_MARK } from '@/sanguosha/data/characters/god-shensimayi'
 import type { CardId, GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 神司马懿。经典「神话再临·神」。
+ * 神司马懿。本项目自研表述。
  *
  * 最要紧的四条：
  *

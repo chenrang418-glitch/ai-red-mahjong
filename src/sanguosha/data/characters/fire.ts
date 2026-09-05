@@ -11,7 +11,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神话再临·火包。
+ * 本项目自研表述。
  *
  * 只放技能全部实现完的武将。**没实现的宁可不登记**——
  * 能选到却发动不了比根本选不到更糟。
@@ -27,7 +27,7 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
 //
 // 采用**经典火包版**：出牌阶段限一次，失去 1 点体力或弃置一张武器牌，
 // 然后对攻击范围内的一名其他角色造成 1 点伤害。
-// 界限突破版是「限两次 + 本阶段未被强袭过」，这里不混进来。
+// 本项目不采用该变体。
 
 const QIANGXI = 'qiangxi'
 

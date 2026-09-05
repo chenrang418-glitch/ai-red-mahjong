@@ -70,16 +70,13 @@ const waitingText = computed(() => {
 /* 皮肤 */
 .sgs-action-stage__event--skin-strike { border-color: rgba(233,88,70,.7); background: linear-gradient(150deg, rgba(62,32,28,.95), rgba(22,13,11,.95)); }
 .sgs-action-stage__event--skin-heal { border-color: rgba(83,199,127,.6); background: linear-gradient(150deg, rgba(28,54,38,.95), rgba(12,26,18,.95)); }
-/* 闪：横向抖一下，读起来就是「侧身躲开」 */
-.sgs-action-stage__event--skin-dodge { border-color: rgba(214,229,208,.6); animation: stage-dodge .42s ease-out; }
-/* 判定：整块翻一次牌 */
-.sgs-action-stage__event--skin-judge { border-color: rgba(205,170,240,.5); animation: stage-flip .5s ease-out; transform-style: preserve-3d; }
+/* 事件说明保持稳定，闪避和判定的动作交给座位浮字。 */
+.sgs-action-stage__event--skin-dodge { border-color: rgba(214,229,208,.6); animation: stage-in .2s ease-out; }
+.sgs-action-stage__event--skin-judge { border-color: rgba(205,170,240,.5); animation: stage-in .2s ease-out; }
 .sgs-action-stage__event--skin-nullify { border-color: rgba(120,190,235,.62); background: linear-gradient(150deg, rgba(24,44,58,.95), rgba(10,20,28,.95)); }
 .sgs-action-stage__chain { padding: 1px 7px; border-radius: 999px; background: rgba(64,120,158,.7); color: #d8f0ff; font-size: 10px; font-weight: 800; }
 
-@keyframes stage-in-heavy { from { opacity: 0; transform: scale(.82); } }
-@keyframes stage-dodge { 0%,100% { transform: translateX(0); } 22% { transform: translateX(-11px); } 55% { transform: translateX(9px); } 80% { transform: translateX(-4px); } }
-@keyframes stage-flip { from { transform: rotateY(-90deg); opacity: .2; } to { transform: rotateY(0); opacity: 1; } }
+@keyframes stage-in-heavy { from { opacity: 0; transform: scale(.96); } }
 @media (prefers-reduced-motion: reduce) {
   .sgs-action-stage__event--heavy, .sgs-action-stage__event--skin-dodge, .sgs-action-stage__event--skin-judge { animation: none; }
 }

@@ -7,7 +7,7 @@ import { loseHp } from '@/sanguosha/engine/hp'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 神诸葛亮。经典「神话再临·神」版本。
+ * 神诸葛亮。本项目自研表述。
  *
  * 三条重点：
  *

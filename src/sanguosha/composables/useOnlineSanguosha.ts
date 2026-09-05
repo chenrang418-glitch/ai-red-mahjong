@@ -34,7 +34,7 @@ function storageGet(key: string): string {
   try {
     const raw = window.localStorage.getItem(key) ?? ''
     if (!raw) return ''
-    // 麻将和三国杀共用昵称。麻将按 JSON 保存字符串，旧实现直接读取会把双引号也显示出来。
+    // 麻将和纸上三国共用昵称。麻将按 JSON 保存字符串，旧实现直接读取会把双引号也显示出来。
     try {
       const parsed = JSON.parse(raw) as unknown
       return typeof parsed === 'string' ? parsed : ''

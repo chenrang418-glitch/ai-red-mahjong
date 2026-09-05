@@ -8,7 +8,7 @@ import { skillIdsOf } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId, Suit, TurnPhase } from '@/sanguosha/engine/types'
 
 /**
- * 山包·刘禅。经典「神话再临·山」首版，3 体力。
+ * 山包·刘禅。本项目自研表述。3 体力。
  *
  * **绝对不是界刘禅**——放权没有「手牌上限等于体力上限」之类的强化。
  *

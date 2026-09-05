@@ -9,7 +9,7 @@ import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神刘备。**三国杀移动版当前官方技能页现行版本**（规则源锁定 2026-09-04）。
+ * 神刘备。本项目的自研玩法表述。
  *
  * 【龙怒】：转换技，锁定技，出牌阶段开始时，
  *   阳：你失去 1 点体力并摸一张牌，然后本回合你的红色手牌均视为火【杀】且无距离限制；

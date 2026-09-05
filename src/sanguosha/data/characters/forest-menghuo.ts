@@ -8,7 +8,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 林包·孟获。经典「神话再临·林」首版，不是界孟获。
+ * 林包·孟获。本项目自研表述。
  *
  * 两个技能都**只消费公共机制**，引擎主干里不出现 menghuo：
  *

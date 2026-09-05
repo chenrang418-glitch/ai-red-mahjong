@@ -10,7 +10,7 @@ import { getCharacter } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 火包·袁绍（经典版本，不是界限突破）。
+ * 火包·袁绍。
  *
  * 三处最容易做错的地方单独钉住：
  * 1. 【乱击】**不复制万箭**——目标、无懈、求闪、伤害全部走现有管线；

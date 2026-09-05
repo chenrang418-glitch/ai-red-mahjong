@@ -6,7 +6,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神诸葛亮。经典「神话再临·神」版本。
+ * 神诸葛亮。本项目自研表述。
  *
  * - **七星**：游戏开始时，将牌堆顶七张牌扣置于你的武将牌上，称为「星」，
  *   并可以用任意数量的手牌交换等量的「星」；此后每个摸牌阶段结束时（摸完牌后），

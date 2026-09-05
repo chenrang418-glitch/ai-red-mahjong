@@ -10,7 +10,7 @@ import { hasAcceptedProjectNotice, markProjectNoticeAccepted } from '@/notice/no
  * **这是这个功能最关键的一点**：默认插槽只在 `accepted` 为真时才会渲染
  * （`<slot v-if="accepted" />`）。Vue 的插槽内容是父组件传进来的一段渲染函数，
  * 子组件不调用它，里面的东西就完全不会挂载——`RootApp` 原来的路由判断、
- * 麻将/三国杀的 `App.vue`/`SanguoshaApp.vue`（它们在 `setup()` 里同步读取
+ * 麻将/纸上三国的 `App.vue`/`SanguoshaApp.vue`（它们在 `setup()` 里同步读取
  * `?room=` 决定要不要自动连房间）都在这段插槽里，所以在用户点「我知道了」
  * 之前，它们根本不会实例化，也就谈不上重复建房、误连 WebSocket。
  *

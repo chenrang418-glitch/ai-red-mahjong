@@ -1,6 +1,6 @@
 # CRPlay 网页游戏合集
 
-面向朋友快速开局的网页游戏平台。当前包含成熟的红中麻将，以及持续完善中的三国杀经典身份局；桌面、手机竖屏与手机横屏均以一屏完成核心操作为目标。
+面向朋友快速开局的网页游戏平台。当前包含成熟的红中麻将，以及持续完善中的纸上三国经典身份局；桌面、手机竖屏与手机横屏均以一屏完成核心操作为目标。
 
 生产地址：[https://crplay.cn](https://crplay.cn)
 
@@ -32,7 +32,7 @@ npm run dev:online
 ## 当前游戏
 
 - 红中麻将：完整单机 AI、四人联机、断线重连和管理功能。
-- 三国杀：5～8 人经典身份局，单机 AI 与 Cloudflare Durable Object 联机共用同一套规则引擎。当前完整登记 64 名武将（标准 25、风包 8、火包 8、林包 8、山包 8、好友娱乐 7），支持随机候选、单机完整自选、自定义武将固定候选、原创国风音乐与全卡牌音效，以及按阵营浏览的高清武将艺术集。全部装备均已实现，详见 [`docs/sanguosha-ruleset-v1.md`](docs/sanguosha-ruleset-v1.md)。
+- 纸上三国：5～8 人经典身份局，单机 AI 与 Cloudflare Durable Object 联机共用同一套规则引擎。当前完整登记 64 名武将（标准 25、风包 8、火包 8、林包 8、山包 8、好友娱乐 7），支持随机候选、单机完整自选、自定义武将固定候选、原创国风音乐与全卡牌音效，以及按阵营浏览的高清武将艺术集。全部装备均已实现，详见 [`docs/sanguosha-ruleset-v1.md`](docs/sanguosha-ruleset-v1.md)。
 
 ## 红中麻将规则
 
@@ -49,7 +49,7 @@ npm run dev:online
 - Cloudflare Worker：HTTP 与 WebSocket 入口。
 - `MahjongRoom` Durable Object：每个房间一份服务端权威状态。
 - `MahjongLobby` Durable Object：轻量房间目录广播、会话注册与全局设置。
-- `SanguoshaRoom` Durable Object：三国杀房间的服务端权威状态、超时托管和休眠恢复。
+- `SanguoshaRoom` Durable Object：纸上三国房间的服务端权威状态、超时托管和休眠恢复。
 - D1：昵称、公开房间摘要和管理审计；不保存牌局步骤、聊天或长期战绩。
 
 客户端只提交操作意图。服务端检查回合、版本、`actionId`、合法出牌、碰、杠、胡，并在下发视图时隐藏其他玩家手牌、暗杠和牌墙。
@@ -68,7 +68,7 @@ https://crplay.cn/?room=ABC234
 
 ## 数据库迁移
 
-历史 migration 不修改。`0005_remove_player_stats.sql` 删除已废弃的长期战绩表、触发器和索引；`0006_sanguosha_room_directory.sql` 增加三国杀公开房间目录。实时牌局状态仍只保存在 Durable Object。
+历史 migration 不修改。`0005_remove_player_stats.sql` 删除已废弃的长期战绩表、触发器和索引；`0006_sanguosha_room_directory.sql` 增加纸上三国公开房间目录。实时牌局状态仍只保存在 Durable Object。
 
 本地应用：
 

@@ -3,7 +3,7 @@ import { InvalidSgsWireCommandError, parseSgsRoomCommand } from '../server/sangu
 
 const meta = { actionId: 'action-1', baseSeq: 3 }
 
-describe('三国杀联机指令运行时校验', () => {
+describe('纸上三国联机指令运行时校验', () => {
   it('收窄所有指令并丢弃额外字段', () => {
     expect(parseSgsRoomCommand({ type: 'toggle-ready', ...meta, injected: true })).toEqual({ type: 'toggle-ready', ...meta })
     expect(parseSgsRoomCommand({ type: 'remove-ai', seatId: 4, ...meta })).toEqual({ type: 'remove-ai', seatId: 4, ...meta })

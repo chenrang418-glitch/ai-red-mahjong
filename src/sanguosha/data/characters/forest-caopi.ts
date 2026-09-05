@@ -8,7 +8,7 @@ import { effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
 
 /**
- * 林包·曹丕。经典「神话再临·林」首版，不是界曹丕。
+ * 林包·曹丕。本项目自研表述。
  *
  * 【行殇】「当其他角色死亡时，你可以获得其所有牌。」
  * 【放逐】「当你受到伤害后，你可以令一名其他角色摸 X 张牌（X 为你已损失的体力值）并翻面。」

@@ -132,7 +132,7 @@ function back() { if (online.room.value) leaveRoom(); else emit('back') }
 
 <style scoped>
 .hub-maintenance { margin: 6px 0 0; color: #ff9d94; font-size: 12px; line-height: 1.6; }
-/* 和三国杀大厅同一套：维护中的按钮压暗，一眼看出是「不能点」 */
+/* 和纸上三国大厅同一套：维护中的按钮压暗，一眼看出是「不能点」 */
 .primary.is-maintenance { border-color: #4a3f3d; background: linear-gradient(180deg, #2a201f, #1b1413); color: #b58e8a; }
 .online-hub { width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); display: flex; flex-direction: column; overflow: hidden; padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); color: var(--ink-text); background: radial-gradient(circle at 10% 0, #2f5741, transparent 42%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom)); }
 .hub-header { width: min(1160px, 100%); min-height: 48px; margin: 0 auto 14px; display: grid; grid-template-columns: 80px 1fr 80px; align-items: center; }

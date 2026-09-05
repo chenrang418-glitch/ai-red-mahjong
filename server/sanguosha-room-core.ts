@@ -38,7 +38,7 @@ export const TEST_SGS_ROOM_TIMING: SgsRoomTiming = {
 }
 
 /**
- * 三国杀联机房间的纯逻辑核心。
+ * 纸上三国联机房间的纯逻辑核心。
  *
  * 三条硬约束，都写在任务书里：
  *
@@ -659,7 +659,8 @@ export class SanguoshaRoomCoordinator {
     const logged = ['TurnStart', 'CardUsed', 'CardResponded', 'Damaged', 'Recover',
       'LoseHp', 'EnterDying', 'Death', 'JudgeResult', 'GainCard', 'LoseEquipment', 'CharacterFlip',
       'CardMove'] as const
-    const presentationOnly = ['SkillActivated'] as const
+    // PlayBegin 只进表现流（触发开局音），不进战报——「牌局开始」没有信息量
+    const presentationOnly = ['SkillActivated', 'PlayBegin'] as const
     const observed = [...logged, ...presentationOnly] as const
     for (const name of observed) {
       game.events.on(name, (context) => {

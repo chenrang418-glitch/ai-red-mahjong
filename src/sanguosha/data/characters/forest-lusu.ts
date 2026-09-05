@@ -9,7 +9,7 @@ import { locateOwnedCard, moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 林包·鲁肃。经典「神话再临·林」首版，不是界鲁肃。
+ * 林包·鲁肃。本项目自研表述。
  *
  * 【好施】「摸牌阶段，你可以多摸两张牌，然后若你的手牌数大于 5，
  *   你将一半的手牌（向下取整）交给手牌最少的一名其他角色。」

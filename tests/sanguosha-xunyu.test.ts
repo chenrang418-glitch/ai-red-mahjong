@@ -7,7 +7,7 @@ import { getCharacter } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
- * 火包·荀彧（经典版本，不是界限突破）。
+ * 火包·荀彧。
  *
  * 三处最容易做错的地方单独钉住：
  * 1. 驱虎的**伤害来源是拼点目标**，不是荀彧——奸雄、刚烈都该认到他头上；

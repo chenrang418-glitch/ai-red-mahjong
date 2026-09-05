@@ -12,7 +12,7 @@ const FACTION_ORDER = ['wei', 'shu', 'wu', 'qun', 'jin', 'shen'] as const
 const CUSTOM_CHARACTERS = ALL_CHARACTERS.filter((character) => character.pack === 'entertainment').map((character) => character.name)
 
 /**
- * 三国杀单机流程的浏览器验收。
+ * 纸上三国单机流程的浏览器验收。
  *
  * 重点不是好看，而是两件任务书反复强调的事：
  * 1. 每一步都真的点得到——服务端支持不等于前端有入口。
@@ -48,7 +48,7 @@ async function expectNoPageScroll(page: Page) {
 /** 从门户一路进到牌桌。 */
 async function enterTable(page: Page, playerCount?: number) {
   await page.goto('/?game=sanguosha')
-  await expect(page.getByRole('heading', { name: '三国杀' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '纸上三国' })).toBeVisible()
   await page.getByRole('button', { name: /单机游戏/ }).click()
   await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
   if (playerCount) await page.getByRole('button', { name: `${playerCount} 人`, exact: true }).click()
@@ -82,7 +82,7 @@ async function enterDevLineup(page: Page, lineup: string[]) {
 for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
   const label = `${viewport.width}x${viewport.height}`
 
-  test(`${label} 单机牌桌一屏可玩`, async ({ page }) => {
+  test(`${label} 单机牌桌一屏可玩`, async ({ page }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.setViewportSize(viewport)
@@ -93,6 +93,7 @@ for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
     // 五人局：自己 + 四个其他角色
     await expect(page.locator('.sgs-seat')).toHaveCount(5)
     await expectNoPageScroll(page)
+    await page.screenshot({ path: testInfo.outputPath('paper-table.png'), animations: 'disabled' })
     expect(errors).toEqual([])
   })
 }

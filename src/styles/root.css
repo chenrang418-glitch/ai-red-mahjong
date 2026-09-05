@@ -15,7 +15,7 @@
    * 也按深色走，这是 iOS 上少数几个能影响画布颜色的开关之一。
    */
   color-scheme: dark;
-  background-color: var(--ink-bg-bottom, #0b130f);
+  background-color: var(--ink-bg-bottom, #081416);
 
   /*
    * 管理员公告横幅占掉的高度。
@@ -30,7 +30,7 @@
   --app-viewport-offset: 0px;
 
   /*
-   * 全站配色（墨绿方案）。
+   * 全站配色（墨青与暖金，游戏中心和两款游戏共用）。
    *
    * 定义在这里而不是各组件里，是因为门户、两个游戏的首页、牌桌、弹层
    * 以前各写各的深色值，改一处就会漏掉别处。
@@ -41,18 +41,18 @@
    * 显得发灰发白（用户反馈），游戏内因为有牌桌和立绘压着反而不明显。
    * 保持墨绿的色相不变——绿色通道仍然明显高于红蓝，只是整体更暗。
    */
-  --ink-bg-top: #15251d;      /* 墨绿，页面主底 */
-  --ink-bg-bottom: #0b130f;   /* 墨绿的暗端 */
+  --ink-bg-top: #14292b;      /* 墨绿，页面主底 */
+  --ink-bg-bottom: #081416;   /* 墨绿的暗端 */
   --ink-glow: rgba(58, 110, 80, .22);   /* 底色上的绿色光晕 */
-  --ink-panel: #1a2721;       /* 面板/卡片底 */
-  --ink-panel-deep: #111b16;  /* 面板暗端 */
-  --ink-line: #3d5347;        /* 分隔线 */
-  --ink-text: #fbf3e3;        /* 主文字 */
-  --ink-text-soft: #b3c2b6;   /* 次要文字 */
-  --ink-text-muted: #8b9b90;  /* 说明文字 */
+  --ink-panel: #192e30;       /* 面板/卡片底 */
+  --ink-panel-deep: #102124;  /* 面板暗端 */
+  --ink-line: #385052;        /* 分隔线 */
+  --ink-text: #f4eee1;        /* 主文字 */
+  --ink-text-soft: #bac9c5;   /* 次要文字 */
+  --ink-text-muted: #98aaa7;  /* 说明文字 */
 
   /* 三个入口的主色。麻将红、三国杀金，和门户卡片的强调色一致 */
-  --accent-gold: #cfa456;
+  --accent-gold: #d8b777;
   --accent-gold-fill-top: #9b7a37;
   --accent-gold-fill-bottom: #6d5527;
   --accent-red: #cf5c50;
@@ -77,7 +77,7 @@ html, body, #app {
    * 用调色板里最暗的那个墨绿而不是纯黑：它就是页面渐变的收尾色，
    * 地址栏收放或橡皮筋回弹时露出来和页面底部完全接得上，不会出现一条黑边。
    */
-  background-color: var(--ink-bg-bottom, #0b130f);
+  background-color: var(--ink-bg-bottom, #081416);
 }
 
 /*

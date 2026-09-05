@@ -8,7 +8,7 @@ import { effectiveGenderOf, effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
 
 /**
- * 林包·董卓。经典「神话再临·林」首版，8 体力。
+ * 林包·董卓。本项目自研表述。8 体力。
  *
  * 【酒池】「你可以将一张♠手牌当【酒】使用。」
  * 【肉林】「锁定技，当你使用【杀】指定女性角色为目标后／成为女性角色使用【杀】的目标后，

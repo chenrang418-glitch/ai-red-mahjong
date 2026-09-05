@@ -75,7 +75,7 @@ async function mockOnlineApi(page: Page, hasSession = true) {
 }
 
 for (const viewport of viewports) {
-  test(`${viewport.width}x${viewport.height} 核心页面保持一屏`, async ({ page }) => {
+  test(`${viewport.width}x${viewport.height} 核心页面保持一屏`, async ({ page }, testInfo) => {
     const browserErrors: string[] = []
     page.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()) })
     page.on('pageerror', (error) => browserErrors.push(error.message))
@@ -88,11 +88,13 @@ for (const viewport of viewports) {
     await expect(page.getByRole('button', { name: /单机游戏/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /联机游戏/ })).toBeVisible()
     await expectNoPageScroll(page)
+    await page.screenshot({ path: testInfo.outputPath('mahjong-home.png'), animations: 'disabled' })
 
     await page.getByRole('button', { name: /单机游戏/ }).click()
     await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
     await expect(page.getByRole('button', { name: '开始', exact: true })).toBeVisible()
     await expectNoPageScroll(page)
+    await page.screenshot({ path: testInfo.outputPath('mahjong-setup.png'), animations: 'disabled' })
 
     await page.getByLabel('AI 难度').selectOption('beginner')
     await page.getByRole('button', { name: '开始', exact: true }).click()
@@ -103,6 +105,8 @@ for (const viewport of viewports) {
     // 操作 Dock 只在真人需要响应时出现；否则必须清晰标出正在行动的 AI 座位。
     await expect(page.locator('.action-dock button, .top-seat.active, .left-seat.active, .right-seat.active').first()).toBeVisible()
     await expectNoPageScroll(page)
+    await expect(page.locator('.dice-toast')).toBeHidden({ timeout: 10_000 })
+    await page.screenshot({ path: testInfo.outputPath('mahjong-table.png'), animations: 'disabled' })
 
     await page.goto('/?game=mahjong')
     await page.getByRole('button', { name: /联机游戏/ }).click()

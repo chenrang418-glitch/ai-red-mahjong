@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GameRng } from '@/sanguosha/engine/rng'
 
-describe('三国杀确定性随机源', () => {
+describe('纸上三国确定性随机源', () => {
   it('相同 seed 产生相同序列和洗牌', () => {
     const left = new GameRng('ruleset-v1:test-seed')
     const right = new GameRng('ruleset-v1:test-seed')

@@ -1,7 +1,7 @@
 import type { CardId, DamageNature, PlayerId, TurnPhase } from './types'
 
 export type GameEventName =
-  | 'GameStart' | 'TurnStart' | 'TurnEnd' | 'PhaseStart' | 'PhaseEnd'
+  | 'GameStart' | 'PlayBegin' | 'TurnStart' | 'TurnEnd' | 'PhaseStart' | 'PhaseEnd'
   | 'JudgePhase' | 'DrawPhase' | 'PlayPhase' | 'DiscardPhase'
   | 'BeforeCardUse' | 'CardUsed' | 'TargetSpecified' | 'TargetConfirmed' | 'CardResolved' | 'AfterCardUse'
   | 'CardResponded' | 'BeforeDamage' | 'DamageCaused' | 'DamageInflicted' | 'Damaged' | 'AfterDamage'

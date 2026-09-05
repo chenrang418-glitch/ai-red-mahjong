@@ -1,5 +1,5 @@
 /**
- * 三国杀无头压测。CI 里跑的是 tests/sanguosha-ai-soak.test.ts 的中等规模版本，
+ * 纸上三国无头压测。CI 里跑的是 tests/sanguosha-ai-soak.test.ts 的中等规模版本，
  * 这个脚本用于验收前的大批量跑：
  *
  *   node scripts/sanguosha-soak.mjs 500

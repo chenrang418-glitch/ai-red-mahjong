@@ -4,7 +4,7 @@ import { assertCardConservation } from '@/sanguosha/engine/zones'
 import type { GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 神吕蒙。经典「神话再临·神」版本。
+ * 神吕蒙。本项目自研表述。
  *
  * 两条重点：
  *

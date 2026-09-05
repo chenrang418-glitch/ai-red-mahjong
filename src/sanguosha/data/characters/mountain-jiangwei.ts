@@ -11,7 +11,7 @@ import { setCardAlias } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
 /**
- * 山包·姜维。经典「神话再临·山」首版。
+ * 山包·姜维。本项目自研表述。。
  *
  * 原文：
  * - **挑衅**：出牌阶段限一次，你可以指定一名攻击范围内含有你的其他角色，

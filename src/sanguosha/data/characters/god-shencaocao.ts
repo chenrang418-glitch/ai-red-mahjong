@@ -6,7 +6,7 @@ import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神曹操。经典「神话再临·神」原版。
+ * 神曹操。本项目自研表述。
  *
  * 【归心】：每当你受到 1 点伤害后，若至少一名其他角色的区域内有牌，
  * 你可以从每名有牌的其他角色的区域内各获得一张牌，然后将你的武将牌翻面。

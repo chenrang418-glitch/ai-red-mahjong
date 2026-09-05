@@ -31,9 +31,9 @@
 
 | 类别 | 依据 | 说明 |
 |---|---|---|
-| 限定技 | `SkillRuntime.limited` | 官方文本明确排除 |
-| 觉醒技 | `SkillRuntime.awakening` | 官方文本明确排除 |
-| 主公技 | `SkillRuntime.lord` | 官方文本明确排除 |
+| 限定技 | `SkillRuntime.limited` | 表述明确排除 |
+| 觉醒技 | `SkillRuntime.awakening` | 表述明确排除 |
+| 主公技 | `SkillRuntime.lord` | 表述明确排除 |
 | 觉醒后才获得的条目 | `skill.granted` | 不印在武将牌上，不是夺锐的候选 |
 | 规则冲突 | `skill-theft.ts` 的 `STRUCTURAL_EXCLUSIONS` | 逐条写明原因，见下 |
 | 技能自己声明 | `SkillRuntime.stealable === false` | 留给将来的特例，目前没有用到 |

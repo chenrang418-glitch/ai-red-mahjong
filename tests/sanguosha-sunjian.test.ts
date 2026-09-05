@@ -5,7 +5,7 @@ import { assertCardConservation } from '@/sanguosha/engine/zones'
 import type { GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 林包·孙坚【英魂】。经典首版，没有「魂」标记（那是十周年版）。
+ * 林包·孙坚【英魂】。本项目的表述里没有「魂」标记。
  *
  * 两条最容易做错的地方，这里各钉了一组：
  *

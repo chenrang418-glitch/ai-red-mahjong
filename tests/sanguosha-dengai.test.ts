@@ -8,7 +8,7 @@ import { skillIdsOf } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 山包·邓艾。经典「神话再临·山」首版。
+ * 山包·邓艾。本项目自研表述。。
  *
  * 这一组守四件容易做反的事：
  *

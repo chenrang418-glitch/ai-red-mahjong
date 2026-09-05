@@ -34,7 +34,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 
   test(`管理员页 ${viewport.width}x${viewport.height} 同时管理两款游戏`, async ({ page }) => {
     await openAdmin(page, viewport)
     await expect(page.getByText('红中麻将', { exact: true }).first()).toBeVisible()
-    await expect(page.getByText('三国杀', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('纸上三国', { exact: true }).first()).toBeVisible()
 
     await page.getByRole('button', { name: '双游戏房间' }).click()
     await expect(page.getByText('MJ2345')).toBeVisible()
@@ -44,7 +44,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 
     await page.getByRole('button', { name: /麻将 1/ }).click()
     await expect(page.getByText('MJ2345')).toBeVisible()
     await expect(page.getByText('SG6789')).toBeHidden()
-    await page.getByRole('button', { name: /三国杀 1/ }).click()
+    await page.getByRole('button', { name: /纸上三国 1/ }).click()
     await expect(page.getByText('SG6789')).toBeVisible()
     await expect(page.getByText('MJ2345')).toBeHidden()
 

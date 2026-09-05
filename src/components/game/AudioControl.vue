@@ -93,8 +93,8 @@ function toggleOpen() {
 
 <style scoped>
 .audio-control { position: relative; flex: 0 0 auto; min-width: max-content; }
-.audio-trigger { min-width: 54px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 8px 10px; border: 1px solid #315248; border-radius: 8px; background: #10251f; color: #e6d8b2; cursor: pointer; font-weight: 700; white-space: nowrap; }
-.audio-popover { position: absolute; z-index: 90; top: calc(100% + 9px); right: 0; width: 310px; padding: 16px; border: 1px solid #496258; border-radius: 16px; background: #10251f; box-shadow: 0 18px 45px rgba(0,0,0,.48); color: #e9e1ca; }
+.audio-trigger { min-width: 54px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 8px 10px; border: 1px solid var(--ink-line); border-radius: 8px; background: var(--ink-panel-deep); color: #e6d8b2; cursor: pointer; font-weight: 700; white-space: nowrap; }
+.audio-popover { position: absolute; z-index: 90; top: calc(100% + 9px); right: 0; width: 310px; padding: 16px; border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-panel-deep); box-shadow: 0 18px 45px rgba(0,0,0,.48); color: var(--ink-text); }
 
 /* 手机端：从底部升起的整条，不再跟着按钮定位 */
 .audio-popover.sheet {
@@ -118,19 +118,19 @@ function toggleOpen() {
 header, .setting-toggle, .setting-heading, .setting-heading > span { display: flex; align-items: center; }
 header { justify-content: space-between; margin-bottom: 10px; }
 header strong { font-size: 15px; }
-header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d; border-radius: 50%; background: #18342c; color: #e8dbc0; cursor: pointer; }
-.setting-toggle, .setting-block { padding: 12px 0; border-top: 1px solid #2a443b; }
+header button { width: 30px; height: 30px; padding: 0; border: 1px solid var(--ink-line); border-radius: 50%; background: var(--ink-panel); color: #e8dbc0; cursor: pointer; }
+.setting-toggle, .setting-block { padding: 12px 0; border-top: 1px solid var(--ink-line); }
 .setting-toggle { justify-content: space-between; gap: 14px; cursor: pointer; }
 .setting-copy { display: grid; gap: 2px; }
-.setting-copy b, .setting-heading b { color: #c4d0cc; font-size: 12px; }
-.setting-copy small { color: #70867f; font-size: 9px; }
-.setting-copy small.unsupported { color: #9d8055; }
+.setting-copy b, .setting-heading b { color: var(--ink-text-soft); font-size: 12px; }
+.setting-copy small { color: var(--ink-text-muted); font-size: 9px; }
+.setting-copy small.unsupported { color: var(--ink-text-muted); }
 .setting-heading { justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .setting-heading > span { flex: 1; justify-content: space-between; }
-.setting-heading em { margin-left: auto; color: #d9bd6d; font-size: 11px; font-style: normal; }
+.setting-heading em { margin-left: auto; color: var(--accent-gold); font-size: 11px; font-style: normal; }
 .ios-switch { position: relative; width: 42px; height: 24px; flex: 0 0 42px; display: inline-block; cursor: pointer; }
 .ios-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.ios-switch i { position: absolute; inset: 0; border-radius: 99px; background: #3a5049; transition: background .2s ease; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
+.ios-switch i { position: absolute; inset: 0; border-radius: 99px; background: var(--ink-line); transition: background .2s ease; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
 .ios-switch i::after { content: ''; position: absolute; width: 20px; height: 20px; top: 2px; left: 2px; border-radius: 50%; background: #e8eee9; box-shadow: 0 2px 5px rgba(0,0,0,.35); transition: transform .2s ease; }
 .ios-switch input:checked + i { background: #d5b652; }
 .ios-switch input:checked + i::after { transform: translateX(18px); background: #fff9e7; }
@@ -141,16 +141,16 @@ header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d
 
 /* 手机端把字号放大一档，手指点得准 */
 @media (pointer: coarse), (max-width: 820px) {
-  .audio-popover.sheet { padding: 0 18px calc(20px + env(safe-area-inset-bottom)); background: #0c211b; }
+  .audio-popover.sheet { padding: 0 18px calc(20px + env(safe-area-inset-bottom)); background: var(--ink-panel-deep); }
   .audio-popover.sheet header { min-height: 62px; margin: 0 -18px 12px; padding: 0 18px; border-bottom: 1px solid #1d352d; }
   .audio-popover.sheet header strong { color: #f3d67c; font-size: 21px; }
   .audio-popover.sheet header button { border: 0; background: transparent; color: #8ba49c; font-size: 28px; }
   .audio-popover.sheet .setting-copy b, .audio-popover.sheet .setting-heading b { font-size: 18px; }
-  .audio-popover.sheet .setting-heading { min-height: 62px; margin: 0 0 8px; padding: 0 16px; border: 1px solid #355249; border-radius: 15px; background: #102a22; }
+  .audio-popover.sheet .setting-heading { min-height: 62px; margin: 0 0 8px; padding: 0 16px; border: 1px solid var(--ink-line); border-radius: 15px; background: var(--ink-panel); }
   .audio-popover.sheet .setting-heading > span { display: grid; justify-content: start; gap: 3px; }
-  .audio-popover.sheet .setting-heading em { margin: 0; color: #82978f; font-size: 12px; }
+  .audio-popover.sheet .setting-heading em { margin: 0; color: var(--ink-text-muted); font-size: 12px; }
   .audio-popover.sheet .setting-block { padding: 0 0 14px; border: 0; }
-  .audio-popover.sheet .setting-toggle { min-height: 62px; margin-top: 2px; padding: 0 16px; border: 1px solid #355249; border-radius: 15px; background: #102a22; }
+  .audio-popover.sheet .setting-toggle { min-height: 62px; margin-top: 2px; padding: 0 16px; border: 1px solid var(--ink-line); border-radius: 15px; background: var(--ink-panel); }
   .audio-popover.sheet .ios-switch { width: 50px; height: 29px; flex-basis: 50px; }
   .audio-popover.sheet .ios-switch i::after { width: 25px; height: 25px; }
   .audio-popover.sheet .ios-switch input:checked + i::after { transform: translateX(21px); }
@@ -162,7 +162,7 @@ header button { width: 30px; height: 30px; padding: 0; border: 1px solid #3b564d
     top: 50%; left: 50%; right: auto; bottom: auto;
     width: min(500px, 74vw);
     padding: 0 14px 14px;
-    border: 1px solid #355249;
+    border: 1px solid var(--ink-line);
     border-radius: 16px;
     transform: translate(-50%, -50%);
     animation: none;
