@@ -629,6 +629,13 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
   mask-image: linear-gradient(180deg, #000 0%, #000 34%, rgba(0, 0, 0, .42) 72%, transparent 100%);
 }
 .sgs-dock__general.has-art > :not(.sgs-dock__general-art) { position: relative; z-index: 1; }
+/*
+ * 没有立绘的卡片，名字就在最上面一行，和右上角的势力角标同一条水平线上。
+ * 有立绘时卡片有 68px 的上内边距把名字压下去，撞不着；没有立绘时会正面相撞，
+ * 长一点的名字直接钻到角标底下。所以这里给名字让出角标那一块宽度。
+ * 用 margin 而不是 padding：要缩的是名字**占的位置**，不是它的内边距。
+ */
+.sgs-dock__general:not(.has-art) > strong { margin-right: 34px; }
 .sgs-dock__general > .sgs-dock__general-faction,
 .sgs-dock__general.has-art > .sgs-dock__general-faction {
   position: absolute; z-index: 2; top: 6px; right: 6px;
