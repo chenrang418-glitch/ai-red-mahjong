@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { ALL_CHARACTERS } from '../../src/sanguosha/data/characters/standard'
 
-for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 }, { width: 852, height: 393 }, { width: 320, height: 568 }]) {
+// 932×430 是大屏手机横屏的常见尺寸，牌桌在这一档最容易被顶出屏幕
+for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 }, { width: 932, height: 430 }, { width: 852, height: 393 }, { width: 320, height: 568 }]) {
   test(`新界面 ${viewport.width}x${viewport.height} 入口、设置、筛选与返回可用`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport)
     const errors: string[] = []

@@ -136,7 +136,7 @@ test('分享链接在无会话时直接收集昵称并自动消费房间号', as
 })
 
 test('两款游戏的独立首页均保持完整入口与一屏布局', async ({ page }) => {
-  for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 }, { width: 852, height: 393 }]) {
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 393, height: 852 }, { width: 932, height: 430 }, { width: 852, height: 393 }]) {
     await page.setViewportSize(viewport)
     for (const game of ['mahjong', 'sanguosha']) {
       await page.goto(`/?game=${game}`)
