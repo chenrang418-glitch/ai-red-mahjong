@@ -487,6 +487,16 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·神太史慈',
   },
+  shenhuatuo: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·神华佗',
+  },
+  shenlusu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·神鲁肃',
+  },
 }
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

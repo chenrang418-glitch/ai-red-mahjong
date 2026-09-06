@@ -191,7 +191,19 @@ describe('无头压测', () => {
        */
       const turns = results.map((result) => result.turns)
       const average = turns.reduce((sum, value) => sum + value, 0) / turns.length
-      expect(Math.min(...turns)).toBeGreaterThan(1)
+      /*
+       * **「没有一局在第一回合就结束」不是不变式。**
+       *
+       * 主公第一回合就阵亡是完全合法的结果：seed `ci-6-14` 里黄盖当主公，
+       * 用【苦肉】把自己放到 1 血（AI 到 1 血确实停手了，中间还喝了一口桃），
+       * 随后被打死，反贼当场获胜。加武将会重排所有 seed 的阵容，这种局面
+       * 迟早会被翻出来，拿它当红线只会每次扩包都误报。
+       *
+       * 这条线真正想拦的是「牌局整体瞬间结束」——那才说明规则坏了。
+       * 所以改成看整体：绝大多数局要打得起来。
+       */
+      const instant = turns.filter((value) => value <= 1).length
+      expect(instant, '大面积秒结说明规则出了问题').toBeLessThanOrEqual(Math.ceil(turns.length * 0.05))
       expect(average, '平均回合数异常说明规则出了问题').toBeLessThan(80)
       expect(Math.max(...turns)).toBeLessThan(1_200)
     }, 60_000)
