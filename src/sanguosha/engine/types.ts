@@ -707,6 +707,13 @@ export interface SanguoshaState {
    */
   discardProvenance?: Record<string, import('./discard-provenance').DiscardEntry>
   /**
+   * 手牌来源：每张手牌**从谁那里**来的，见 `engine/card-gain-provenance.ts`。
+   *
+   * 「获得其他角色的两张牌」和「摸两张牌」在牌面上看不出区别，
+   * 只有在牌移动的那一刻才分得清。
+   */
+  gainProvenance?: Record<string, import('./card-gain-provenance').GainEntry>
+  /**
    * 当前这个阶段是**从哪个阶段位替换来的**（神孙权【持纲】把判定位跑成摸牌阶段）。
    *
    * 只有正在发生替换时才有值，平时不存在。回合往前走时看的是「位置」——

@@ -1,3 +1,4 @@
+import { takeOverDrawPhase } from '../../engine/draw-phase-takeover'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import { recover } from '../../engine/recover'
@@ -99,11 +100,8 @@ registerSkillRuntime({
     {
       event: 'DrawPhase',
       handle(host, ownerId, context) {
-        const payload = context.event.payload as { playerId?: string }
-        if (payload.playerId !== ownerId) return
-        if (host.state.skillResolution) return
         // 接管摸牌：无论发不发动，牌都由技能补上，引擎不再默认摸两张
-        context.cancel()
+        if (!takeOverDrawPhase(host, ownerId, context)) return
         host.askSkill({
           skillId: 'luoyi',
           ownerId,
@@ -133,12 +131,10 @@ registerSkillRuntime({
   triggers: [{
     event: 'DrawPhase',
     handle(host, ownerId, context) {
-      const payload = context.event.payload as { playerId?: string }
-      if (payload.playerId !== ownerId) return
-      if (host.state.skillResolution) return
-      // 没人有手牌时突袭无从发动，照常摸牌
+      // 没人有手牌时突袭无从发动，照常摸牌——**接管之前**就要判掉，
+      // 接管了又不补牌等于让他白白少摸两张
       if (tuxiCandidates(host.state, ownerId).length === 0) return
-      context.cancel()
+      if (!takeOverDrawPhase(host, ownerId, context)) return
       host.askSkill({
         skillId: 'tuxi',
         ownerId,

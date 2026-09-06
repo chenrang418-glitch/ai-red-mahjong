@@ -1,4 +1,5 @@
 import { destroyCharacterEquipment, isCharacterEquipment } from './character-equipment'
+import { clearGainEntry, recordGainEntry } from './card-gain-provenance'
 import { clearDiscardEntry, recordDiscardEntry, type DiscardReason } from './discard-provenance'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, SanguoshaState } from './types'
 
@@ -105,6 +106,16 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
     recordDiscardEntry(state, cardId, from.kind, 'playerId' in from ? from.playerId : null, options.discardReason)
   } else {
     clearDiscardEntry(state, cardId)
+  }
+  /*
+   * 进出手牌时维护「它是从谁那里来的」：进手牌时记来源，离开手牌时清掉。
+   * 法正【恩怨】按这个来源分组数张数，所以必须在移动这一刻记，
+   * 事后回头看已经分不清一张手牌是摸来的还是抢来的了。
+   */
+  if (to.kind === 'hand') {
+    recordGainEntry(state, cardId, 'playerId' in from ? from.playerId : null, to.playerId)
+  } else {
+    clearGainEntry(state, cardId)
   }
   if (to.kind !== 'equipment' && isCharacterEquipment(state, cardId)) destroyCharacterEquipment(state, cardId)
   if (replaced && isCharacterEquipment(state, replaced)) destroyCharacterEquipment(state, replaced)
