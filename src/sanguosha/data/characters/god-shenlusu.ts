@@ -4,7 +4,7 @@ import { applySeatPermutation, seatOrderWithFixedLord } from '../../engine/seat-
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { moveCard } from '../../engine/zones'
-import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
+import type { ArrangeOptionsRequest, ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import type { CardId, EquipmentSlot, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
@@ -59,33 +59,19 @@ registerSkillRuntime({
   },
   startQueued(host, ownerId, prompt) {
     if (prompt.step !== 'seat') return
-    askSeatOrder(host, ownerId, [])
+    askSeatOrder(host, ownerId)
   },
   resume(host, ownerId, resolution, response) {
-    if (resolution.step === 'seat-confirm') {
-      if ((response.payload as { optionId?: string }).optionId !== 'yes') return
-      askSeatOrder(host, ownerId, [])
-      return
-    }
     if (resolution.step !== 'seat') return
-    const picked = (resolution.data.picked as PlayerId[] | undefined) ?? []
-    const optionId = (response.payload as { optionId?: string }).optionId ?? ''
+    const optionIds = (response.payload as { optionIds?: string[] }).optionIds ?? []
     const lord = host.state.players.find((candidate) => candidate.identity === 'lord')
     if (!lord) return
-    const remaining = host.state.players
-      .filter((candidate) => candidate.id !== lord.id && !picked.includes(candidate.id))
-      .map((candidate) => candidate.id)
-    if (!remaining.includes(optionId)) return
-    const next = [...picked, optionId]
-    if (next.length < host.state.players.length - 1) {
-      askSeatOrder(host, ownerId, next)
-      return
-    }
+    if (optionIds.length !== host.state.players.length - 1) return
     /*
-     * 主公的位置锁死，其余角色按刚才的顺序依次填进剩下的空位。
+     * 主公的位置锁死，其余角色按给定顺序依次填进剩下的空位。
      * 不能把这份排列直接当整张座位表——那样主公会被挤走。
      */
-    const order = seatOrderWithFixedLord(host.state, lord.id, next)
+    const order = seatOrderWithFixedLord(host.state, lord.id, optionIds)
     applySeatPermutation(host.state, order)
     host.dispatch('SkillActivated', {
       skillId: TAMO, skillName: '榻谟', playerId: ownerId,
@@ -95,26 +81,25 @@ registerSkillRuntime({
 })
 
 /**
- * 逐个点名下一个坐哪儿。
+ * 一次定完整张座位表。
  *
- * 分次点选而不是做一个拖拽排座控件：每一步都是普通的 `choose-option`，
- * 天然可序列化、可重连、超时也有明确的默认行为，手机上也点得准。
- * 已经点过的不再出现在候选里，排列必然是双射。
+ * 用排列请求而不是连问 N 次单选：八人局连问七次，玩家排到第五个时已经
+ * 看不到前面排成什么样了，改主意只能等超时；联机时每一步还各要一个网络往返。
+ * 排列请求可以边点边看整条座次、可以撤销，只付一次往返，
+ * 而且「必须是全排列」由请求层统一校验，双射是天然的。
  */
-function askSeatOrder(host: SkillHost, ownerId: PlayerId, picked: PlayerId[]): void {
+function askSeatOrder(host: SkillHost, ownerId: PlayerId): void {
   const lord = host.state.players.find((candidate) => candidate.identity === 'lord')
   if (!lord) return
-  const remaining = host.state.players.filter((candidate) => candidate.id !== lord.id && !picked.includes(candidate.id))
-  if (remaining.length === 0) return
+  const others = host.state.players.filter((candidate) => candidate.id !== lord.id)
+  if (others.length === 0) return
   host.askSkill({
-    skillId: TAMO, ownerId, step: 'seat', data: { picked },
-    build: (requestId): ChooseOptionRequest => ({
-      id: requestId, kind: 'choose-option', playerId: ownerId,
-      prompt: `【榻谟】：谁坐第 ${picked.length + 1} 个非主公座位？（主公位置不变）`,
-      timeoutMs: 25_000,
-      // 第一步允许放弃：不想重排就别逼着他排完整桌
-      optional: picked.length === 0,
-      options: remaining.map((candidate) => ({ id: candidate.id, label: candidate.nickname })),
+    skillId: TAMO, ownerId, step: 'seat', data: {},
+    build: (requestId): ArrangeOptionsRequest => ({
+      id: requestId, kind: 'arrange-options', playerId: ownerId,
+      prompt: `【榻谟】：按新的座次顺序点选（${lord.nickname}的位置不变）`,
+      timeoutMs: 40_000, optional: true,
+      options: others.map((candidate) => ({ id: candidate.id, label: candidate.nickname })),
     }),
   })
 }

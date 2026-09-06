@@ -114,6 +114,30 @@ const targetCountOk = computed(() => {
   return selectedTargets.value.length >= request.min && selectedTargets.value.length <= request.max
 })
 
+/**
+ * 排列顺序：一次点完，边点边看，可以撤销。
+ *
+ * 不做成「连着问 N 次单选」：那样玩家点第三个时已经看不到前两个是什么，
+ * 改主意只能等超时；联机时每一步还各要一个网络往返。
+ * 也不做拖拽：手机上小目标拖拽很难点准，点选反而更稳。
+ */
+const orderRequest = computed(() => (props.request.kind === 'arrange-options' ? props.request : null))
+const orderPicked = ref<string[]>([])
+watch(() => props.request.id, () => { orderPicked.value = [] })
+const orderRemaining = computed(() => {
+  const request = orderRequest.value
+  if (!request) return []
+  return request.options.filter((option) => !orderPicked.value.includes(option.id))
+})
+const orderLabel = (id: string): string => orderRequest.value?.options.find((option) => option.id === id)?.label ?? id
+function pickOrder(id: string): void {
+  if (orderPicked.value.includes(id)) return
+  orderPicked.value = [...orderPicked.value, id]
+}
+function undoOrder(): void {
+  orderPicked.value = orderPicked.value.slice(0, -1)
+}
+
 const arrangeRequest = computed(() => (props.request.kind === 'arrange-cards' ? props.request : null))
 const arrangeOk = computed(() => {
   const request = arrangeRequest.value
@@ -354,6 +378,34 @@ function withCharacterNames(text: string): string {
       </div>
     </template>
 
+    <!-- 排列顺序：五灵的灵序、榻谟的座次都走这里 -->
+    <template v-else-if="request.kind === 'arrange-options'">
+      <ol v-if="orderPicked.length > 0" class="sgs-dock__order">
+        <li v-for="id in orderPicked" :key="id">{{ orderLabel(id) }}</li>
+      </ol>
+      <p v-else class="sgs-dock__hint">按顺序依次点选，点错了可以撤销</p>
+      <div class="sgs-dock__actions sgs-dock__actions--wrap">
+        <button
+          v-for="option in orderRemaining"
+          :key="option.id"
+          type="button"
+          class="primary"
+          @click="pickOrder(option.id)"
+        >{{ option.label }}</button>
+      </div>
+      <div class="sgs-dock__actions">
+        <span class="sgs-dock__count">{{ orderPicked.length }} / {{ request.options.length }}</span>
+        <button v-if="request.optional" type="button" class="ghost" @click="submit({ optionIds: [] })">跳过</button>
+        <button type="button" class="ghost" :disabled="orderPicked.length === 0" @click="undoOrder">撤销</button>
+        <button
+          type="button"
+          class="primary"
+          :disabled="orderPicked.length !== request.options.length"
+          @click="submit({ optionIds: [...orderPicked] })"
+        >确定</button>
+      </div>
+    </template>
+
     <!-- 排列牌堆：观星类，上下两栏都要能放 -->
     <template v-else-if="request.kind === 'arrange-cards'">
       <!-- 「点牌面换栏、←→ 同栏调序」不写出来没人猜得到：
@@ -442,6 +494,24 @@ function withCharacterNames(text: string): string {
 
 .sgs-dock__prompt { margin: 0; color: #e9d9a6; font-size: 13px; font-weight: 700; }
 .sgs-dock__hint { margin: 0; color: #93a49b; font-size: 11px; line-height: 1.5; }
+/* 已定顺序：横排、自动编号，一眼看完整条排列 */
+.sgs-dock__order {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 0 0 6px; padding: 0; list-style: none;
+  counter-reset: sgs-order;
+}
+.sgs-dock__order li {
+  counter-increment: sgs-order;
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 999px;
+  background: #2d3a33; color: #d8e6dc; font-size: 12px;
+}
+.sgs-dock__order li::before {
+  content: counter(sgs-order);
+  min-width: 15px; height: 15px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #4d6b58; color: #eaf5ee; font-size: 10px;
+}
 /* 只看不可选：压暗并挡住点击，免得玩家一直戳不动还以为界面坏了 */
 .sgs-dock__cards--readonly { opacity: 0.72; pointer-events: none; }
 .sgs-dock__cards { display: flex; flex-wrap: wrap; gap: 5px; max-height: 30vh; overflow-y: auto; }

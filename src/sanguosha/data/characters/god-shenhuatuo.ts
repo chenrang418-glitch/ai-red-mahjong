@@ -10,7 +10,7 @@ import { handleEquipmentLost } from '../../engine/equipment'
 import { recover } from '../../engine/recover'
 import { grantSkill, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import { moveCard } from '../../engine/zones'
-import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
+import type { ArrangeOptionsRequest, ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import type { CardId, EquipmentSlot, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
@@ -174,20 +174,16 @@ registerSkillRuntime({
       const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds ?? []
       // 发问期间对方可能已经拿到五灵、或者已经死了，落地前重新验一次
       if (!targetId || !wulingTargets(host.state, ownerId).includes(targetId)) return
-      askSpiritOrder(host, ownerId, targetId, [])
+      askSpiritOrder(host, ownerId, targetId)
       return
     }
     if (resolution.step === 'order') {
       const targetId = String(resolution.data.targetId ?? '')
-      const picked = (resolution.data.picked as string[] | undefined) ?? []
-      const optionId = (response.payload as { optionId?: string }).optionId ?? ''
-      if (!WULING_SPIRITS.includes(optionId as WulingSpirit) || picked.includes(optionId)) return
-      const next = [...picked, optionId]
-      if (next.length < WULING_SPIRITS.length) {
-        askSpiritOrder(host, ownerId, targetId, next)
-        return
-      }
-      grantWuling(host, ownerId, targetId, next as WulingSpirit[])
+      const optionIds = (response.payload as { optionIds?: string[] }).optionIds ?? []
+      // 请求层已经保证这是一个全排列，这里只把它收窄成灵的类型
+      if (optionIds.length !== WULING_SPIRITS.length) return
+      if (!optionIds.every((spirit) => WULING_SPIRITS.includes(spirit as WulingSpirit))) return
+      grantWuling(host, ownerId, targetId, optionIds as WulingSpirit[])
       return
     }
     if (resolution.step === 'ape-target') {
@@ -246,23 +242,22 @@ registerSkillRuntime({
 })
 
 /**
- * 逐个挑出排列里的下一种灵。
+ * 一次定完五种灵的完整排列。
  *
- * 分五次问而不是做一个拖拽排序控件：五次点击在手机上比拖拽稳得多，
- * 而且每一步都是一个普通的 `choose-option`，天然可序列化、可重连、
- * 超时也有明确的默认行为。已经挑过的不再出现在候选里，排列必然无重无漏。
+ * 用排列请求而不是连问五次单选：连问的话玩家点第三种时已经看不到前两种是什么，
+ * 改主意只能等超时，联机时每一步还各要一个网络往返。
+ * 排列请求可以边点边看整条顺序、可以撤销，只付一次往返，
+ * 而且「必须是全排列」由请求层统一校验，无重无漏是天然的。
  */
-function askSpiritOrder(host: SkillHost, ownerId: PlayerId, targetId: PlayerId, picked: string[]): void {
-  const remaining = WULING_SPIRITS.filter((spirit) => !picked.includes(spirit))
+function askSpiritOrder(host: SkillHost, ownerId: PlayerId, targetId: PlayerId): void {
   const target = playerOf(host.state, targetId)
   host.askSkill({
-    skillId: WULING, ownerId, step: 'order', data: { targetId, picked },
-    build: (requestId): ChooseOptionRequest => ({
-      id: requestId, kind: 'choose-option', playerId: ownerId,
-      prompt: `【五灵】：为${target?.nickname ?? ''}指定第 ${picked.length + 1} 种灵`
-        + (picked.length > 0 ? `（已定：${picked.map((spirit) => SPIRIT_NAMES[spirit as WulingSpirit]).join('→')}）` : ''),
-      timeoutMs: 25_000, optional: false,
-      options: remaining.map((spirit) => ({ id: spirit, label: SPIRIT_NAMES[spirit] })),
+    skillId: WULING, ownerId, step: 'order', data: { targetId },
+    build: (requestId): ArrangeOptionsRequest => ({
+      id: requestId, kind: 'arrange-options', playerId: ownerId,
+      prompt: `【五灵】：为${target?.nickname ?? ''}指定五种灵的顺序`,
+      timeoutMs: 30_000, optional: false,
+      options: WULING_SPIRITS.map((spirit) => ({ id: spirit, label: SPIRIT_NAMES[spirit] })),
     }),
   })
 }

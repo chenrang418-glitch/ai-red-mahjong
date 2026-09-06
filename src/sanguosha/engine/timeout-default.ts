@@ -44,6 +44,13 @@ export function timeoutDefaultResponse(request: GameRequest): GameResponse | nul
     case 'arrange-cards':
       return null
 
+    /*
+     * 排列类：「可以」发动的那种超时按放弃处理（交白卷），
+     * 必须给出顺序的那种没有默认答案，交给 AI 接管。
+     */
+    case 'arrange-options':
+      return request.optional ? { ...base, payload: { optionIds: [] } } : null
+
     default:
       return null
   }

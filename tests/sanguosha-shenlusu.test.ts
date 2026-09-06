@@ -38,6 +38,11 @@ function defaultResponse(request: AnyRequest) {
         const pick = request as unknown as { candidateIds: string[]; min: number }
         return { targetIds: pick.candidateIds.slice(0, pick.min ?? 0) }
       }
+      case 'arrange-options': {
+        // 默认按选项原顺序给一个完整排列；可选的那种就交白卷表示放弃
+        const pick = request as unknown as { options: { id: string }[]; optional?: boolean }
+        return { optionIds: pick.optional ? [] : pick.options.map((option) => option.id) }
+      }
       case 'rescue': return { actionId: 'rescue-pass' }
       default: return { actionId: 'respond-pass' }
     }

@@ -1850,6 +1850,23 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       return { ...base, payload: { top: ranked.slice(0, topCount), bottom: request.allowBottom ? ranked.slice(topCount) : [] } }
     }
 
+    case 'arrange-options': {
+      /*
+       * 排列类请求 AI 直接给一个随机排列。
+       *
+       * 这类请求（五灵的灵序、榻谟的座次）的最优解要看整桌局势，
+       * 而且**乱序本身就是合理打法**——固定按选项原顺序给的话，
+       * 每一局的效果完全一样，玩家几盘就摸清了。随机用的是 AI 自己的随机源，
+       * 不碰牌局的种子，所以不会影响牌局本身的可复现性。
+       */
+      const shuffled = [...request.options.map((option) => option.id)]
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        const swap = context.rng.nextInt(index + 1)
+        ;[shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]]
+      }
+      return { ...base, payload: { optionIds: shuffled } }
+    }
+
     case 'distribute-cards': {
       const count = Math.min(Math.max(request.min, 0), request.max, request.cardIds.length)
       const assignments = request.cardIds.slice(0, count).map((cardId, index) => ({

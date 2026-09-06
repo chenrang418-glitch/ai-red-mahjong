@@ -70,13 +70,29 @@ export type RespondCardRequest = RequestBase<'respond-card'> & {
 }
 export type InvokeSkillRequest = RequestBase<'invoke-skill'> & { skillId: string; actionIds: string[] }
 export type ArrangeCardsRequest = RequestBase<'arrange-cards'> & { cardIds: CardId[]; minTop: number; maxTop: number; allowBottom: boolean }
+/**
+ * 把一组选项排成一个完整顺序。
+ *
+ * 神华佗【五灵】要定五种灵的排列，神鲁肃【榻谟】要定座次——两者都是
+ * 「一次给出完整顺序」，不是「连着做五次单选」。
+ *
+ * 为什么值得单独一种请求：拆成 N 次单选的话，玩家点第三个的时候已经看不到
+ * 前两个是什么了，改主意只能等超时；而且每一步都要一个网络往返，
+ * 联机时五次点击要等五轮。一次请求可以边点边看整条顺序、可以撤销、
+ * 只付一次往返。
+ *
+ * 回应格式：`{ optionIds: string[] }`，必须是全部选项的一个排列。
+ */
+export type ArrangeOptionsRequest = RequestBase<'arrange-options'> & {
+  options: Array<{ id: string; label: string }>
+}
 export type DistributeCardsRequest = RequestBase<'distribute-cards'> & { cardIds: CardId[]; recipientIds: PlayerId[]; min: number; max: number }
 export type RescueRequest = RequestBase<'rescue'> & { dyingPlayerId: PlayerId; actionIds: string[]; requiredRecover: number }
 
 export type GameRequest =
   | ChooseGeneralRequest | ChooseCardsRequest | ChooseTargetsRequest | ChooseOptionRequest
   | ChooseSuitRequest | ChooseNumberRequest | UseCardRequest | RespondCardRequest
-  | InvokeSkillRequest | ArrangeCardsRequest | DistributeCardsRequest | RescueRequest
+  | InvokeSkillRequest | ArrangeCardsRequest | ArrangeOptionsRequest | DistributeCardsRequest | RescueRequest
 
 export interface GameResponse {
   requestId: string
@@ -100,6 +116,7 @@ export function requestLabel(request: GameRequest): string {
     case 'respond-card': return '响应卡牌'
     case 'invoke-skill': return '发动技能'
     case 'arrange-cards': return '排列卡牌'
+    case 'arrange-options': return '排列顺序'
     case 'distribute-cards': return '分配卡牌'
     case 'rescue': return '濒死救援'
     default: return assertNever(request)
@@ -147,6 +164,22 @@ export function validateResponse(request: GameRequest, response: GameResponse): 
     case 'respond-card':
     case 'invoke-skill':
     case 'rescue': return typeof payload.actionId === 'string' && request.actionIds.includes(payload.actionId) ? null : 'actionId 非法'
+    case 'arrange-options': {
+      if (!isStringArray(payload.optionIds)) return '排列格式错误'
+      // 「可以」发动的排列允许交白卷＝放弃，例如榻谟不想重排座次
+      if (request.optional && payload.optionIds.length === 0) return null
+      const ids = request.options.map((option) => option.id)
+      /*
+       * 必须是**全排列**：每一项恰好出现一次，不能重复也不能遗漏。
+       * 少一项就意味着后面读这条顺序的代码要处理一个残缺的排列，
+       * 那种残缺会一路带到游戏状态里。
+       */
+      return payload.optionIds.length === ids.length
+        && new Set(payload.optionIds).size === ids.length
+        && payload.optionIds.every((id) => ids.includes(id))
+        ? null
+        : '排列结果非法'
+    }
     case 'arrange-cards': {
       if (!isStringArray(payload.top) || !isStringArray(payload.bottom)) return '排列格式错误'
       const all = [...payload.top, ...payload.bottom]

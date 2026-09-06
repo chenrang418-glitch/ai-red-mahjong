@@ -193,7 +193,15 @@ describe('health watchdog 自愈', () => {
       jobsOf(room).some((job) => job.kind === 'health-watchdog'),
       '结束的房间不该继续每 15 秒醒一次',
     ).toBe(false)
-  })
+  /*
+   * 显式给超时。
+   *
+   * 这条用例是**把一整局真的打完**，耗时取决于当次阵容——每加一批武将，
+   * 所有 seed 的阵容都会重排，某些阵容天然打得更久。实测在 6 秒上下，
+   * 顶着 vitest 默认的 5 秒会随机翻红。放宽到明显够用的位置，
+   * 真死循环仍由循环里的 4000 步上限兜底。
+   */
+  }, 30_000)
 
   it('watchdog 只修调度，不改牌局', () => {
     const room = started()

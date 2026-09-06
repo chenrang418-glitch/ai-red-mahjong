@@ -36,6 +36,11 @@ function defaultResponse(request: AnyRequest) {
         const pick = request as unknown as { candidateIds: string[]; min: number }
         return { targetIds: pick.candidateIds.slice(0, pick.min ?? 0) }
       }
+      case 'arrange-options': {
+        // 默认按选项原顺序给一个完整排列；可选的那种就交白卷表示放弃
+        const pick = request as unknown as { options: { id: string }[]; optional?: boolean }
+        return { optionIds: pick.optional ? [] : pick.options.map((option) => option.id) }
+      }
       case 'rescue': return { actionId: 'rescue-pass' }
       default: return { actionId: 'respond-pass' }
     }
@@ -129,14 +134,14 @@ function grantWuling(game: SanguoshaGame, targetId: string, order: readonly stri
   const action = game.legalActions('p0').find((candidate) => candidate.kind === 'invoke-skill' && candidate.skillId === 'wuling')
   if (!action) throw new Error('五灵入口不可用')
   game.act('p0', action.id)
-  let picked = 0
+  let targeted = false
   settle(game, (request) => {
-    if (request.kind === 'choose-targets' && request.playerId === 'p0' && picked === 0) return { targetIds: [targetId] }
-    if (request.kind === 'choose-option' && request.playerId === 'p0' && picked < order.length) {
-      const optionId = order[picked]
-      picked += 1
-      return { optionId }
+    if (request.kind === 'choose-targets' && request.playerId === 'p0' && !targeted) {
+      targeted = true
+      return { targetIds: [targetId] }
     }
+    // 排列一次给全：请求层会校验它必须是五种灵的全排列
+    if (request.kind === 'arrange-options' && request.playerId === 'p0') return { optionIds: [...order] }
     return null
   })
 }
