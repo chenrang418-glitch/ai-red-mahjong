@@ -37,6 +37,18 @@ export interface CharacterSkillInfo {
    * 神马超【霆威】要令目标的非锁定技失效，判定就走这里。
    */
   locked?: boolean
+  /**
+   * 这个技能可以作为**装备技能**被借用（神典韦【挈挟】把武将牌当武器装备时）。
+   *
+   * 这是**声明出来的结构化元数据，不是运行时去解析中文描述**：
+   * 靠 `description.includes('杀')` 判断规则是脆的——描述改一个字、
+   * 多一个「杀」字的比喻，行为就变了，而且没有任何测试会发现。
+   *
+   * 标了这个的技能还要再过一遍自动排除：觉醒技、限定技、转换技、主公技
+   * 都不能被借用，那几项由运行时的结构化标志判断，不必在这里重复声明。
+   * 全量清单见 `docs/qiexie-compatibility.md`。
+   */
+  qiexie?: boolean
 }
 
 export interface CharacterDefinition {

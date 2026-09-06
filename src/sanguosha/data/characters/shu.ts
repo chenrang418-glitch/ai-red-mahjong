@@ -62,6 +62,6 @@ export const SHU_CHARACTERS: readonly CharacterDefinition[] = [{
   pack: 'standard',
   skills: [
     { id: 'guanxing', name: '观星', description: '准备阶段，你观看牌堆顶的X张牌（X为存活角色数且至多为5），然后以任意顺序置于牌堆顶或牌堆底。' },
-    { id: 'kongcheng', name: '空城', description: '锁定技，若你没有手牌，你不能成为【杀】或【决斗】的目标。' },
+    { id: 'kongcheng', name: '空城', qiexie: true, description: '锁定技，若你没有手牌，你不能成为【杀】或【决斗】的目标。' },
   ],
 }] as const

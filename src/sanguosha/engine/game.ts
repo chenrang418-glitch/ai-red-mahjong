@@ -671,6 +671,9 @@ export class SanguoshaGame {
     mutable.state.roundNumber ??= 1
     // 洗牌痕迹是后加的字段：旧存档按「没洗过」补，不会让任何技能凭空多一次机会
     mutable.state.deckReshuffle ??= { count: 0, lastTurnNumber: null }
+    // 第二武器栏是后加的字段：旧存档一律按「没有额外栏、栏里是空的」补
+    mutable.state.extraWeaponSlots ??= []
+    for (const player of mutable.state.players) player.zones.equipment.weapon2 ??= null
     mutable.state.conversionStates ??= {}
     mutable.state.forcedIdentities ??= []
     mutable.state.abolishedSlots ??= {}

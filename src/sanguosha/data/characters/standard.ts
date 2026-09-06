@@ -2,12 +2,13 @@ import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { loseHp } from '../../engine/hp'
-import { provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
+import { getSkillRuntime as skillRuntimeOf, provideBorrowableSkillLookup, provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
 import { provideLockedSkillLookup } from '../../engine/locked-skills'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 import { effectiveGenderOf, provideHuashenCharacterCatalog } from '../../engine/huashen'
+import { provideCharacterPool } from '../../engine/character-pool'
 import { WEI_CHARACTERS } from './wei'
 import { WEI_DAMAGE_CHARACTERS } from './wei-damage'
 import { LORD_CHARACTERS, provideKingdomLookup } from './lords'
@@ -271,7 +272,7 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'paoxiao', name: '咆哮', description: '锁定技，你使用【杀】没有次数限制。' }],
+    skills: [{ id: 'paoxiao', name: '咆哮', qiexie: true, description: '锁定技，你使用【杀】没有次数限制。' }],
   },
   {
     id: 'machao',
@@ -282,7 +283,7 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     pack: 'standard',
     skills: [
       { id: 'mashu', name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' },
-      { id: 'tieji', name: '铁骑', description: '你使用【杀】指定目标后，可以进行判定，若结果为红色，该角色不能使用【闪】响应。' },
+      { id: 'tieji', name: '铁骑', qiexie: true, description: '你使用【杀】指定目标后，可以进行判定，若结果为红色，该角色不能使用【闪】响应。' },
     ],
   },
   {
@@ -292,7 +293,7 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'wusheng', name: '武圣', description: '你可以将一张红色牌当【杀】使用。' }],
+    skills: [{ id: 'wusheng', name: '武圣', qiexie: true, description: '你可以将一张红色牌当【杀】使用。' }],
   },
   {
     id: 'huangyueying',
@@ -343,7 +344,7 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'longdan', name: '龙胆', description: '你可以将【杀】当【闪】、将【闪】当【杀】使用或打出。' }],
+    skills: [{ id: 'longdan', name: '龙胆', qiexie: true, description: '你可以将【杀】当【闪】、将【闪】当【杀】使用或打出。' }],
   },
   // 需要向玩家发问的技能单独放一个文件，那里的注释解释了哪些时机还不能安全挂起
   ...WEI_CHARACTERS,
@@ -375,6 +376,8 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
 
 const BY_ID = new Map(ALL_CHARACTERS.map((character) => [character.id, character]))
 provideHuashenCharacterCatalog(ALL_CHARACTERS)
+// 随机抽武将牌（神典韦【挈挟】）用的池子，和化身共用同一份武将表
+provideCharacterPool(ALL_CHARACTERS.map(({ id, name, pack, maxHp }) => ({ id, name, pack, maxHp })))
 
 // 主公技要按势力找同伴，但势力表在这里才拼齐，所以运行时回注一个查询函数
 provideKingdomLookup((characterId) => BY_ID.get(characterId)?.kingdom)
@@ -419,6 +422,27 @@ const LOCKED_SKILL_IDS = new Set(ALL_CHARACTERS
   .map((skill) => skill.id))
 
 provideLockedSkillLookup((skillId) => LOCKED_SKILL_IDS.has(skillId))
+
+/**
+ * 一张武将牌被当作武器装备时，能借出哪些技能。
+ *
+ * 两道关：技能自己声明了 `qiexie`，**并且**不属于觉醒技 / 限定技 / 主公技
+ * ——后三类由运行时的结构化标志判断，不看描述文字。
+ * 全量清单见 `docs/qiexie-compatibility.md`。
+ */
+export function borrowableSkillIdsOf(characterId: string): string[] {
+  const character = BY_ID.get(characterId)
+  if (!character) return []
+  return character.skills
+    .filter((skill) => skill.qiexie === true)
+    .filter((skill) => {
+      const runtime = skillRuntimeOf(skill.id)
+      return !runtime?.limited && !runtime?.awakening && !runtime?.lord
+    })
+    .map((skill) => skill.id)
+}
+
+provideBorrowableSkillLookup(borrowableSkillIdsOf)
 
 export function allCharacterIds(): string[] {
   return ALL_CHARACTERS.map((character) => character.id)

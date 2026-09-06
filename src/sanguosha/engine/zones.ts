@@ -1,3 +1,4 @@
+import { destroyCharacterEquipment, isCharacterEquipment } from './character-equipment'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, SanguoshaState } from './types'
 
 export type ZoneRef =
@@ -79,6 +80,16 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
   removeCard(state, from, cardId)
   const replaced = addCard(state, to, cardId, options.toTop ?? false)
   if (replaced) addCard(state, options.replaceEquipmentTo ?? { kind: 'discardPile' }, replaced, false)
+  /*
+   * 武将牌变的装备（神典韦【挈挟】）**一离开装备区就销毁**。
+   *
+   * 收在这个唯一出口，而不是在每个可能拿走装备的效果里各写一遍：
+   * 顺手牵羊、过河拆桥、替换、技能取牌……任何一条路都会经过这里。
+   * 漏一条，一张没有花色没有点数的「牌」就会跑进别人手里或者弃牌堆，
+   * 之后被当成普通牌使用、判定、计点数。
+   */
+  if (to.kind !== 'equipment' && isCharacterEquipment(state, cardId)) destroyCharacterEquipment(state, cardId)
+  if (replaced && isCharacterEquipment(state, replaced)) destroyCharacterEquipment(state, replaced)
   // 「当作什么用」只在结算途中有意义。牌回到手牌、弃牌堆或牌堆就该忘掉，
   // 否则下次再摸到它还会顶着上一次的身份。闪电要在判定区之间流转，所以留着。
   if (to.kind !== 'judgingArea' && to.kind !== 'processingArea') {

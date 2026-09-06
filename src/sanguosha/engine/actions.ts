@@ -1,4 +1,4 @@
-import type { CardId, PlayerId } from './types'
+import type { CardId, EquipmentSlot, PlayerId } from './types'
 
 interface LegalActionBase<K extends string> {
   id: string
@@ -9,7 +9,21 @@ interface LegalActionBase<K extends string> {
 
 export type LegalAction =
   | (LegalActionBase<'pass'> & { requestId: string })
-  | (LegalActionBase<'use-card'> & { cardIds: CardId[]; targetIds: PlayerId[]; targetMin: number; targetMax: number; asCardName: string; targetMode?: 'fixed' })
+  | (LegalActionBase<'use-card'> & {
+    cardIds: CardId[]
+    targetIds: PlayerId[]
+    targetMin: number
+    targetMax: number
+    asCardName: string
+    targetMode?: 'fixed'
+    /**
+     * 装到哪个栏。
+     *
+     * 只有**两个武器栏都占着**的时候才需要它：那时玩家得自己决定顶掉哪一把，
+     * 引擎不替他挑。其余情况留空，按牌自己的 `equipmentSlot` 走。
+     */
+    equipmentSlot?: EquipmentSlot
+  })
   | (LegalActionBase<'respond-card'> & { cardIds: CardId[]; asCardName: string })
   | (LegalActionBase<'invoke-skill'> & { skillId: string; cardIds: CardId[]; targetIds: PlayerId[] })
   | (LegalActionBase<'choose'> & { requestId: string; value: string | number | string[] })

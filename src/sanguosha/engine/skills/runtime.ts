@@ -489,6 +489,38 @@ export interface SkillRuntime {
 
 const registry = new Map<string, SkillRuntime>()
 let providedSkillIdsOf: (characterId: string) => string[] = () => []
+/**
+ * 一张武将牌作为装备被借用时，能提供哪些技能（神典韦【挈挟】）。
+ *
+ * 和 `provideSkillIdsLookup` 同一套注入做法，理由也一样：这个模块被武将数据
+ * 依赖，不能反过来 import 它。默认空数组——没注册就等于借不到任何技能，
+ * 漏注册只会让人少一个技能，不会凭空多一个。
+ */
+let providedBorrowableSkillIdsOf: (characterId: string) => string[] = () => []
+
+export function provideBorrowableSkillLookup(lookup: (characterId: string) => string[]): void {
+  providedBorrowableSkillIdsOf = lookup
+}
+
+/**
+ * 这名角色**从装备上借来**的技能。
+ *
+ * 来源是装备实例，不是他的武将牌：所以【断肠】把武将技能全废掉时这些仍然有效，
+ * 【夺锐】也偷不走它们（那个只看目标武将牌自己的技能表）。
+ * 装备一离开装备区，这里立刻就查不到了——不需要另写一条「失效」逻辑。
+ */
+export function equipmentSkillIdsOf(state: SanguoshaState, playerId: PlayerId): string[] {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player) return []
+  const ids: string[] = []
+  for (const cardId of Object.values(player.zones.equipment)) {
+    if (!cardId) continue
+    const characterId = state.cards[cardId]?.characterId
+    if (!characterId) continue
+    ids.push(...providedBorrowableSkillIdsOf(characterId))
+  }
+  return [...new Set(ids)]
+}
 
 /** 由角色总表在模块初始化完成后回注，避免各扩展包反向 import 总表形成环。 */
 export function provideSkillIdsLookup(lookup: (characterId: string) => string[]): void {
@@ -522,8 +554,17 @@ export function ownedSkillIds(
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): string[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
-  if (!player?.characterId) return []
-  if (player.characterSkillsDisabled) return []
+  if (!player) return []
+  /*
+   * 装备技能的来源是**装备**，不是武将牌。
+   *
+   * 所以【断肠】把武将技能全部废掉之后，装备上借来的技能仍然照常工作——
+   * 断肠说的是「武将牌上的技能」，管不到装备。
+   */
+  const borrowed = equipmentSkillIdsOf(state, playerId)
+  if (!player.characterId || player.characterSkillsDisabled) {
+    return borrowed.filter((skillId) => !isSkillSuppressed(state, playerId, skillId))
+  }
   // 提到闭包外面：TS 在 filter 的回调里丢掉 characterId 的非空收窄
   const own = skillIdsOf(player.characterId)
   const granted = player.grantedSkills ?? []
@@ -535,7 +576,7 @@ export function ownedSkillIds(
    * AI 全都自然失效——不需要在每条路径上各写一遍判断。
    * 和断肠的「全部技能失效」是两条独立规则，各管各的。
    */
-  return [...new Set([...own, ...granted, ...temporary])]
+  return [...new Set([...own, ...granted, ...temporary, ...borrowed])]
     .filter((skillId) => !isSkillSuppressed(state, playerId, skillId))
 }
 

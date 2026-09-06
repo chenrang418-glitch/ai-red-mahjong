@@ -1,7 +1,7 @@
 import type { LegalAction } from '../actions'
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRng } from '../rng'
-import type { CardId, PlayerId, PlayerState, SanguoshaState } from '../types'
+import type { CardId, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from '../types'
 import { resolvedCardRecipientOf, type SkillHost } from '../skills/runtime'
 import { popCardUseTargets, pushCardUseTargets } from '../card-use-targets'
 import { locateOwnedCard, moveCard, type ZoneRef } from '../zones'
@@ -27,9 +27,18 @@ export function playerOf(state: SanguoshaState, playerId: PlayerId): PlayerState
   return found
 }
 
-export function useAction(cardId: CardId, playerId: PlayerId, name: string, targetIds: PlayerId[], label: string, targetMode?: 'fixed'): LegalAction {
+export function useAction(
+  cardId: CardId,
+  playerId: PlayerId,
+  name: string,
+  targetIds: PlayerId[],
+  label: string,
+  targetMode?: 'fixed',
+  equipmentSlot?: EquipmentSlot,
+): LegalAction {
   return {
-    id: `play:${cardId}:${targetIds.join(',') || 'self'}`,
+    // 带栏的那两条要各有各的 id，否则「装到第一栏」和「装到第二栏」会撞成一条
+    id: `play:${cardId}:${targetIds.join(',') || 'self'}${equipmentSlot ? `:${equipmentSlot}` : ''}`,
     kind: 'use-card',
     playerId,
     label,
@@ -39,6 +48,7 @@ export function useAction(cardId: CardId, playerId: PlayerId, name: string, targ
     targetMax: targetIds.length,
     asCardName: name,
     targetMode,
+    ...(equipmentSlot ? { equipmentSlot } : {}),
   }
 }
 

@@ -1,3 +1,4 @@
+import { weaponCardsOf } from './equipment-slots'
 import { isArmorSuppressed } from './armor-suppression'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { cardEffectInvalidBy, skillsOf } from './skills/runtime'
@@ -71,8 +72,8 @@ export function effectiveArmorName(
 
 /** 某人是否装备着指定武器。 */
 export function hasWeapon(state: SanguoshaState, playerId: PlayerId, weaponName: string): boolean {
-  const weaponId = playerOf(state, playerId).zones.equipment.weapon
-  return !!weaponId && state.cards[weaponId]?.name === weaponName
+  // 有第二武器栏时两把都算：装在哪一栏不影响这把武器的效果生不生效
+  return weaponCardsOf(state, playerId).some((cardId) => state.cards[cardId]?.name === weaponName)
 }
 
 /**

@@ -25,9 +25,60 @@ export const ABOLISHABLE_SLOTS: readonly EquipmentSlot[] = ['weapon', 'armor', '
 
 export const SLOT_LABELS: Record<EquipmentSlot, string> = {
   weapon: '武器栏',
+  weapon2: '第二武器栏',
   armor: '防具栏',
   offensiveHorse: '-1 坐骑栏',
   defensiveHorse: '+1 坐骑栏',
+}
+
+/** 基础装备栏：每个角色开局都有这四个。 */
+const BASE_SLOTS: readonly EquipmentSlot[] = ['weapon', 'armor', 'offensiveHorse', 'defensiveHorse'] as const
+
+/**
+ * 给某名角色开一个额外武器栏（神典韦【捐甲】）。
+ *
+ * **是真的多一栏**，不是「攻击范围按两把算」这种界面说法：
+ * 这一栏能独立装备一张武器牌，也能被独立替换。
+ */
+export function grantExtraWeaponSlot(state: SanguoshaState, playerId: PlayerId): boolean {
+  state.extraWeaponSlots ??= []
+  if (state.extraWeaponSlots.includes(playerId)) return false
+  state.extraWeaponSlots.push(playerId)
+  return true
+}
+
+export function hasExtraWeaponSlot(state: SanguoshaState, playerId: PlayerId): boolean {
+  return (state.extraWeaponSlots ?? []).includes(playerId)
+}
+
+/**
+ * 这名角色**现在实际拥有**哪些装备栏：基础四栏去掉废除的，再加上额外武器栏。
+ *
+ * 凡是要遍历「他的装备」的地方都走这里，不要各自写一份四元组——
+ * 写死四元组的地方，第二武器栏里的牌就成了隐形的。
+ */
+export function equipmentSlotsOf(state: SanguoshaState, playerId: PlayerId): EquipmentSlot[] {
+  const slots = hasExtraWeaponSlot(state, playerId) ? [...BASE_SLOTS, 'weapon2' as EquipmentSlot] : [...BASE_SLOTS]
+  return slots.filter((slot) => !isSlotAbolished(state, playerId, slot))
+}
+
+/** 这名角色装备区里现有的牌，按栏的顺序。 */
+export function equippedCardsOf(state: SanguoshaState, playerId: PlayerId): string[] {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player) return []
+  return equipmentSlotsOf(state, playerId)
+    .map((slot) => player.zones.equipment[slot])
+    .filter((cardId): cardId is string => !!cardId)
+}
+
+/** 这名角色现在装备着的武器牌（可能有两把）。 */
+export function weaponCardsOf(state: SanguoshaState, playerId: PlayerId): string[] {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player) return []
+  return equipmentSlotsOf(state, playerId)
+    .filter((slot) => slot === 'weapon' || slot === 'weapon2')
+    .map((slot) => player.zones.equipment[slot])
+    .filter((cardId): cardId is string => !!cardId)
 }
 
 function slotsOf(state: SanguoshaState, playerId: PlayerId): EquipmentSlot[] {

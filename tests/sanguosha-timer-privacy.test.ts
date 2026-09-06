@@ -55,7 +55,14 @@ function guestSeatId(room: SanguoshaRoomCoordinator): number {
  * 不是锦囊结算。真走一遍结算只会让用例依赖一堆和本主张无关的巧合。
  */
 function askSeat(room: SanguoshaRoomCoordinator, seatId: number, requiredCardName: string, now: number): void {
-  const state = room.snapshot().game!
+  /*
+   * 改的必须是**房间自己那份状态**，不是 `snapshot()` 拿回来的副本。
+   *
+   * 早先这里写的是 `room.snapshot().game!`：改在副本上，房间根本不知道，
+   * 于是计时列表恒为空——几条 `not.toContain` 断言全都是空过的，
+   * 什么都没测到。
+   */
+  const state = room.state.game!
   const request: RespondCardRequest = {
     id: `request-privacy-${requiredCardName}`,
     kind: 'respond-card',
@@ -168,13 +175,26 @@ describe('计时条不泄露手牌', () => {
   })
 
   it('当前回合角色的窗口照常可见：他在行动是明摆着的', () => {
-    const room = playingRoom()
-    const state = room.snapshot().game!
-    const currentSeatId = Number(state.currentPlayerId.slice('seat-'.length))
-    const timers = room.view(HOST.userId).timers
-    // 回合角色可能是 AI，也可能是真人；无论如何这一项对全桌可见
-    if (timers.length > 0) {
-      expect(timers.some((timer) => timer.seatId === currentSeatId)).toBe(true)
-    }
+    const now = 1_000
+    const room = playingRoom(now)
+    const currentSeatId = Number(room.state.game!.currentPlayerId.slice('seat-'.length))
+    /*
+     * 把「正在等的人」摆成回合角色自己，再看别人能不能看见这条计时。
+     *
+     * **不能反过来断言「只要有计时就一定有回合角色那条」**：技能完全可以在
+     * 别人的回合里问一个非回合角色（牛来【麻麻】就在准备阶段问别人），
+     * 那时候场上只有那一条计时，回合角色一条都没有——那是正常局面，
+     * 不是隐私问题。那样写的话，任何一次改动武将池都会让这条断言随机翻红。
+     */
+    /*
+     * 观察者要在 `askSeat` **之前**定好。
+     *
+     * `snapshot()` 会把引擎重新序列化回房间状态，覆盖掉这里手动摆的待回应请求——
+     * 摆完局面再去调用它，摆的东西当场就没了。
+     */
+    const viewer = guestSeatId(room) === currentSeatId ? HOST.userId : GUEST.userId
+    askSeat(room, currentSeatId, '闪', now)
+    const timers = room.view(viewer, now).timers
+    expect(timers.map((timer) => timer.seatId), '回合角色在行动是明摆着的').toContain(currentSeatId)
   })
 })

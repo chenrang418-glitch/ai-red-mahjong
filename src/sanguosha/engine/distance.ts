@@ -1,5 +1,5 @@
 import { isForcedInAttackRange } from './attack-range-override'
-import { isSlotAbolished } from './equipment-slots'
+import { weaponCardsOf } from './equipment-slots'
 import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { PlayerId, SanguoshaState } from './types'
@@ -59,10 +59,14 @@ export function getDistance(state: SanguoshaState, sourceId: PlayerId, targetId:
 
 export function getAttackRange(state: SanguoshaState, playerId: PlayerId): number {
   const source = player(state, playerId)
-  // 武器栏被废除时武器不存在，攻击范围随之变化（神张辽【夺锐】）
-  const weaponId = isSlotAbolished(state, playerId, 'weapon') ? null : source.zones.equipment.weapon
-  const weapon = weaponId ? state.cards[weaponId] : null
-  return Math.max(1, weapon?.attackRange ?? 1) + source.attackRangeBonus
+  /*
+   * 武器栏被废除时武器不存在（神张辽【夺锐】）；有第二武器栏时可能同时装着两把
+   * （神典韦【捐甲】）。**两把武器的攻击范围取较大的那个，不是相加**——
+   * 攻击范围是「你能打多远」，多带一把兵器不会让手变长两倍。
+   */
+  const ranges = weaponCardsOf(state, playerId)
+    .map((cardId) => state.cards[cardId]?.attackRange ?? 1)
+  return Math.max(1, ...ranges) + source.attackRangeBonus
 }
 
 /**

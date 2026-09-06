@@ -292,7 +292,7 @@ export const WU_CHARACTERS: readonly CharacterDefinition[] = [
     pack: 'standard',
     skills: [
       { id: 'guose', name: '国色', description: '你可以将一张红桃牌当【乐不思蜀】使用。' },
-      { id: 'liuli', name: '流离', description: '当你成为【杀】的目标时，你可以弃置一张牌，将此【杀】转移给你攻击范围内的另一名角色。' },
+      { id: 'liuli', name: '流离', qiexie: true, description: '当你成为【杀】的目标时，你可以弃置一张牌，将此【杀】转移给你攻击范围内的另一名角色。' },
     ],
   },
   {

@@ -282,7 +282,7 @@ export const WEI_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'luoyi', name: '裸衣', description: '摸牌阶段，你可以少摸一张牌，若如此做，本回合你使用【杀】或【决斗】造成的伤害 +1。' }],
+    skills: [{ id: 'luoyi', name: '裸衣', qiexie: true, description: '摸牌阶段，你可以少摸一张牌，若如此做，本回合你使用【杀】或【决斗】造成的伤害 +1。' }],
   },
   {
     id: 'zhangliao',

@@ -1,6 +1,6 @@
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import { canUseCardAs, forcedIdentityFor } from '../forced-identity'
-import { isSlotAbolished } from '../equipment-slots'
+import { SLOT_LABELS, equipmentSlotsOf } from '../equipment-slots'
 import { findLegalAction, type LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance, ignoresDistanceTo } from '../distance'
@@ -11,7 +11,7 @@ import { effectiveCardColor, getSkillRuntime, isCardUseProhibited, isTargetProhi
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
-import type { CardId, DamageNature, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
+import type { CardId, DamageNature, EquipmentSlot, EquipmentZone, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, effectiveDamageNature, locateOwnedCard, moveCard, setCardAlias, setCardNature } from '../zones'
 import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { canUseSlash, slashRules, slashTargetLimit } from '../slash-rules'
@@ -139,9 +139,26 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     } else if (card.name === '酒' && state.turnUsage.wineUses < 1) {
       actions.push(useAction(cardId, playerId, '酒', [playerId], '使用【酒】强化下一张杀'))
     } else if (card.category === 'equipment' && card.equipmentSlot) {
-      // 被废除的栏不能再装备牌（神张辽【夺锐】）
-      if (isSlotAbolished(state, playerId, card.equipmentSlot)) continue
-      actions.push(useAction(cardId, playerId, card.name, [playerId], `装备【${card.name}】`))
+      const slots = equipTargetSlots(state, playerId, card.equipmentSlot)
+      // 一个能装的栏都没有（栏被废除了）就不给这条动作
+      if (slots.length === 0) continue
+      if (slots.length === 1) {
+        actions.push(useAction(cardId, playerId, card.name, [playerId], `装备【${card.name}】`, undefined, slots[0]))
+      } else {
+        /*
+         * 两个武器栏都占着（神典韦【捐甲】）：顶掉哪一把由玩家决定。
+         * 自动顶掉第一栏是错的——他可能正想留着那把。
+         */
+        for (const slot of slots) {
+          const occupied = playerOf(state, playerId).zones.equipment[slot as keyof EquipmentZone]
+          const occupiedName = occupied ? state.cards[occupied]?.name ?? '' : ''
+          actions.push(useAction(
+            cardId, playerId, card.name, [playerId],
+            `装备【${card.name}】到${SLOT_LABELS[slot]}${occupiedName ? `（替换【${occupiedName}】）` : ''}`,
+            undefined, slot,
+          ))
+        }
+      }
     } else if (INSTANT_TRICKS.has(card.name)) {
       actions.push(...instantTrickActions(state, playerId, cardId))
     } else if (card.name === '乐不思蜀') {
@@ -866,14 +883,32 @@ export function executeUseCardAction(
     host.state.turnUsage.wineUses += 1
     host.state.turnUsage.wineDamageBonus = 1
   } else if (card.category === 'equipment' && card.equipmentSlot) {
-    if (isSlotAbolished(host.state, playerId, card.equipmentSlot)) throw new Error('该装备栏已被废除')
-    const replaced = playerOf(host.state, playerId).zones.equipment[card.equipmentSlot]
-    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'equipment', playerId, slot: card.equipmentSlot })
+    // 动作上带了栏就按它装，否则按这张牌本来的栏；两者都要再验一次没被废除
+    const slot = action.equipmentSlot ?? card.equipmentSlot
+    if (!equipTargetSlots(host.state, playerId, card.equipmentSlot).includes(slot)) throw new Error('该装备栏不可用')
+    const replaced = playerOf(host.state, playerId).zones.equipment[slot as keyof EquipmentZone]
+    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'equipment', playerId, slot })
     if (replaced) handleEquipmentLost(host, playerId, replaced)
   } else {
     throw new Error(`尚未实现卡牌：${effectiveName}`)
   }
   finishPhysicalCard(host, playerId, cardId, action.targetIds, false, effectiveName)
+}
+
+/**
+ * 这张装备牌现在能装进哪些栏。
+ *
+ * 武器牌在有第二武器栏的角色身上有两个候选；其余装备各只有一个。
+ * 已被废除的栏不出现在候选里。**优先给空栏**：两个武器栏只有一个是空的时候，
+ * 玩家不需要被问「你要顶掉哪一把」——空的那个显然是答案。
+ */
+function equipTargetSlots(state: SanguoshaState, playerId: PlayerId, cardSlot: EquipmentSlot): EquipmentSlot[] {
+  const all = equipmentSlotsOf(state, playerId)
+  const candidates = cardSlot === 'weapon'
+    ? all.filter((slot) => slot === 'weapon' || slot === 'weapon2')
+    : all.filter((slot) => slot === cardSlot)
+  const empty = candidates.filter((slot) => !playerOf(state, playerId).zones.equipment[slot as keyof EquipmentZone])
+  return empty.length > 0 ? [empty[0]] : candidates
 }
 
 function removeResponseRequest(state: SanguoshaState, requestId: string): void {

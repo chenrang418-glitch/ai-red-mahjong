@@ -18,7 +18,14 @@ export type Rank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13
 export type CardColor = 'red' | 'black'
 export type DamageNature = 'normal' | 'fire' | 'thunder'
 export type CardCategory = 'basic' | 'trick' | 'equipment'
-export type EquipmentSlot = 'weapon' | 'armor' | 'offensiveHorse' | 'defensiveHorse'
+/**
+ * 装备栏。
+ *
+ * `weapon2` 是**第二武器栏**，不是所有人都有：只有拿到额外武器栏的角色
+ * （神典韦【捐甲】）才存在这一栏，见 `engine/equipment-slots.ts`。
+ * 没有这一栏的人，它既不出现在合法装备目标里，也不参与攻击范围计算。
+ */
+export type EquipmentSlot = 'weapon' | 'weapon2' | 'armor' | 'offensiveHorse' | 'defensiveHorse'
 export type TurnPhase = 'prepare' | 'judge' | 'draw' | 'play' | 'discard' | 'finish'
 export type GameStatus = 'setup' | 'choosing-general' | 'playing' | 'game-over'
 
@@ -36,12 +43,23 @@ export interface PhysicalCard {
   attackRange?: number
   /** 技能生成的临时牌。结算结束后销毁，不进入弃牌堆，也不计入牌堆组成。 */
   virtual?: boolean
+  /**
+   * 这张「牌」其实是一张武将牌（神典韦【挈挟】把武将牌当武器用）。
+   *
+   * 它没有花色、没有点数、不属于牌堆构成，**离开装备区就销毁**，
+   * 不会进手牌、弃牌堆或牌堆。详见 `engine/character-equipment.ts`。
+   */
+  characterId?: CharacterId
+  /** 谁生成了这张非牌堆牌，用于生命周期管理。 */
+  generatedBy?: 'character-equipment'
   /** 生成这张虚拟牌的技能，用于结算完成后的技能奖励。 */
   sourceSkillId?: string
 }
 
 export interface EquipmentZone {
   weapon: CardId | null
+  /** 第二武器栏。没有这一栏的角色恒为 null，见 `EquipmentSlot`。 */
+  weapon2: CardId | null
   armor: CardId | null
   offensiveHorse: CardId | null
   defensiveHorse: CardId | null
@@ -675,6 +693,12 @@ export interface SanguoshaState {
    */
   roundNumber: number
   /**
+   * 拿到了额外武器栏的角色（神典韦【捐甲】）。
+   *
+   * 和「废除栏」是同一类记账，方向相反：那个是少一栏，这个是多一栏。
+   */
+  extraWeaponSlots?: PlayerId[]
+  /**
    * 牌堆重洗的痕迹。见 `engine/deck.ts`。
    *
    * 「这个回合牌堆洗过牌吗」是一条真事实，不是从牌堆剩几张推出来的猜测。
@@ -819,5 +843,5 @@ export interface SanguoshaState {
 }
 
 export function emptyEquipment(): EquipmentZone {
-  return { weapon: null, armor: null, offensiveHorse: null, defensiveHorse: null }
+  return { weapon: null, weapon2: null, armor: null, offensiveHorse: null, defensiveHorse: null }
 }
