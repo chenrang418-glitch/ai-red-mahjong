@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ALL_CARD_INFO } from '@/sanguosha/data/ruleset-v1/card-info'
 import { effectForPresentation, SGS_AUDIO_DEFAULTS, voiceUrlsForPresentation } from '@/sanguosha/composables/useSgsAudio'
-import { CHARACTER_SKILL_VOICE_ASSET_COUNT, CHARACTER_SKILL_VOICE_SKILL_COUNT, characterSkillVoiceUrls } from '@/sanguosha/data/character-voice-lines'
+import {
+  CHARACTER_SKILL_VOICE_ASSET_COUNT,
+  CHARACTER_SKILL_VOICE_SKILL_COUNT,
+  VOICED_CHARACTERS,
+  VOICED_CHARACTER_IDS,
+  characterSkillVoiceUrls,
+} from '@/sanguosha/data/character-voice-lines'
 import { ALL_CHARACTERS } from '@/sanguosha/data/characters/standard'
 import { buildPresentationEvent, type PresentationEvent } from '@/sanguosha/engine/presentation'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
@@ -96,31 +102,90 @@ describe('纸上三国声音映射', () => {
     expect(source).toContain("setSetting('voiceEnabled'")
   })
 
-  it('73 名非自定义武将的 147 个技能均接入两条台词', () => {
+  it('已登记台词的武将，每个技能都有两条成品，且和磁盘完全对得上', () => {
     const root = dirname(fileURLToPath(import.meta.url))
     const directory = resolve(root, '../public/sanguosha/voice/characters')
-    const official = ALL_CHARACTERS.filter((character) => character.pack !== 'entertainment')
-    const skills = official.flatMap((character) => character.skills.map((skill) => ({ character, skill })))
-    expect(official).toHaveLength(73)
-    expect(skills).toHaveLength(147)
-    expect(CHARACTER_SKILL_VOICE_SKILL_COUNT).toBe(147)
-    expect(CHARACTER_SKILL_VOICE_ASSET_COUNT).toBe(294)
+    /*
+     * 比对基准是**已登记台词的名单**，不是「所有非娱乐武将」。
+     *
+     * 用后者的话，每加一名新武将就等于凭空声明「他有台词」，
+     * 这条用例立刻变红，而真正的问题只是「还没录」。台词是分批补的，
+     * 不该把「新增武将」和「补录台词」这两件事绑死。
+     */
+    const voiced = VOICED_CHARACTERS
+    expect(voiced.length, '登记的武将都要能在武将表里找到').toBe(VOICED_CHARACTER_IDS.size)
+    expect(CHARACTER_SKILL_VOICE_ASSET_COUNT).toBe(CHARACTER_SKILL_VOICE_SKILL_COUNT * 2)
     const expectedFiles: string[] = []
-    for (const [characterIndex, character] of official.entries()) {
-      const characterDirectory = `${String(characterIndex + 1).padStart(3, '0')}-${character.id}`
+    for (const character of voiced) {
+      /*
+       * 目录名**就是武将 id**，不带顺序前缀。
+       *
+       * 原来是 `001-zhangfei` 这种，序号由武将表的列表顺序算出来——
+       * 只要有人在表中间插一个新武将，后面所有人的序号全部错位，语音整片 404。
+       * 武将表还在持续增加，地址不能和列表顺序绑在一起。
+       */
       for (const skill of character.skills) {
         const urls = characterSkillVoiceUrls(character.id, skill.id)
         expect(urls, `${character.name}【${skill.name}】`).toHaveLength(2)
         expect(new Set(urls).size, `${character.name}【${skill.name}】两条不能重复`).toBe(2)
-        expectedFiles.push(`${characterDirectory}/${skill.id}-01.mp3`, `${characterDirectory}/${skill.id}-02.mp3`)
+        expectedFiles.push(`${character.id}/${skill.id}-01.mp3`, `${character.id}/${skill.id}-02.mp3`)
       }
     }
     const actualFiles = readdirSync(directory, { recursive: true, withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith('.mp3'))
       .map((entry) => `${entry.parentPath.slice(directory.length + 1).replaceAll('\\', '/')}/${entry.name}`)
       .sort()
-    expect(actualFiles).toEqual(expectedFiles.sort())
+    /*
+     * 先分别报缺了什么、多了什么，再整体比对。
+     *
+     * 直接 `toEqual` 两个 294 项的数组，加一个武将时看到的是一大片 diff，
+     * 得自己去数是哪一个漏了。分开报能一眼看出该补哪几条台词。
+     */
+    const actual = new Set(actualFiles)
+    const expected = new Set(expectedFiles)
+    expect(expectedFiles.filter((file) => !actual.has(file)), '这些台词还没上传').toEqual([])
+    expect(actualFiles.filter((file) => !expected.has(file)), '这些台词没有对应的武将技能').toEqual([])
+    expect(actualFiles).toEqual([...expectedFiles].sort())
     for (const file of actualFiles) expect(statSync(resolve(directory, file)).size, file).toBeGreaterThan(0)
+  })
+
+  it('还没录台词的武将不会报错，只是没有语音', () => {
+    /*
+     * 这条是给**新增武将**兜底的。
+     *
+     * 台词是分批补的，新武将注册进来时多半还没有音频。这时候必须安静地
+     * 返回空——既不能拼出一串必然 404 的地址，也不能让播放层抛异常。
+     * 「保留接口、暂不接入」说的就是这个状态。
+     */
+    const unvoiced = ALL_CHARACTERS.filter((character) => !VOICED_CHARACTER_IDS.has(character.id))
+    for (const character of unvoiced) {
+      for (const skill of character.skills) {
+        expect(characterSkillVoiceUrls(character.id, skill.id), `${character.name}【${skill.name}】`).toEqual([])
+      }
+    }
+    // 完全不认识的 id 同样安全
+    expect(characterSkillVoiceUrls('not-a-character', 'not-a-skill')).toEqual([])
+  })
+
+  it('台词地址只依赖武将 id，和武将表里的位置无关', () => {
+    /*
+     * 这条是防回退的。
+     *
+     * 目录名曾经是 `001-zhangfei` 这种带顺序前缀的写法，序号由武将表的
+     * 列表顺序算出来。只要有人在表中间插一个新武将，后面所有人的序号全部
+     * 错位，语音整片 404——而武将表还在持续增加。地址里再出现顺序信息就是这个坑。
+     */
+    for (const character of VOICED_CHARACTERS) {
+      for (const skill of character.skills) {
+        // 直接比对完整路径而不是套正则：路径里多出任何一段顺序信息都会当场对不上
+        const paths = characterSkillVoiceUrls(character.id, skill.id)
+          .map((url) => url.slice(url.indexOf('/characters/')))
+        expect(paths, `${character.name}【${skill.name}】`).toEqual([
+          `/characters/${character.id}/${skill.id}-01.mp3`,
+          `/characters/${character.id}/${skill.id}-02.mp3`,
+        ])
+      }
+    }
   })
 
   it('同名技能按人物区分，自定义人物不接入台词', () => {
