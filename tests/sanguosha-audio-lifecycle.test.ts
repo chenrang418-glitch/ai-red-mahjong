@@ -31,6 +31,7 @@ class FakeAudioContext {
   readonly sampleRate: number
   readonly destination: FakeNode = { connect: () => undefined, disconnect: () => undefined }
   readonly startedSources: unknown[] = []
+  readonly gains: Array<{ values: number[] }> = []
   resumeCalls = 0
   /** resume 要不要失败，模拟 iOS 上卡在 interrupted 的上下文。 */
   resumeShouldFail = false
@@ -46,7 +47,13 @@ class FakeAudioContext {
   }
 
   createGain(): FakeNode & { gain: { setTargetAtTime: () => void } } {
-    return { connect: () => undefined, disconnect: () => undefined, gain: { setTargetAtTime: () => undefined } }
+    const tracked = { values: [] as number[] }
+    this.gains.push(tracked)
+    return {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      gain: { setTargetAtTime: (value?: number) => { tracked.values.push(value ?? 0) } },
+    }
   }
 
   createBufferSource(): FakeNode & { buffer: unknown; loop: boolean; onended: (() => void) | null; start: () => void; stop: () => void } {
@@ -281,5 +288,42 @@ describe('进牌桌时一定会尝试唤醒', () => {
     }
     // 唤醒不是一次性的：每次进牌桌都要再试，否则中间被挂起过就再也回不来
     expect(FakeAudioContext.created[0].resumeCalls).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('人物台词声道', () => {
+  it('关闭动作音效不会关闭人物台词，台词开关只控制自己的声道', async () => {
+    const audio = await freshAudio()
+    audio.resume()
+    const context = FakeAudioContext.created[0]
+    expect(context.gains, '音乐、动作音效、人物台词应是三条独立声道').toHaveLength(3)
+
+    audio.setSetting('effectsEnabled', false)
+    expect(context.gains[1].values.at(-1), '动作音效已静音').toBe(0)
+    expect(context.gains[2].values.at(-1), '人物台词仍开启').toBe(1)
+
+    audio.setSetting('voiceEnabled', false)
+    expect(context.gains[2].values.at(-1), '人物台词由自己的开关静音').toBe(0)
+  })
+
+  it('同一技能的两条台词都会进入随机选择', async () => {
+    const audio = await freshAudio()
+    const random = vi.spyOn(Math, 'random')
+    const event = (id: string) => ({
+      id, seq: 1, kind: 'skill' as const, sourceId: 'p0', sourceCharacterId: 'machao',
+      skillId: 'tieji', skillName: '铁骑', text: '马超发动【铁骑】',
+    })
+
+    random.mockReturnValue(0)
+    audio.processEvents([event('voice-first')], 'p0')
+    await new Promise((settle) => { setTimeout(settle, 0) })
+    const context = FakeAudioContext.created[0]
+    const first = (context.startedSources.at(-1) as { buffer: unknown }).buffer
+
+    random.mockReturnValue(.999)
+    audio.processEvents([event('voice-second')], 'p0')
+    const second = (context.startedSources.at(-1) as { buffer: unknown }).buffer
+    expect(second, '随机数落在另一端时应选中另一条台词').not.toBe(first)
+    random.mockRestore()
   })
 })

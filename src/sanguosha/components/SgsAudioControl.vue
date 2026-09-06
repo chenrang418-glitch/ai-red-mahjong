@@ -4,7 +4,7 @@ import { sgsAudio, sgsAudioSettings, sgsVibrationSupported } from '../composable
 
 const open = defineModel<boolean>('open', { default: false })
 const props = withDefaults(defineProps<{ hideTrigger?: boolean }>(), { hideTrigger: false })
-const soundOn = computed(() => sgsAudioSettings.musicEnabled || sgsAudioSettings.effectsEnabled)
+const soundOn = computed(() => sgsAudioSettings.musicEnabled || sgsAudioSettings.effectsEnabled || sgsAudioSettings.voiceEnabled)
 const numberValue = (event: Event) => Number((event.target as HTMLInputElement).value)
 function toggle(): void { sgsAudio.buttonFeedback(); open.value = !open.value }
 </script>
@@ -15,6 +15,14 @@ function toggle(): void { sgsAudio.buttonFeedback(); open.value = !open.value }
     <div v-if="open" class="sgs-audio__mask" @click="open = false"></div>
     <section v-if="open" class="sgs-audio__panel" role="dialog" aria-modal="true" aria-label="声音设置">
       <header><strong>声音</strong><button type="button" aria-label="关闭" @click="open = false">×</button></header>
+
+      <label class="sgs-audio__toggle">
+        <span><b>台词语音</b><small>人物发动技能时随机播放一条台词</small></span>
+        <span class="sgs-audio__switch">
+          <input aria-label="人物台词语音" :checked="sgsAudioSettings.voiceEnabled" type="checkbox" @change="sgsAudio.setSetting('voiceEnabled', ($event.target as HTMLInputElement).checked)">
+          <i></i>
+        </span>
+      </label>
 
       <section class="sgs-audio__block">
         <div class="sgs-audio__heading">

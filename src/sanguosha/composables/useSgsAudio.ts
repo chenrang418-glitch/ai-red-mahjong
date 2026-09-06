@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import type { PresentationEvent } from '../engine/presentation'
+import { characterSkillVoiceUrls } from '../data/character-voice-lines'
 
 /**
  * 音效名单。
@@ -28,10 +29,11 @@ export type SgsEffect =
   // 结算
   | 'victory' | 'defeat'
 
-type SettingKey = 'musicEnabled' | 'effectsEnabled' | 'vibrateEnabled' | 'musicVolume' | 'effectsVolume'
+type SettingKey = 'musicEnabled' | 'effectsEnabled' | 'voiceEnabled' | 'vibrateEnabled' | 'musicVolume' | 'effectsVolume'
 interface SgsAudioSettings {
   musicEnabled: boolean
   effectsEnabled: boolean
+  voiceEnabled: boolean
   vibrateEnabled: boolean
   musicVolume: number
   effectsVolume: number
@@ -42,6 +44,7 @@ const STORAGE_KEY = 'crplay-sanguosha-audio-v2'
 export const SGS_AUDIO_DEFAULTS: Readonly<SgsAudioSettings> = {
   musicEnabled: true,
   effectsEnabled: true,
+  voiceEnabled: true,
   vibrateEnabled: true,
   musicVolume: 1,
   effectsVolume: 1,
@@ -54,6 +57,7 @@ function load(): SgsAudioSettings {
     return {
       musicEnabled: typeof saved.musicEnabled === 'boolean' ? saved.musicEnabled : defaults.musicEnabled,
       effectsEnabled: typeof saved.effectsEnabled === 'boolean' ? saved.effectsEnabled : defaults.effectsEnabled,
+      voiceEnabled: typeof saved.voiceEnabled === 'boolean' ? saved.voiceEnabled : defaults.voiceEnabled,
       vibrateEnabled: typeof saved.vibrateEnabled === 'boolean' ? saved.vibrateEnabled : defaults.vibrateEnabled,
       musicVolume: clamp(typeof saved.musicVolume === 'number' ? saved.musicVolume : defaults.musicVolume),
       effectsVolume: clamp(typeof saved.effectsVolume === 'number' ? saved.effectsVolume : defaults.effectsVolume),
@@ -117,6 +121,9 @@ const MUSIC_URL = new URL('../assets/audio/paper-sanguo-bgm.mp3', import.meta.ur
 const samples = new Map<SgsEffect, AudioBuffer[]>()
 /** 正在下载/解码中的采样。同一个只发一次请求。 */
 const loading = new Map<SgsEffect, Promise<void>>()
+/** 技能台词按“人物:技能”懒加载，避免开局一次解码 294 条语音。 */
+const voiceSamples = new Map<string, AudioBuffer[]>()
+const voiceLoading = new Map<string, Promise<void>>()
 
 /**
  * 采样还没就绪时最多等多久（毫秒）。
@@ -208,9 +215,12 @@ export const sgsVibrationSupported = typeof navigator !== 'undefined' && typeof 
 let context: AudioContext | null = null
 let musicGain: GainNode | null = null
 let effectsGain: GainNode | null = null
+let voiceGain: GainNode | null = null
 let musicBuffer: AudioBuffer | null = null
 let musicLoading: Promise<void> | null = null
 let musicSource: AudioBufferSourceNode | null = null
+let voiceSource: AudioBufferSourceNode | null = null
+let voiceRequestGeneration = 0
 let active = false
 const processed = new Set<string>()
 
@@ -242,16 +252,20 @@ function audioContextClass(): typeof AudioContext | null {
  */
 function teardownContext(): void {
   stopMusic()
+  stopVoice()
   const dying = context
   contextGeneration += 1
   context = null
   musicGain = null
   effectsGain = null
+  voiceGain = null
   musicBuffer = null
   musicLoading = null
   resumeFailures = 0
   samples.clear()
   loading.clear()
+  voiceSamples.clear()
+  voiceLoading.clear()
   if (!dying) return
   try { void dying.close() } catch { /* 已经关了 */ }
 }
@@ -281,8 +295,8 @@ function ensureContext(): AudioContext | null {
     return null
   }
   context = created
-  musicGain = created.createGain(); effectsGain = created.createGain()
-  musicGain.connect(created.destination); effectsGain.connect(created.destination)
+  musicGain = created.createGain(); effectsGain = created.createGain(); voiceGain = created.createGain()
+  musicGain.connect(created.destination); effectsGain.connect(created.destination); voiceGain.connect(created.destination)
   // 上下文被浏览器单方面关掉时把引用放掉，下一次播放自然重建
   try {
     created.addEventListener('statechange', () => {
@@ -293,9 +307,10 @@ function ensureContext(): AudioContext | null {
   return created
 }
 function syncGains(): void {
-  if (!context || !musicGain || !effectsGain) return
+  if (!context || !musicGain || !effectsGain || !voiceGain) return
   musicGain.gain.setTargetAtTime(sgsAudioSettings.musicEnabled ? sgsAudioSettings.musicVolume : 0, context.currentTime, .03)
   effectsGain.gain.setTargetAtTime(sgsAudioSettings.effectsEnabled ? sgsAudioSettings.effectsVolume : 0, context.currentTime, .02)
+  voiceGain.gain.setTargetAtTime(sgsAudioSettings.voiceEnabled ? 1 : 0, context.currentTime, .02)
 }
 function resume(): void {
   const audio = ensureContext()
@@ -416,6 +431,76 @@ function play(effect: SgsEffect, delay = 0, variantKey = ''): void {
   if (SAMPLE_URLS[effect]) playSampleWhenReady(effect, variantKey)
 }
 
+/** 技能事件到台词资源的映射独立导出，便于检查人物与同名技能没有串音。 */
+export function voiceUrlsForPresentation(event: PresentationEvent): readonly string[] {
+  if (event.kind !== 'skill') return []
+  return characterSkillVoiceUrls(event.sourceCharacterId, event.skillId)
+}
+
+function stopVoice(): void {
+  voiceRequestGeneration += 1
+  const source = voiceSource
+  voiceSource = null
+  if (!source) return
+  try { source.stop() } catch { /* 已经结束 */ }
+  try { source.disconnect() } catch { /* 已经断开 */ }
+}
+
+function loadVoice(key: string, urls: readonly string[]): Promise<void> | null {
+  if (voiceSamples.has(key)) return null
+  const existing = voiceLoading.get(key)
+  if (existing) return existing
+  const audio = ensureContext()
+  if (!audio) return null
+  const generation = contextGeneration
+  const task = Promise.all(urls.map((url) => fetch(url)
+    .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
+    .then((data) => audio.decodeAudioData(data))))
+    .then((buffers) => {
+      if (generation === contextGeneration) voiceSamples.set(key, buffers)
+    })
+    .catch(() => undefined)
+    .finally(() => { voiceLoading.delete(key) })
+  voiceLoading.set(key, task)
+  return task
+}
+
+function playDecodedVoice(key: string): boolean {
+  const buffers = voiceSamples.get(key)
+  if (!buffers?.length || !context || !voiceGain) return false
+  stopVoice()
+  const source = context.createBufferSource()
+  source.buffer = buffers[Math.floor(Math.random() * buffers.length)]
+  source.connect(voiceGain)
+  voiceSource = source
+  source.onended = () => {
+    if (voiceSource === source) voiceSource = null
+    try { source.disconnect() } catch { /* 已经断开 */ }
+  }
+  source.start(context.currentTime + .018)
+  return true
+}
+
+function playVoice(event: PresentationEvent): void {
+  if (!sgsAudioSettings.voiceEnabled || document.hidden) return
+  const urls = voiceUrlsForPresentation(event)
+  if (urls.length === 0) return
+  const audio = ensureContext(); if (!audio) return
+  if (audio.state !== 'running') resume()
+  const key = `${event.sourceCharacterId}:${event.skillId}`
+  if (playDecodedVoice(key)) return
+
+  const task = loadVoice(key, urls)
+  if (!task) return
+  const request = ++voiceRequestGeneration
+  let expired = false
+  window.setTimeout(() => { expired = true }, 2_000)
+  void task.then(() => {
+    if (expired || request !== voiceRequestGeneration || !sgsAudioSettings.voiceEnabled) return
+    playDecodedVoice(key)
+  })
+}
+
 function loadMusic(): Promise<void> | null {
   if (musicBuffer || musicLoading) return musicLoading
   const audio = ensureContext()
@@ -469,6 +554,7 @@ function processEvents(events: readonly PresentationEvent[], viewerId: string): 
     processed.add(event.id)
     const effect = effectForPresentation(event)
     if (effect) play(effect, Math.min(index * .07, .28), event.id)
+    playVoice(event)
     hapticFor(event, viewerId)
   })
 }
@@ -496,16 +582,19 @@ function prepare(existing: readonly PresentationEvent[] = []): void {
    */
   if (existing.some((event) => event.kind === 'game-start')) play('game-start')
 }
-function stop(): void { active = false; processed.clear(); stopMusic() }
+function stop(): void { active = false; processed.clear(); stopMusic(); stopVoice() }
 function setSetting<K extends SettingKey>(key: K, value: SgsAudioSettings[K]): void {
   sgsAudioSettings[key] = (key === 'musicVolume' || key === 'effectsVolume' ? clamp(value as number) : value) as SgsAudioSettings[K]
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sgsAudioSettings)) } catch { /* 保存失败不影响对局 */ }
-  syncGains(); if (sgsAudioSettings.musicEnabled) { resume(); startMusic() } else stopMusic()
+  syncGains()
+  if (!sgsAudioSettings.voiceEnabled) stopVoice()
+  if (sgsAudioSettings.musicEnabled) { resume(); startMusic() } else stopMusic()
 }
 function buttonFeedback(): void { resume(); vibrate(8) }
 function playResult(won: boolean): void {
   active = false
   stopMusic()
+  stopVoice()
   play(won ? 'victory' : 'defeat', 0, won ? 'victory' : 'defeat')
 }
 

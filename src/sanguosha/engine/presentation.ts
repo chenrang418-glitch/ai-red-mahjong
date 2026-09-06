@@ -23,6 +23,9 @@ export interface PresentationEvent {
   cardEffect?: boolean
   /** 受击、濒死、阵亡音效按当前生效性别选择（含化身）。 */
   targetGender?: 'male' | 'female'
+  /** 技能台词用人物与技能双键定位，避免“马术”等同名技能串错角色。 */
+  sourceCharacterId?: string
+  skillId?: string
   skillName?: string
   amount?: number
   nature?: DamageNature
@@ -131,14 +134,21 @@ export function buildPresentationEvent(
        * `skillName`，中央提示就会显示拼音（刘禅【若愚】显示成 ruoyu 就是这么来的）。
        * 逐个武将补 `skillName` 治不了根——下一个新技能照样会忘。
        */
-      const skillName = String(payload.skillName ?? (payload.skillId ? skillDisplayName(String(payload.skillId)) : ''))
+      const actorId = sourceId ?? payload.playerId as PlayerId | undefined
+      const skillId = payload.skillId ? String(payload.skillId) : undefined
+      const skillName = String(payload.skillName ?? (skillId ? skillDisplayName(skillId) : ''))
       const targetIds = (payload.targetIds as PlayerId[] | undefined) ?? []
       const targets = targetIds.map((id) => playerName(state, id)).join('、')
       // 技能可以自带一句战报文本。默认那句「A对B发动【X】」在认亲、
       // 收手、爆仓这类场合读起来不对，但也不值得给每个武将在这里写一个分支
       const custom = typeof payload.logText === 'string' && payload.logText ? payload.logText : null
       const text = custom ?? (targets ? `${source}对${targets}发动【${skillName}】` : `${source}发动【${skillName}】`)
-      return { id: event.id, seq: event.seq, kind: 'skill', sourceId, targetIds, skillName, text }
+      const playerCharacterId = actorId ? state.players.find((player) => player.id === actorId)?.characterId ?? undefined : undefined
+      const huashen = actorId ? state.huashen?.owners[actorId] : undefined
+      const sourceCharacterId = huashen?.activeSkillId === skillId
+        ? huashen?.activeCharacterId ?? playerCharacterId
+        : playerCharacterId
+      return { id: event.id, seq: event.seq, kind: 'skill', sourceId: actorId, sourceCharacterId, targetIds, skillId, skillName, text }
     }
     case 'Damaged': {
       const amount = Number(payload.amount ?? 1)

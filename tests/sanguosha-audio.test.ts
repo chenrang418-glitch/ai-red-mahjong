@@ -3,7 +3,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ALL_CARD_INFO } from '@/sanguosha/data/ruleset-v1/card-info'
-import { effectForPresentation, SGS_AUDIO_DEFAULTS } from '@/sanguosha/composables/useSgsAudio'
+import { effectForPresentation, SGS_AUDIO_DEFAULTS, voiceUrlsForPresentation } from '@/sanguosha/composables/useSgsAudio'
+import { CHARACTER_SKILL_VOICE_ASSET_COUNT, CHARACTER_SKILL_VOICE_SKILL_COUNT, characterSkillVoiceUrls } from '@/sanguosha/data/character-voice-lines'
+import { ALL_CHARACTERS } from '@/sanguosha/data/characters/standard'
 import { buildPresentationEvent, type PresentationEvent } from '@/sanguosha/engine/presentation'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 
@@ -84,6 +86,76 @@ describe('纸上三国声音映射', () => {
     expect(effectForPresentation(cardEvent('青龙偃月刀'))).toBe('equip')
     expect(effectForPresentation(cardEvent('八卦阵'))).toBe('equip')
     expect(effectForPresentation(cardEvent('赤兔'))).toBe('equip-mount')
+  })
+
+  it('人物台词默认开启，并在声音面板中独立控制', () => {
+    expect(SGS_AUDIO_DEFAULTS.voiceEnabled).toBe(true)
+    const root = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(resolve(root, '../src/sanguosha/components/SgsAudioControl.vue'), 'utf8')
+    expect(source).toContain('人物台词语音')
+    expect(source).toContain("setSetting('voiceEnabled'")
+  })
+
+  it('73 名非自定义武将的 147 个技能均接入两条台词', () => {
+    const root = dirname(fileURLToPath(import.meta.url))
+    const directory = resolve(root, '../public/sanguosha/voice/characters')
+    const official = ALL_CHARACTERS.filter((character) => character.pack !== 'entertainment')
+    const skills = official.flatMap((character) => character.skills.map((skill) => ({ character, skill })))
+    expect(official).toHaveLength(73)
+    expect(skills).toHaveLength(147)
+    expect(CHARACTER_SKILL_VOICE_SKILL_COUNT).toBe(147)
+    expect(CHARACTER_SKILL_VOICE_ASSET_COUNT).toBe(294)
+    const expectedFiles: string[] = []
+    for (const [characterIndex, character] of official.entries()) {
+      const characterDirectory = `${String(characterIndex + 1).padStart(3, '0')}-${character.id}`
+      for (const skill of character.skills) {
+        const urls = characterSkillVoiceUrls(character.id, skill.id)
+        expect(urls, `${character.name}【${skill.name}】`).toHaveLength(2)
+        expect(new Set(urls).size, `${character.name}【${skill.name}】两条不能重复`).toBe(2)
+        expectedFiles.push(`${characterDirectory}/${skill.id}-01.mp3`, `${characterDirectory}/${skill.id}-02.mp3`)
+      }
+    }
+    const actualFiles = readdirSync(directory, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.mp3'))
+      .map((entry) => `${entry.parentPath.slice(directory.length + 1).replaceAll('\\', '/')}/${entry.name}`)
+      .sort()
+    expect(actualFiles).toEqual(expectedFiles.sort())
+    for (const file of actualFiles) expect(statSync(resolve(directory, file)).size, file).toBeGreaterThan(0)
+  })
+
+  it('同名技能按人物区分，自定义人物不接入台词', () => {
+    expect(characterSkillVoiceUrls('machao', 'mashu')).toHaveLength(2)
+    expect(characterSkillVoiceUrls('pangde', 'mashu')).toHaveLength(2)
+    expect(characterSkillVoiceUrls('machao', 'mashu')).not.toEqual(characterSkillVoiceUrls('pangde', 'mashu'))
+    for (const character of ALL_CHARACTERS.filter((entry) => entry.pack === 'entertainment')) {
+      for (const skill of character.skills) expect(characterSkillVoiceUrls(character.id, skill.id)).toHaveLength(0)
+    }
+  })
+
+  it('只有携带人物和技能标识的技能事件会命中台词', () => {
+    const skill: PresentationEvent = {
+      id: 'voice-machao-tieji', seq: 1, kind: 'skill', sourceId: 'p0',
+      sourceCharacterId: 'machao', skillId: 'tieji', skillName: '铁骑', text: '马超发动【铁骑】',
+    }
+    expect(voiceUrlsForPresentation(skill)).toHaveLength(2)
+    expect(voiceUrlsForPresentation({ ...skill, kind: 'damage' })).toHaveLength(0)
+    expect(voiceUrlsForPresentation({ ...skill, sourceCharacterId: 'naiwa' })).toHaveLength(0)
+  })
+
+  it('引擎表现事件会携带发动者的人物和技能标识', () => {
+    const game = new SanguoshaGame({
+      seed: 'voice-presentation',
+      setup: {
+        mode: 'identity', generalChoices: 1,
+        players: Array.from({ length: 5 }, (_, index) => ({ id: `p${index}`, nickname: `玩家${index}`, isHuman: false })),
+      },
+    })
+    game.state.players[0].characterId = 'machao'
+    const built = buildPresentationEvent(game.state, {
+      id: 'skill-tieji', seq: 1, name: 'SkillActivated', sourceId: 'p0', payload: { skillId: 'tieji' },
+    })
+    expect(built).toMatchObject({ kind: 'skill', sourceId: 'p0', sourceCharacterId: 'machao', skillId: 'tieji' })
+    expect(voiceUrlsForPresentation(built!)).toHaveLength(2)
   })
 
   it('失去装备、改判和仅展示牌都不触发牌效', () => {
