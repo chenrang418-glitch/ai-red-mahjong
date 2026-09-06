@@ -76,6 +76,23 @@ export function adjustOutgoingDamage(
 }
 
 /**
+ * 伤害来源的技能有没有把这次伤害**整个换成失去体力**（张春华【绝情】）。
+ *
+ * 返回换掉它的那个技能 id；没换就返回 null。
+ */
+export function damageReplacedWithHpLoss(
+  state: SanguoshaState,
+  sourceId: PlayerId | null,
+  context: { targetId: PlayerId; amount: number; nature: DamageNature; cardName: string | null },
+): string | null {
+  if (!sourceId) return null
+  for (const runtime of runtimesOf(state, sourceId)) {
+    if (runtime.replacesDamageWithHpLoss?.(state, sourceId, context)) return runtime.id
+  }
+  return null
+}
+
+/**
  * 受伤者的技能有没有把这次伤害挡下来。
  *
  * 返回挡下它的技能 id；没挡下就返回 null。允许技能在挡下的同时做事

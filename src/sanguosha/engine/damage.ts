@@ -15,7 +15,8 @@ import { isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } f
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
-import { adjustOutgoingDamage, interceptIncomingDamage } from './damage-modifiers'
+import { loseHp } from './hp'
+import { adjustOutgoingDamage, damageReplacedWithHpLoss, interceptIncomingDamage } from './damage-modifiers'
 import { DAWU_STATE, KUANGFENG_STATE, applyTargetStateDamage, clearTargetStatesOf } from './target-state'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
@@ -358,6 +359,35 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   }
   nature = outgoing.nature
   amount = outgoing.amount
+
+  /*
+   * 「造成的伤害改为等量失去体力」（张春华【绝情】）。
+   *
+   * 位置定在这里：**源头方的加成已经算完**（裸衣、驭雳、霆威那些），
+   * 而受伤方的防御与加成（藤甲、狂风、大雾、白银狮子）一概不参与——
+   * 最终不是伤害，那些修正没有作用对象。这样也不会出现
+   * 「先被大雾防止、又再扣一次体力」的双重结算。
+   *
+   * 换掉之后**立刻返回**：后面的伤害时机、连环传导、濒死都由 `loseHp` 那条路
+   * 自己负责，绝不能再走一遍伤害管线。
+   */
+  const replacedBy = damageReplacedWithHpLoss(host.state, sourceId, {
+    targetId: target.id, amount, nature, cardName: options.cardName ?? null,
+  })
+  if (replacedBy) {
+    const skillName = skillDisplayName(host.state, sourceId!, replacedBy)
+    host.dispatch('SkillActivated', {
+      skillId: replacedBy, skillName, playerId: sourceId, targetIds: [target.id], result: 'damage-to-hp-loss',
+      logText: `【${skillName}】${target.nickname}改为失去 ${amount} 点体力`,
+    }, { sourceId: sourceId ?? undefined, targetId: target.id })
+    /*
+     * 走公共的失去体力入口：体力归零照常进濒死。
+     * **没有击杀者**——失去体力不是伤害，也就没有伤害来源可言，
+     * 因此不触发击杀奖惩。这一条写进了规则文档。
+     */
+    loseHp(host as never, target.id, amount, replacedBy)
+    return
+  }
   if (amount <= 0) return
 
   /*
