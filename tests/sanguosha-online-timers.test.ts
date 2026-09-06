@@ -110,9 +110,9 @@ describe('牌桌计时', () => {
     expect(after.deadlineAt, '取消托管不能重新发一整个窗口').toBe(before.deadlineAt)
   })
 
-  /** 推进到「自己正处在出牌阶段、且挂着 turn-timeout」的那一刻。 */
-  function driveToOwnPlayPhase(room: SanguoshaRoomCoordinator, userId: string): number {
-    let at = 1_000
+  /** 推进到「自己正处在出牌阶段、且挂着 turn-timeout」的那一刻；到不了就返回 null。 */
+  function driveToOwnPlayPhase(room: SanguoshaRoomCoordinator, userId: string, from: number): number | null {
+    let at = from
     for (let guard = 0; guard < 4_000; guard += 1) {
       const mine = room.view(userId).playerView?.pendingRequest
       if (mine?.kind === 'choose-general') {
@@ -133,7 +133,25 @@ describe('牌桌计时', () => {
       at = Math.max(at + 1, next)
       room.runDueJobs(at)
     }
-    throw new Error('没能推进到自己的出牌阶段')
+    return null
+  }
+
+  /*
+   * 开一局并推到自己的出牌阶段。
+   *
+   * **换几个开局时刻重试，而不是钉死一局**：牌局的种子是「房号-开局时刻-版本」，
+   * 某一局里这个真人完全可能在轮到自己之前就被打死——那是牌局的正常结果，
+   * 不是计时逻辑的毛病。只钉死一个种子的话，任何一次改动牌堆或武将池的提交
+   * 都会让下面这两条计时断言随机翻红，而红的原因和计时毫无关系。
+   */
+  function atOwnPlayPhase(): { room: SanguoshaRoomCoordinator; at: number } {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const now = 1_000 + attempt * 1_000
+      const room = started(now)
+      const at = driveToOwnPlayPhase(room, HOST.userId, now)
+      if (at !== null) return { room, at }
+    }
+    throw new Error('二十局里没有一局让这个真人活到自己的出牌阶段')
   }
 
   /*
@@ -141,8 +159,7 @@ describe('牌桌计时', () => {
    * 任务靠局面指纹认身份。上一版只覆盖了选将，这条漏了。
    */
   it('自己出牌阶段开关托管，同样不重置倒计时', () => {
-    const room = started(1_000)
-    const at = driveToOwnPlayPhase(room, HOST.userId)
+    const { room, at } = atOwnPlayPhase()
     const seatId = room.state.seats.find((seat) => seat.userId === HOST.userId)!.seatId
     const mine = () => room.view(HOST.userId).timers.find((timer) => timer.seatId === seatId)!
     const before = mine()
@@ -167,8 +184,7 @@ describe('牌桌计时', () => {
    * 倒计时照样会被拨回起点。
    */
   it('恢复出来的老任务没有窗口终点时，也不会把倒计时拨回起点', () => {
-    const room = started(1_000)
-    const at = driveToOwnPlayPhase(room, HOST.userId)
+    const { room, at } = atOwnPlayPhase()
     const seatId = room.state.seats.find((seat) => seat.userId === HOST.userId)!.seatId
     const job = room.state.jobs.find((entry) => entry.kind === 'turn-timeout' && entry.seatId === seatId)!
     const originalDeadline = job.dueAt

@@ -12,7 +12,7 @@ import { runSoakGame } from '@/sanguosha/ai/soak'
  * 同样不会让牌局崩，测试会绿得毫无意义。
  */
 
-const BATCH_FIVE = ['shenhuatuo', 'shenlusu']
+const BATCH_FIVE = ['shenhuatuo', 'shenlusu', 'shenjiangwei', 'shenmachao']
 
 function castFor(playerCount: number): string[] {
   const filler = ['zhangfei', 'guanyu', 'zhaoyun', 'machao', 'huangzhong', 'xiahoudun', 'zhenji']

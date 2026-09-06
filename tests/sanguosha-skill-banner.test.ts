@@ -41,15 +41,30 @@ function repeatedBanners(seed: string, playerCount: number): string[] {
 
   const repeated: string[] = []
   let previous: PresentationEvent | null = null
+  // 数的是**派发出来的事件**，不是 state.seq——后者还要分给请求 id，会有跳号
+  let dispatched = 0
+  let previousAt = -1
   for (const name of EVENT_NAMES) {
     game.events.on(name, (handled) => {
       const event = buildPresentationEvent(game.state, handled.event)
+      dispatched += 1
       if (!event) return
-      if (event.kind === 'skill' && previous?.kind === 'skill'
+      /*
+       * 判据是「**同一条时机里连着播了两遍**」，不是「同样的文案出现了两次」。
+       *
+       * 要抓的那个 bug 长这样：技能自己播一条，引擎的兜底又补一条，
+       * 两条 `SkillActivated` 中间**什么都没有**。而一个技能在一局里被触发两次、
+       * 两次之间还夹着别的事件（神孙策连续挡下两张【杀】，每次都交一张手牌），
+       * 那是两件真事，文案一样只是因为它本来就该这么写。
+       * 只看文案的话，任何一次改动牌堆或武将池都会让这条断言随机翻红。
+       */
+      const adjacent = dispatched === previousAt + 1
+      if (adjacent && event.kind === 'skill' && previous?.kind === 'skill'
         && previous.text === event.text && previous.sourceId === event.sourceId) {
         repeated.push(`${seed}: ${event.text}`)
       }
       previous = event
+      previousAt = dispatched
     })
   }
 
