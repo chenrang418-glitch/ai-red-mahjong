@@ -9,6 +9,7 @@ import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 import { effectiveGenderOf, provideHuashenCharacterCatalog } from '../../engine/huashen'
 import { provideCharacterPool } from '../../engine/character-pool'
+import { provideRandomSkillPool } from '../../engine/random-skill-pool'
 import { WEI_CHARACTERS } from './wei'
 import { WEI_DAMAGE_CHARACTERS } from './wei-damage'
 import { LORD_CHARACTERS, provideKingdomLookup } from './lords'
@@ -376,6 +377,16 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
 
 const BY_ID = new Map(ALL_CHARACTERS.map((character) => [character.id, character]))
 provideHuashenCharacterCatalog(ALL_CHARACTERS)
+// 随机获得技能（神孙权【驭衡】）用的池子：技能连同它的归属一起登记
+provideRandomSkillPool(ALL_CHARACTERS.flatMap((character) => character.skills
+  .filter((skill) => !skill.granted)
+  .map((skill) => ({
+    id: skill.id,
+    name: skill.name,
+    characterId: character.id,
+    characterName: character.name,
+    kingdom: character.kingdom,
+  }))))
 // 随机抽武将牌（神典韦【挈挟】）用的池子，和化身共用同一份武将表
 provideCharacterPool(ALL_CHARACTERS.map(({ id, name, pack, maxHp }) => ({ id, name, pack, maxHp })))
 
@@ -484,5 +495,9 @@ export function displayCharacterName(
  * 的修正走另一个入口 `trickDistanceBonus`，两者互不干扰。
  */
 export function ignoresTrickDistance(state: SanguoshaState, playerId: PlayerId): boolean {
-  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.ignoresTrickDistance === true)
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => (
+    typeof runtime.ignoresTrickDistance === 'function'
+      ? runtime.ignoresTrickDistance(state, playerId)
+      : runtime.ignoresTrickDistance === true
+  ))
 }

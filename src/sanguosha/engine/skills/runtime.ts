@@ -202,6 +202,15 @@ export interface SkillRuntime {
     /** 发动。可以调 host.askSkill 挂起。 */
     invoke(host: SkillHost, ownerId: PlayerId): void
   }
+  /**
+   * 把某个阶段位**改成**另一个阶段（神孙权【持纲】）。
+   *
+   * 返回要换成的阶段，返回 null / undefined 表示照原样跑。
+   * 换上来的是**真阶段**：`PhaseStart` / `PhaseEnd` 报新阶段，
+   * 阶段内容也按新阶段跑。被换掉的那个阶段不执行。
+   */
+  replacesPhase?(state: SanguoshaState, ownerId: PlayerId, slot: TurnPhase): TurnPhase | null
+
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
   /**
@@ -219,7 +228,13 @@ export interface SkillRuntime {
    */
   modifySlashTargets?(host: SkillHost, ownerId: PlayerId, targetIds: PlayerId[], candidateIds: PlayerId[]): PlayerId[]
   /** 锁定技：使用锦囊时无视距离限制（奇才）。 */
-  ignoresTrickDistance?: boolean
+  /**
+   * 使用锦囊时无视距离限制（奇才）。
+   *
+   * 允许写成函数：有些效果只在某个条件下成立（神孙权【圣质】只管「下一张牌」），
+   * 写死成布尔就只能是「一直有」或「一直没有」。
+   */
+  ignoresTrickDistance?: boolean | ((state: SanguoshaState, ownerId: PlayerId) => boolean)
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
   trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
   /** 锁定技：指定牌对拥有者无效。和“不能成为目标”是两个不同规则。 */

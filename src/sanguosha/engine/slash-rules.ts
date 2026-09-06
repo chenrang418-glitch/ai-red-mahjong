@@ -88,6 +88,22 @@ export function grantTurnSlashBonus(
   if (bonus.ignoreDistance) addMark(state, playerId, IGNORE_DISTANCE, 1)
 }
 
+/**
+ * 撤销之前加过的本回合出杀加成。
+ *
+ * 「下一张牌不限次数」这类效果用掉之后要收回来（神孙权【圣质】）——
+ * 只加不撤的话，一次武装会让他整个回合都不限次。
+ */
+export function revokeTurnSlashBonus(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  bonus: { extraUses?: number; extraTargets?: number; ignoreDistance?: boolean },
+): void {
+  if (bonus.extraUses) addMark(state, playerId, EXTRA_USES, -bonus.extraUses)
+  if (bonus.extraTargets) addMark(state, playerId, EXTRA_TARGETS, -bonus.extraTargets)
+  if (bonus.ignoreDistance) addMark(state, playerId, IGNORE_DISTANCE, -1)
+}
+
 /** 本回合不能使用杀（【天义】失败）。 */
 export function prohibitSlashThisTurn(state: SanguoshaState, playerId: PlayerId): void {
   addMark(state, playerId, PROHIBITED, 1)

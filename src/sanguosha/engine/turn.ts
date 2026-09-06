@@ -6,6 +6,7 @@ import { expireStolenSkills } from './skill-theft-expiry'
 import { clearAttackRangeOverrides } from './attack-range-override'
 import { clearTurnSlashRules } from './slash-rules'
 import { expireTargetStates } from './target-state'
+import { replacementPhaseFor } from './phase-replacement'
 import { clearTurnKills } from './turn-kills'
 
 export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'play', 'discard', 'finish']
@@ -90,6 +91,7 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   state.turnNumber = 1
   state.roundNumber = 1
   state.phase = 'prepare'
+  delete state.phaseReplacedFrom
   state.skippedPhases = []
   state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
@@ -167,6 +169,7 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   }
 
   state.phase = 'prepare'
+  delete state.phaseReplacedFrom
   /*
    * 临时状态（狂风、大雾）在**施加者的下一个回合开始前**失效。
    * 统一在这里清，技能不各自注册清理——散着写迟早漏一个，
@@ -198,12 +201,23 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   // 剩下的阶段不能继续跑——那会让摸牌、出牌、弃牌发生在一个死人身上。
   // 直接收束这一回合，交给下一名存活角色。
   const current = state.players.find((player) => player.id === state.currentPlayerId)
-  const currentIndex = TURN_PHASES.indexOf(state.phase)
+  /*
+   * 往前走看的是**阶段位**，不是当前跑的阶段。
+   *
+   * 判定位被【持纲】跑成了摸牌阶段时，`state.phase` 是 draw；
+   * 按它去找下一个阶段会直接跳到出牌，把真正的摸牌阶段吃掉。
+   */
+  const currentIndex = TURN_PHASES.indexOf(state.phaseReplacedFrom ?? state.phase)
   if (current?.alive && currentIndex < TURN_PHASES.length - 1) {
     let nextIndex = currentIndex + 1
+    // 「跳过某阶段」跳的也是位置：乐不思蜀跳的是出牌位
     while (nextIndex < TURN_PHASES.length && state.skippedPhases.includes(TURN_PHASES[nextIndex])) nextIndex += 1
     if (nextIndex < TURN_PHASES.length) {
-      state.phase = TURN_PHASES[nextIndex]
+      const slot = TURN_PHASES[nextIndex]
+      const replacement = replacementPhaseFor(state, state.currentPlayerId, slot)
+      if (replacement) state.phaseReplacedFrom = slot
+      else delete state.phaseReplacedFrom
+      state.phase = replacement ?? slot
       return true
     }
   }

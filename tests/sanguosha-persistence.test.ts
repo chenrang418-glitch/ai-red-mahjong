@@ -67,7 +67,12 @@ describe('持久化', () => {
     for (const seed of ['persist-1', 'persist-2', 'persist-3']) {
       expect(play(seed, true), `seed=${seed}`).toEqual(play(seed, false))
     }
-  })
+    /*
+     * 这条要跑六整局，其中三局每一步都完整序列化 + 反序列化一次，
+     * 随武将池增长会越来越慢。给足预算而不是缩小对比范围——
+     * 「每一步都存盘重建之后走向完全一致」正是它唯一想证明的事。
+     */
+  }, 120_000)
 
   it('serialize 带上随机源快照，restore 接得回去', () => {
     const game = new SanguoshaGame({ seed: 'rng-snapshot', setup: setup() })
