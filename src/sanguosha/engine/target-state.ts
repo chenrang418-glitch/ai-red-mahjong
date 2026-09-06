@@ -21,6 +21,12 @@ import type { DamageNature, PlayerId, SanguoshaState, TargetState } from './type
 /** 状态名常量。技能和引擎共用同一份，避免两边写错字符串对不上。 */
 export const KUANGFENG_STATE = 'kuangfeng'
 export const DAWU_STATE = 'dawu'
+/** 地机：下一次受到的伤害 +1，用掉即消失。 */
+export const DIJI_STATE = 'diji'
+/** 中枢：使用的下一张牌无效，用掉即消失。 */
+export const ZHONGSHU_STATE = 'zhongshu'
+/** 气海：不能使用或打出红桃牌。 */
+export const QIHAI_STATE = 'qihai'
 
 /** 某人身上现在有没有这个状态。 */
 export function hasTargetState(state: SanguoshaState, playerId: PlayerId, name: string): boolean {
@@ -42,6 +48,7 @@ export function applyTargetState(
   name: string,
   sourceId: PlayerId,
   skillId?: string,
+  expiry: TargetState['expiry'] = 'source-next-turn-start',
 ): void {
   state.targetStates ??= []
   const existing = state.targetStates.find((entry) => (
@@ -49,12 +56,13 @@ export function applyTargetState(
   ))
   if (existing) {
     existing.appliedTurn = state.turnNumber
+    existing.expiry = expiry
     return
   }
   state.targetStates.push({
     name,
     ownerId: playerId,
-    expiry: 'source-next-turn-start',
+    expiry,
     appliedTurn: state.turnNumber,
     sourceId,
     ...(skillId ? { skillId } : {}),
@@ -84,6 +92,20 @@ export function expireTargetStates(state: SanguoshaState, startingPlayerId: Play
     if (entry.sourceId !== startingPlayerId) return true
     return entry.appliedTurn === state.turnNumber
   })
+}
+
+/**
+ * 回合**结束**时清理「到拥有者回合结束为止」的状态。
+ *
+ * 由 `turn.ts` 在每个回合结束时调一次，**技能不各自注册清理**。
+ * 判据只有一条：正在结束的这个回合属于状态的拥有者。这样两种情况都对——
+ * 在他自己回合里被施加的到这一回合结束，回合外施加的到他下一个回合结束；
+ * 额外回合同样算数，认的是回合实例。
+ */
+export function expireOwnerTurnStates(state: SanguoshaState, endingPlayerId: PlayerId): void {
+  state.targetStates = (state.targetStates ?? []).filter((entry) => (
+    entry.expiry !== 'owner-turn-end' || entry.ownerId !== endingPlayerId
+  ))
 }
 
 /**
@@ -129,6 +151,17 @@ export function applyTargetStateDamage(
   // 狂风：受到的火焰伤害 +1。只认火，普通和雷都不加。
   if (nature === 'fire' && hasTargetState(state, targetId, KUANGFENG_STATE)) {
     return { amount: amount + 1, amplifiedBy: KUANGFENG_STATE }
+  }
+  /*
+   * 地机：**下一次**受到的伤害 +1，然后这个状态就没了。
+   *
+   * 和狂风不一样，它是一次性的：所以在这里就把状态清掉。
+   * 清在这个位置而不是伤害结算的更后面——被大雾之类**完全防止**的伤害
+   * 走不到这一行，那次伤害根本没发生，地机自然不该被消耗掉。
+   */
+  if (hasTargetState(state, targetId, DIJI_STATE)) {
+    clearTargetState(state, targetId, DIJI_STATE)
+    return { amount: amount + 1, amplifiedBy: DIJI_STATE }
   }
   return { amount }
 }

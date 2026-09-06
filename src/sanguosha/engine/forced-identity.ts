@@ -1,3 +1,4 @@
+import { cardPlayableBySuit } from './card-suit-lock'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 
 /**
@@ -87,6 +88,14 @@ export function canUseCardAs(
   cardId: CardId,
   asCardName: string,
 ): boolean {
+  /*
+   * 花色禁令（神黄忠【裂穹·气海】）也收在这里。
+   *
+   * 各条响应路径（求闪、求桃、无懈、锦囊效果）都已经过这个入口过滤候选，
+   * 挂在这里就一次覆盖到位；而且它拿到的是**实体牌**，
+   * 所以转化技的子牌同样被拦住——只看转化后那张虚拟牌的花色等于没拦。
+   */
+  if (!cardPlayableBySuit(state, playerId, cardId)) return false
   const forced = forcedIdentityFor(state, playerId, cardId)
   return !forced || forced.asCardName === asCardName
 }

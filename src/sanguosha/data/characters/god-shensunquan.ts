@@ -79,18 +79,16 @@ registerSkillRuntime({
       if ((context.event.payload as { playerId?: PlayerId }).playerId !== ownerId) return
       const owner = playerOf(host.state, ownerId)
       if (!owner?.alive || owner.zones.hand.length === 0) return
-      host.askSkill({
-        skillId: YUHENG, ownerId, step: 'discard',
-        build: (requestId): ChooseCardsRequest => ({
-          id: requestId, kind: 'choose-cards', playerId: ownerId,
-          prompt: '【驭衡】：弃置任意张花色互不相同的牌（可以一张都不弃）',
-          timeoutMs: 30_000,
-          // 「任意张」包含零张：锁定技管的是「这件事发生」，不是「必须弃牌」
-          optional: true, purpose: 'skill',
-          cardIds: [...owner.zones.hand], hiddenCardSlots: [],
-          min: 0, max: Math.min(4, owner.zones.hand.length),
-        }),
-      })
+      /*
+       * **排队问，不在时机里当场问。**
+       *
+       * 回合开始这个时机上挂着好几个技能，它们是在同一次派发里依次跑完的：
+       * 当场挂一条请求之后，后面那些技能照样继续跑，其中任何一个都可能
+       * 把他打死——于是牌桌上留下一条发给死人的请求，
+       * 「Request 响应玩家非法」（压测 seed=balance-5-117 抓到）。
+       * 技能队列会等这一批时机走完、桌面干净、而且他还活着，才放出来。
+       */
+      host.queueSkill({ skillId: YUHENG, ownerId, step: 'discard', data: {} })
     },
   }, {
     event: 'TurnEnd',
@@ -116,6 +114,23 @@ registerSkillRuntime({
       drawCards(host.state, host.rng, ownerId, count, (name, payload) => { host.dispatch(name, payload) })
     },
   }],
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'discard') return
+    const owner = playerOf(host.state, ownerId)
+    if (!owner?.alive || owner.zones.hand.length === 0) return
+    host.askSkill({
+      skillId: YUHENG, ownerId, step: 'discard',
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId, kind: 'choose-cards', playerId: ownerId,
+        prompt: '【驭衡】：弃置任意张花色互不相同的牌（可以一张都不弃）',
+        timeoutMs: 30_000,
+        // 「任意张」包含零张：锁定技管的是「这件事发生」，不是「必须弃牌」
+        optional: true, purpose: 'skill',
+        cardIds: [...owner.zones.hand], hiddenCardSlots: [],
+        min: 0, max: Math.min(4, owner.zones.hand.length),
+      }),
+    })
+  },
   resume(host, ownerId, resolution, response) {
     if (resolution.step !== 'discard') return
     const cardIds = (response.payload as { cardIds?: CardId[] }).cardIds ?? []

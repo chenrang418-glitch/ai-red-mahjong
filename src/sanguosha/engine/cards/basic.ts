@@ -1,5 +1,7 @@
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import { canUseCardAs, forcedIdentityFor } from '../forced-identity'
+import { cardPlayableBySuit } from '../card-suit-lock'
+import { ZHONGSHU_STATE, clearTargetState, hasTargetState } from '../target-state'
 import { SLOT_LABELS, equipmentSlotsOf } from '../equipment-slots'
 import { findLegalAction, type LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
@@ -91,6 +93,8 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   // 不能让前端自己猜牌的用途——同一张红牌既可以原样用，也可以当杀，
   // 必须两条动作都在，玩家才选得到用途。
   for (const option of viewAsPlayOptions(state, playerId)) {
+    // 转化用的**子牌**也受花色禁令约束：动的仍然是那张实体牌
+    if (!cardPlayableBySuit(state, playerId, option.cardId)) continue
     actions.push(...declaredCardActions(state, playerId, option.cardId, option.asCardName, option.label))
   }
 
@@ -106,6 +110,8 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   for (const cardId of source.zones.hand) {
     const card = state.cards[cardId]
     if (!card) continue
+    // 被花色禁令锁住的牌不能使用（气海禁红桃）；弃置、交给不受影响
+    if (!cardPlayableBySuit(state, playerId, cardId)) continue
     /*
      * 身份被强制改写的手牌（神刘备【龙怒】）**只出转化后的动作**，
      * 原用途一条都不出——「均视为火【杀】」是强制的，不是多给一个入口。
@@ -859,6 +865,21 @@ export function executeUseCardAction(
   // 转化出的动作一律以 asCardName 为准：武圣打出的红桃按【杀】结算，
   // 甘宁打出的黑牌按【过河拆桥】结算，后续判定不再看牌面上印的名字。
   const effectiveName = action.asCardName || card.name
+  /*
+   * 「使用的下一张牌无效」（神黄忠【裂穹·中枢】）。
+   *
+   * **不是禁止使用**：牌照常打出去、照常离开手牌、使用时机照常触发，
+   * 只是效果不产生。提前拦在合法动作里是另一回事——那样玩家连点都点不了，
+   * 而规则说的是他可以用，只是用了没用。
+   * 无效是**整张牌**无效，多目标牌对所有目标都无效。
+   */
+  if (hasTargetState(host.state, playerId, ZHONGSHU_STATE)) {
+    clearTargetState(host.state, playerId, ZHONGSHU_STATE)
+    if (beginActionPhysicalCard(host, playerId, cardId, action.targetIds, effectiveName)) {
+      finishPhysicalCard(host, playerId, cardId, action.targetIds, true, effectiveName)
+    }
+    return
+  }
   if (effectiveName === '杀') {
     beginSlash(host, action)
     return

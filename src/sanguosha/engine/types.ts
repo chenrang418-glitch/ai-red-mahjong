@@ -645,7 +645,15 @@ export interface TargetState {
    * （狂风、大雾都是这一种）。判据是施加者的回合又开始了一次，
    * 所以必须记住施加者是谁、以及施加时的回合数。
    */
-  expiry: 'source-next-turn-start'
+  /**
+   * 什么时候失效。
+   *
+   * - `source-next-turn-start`：到施加者的下一个回合开始前（狂风、大雾）。
+   * - `owner-turn-end`：到**被施加者自己**的回合结束（神黄忠【裂穹】的几处击伤）。
+   *   在他自己的回合里被施加的，就到这一个回合结束；回合外施加的，
+   *   到他下一个实际回合结束——额外回合也算，认的是回合实例不是轮次。
+   */
+  expiry: 'source-next-turn-start' | 'owner-turn-end'
   appliedTurn: number
   /** 施加者。`source-next-turn-start` 靠它判断什么时候到期，规则层要读。 */
   sourceId: PlayerId

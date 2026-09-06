@@ -5,7 +5,7 @@ import { clearForcedIdentities } from './forced-identity'
 import { expireStolenSkills } from './skill-theft-expiry'
 import { clearAttackRangeOverrides } from './attack-range-override'
 import { clearTurnSlashRules } from './slash-rules'
-import { expireTargetStates } from './target-state'
+import { expireOwnerTurnStates, expireTargetStates } from './target-state'
 import { replacementPhaseFor } from './phase-replacement'
 import { clearTurnKills } from './turn-kills'
 
@@ -233,6 +233,8 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   expireArmorSuppressions(state)
   // 龙怒的强制牌身份也是「本回合」，同样统一清
   clearForcedIdentities(state)
+  // 「到你自己回合结束为止」的状态（神黄忠【裂穹】的几处击伤）在这里统一到期
+  expireOwnerTurnStates(state, state.currentPlayerId)
   // 「视为在攻击范围内」的定向豁免（神太史慈【破围】）同样只管本回合，
   // 额外回合结束也要清，所以挂在这里而不是按回合序号推算
   clearAttackRangeOverrides(state)
