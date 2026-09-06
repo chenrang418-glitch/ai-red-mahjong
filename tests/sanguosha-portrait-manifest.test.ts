@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import SgsSeat from '@/sanguosha/components/SgsSeat.vue'
-import { characterPortrait, CHARACTER_PORTRAITS } from '@/sanguosha/assets/characters/manifest'
+import { characterPortrait, CHARACTER_PORTRAITS, PENDING_PORTRAIT_IDS } from '@/sanguosha/assets/characters/manifest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { allCharacterIds } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity } from '@/sanguosha/engine/types'
@@ -52,8 +52,19 @@ describe('缺素材时的回退', () => {
 })
 
 describe('登记项的形状', () => {
-  it('每名可玩武将都有座位图与独立高清图', () => {
-    expect(Object.keys(CHARACTER_PORTRAITS).sort()).toEqual([...allCharacterIds()].sort())
+  it('每名可玩武将要么有立绘，要么明确登记为「等素材」', () => {
+    /*
+     * 素材是用户分批上传的，新武将上线时通常还没有图。
+     *
+     * 这里守的仍然是完整性，只是把「有图」放宽成「有图**或者**登记在
+     * `PENDING_PORTRAIT_IDS` 里」——加了武将却既没给图也没登记，照样红。
+     * 图到位之后要把 id 从那份名单里删掉，否则这条会立刻发现它还挂着。
+     */
+    const covered = [...Object.keys(CHARACTER_PORTRAITS), ...PENDING_PORTRAIT_IDS].sort()
+    expect(covered).toEqual([...allCharacterIds()].sort())
+    for (const id of PENDING_PORTRAIT_IDS) {
+      expect(CHARACTER_PORTRAITS[id], `${id} 已经有立绘了，该把它从待接入名单里删掉`).toBeUndefined()
+    }
     for (const [id, portrait] of Object.entries(CHARACTER_PORTRAITS)) {
       expect(portrait.fullSrc, `${id} 的艺术集不能回退到座位小图`).not.toBe(portrait.src)
     }

@@ -1,4 +1,5 @@
 import { destroyCharacterEquipment, isCharacterEquipment } from './character-equipment'
+import { clearDiscardEntry, recordDiscardEntry, type DiscardReason } from './discard-provenance'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, SanguoshaState } from './types'
 
 export type ZoneRef =
@@ -72,6 +73,14 @@ function addCard(state: SanguoshaState, zone: ZoneRef, cardId: CardId, toTop: bo
 export interface MoveCardOptions {
   toTop?: boolean
   replaceEquipmentTo?: ZoneRef
+  /**
+   * 这张牌进弃牌堆的原因。
+   *
+   * 不传就按来源区推断（手牌 / 装备区 / 判定区算「被弃置」，处理区算「其他」）。
+   * 从处理区进弃牌堆的既可能是用完的牌、也可能是判定牌，**只有调用方知道**，
+   * 所以判定那几处要显式说明。见 `engine/discard-provenance.ts`。
+   */
+  discardReason?: DiscardReason
 }
 
 /** 单一卡牌移动真相入口；装备替换默认把旧装备移入弃牌堆。 */
@@ -88,6 +97,15 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
    * 漏一条，一张没有花色没有点数的「牌」就会跑进别人手里或者弃牌堆，
    * 之后被当成普通牌使用、判定、计点数。
    */
+  /*
+   * 进出弃牌堆时维护「它为什么在这儿」的记录：进去时记，离开时清。
+   * 清这一步不能省——不清的话，一张被拿走又弃回来的牌会顶着上一次的原因。
+   */
+  if (to.kind === 'discardPile') {
+    recordDiscardEntry(state, cardId, from.kind, 'playerId' in from ? from.playerId : null, options.discardReason)
+  } else {
+    clearDiscardEntry(state, cardId)
+  }
   if (to.kind !== 'equipment' && isCharacterEquipment(state, cardId)) destroyCharacterEquipment(state, cardId)
   if (replaced && isCharacterEquipment(state, replaced)) destroyCharacterEquipment(state, replaced)
   // 「当作什么用」只在结算途中有意义。牌回到手牌、弃牌堆或牌堆就该忘掉，

@@ -701,6 +701,12 @@ export interface SanguoshaState {
    */
   roundNumber: number
   /**
+   * 弃牌堆里每张牌**为什么**在那儿。见 `engine/discard-provenance.ts`。
+   *
+   * 「用过的【杀】」和「被弃置的【杀】」都躺在弃牌堆里，但规则上不是一回事。
+   */
+  discardProvenance?: Record<string, import('./discard-provenance').DiscardEntry>
+  /**
    * 当前这个阶段是**从哪个阶段位替换来的**（神孙权【持纲】把判定位跑成摸牌阶段）。
    *
    * 只有正在发生替换时才有值，平时不存在。回合往前走时看的是「位置」——

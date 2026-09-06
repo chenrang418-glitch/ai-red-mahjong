@@ -173,7 +173,8 @@ function finishJudgment(host: JudgmentEngineHost): void {
    * 一定只有最终生效的那一张。
    */
   if (shouldRetainJudgment(host.state, tag)) retainJudgmentCard(host.state, judgeCardId, suit)
-  else moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+  // 判定牌用完了：显式标明原因，处理区进弃牌堆光看来源区分不出是用过的牌还是判定牌
+  else moveCard(host.state, judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' }, { discardReason: 'judgment' })
   // 先清空再跑续接：续接里可能又发起一次判定（洛神连判）
   host.state.retrial = null
   const run = continuations.get(tag)
@@ -202,7 +203,8 @@ export function resolveRetrialResponse(host: JudgmentEngineHost, request: Choose
   const source = player(host.state, response.playerId)
   if (!source.zones.hand.includes(replacementId)) throw new Error('改判用的牌不在手牌里')
   // 旧判定牌进弃牌堆，新牌顶上。两张牌都在处理区停留过，牌张守恒不会破
-  moveCard(host.state, retrial.judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+  // 被改判换下来的那一张同样是「因判定进入弃牌堆」
+  moveCard(host.state, retrial.judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' }, { discardReason: 'judgment' })
   moveCard(host.state, replacementId, { kind: 'hand', playerId: response.playerId }, { kind: 'processingArea' })
   retrial.judgeCardId = replacementId
   host.dispatch('CardResponded', { playerId: response.playerId, cardId: replacementId, cardName: host.state.cards[replacementId].name, reason: '改判' }, { sourceId: response.playerId, targetId: retrial.playerId, cardIds: [replacementId] })

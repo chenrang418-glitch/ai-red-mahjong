@@ -529,6 +529,25 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
   },
 }
 
+/**
+ * **还没拿到立绘的武将。**
+ *
+ * 素材由用户分批上传，新武将上线时通常还没有图。这份名单让「每名武将都要有立绘」
+ * 这条约束仍然成立——只是把「有图」放宽成「有图**或者**明确登记在这里等图」。
+ *
+ * 两件事因此仍然守得住：
+ *
+ * - 有人加了新武将却既没给图也没登记，测试照样红；
+ * - 图到位之后必须把 id 从这里删掉，否则等于永远不接。
+ *
+ * 界面本身不看这份名单：缺图时 `characterPortrait` 返回 null，
+ * 座位卡安静地回退到文字底纹。
+ */
+export const PENDING_PORTRAIT_IDS: readonly string[] = [
+  // 一将成名 2011 · 第一批：立绘待上传
+  'caozhi',
+]
+
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })
 /**
  * 高清图单独一个目录，和小图分开 glob。

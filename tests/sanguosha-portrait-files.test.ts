@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { allCharacterIds } from '@/sanguosha/data/characters/standard'
+import { PENDING_PORTRAIT_IDS } from '@/sanguosha/assets/characters/manifest'
 
 const smallRoot = resolve('src/sanguosha/assets/characters/portraits')
 const fullRoot = resolve('src/sanguosha/assets/characters/portraits-full')
@@ -18,7 +19,9 @@ function webpSize(path: string): { width: number; height: number } {
 
 describe('立绘清晰度硬规格', () => {
   it('全部可玩武将都有 480×640 座位图和原始分辨率艺术集图', () => {
-    const ids = [...allCharacterIds()].sort()
+    // 等素材的武将不在这条里；名单本身由 manifest 那条用例守着
+    const pending = new Set(PENDING_PORTRAIT_IDS)
+    const ids = [...allCharacterIds()].filter((id) => !pending.has(id)).sort()
     const smallIds = readdirSync(smallRoot).filter((name) => name.endsWith('.webp')).map((name) => basename(name, '.webp')).sort()
     const fullIds = readdirSync(fullRoot).filter((name) => name.endsWith('.webp')).map((name) => basename(name, '.webp')).sort()
     expect(smallIds).toEqual(ids)

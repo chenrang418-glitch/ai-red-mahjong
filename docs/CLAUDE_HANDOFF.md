@@ -1,11 +1,19 @@
 # 交接说明：CRPlay（红中麻将 + 纸上三国）
 
-更新时间：2026-09-04（**经典山包 8/8 完成，武将总池 64 名**）。
+更新时间：2026-09-06（**24 神完成，武将总池 88 名；已进入一将成名 2011**）。
+
+> ## ⚠️ 先看 [`AGENTS.md`](../AGENTS.md)
+>
+> 当前阶段**只在本地开发，不提交部署**：不 push、不触发部署，
+> 攒够一大段之后由用户下指令统一更新。本地 `git commit` 照常。
+> 立绘与语音暂不上传，**接口保留**，素材到位后直接接入。
+> 这条约定对 Claude Code 和 Codex 同样有效。
 
 ## 先做什么
 
 1. 工作目录固定为 `C:\Users\cr\Documents\work\crplay-sanguosha-dev`。
-2. `git status --short --branch`，并先核对 `origin/main`；部署工作流由 `push: branches: [main]` 触发。
+2. `git status --short --branch`。**当前阶段不 push**——部署工作流由 `push: branches: [main]` 触发，
+   所以推上去就等于部署了。要推要部署，先拿到用户的明确指令。
 3. 阅读 `docs/sanguosha-progress.md`（按批次记录了每一步的根因和取舍）和本文件。
 4. 未经用户明确同意，不要往生产环境写数据（建测试房间或用户）。
 

@@ -329,6 +329,19 @@ export interface SkillRuntime {
    */
   globalSlashUses?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
   /**
+   * 濒死求救时，这个技能给拥有者提供的额外选项（曹植【酒诗】视为使用一张【酒】）。
+   *
+   * 返回的动作 id 会直接进 `RescueRequest.actionIds`，玩家才点得到——
+   * 服务端支持不等于前端能用。**不要在这里改动牌局**，只报告现在能不能用。
+   */
+  rescueActions?(state: SanguoshaState, ownerId: PlayerId, dyingPlayerId: PlayerId): Array<{ id: string; label: string }>
+  /**
+   * 玩家选了上面那条动作。返回 true 表示这一步已经由技能处理完毕。
+   *
+   * 处理完之后引擎会照常继续濒死流程，技能自己不要去碰内部入口。
+   */
+  invokeRescueAction?(host: SkillHost, ownerId: PlayerId, actionId: string, dyingPlayerId: PlayerId): boolean
+  /**
    * 濒死介入：拥有者刚进入濒死时先给技能一次机会（不屈）。
    *
    * 返回 true 表示「这次濒死已经由技能处理掉了」，引擎会直接结束濒死状态，

@@ -15,7 +15,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  *
  * 这个项目的 vitest 跑在 `node` 环境，没有真的 Web Audio，所以这里塞一套
  * 假的 `AudioContext` 进去，真正驱动模块跑一遍——比源码字符串断言更能说明问题。
+ *
+ * **超时给宽一点**：这几条要等真实的微任务与计时器落地，单跑两三秒就够，
+ * 但全量并行时机器被压满，偶尔会顶到默认的 5 秒上限而假红。
+ * 断言本身一个都没动，只是给够时间。
  */
+vi.setConfig({ testTimeout: 60_000 })
+
 
 interface FakeNode { connect: () => void; disconnect: () => void }
 

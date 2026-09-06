@@ -144,6 +144,15 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
   if (!peachProhibited && canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
   // 龙魂这类多牌同花色转化：同样只多挂一条声明动作，引擎集中认领
   if (!peachProhibited && canMultiCardViewAs(state, responderId, '桃')) actionIds.push(MULTI_VIEWAS_ACTION)
+  /*
+   * 技能自己提供的救援途径（曹植【酒诗】：翻面视为使用一张【酒】）。
+   * 走同一条 `actionIds`，玩家才点得到。
+   */
+  for (const runtime of skillsOf(state, responderId, skillIdsOf)) {
+    for (const option of runtime.rescueActions?.(state, responderId, dyingPlayerId) ?? []) {
+      actionIds.push(option.id)
+    }
+  }
   return actionIds
 }
 
@@ -562,6 +571,19 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
 
   if (actionId === 'rescue-pass') {
     dying.responderIndex += 1
+    requestCurrentRescuer(host)
+    return
+  }
+
+  /*
+   * 技能提供的救援动作优先认领（【酒诗】）。
+   *
+   * 必须放在解析 `rescue-card:` 之前：那段会把 actionId 当成牌 id 去查手牌，
+   * 技能动作根本不是牌 id，落到那里必然抛「救援牌不属于响应玩家」。
+   */
+  for (const runtime of skillsOf(host.state, response.playerId, skillIdsOf)) {
+    if (!runtime.invokeRescueAction) continue
+    if (!runtime.invokeRescueAction(host as unknown as SkillHost, response.playerId, actionId, dying.playerId)) continue
     requestCurrentRescuer(host)
     return
   }
