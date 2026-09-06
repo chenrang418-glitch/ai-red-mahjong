@@ -134,10 +134,19 @@ function loadSample(effect: SgsEffect): Promise<void> | null {
   if (existing) return existing
   const audio = ensureContext()
   if (!audio) return null
+  const generation = contextGeneration
   const task = Promise.all(urls.map((url) => fetch(url)
     .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
     .then((data) => audio.decodeAudioData(data))))
-    .then((buffers) => { samples.set(effect, buffers) })
+    .then((buffers) => {
+      /*
+       * 解码期间上下文可能已经被重建（插耳机换了设备、上下文坏掉重开）。
+       * 这批 buffer 的采样率属于**旧设备**，放进缓存就会在新上下文上
+       * 一直发出电流杂音。对不上代号就整份丢掉，下次重解。
+       */
+      if (generation !== contextGeneration) return
+      samples.set(effect, buffers)
+    })
     // 取不到或解不开就保持静音，不把对局卡住
     .catch(() => undefined)
     .finally(() => { loading.delete(effect) })
@@ -164,6 +173,8 @@ function playSample(effect: SgsEffect, at: number, variantKey = ''): boolean {
   const source = context.createBufferSource()
   source.buffer = buffers[variantIndex(variantKey || `${at}`, buffers.length)]
   source.connect(effectsGain)
+  // 放完就摘下来：一整局几百次音效，挂着不断开会让音频图越拖越重
+  source.onended = () => { try { source.disconnect() } catch { /* 已经断了 */ } }
   source.start(at)
   return true
 }
@@ -176,6 +187,7 @@ function playSample(effect: SgsEffect, at: number, variantKey = ''): boolean {
 function playSampleWhenReady(effect: SgsEffect, variantKey: string): boolean {
   const task = loadSample(effect)
   if (!task) return false
+  const generation = contextGeneration
   let settled = false
   const finish = (): void => {
     if (settled) return
@@ -185,7 +197,8 @@ function playSampleWhenReady(effect: SgsEffect, variantKey: string): boolean {
   void task.then(() => {
     if (settled) return
     settled = true
-    if (context) playSample(effect, context.currentTime + .01, variantKey)
+    // 等待期间上下文被重建过就别放了：那一份采样已经作废
+    if (context && generation === contextGeneration) playSample(effect, context.currentTime + .01, variantKey)
   })
   return true
 }
@@ -201,15 +214,83 @@ let musicSource: AudioBufferSourceNode | null = null
 let active = false
 const processed = new Set<string>()
 
+/**
+ * 音频上下文的「代号」。
+ *
+ * 解码是异步的，而上下文可能在解码途中被重建（插耳机换了输出设备、
+ * 或者上下文自己坏掉了）。**用旧上下文解出来的 AudioBuffer 采样率属于旧设备**，
+ * 拿到新上下文上去播就是持续的电流杂音——这正是「戴耳机时有雪花声」的成因。
+ * 每次重建都换一个代号，解码回来先对代号，对不上就整份丢掉重解。
+ */
+let contextGeneration = 0
+/** 连续 resume 失败的次数。攒够了就认定这个上下文已经废了，重建一个。 */
+let resumeFailures = 0
+const RESUME_FAILURE_LIMIT = 2
+
+function audioContextClass(): typeof AudioContext | null {
+  if (typeof window === 'undefined') return null
+  return window.AudioContext
+    ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    ?? null
+}
+
+/**
+ * 拆掉当前这一套音频图，连同它解出来的所有采样。
+ *
+ * 采样必须一起丢：它们是**跟着上下文的采样率**解出来的，留给下一个上下文用
+ * 就会一直有杂音。重建的代价只是几百毫秒的重新解码，而且有「等一下再播」那条路兜着。
+ */
+function teardownContext(): void {
+  stopMusic()
+  const dying = context
+  contextGeneration += 1
+  context = null
+  musicGain = null
+  effectsGain = null
+  musicBuffer = null
+  musicLoading = null
+  resumeFailures = 0
+  samples.clear()
+  loading.clear()
+  if (!dying) return
+  try { void dying.close() } catch { /* 已经关了 */ }
+}
+
 function ensureContext(): AudioContext | null {
-  if (context) return context
-  const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  /*
+   * **不能只判 `if (context) return context`。**
+   *
+   * 上下文会自己变成 `closed`：设备被拔掉、系统音频会话被回收、
+   * iOS 上进程里的上下文数量到顶。一旦这样，原来的写法会永远返回那个死掉的
+   * 上下文，声音再也回不来——用户报的「反复大退重连后音频中断，只能再大退一次」
+   * 就是这个。现在发现它死了就地重建。
+   */
+  if (context && context.state !== 'closed') return context
+  if (context) teardownContext()
+  const AudioContextClass = audioContextClass()
   if (!AudioContextClass) return null
-  context = new AudioContextClass()
-  musicGain = context.createGain(); effectsGain = context.createGain()
-  musicGain.connect(context.destination); effectsGain.connect(context.destination)
+  let created: AudioContext
+  try {
+    created = new AudioContextClass()
+  } catch {
+    /*
+     * 创建失败（浏览器对同时存在的上下文有上限）不能把异常抛给调用方——
+     * `play()` 是在事件流里跑的，抛出去会连带打断牌局表现。静音降级就好，
+     * 下一次交互会再试一次。
+     */
+    return null
+  }
+  context = created
+  musicGain = created.createGain(); effectsGain = created.createGain()
+  musicGain.connect(created.destination); effectsGain.connect(created.destination)
+  // 上下文被浏览器单方面关掉时把引用放掉，下一次播放自然重建
+  try {
+    created.addEventListener('statechange', () => {
+      if (created.state === 'closed' && context === created) teardownContext()
+    })
+  } catch { /* 老浏览器没有这个事件，靠 ensureContext 兜底 */ }
   syncGains()
-  return context
+  return created
 }
 function syncGains(): void {
   if (!context || !musicGain || !effectsGain) return
@@ -219,7 +300,44 @@ function syncGains(): void {
 function resume(): void {
   const audio = ensureContext()
   if (!audio) return
-  void audio.resume().then(() => { syncGains(); if (active) startMusic() }).catch(() => undefined)
+  void audio.resume().then(() => {
+    resumeFailures = 0
+    syncGains()
+    if (active) startMusic()
+  }).catch(() => {
+    /*
+     * resume 一直失败说明这个上下文已经废了（iOS 上会卡在 `interrupted`，
+     * 系统回收音频会话之后也是这样）。攒够几次就拆掉重建，
+     * 否则它会一直卡在那里，声音永远不回来。
+     */
+    resumeFailures += 1
+    if (audio === context && resumeFailures >= RESUME_FAILURE_LIMIT) teardownContext()
+  })
+}
+
+/**
+ * 输出设备变了（插拔耳机、切蓝牙）之后重新对一次采样率。
+ *
+ * 新设备的默认采样率和当前上下文不一致时，继续用原上下文播放已经解好的采样，
+ * 听感就是持续的电流杂音。这里用一个**用完即关**的探测上下文读出新设备的默认
+ * 采样率；不一致就整套重建，采样跟着重解。
+ */
+function handleDeviceChange(): void {
+  if (!context) return
+  const AudioContextClass = audioContextClass()
+  let probed: number | null = null
+  if (AudioContextClass) {
+    try {
+      const probe = new AudioContextClass()
+      probed = probe.sampleRate
+      void probe.close()
+    } catch { probed = null }
+  }
+  // 采样率没变而且上下文还在正常跑，就不折腾——重建会让音乐断一下
+  if (probed !== null && probed === context.sampleRate && context.state === 'running') return
+  const wasActive = active
+  teardownContext()
+  if (wasActive || sgsAudioSettings.musicEnabled) resume()
 }
 const WEAPONS = ['诸葛连弩', '雌雄双股剑', '寒冰剑', '青釭剑', '古锭刀', '青龙偃月刀', '丈八蛇矛', '贯石斧', '朱雀羽扇', '方天画戟', '麒麟弓']
 const ARMORS = ['八卦阵', '仁王盾', '藤甲', '白银狮子']
@@ -302,10 +420,12 @@ function loadMusic(): Promise<void> | null {
   if (musicBuffer || musicLoading) return musicLoading
   const audio = ensureContext()
   if (!audio) return null
+  const generation = contextGeneration
   musicLoading = fetch(MUSIC_URL)
     .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
     .then((data) => audio.decodeAudioData(data))
-    .then((buffer) => { musicBuffer = buffer })
+    // 同上：旧上下文解出来的音乐不能挂到新上下文上
+    .then((buffer) => { if (generation === contextGeneration) musicBuffer = buffer })
     .catch(() => undefined)
     .finally(() => { musicLoading = null })
   return musicLoading
@@ -353,7 +473,16 @@ function processEvents(events: readonly PresentationEvent[], viewerId: string): 
   })
 }
 function prepare(existing: readonly PresentationEvent[] = []): void {
-  active = true; processed.clear(); existing.forEach((event) => processed.add(event.id)); ensureContext(); syncGains(); preloadSamples(); startMusic()
+  /*
+   * `resume()` 不能省。
+   *
+   * `startMusic()` 要求上下文处于 running，而进牌桌这一刻它完全可能是挂起的
+   * （系统中断过、上一轮离开时被浏览器挂起、iOS 回收过音频会话）。
+   * 原来这里只 `ensureContext()` 不 resume，于是音乐永远起不来——
+   * 而唯一会 resume 的 pointerdown 监听又是一次性的，早就用掉了。
+   */
+  active = true; processed.clear(); existing.forEach((event) => processed.add(event.id))
+  ensureContext(); resume(); syncGains(); preloadSamples(); startMusic()
   /*
    * 开局音要在这里补一次。
    *
@@ -381,7 +510,24 @@ function playResult(won: boolean): void {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('pointerdown', resume, { once: true, passive: true })
+  /*
+   * 唤醒监听**不能是一次性的**。
+   *
+   * 原来挂的是 `{ once: true }`：第一次交互用掉之后就再也没有了，
+   * 之后上下文只要被挂起过一次（系统中断、切后台、拔耳机），
+   * 就再没有任何路径把它拉回来——用户的体感正是「音频中断，只能大退重进」。
+   * 改成常驻，但只在上下文确实不在跑的时候才做事，正常点击零成本。
+   */
+  window.addEventListener('pointerdown', () => {
+    if (!context || context.state !== 'running') resume()
+  }, { passive: true })
+  /*
+   * 插拔耳机、切换蓝牙都会走这里。新设备的默认采样率和当前上下文对不上时，
+   * 继续用原上下文播已经解好的采样，听感就是持续的电流杂音。
+   */
+  try {
+    navigator.mediaDevices?.addEventListener?.('devicechange', handleDeviceChange)
+  } catch { /* 不支持就算了，下面的可见性恢复仍然会兜一层 */ }
   const restore = () => { if (document.hidden) stopMusic(); else { resume(); startMusic() } }
   document.addEventListener('visibilitychange', restore); window.addEventListener('pageshow', restore); window.addEventListener('focus', restore)
 }
