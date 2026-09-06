@@ -4,6 +4,7 @@ import { registerSkillRuntime, type SkillHost, type TargetedCardContext } from '
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
+import { reshuffleDrawPile } from '../../engine/deck'
 import type { CharacterDefinition } from './types'
 // 奶蛙的两个技能要动出牌阶段计数和临时挑战状态，单独一个文件，别和平头方块混在一起
 import { NAIWA } from './entertainment-naiwa'
@@ -146,9 +147,8 @@ function isFadaiCard(context: TargetedCardContext): boolean {
 }
 
 function revealTopCard(host: SkillHost): CardId | null {
-  if (host.state.zones.drawPile.length === 0 && host.state.zones.discardPile.length > 0) {
-    host.state.zones.drawPile.push(...host.rng.shuffle(host.state.zones.discardPile))
-    host.state.zones.discardPile.length = 0
+  if (host.state.zones.drawPile.length === 0) {
+    reshuffleDrawPile(host.state, host.rng, (name, payload) => { host.dispatch(name, payload) })
   }
   const cardId = host.state.zones.drawPile[0]
   if (!cardId) return null

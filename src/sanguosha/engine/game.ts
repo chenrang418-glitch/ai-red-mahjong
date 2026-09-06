@@ -669,6 +669,8 @@ export class SanguoshaGame {
     // 旧存档没有轮次，按第一轮补：轮次只用于「下一轮开始时」这类判断，
     // 从头算起不会让任何已经发生过的事情重放
     mutable.state.roundNumber ??= 1
+    // 洗牌痕迹是后加的字段：旧存档按「没洗过」补，不会让任何技能凭空多一次机会
+    mutable.state.deckReshuffle ??= { count: 0, lastTurnNumber: null }
     mutable.state.conversionStates ??= {}
     mutable.state.forcedIdentities ??= []
     mutable.state.abolishedSlots ??= {}

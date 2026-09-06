@@ -74,7 +74,8 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
        * 而且逼着每个想少摸一张的技能都去接管整个阶段。
        */
       const count = Math.max(0, Math.trunc(Number((context.event.payload as { count?: unknown }).count ?? 2)))
-      if (count <= 0) return
+      // 同上：摸牌阶段的时机也可能把牌局打完，结束之后不再摸牌
+      if (count <= 0 || host.state.status !== 'playing') return
       drawCards(host.state, host.rng, playerId, count, (name, payload) => { host.dispatch(name, payload) })
       return
     }
@@ -88,6 +89,12 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
         records: [],
       }
       const context = host.dispatch('DiscardPhase', { playerId }, { sourceId: playerId, phase: 'discard' })
+      /*
+       * 阶段入口的时机里可能把牌局直接打完（技能造成的伤害杀掉最后一名敌人）。
+       * 牌局结束时引擎已经把待回应请求清空了，这里**不能再补一条弃牌请求**——
+       * 补上去就成了「牌局已结束却仍挂着 Request」的非法状态。
+       */
+      if (host.state.status !== 'playing') return
       // 克己等技能可以在阶段入口生成自己的 Request 并接管默认弃牌。
       if (context.cancelled || host.state.pendingRequests.length > 0) return
       const count = current.zones.hand.length - maxCards(host.state, playerId)

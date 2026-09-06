@@ -1,3 +1,4 @@
+import { reshuffleDrawPile } from './deck'
 import { canUseCardAs } from './forced-identity'
 import { delayedTrickHits } from './delayed-trick-rules'
 import { multiCardGrantedAs } from './multi-card-viewas'
@@ -212,9 +213,10 @@ export function resolveRetrialResponse(host: JudgmentEngineHost, request: Choose
 
 function takeJudgmentCard(host: JudgmentEngineHost): CardId {
   if (host.state.zones.drawPile.length === 0) {
-    if (host.state.zones.discardPile.length === 0) throw new Error('没有可用于判定的牌')
-    host.state.zones.drawPile.push(...host.rng.shuffle(host.state.zones.discardPile))
-    host.state.zones.discardPile.length = 0
+    // 判定牌也走公共重洗，洗牌痕迹只有一处来源
+    if (reshuffleDrawPile(host.state, host.rng, (name, payload) => { host.dispatch(name, payload) }) === 0) {
+      throw new Error('没有可用于判定的牌')
+    }
   }
   const cardId = host.state.zones.drawPile[0]
   moveCard(host.state, cardId, { kind: 'drawPile' }, { kind: 'processingArea' })

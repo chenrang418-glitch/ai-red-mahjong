@@ -3,6 +3,7 @@ import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtim
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { CardId, PhysicalCard, PlayerId, SanguoshaState } from '../../engine/types'
 import { locateOwnedCard, moveCard } from '../../engine/zones'
+import { reshuffleDrawPile } from '../../engine/deck'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -53,10 +54,9 @@ function streakText(streak: number): string {
  * 一张牌都没有时返回 null，调用方安全收尾。
  */
 function revealTop(host: SkillHost, playerId: PlayerId, reason: string): CardId | null {
-  if (host.state.zones.drawPile.length === 0) {
-    if (host.state.zones.discardPile.length === 0) return null
-    host.state.zones.drawPile.push(...host.rng.shuffle(host.state.zones.discardPile))
-    host.state.zones.discardPile.length = 0
+  if (host.state.zones.drawPile.length === 0
+    && reshuffleDrawPile(host.state, host.rng, (name, payload) => { host.dispatch(name, payload) }) === 0) {
+    return null
   }
   const cardId = host.state.zones.drawPile[0]
   if (!cardId) return null

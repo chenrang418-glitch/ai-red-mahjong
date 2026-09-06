@@ -1,6 +1,7 @@
 import { registerSkillRuntime } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
+import { reshuffleDrawPile } from '../../engine/deck'
 
 /**
  * 周泰【不屈】。
@@ -52,11 +53,10 @@ registerSkillRuntime({
     const owner = host.state.players.find((player) => player.id === ownerId)
     if (!owner?.alive) return false
 
-    // 牌堆空了就把弃牌堆洗回去；一张牌都没有时不屈无从发动
-    if (host.state.zones.drawPile.length === 0) {
-      if (host.state.zones.discardPile.length === 0) return false
-      host.state.zones.drawPile.push(...host.rng.shuffle(host.state.zones.discardPile))
-      host.state.zones.discardPile.length = 0
+    // 牌堆空了就走公共重洗；一张牌都没有时不屈无从发动
+    if (host.state.zones.drawPile.length === 0
+      && reshuffleDrawPile(host.state, host.rng, (name, payload) => { host.dispatch(name, payload) }) === 0) {
+      return false
     }
     const drawn = host.state.zones.drawPile[0]
     moveCard(host.state, drawn, { kind: 'drawPile' }, { kind: 'characterPile', playerId: ownerId, pile: BUQU })

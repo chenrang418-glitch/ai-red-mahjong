@@ -19,6 +19,8 @@ export type GameEventName =
   | 'LoseHp' | 'MaxHpChange'
   | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'
   | 'CardMove' | 'LoseCard' | 'GainCard' | 'HandSwap' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
+  /** 弃牌堆被洗回牌堆。见 engine/deck.ts；这是唯一的洗牌痕迹，不要靠牌堆剩几张去猜。 */
+  | 'DeckReshuffled'
   /** 场上的牌（装备区 / 判定区）被直接移动到另一名角色的对应区域。见 field-move.ts。 */
   | 'FieldCardMoved'
   /** 觉醒技发动。一局一次，由 registerSkillTriggers 统一记账后发出。 */

@@ -674,6 +674,12 @@ export interface SanguoshaState {
    * 拿回合数去凑会让它在插队之后立刻结算。
    */
   roundNumber: number
+  /**
+   * 牌堆重洗的痕迹。见 `engine/deck.ts`。
+   *
+   * 「这个回合牌堆洗过牌吗」是一条真事实，不是从牌堆剩几张推出来的猜测。
+   */
+  deckReshuffle?: import('./deck').DeckReshuffleState
   phase: TurnPhase
   skippedPhases: TurnPhase[]
   /**

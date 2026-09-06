@@ -2,6 +2,7 @@ import type { GameRng } from './rng'
 import type { GameEventName } from './events'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
+import { reshuffleDrawPile } from './deck'
 
 export type EmitDrawEvent = (name: GameEventName, payload: Record<string, unknown>) => void
 
@@ -19,11 +20,8 @@ export function drawCards(
 
   const drawn: string[] = []
   for (let index = 0; index < count; index += 1) {
-    if (state.zones.drawPile.length === 0) {
-      if (state.zones.discardPile.length === 0) break
-      state.zones.drawPile.push(...rng.shuffle(state.zones.discardPile))
-      state.zones.discardPile.length = 0
-    }
+    // 牌堆空了走公共重洗：它会留下「这个回合洗过牌」的痕迹
+    if (state.zones.drawPile.length === 0 && reshuffleDrawPile(state, rng, emit) === 0) break
     const cardId = state.zones.drawPile[0]
     moveCard(state, cardId, { kind: 'drawPile' }, { kind: 'hand', playerId })
     drawn.push(cardId)
@@ -52,11 +50,7 @@ export function revealTopCards(
   if (!Number.isInteger(count) || count < 0) throw new Error('亮牌数量必须是非负整数')
   const revealed: string[] = []
   for (let index = 0; index < count; index += 1) {
-    if (state.zones.drawPile.length === 0) {
-      if (state.zones.discardPile.length === 0) break
-      state.zones.drawPile.push(...rng.shuffle(state.zones.discardPile))
-      state.zones.discardPile.length = 0
-    }
+    if (state.zones.drawPile.length === 0 && reshuffleDrawPile(state, rng, emit) === 0) break
     const cardId = state.zones.drawPile[0]
     moveCard(state, cardId, { kind: 'drawPile' }, { kind: 'processingArea' })
     revealed.push(cardId)
