@@ -268,5 +268,14 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
 export function resumeTurnTransition(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   if (!state.turnTransitionPending) return false
   state.turnTransitionPending = false
+  /*
+   * 牌局已经结束就不再开新回合。
+   *
+   * 「回合结束时」的技能可以把最后一个人打死——那一刻胜负已经判完、
+   * `status` 已经是 `game-over`，但这条待续的回合流转还挂着。
+   * 不拦的话它会去找下一名存活角色，而一个活人都没有了，
+   * 直接抛「没有存活玩家可以开始下一回合」（压测 seed=ci-8-11）。
+   */
+  if (state.status !== 'playing') return false
   return beginTurn(state, emit)
 }

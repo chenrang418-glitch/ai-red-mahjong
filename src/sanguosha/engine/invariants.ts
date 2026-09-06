@@ -7,6 +7,29 @@ import { huashenEligibleSkills } from './huashen'
 const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = ['weapon', 'armor', 'offensiveHorse', 'defensiveHorse']
 
 /** 用于单测、无头压测和服务端提交后的完整状态校验。 */
+/**
+ * 场面干净到可以下这种判断了吗。
+ *
+ * 「0 血还活着」在**结算途中**是合法的中间态：支撑他活着的技能刚被夺走 /
+ * 刚失效时，引擎要等牌桌收干净（没有待回应请求、没有牌在结算）才统一补一次
+ * 濒死判定——这条纪律写在 `Game.settle` 那里，理由是蛊惑和龙魂会把濒死
+ * 暂存起来，中途扫一遍会凭空再开一条濒死流程。
+ *
+ * 所以这条不变量只在干净的时刻成立。压测每一步都校验，
+ * 不加这个前提的话，一个**合法的**中间态会被报成缺陷（seed=ci-7-22）。
+ */
+function boardIsClean(state: SanguoshaState): boolean {
+  return state.pendingRequests.length === 0
+    && !state.dying
+    && !state.skillResolution
+    && !state.cardResolution
+    && !state.judgment
+    && !state.damageChain
+    && !state.guhuoResponse
+    && !state.multiCardViewAs
+    && state.skillQueue.length === 0
+}
+
 export function assertGameInvariants(state: SanguoshaState): void {
   if (state.players.length < 5 || state.players.length > 8) throw new Error('身份局玩家数量必须为 5～8')
   if (new Set(state.players.map((player) => player.id)).size !== state.players.length) throw new Error('玩家 id 不唯一')
@@ -34,7 +57,7 @@ export function assertGameInvariants(state: SanguoshaState): void {
       : false
     const suspendedDyingPlayerId = state.guhuoResponse?.suspendedDying?.playerId
     if (candidate.alive && candidate.hp <= 0 && state.dying?.playerId !== candidate.id
-      && suspendedDyingPlayerId !== candidate.id && !survivesAtZero) {
+      && suspendedDyingPlayerId !== candidate.id && !survivesAtZero && boardIsClean(state)) {
       throw new Error(`存活角色处于非濒死的非正体力：${candidate.id}`)
     }
     for (const slot of EQUIPMENT_SLOTS) {
