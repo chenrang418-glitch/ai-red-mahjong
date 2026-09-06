@@ -4,7 +4,7 @@ import type { LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance, ignoresDistanceTo } from '../distance'
 import { drawCards } from '../draw'
-import { handleEquipmentLost, isCardIneffective } from '../equipment'
+import { announceSkillInvalidation, handleEquipmentLost, isCardIneffective } from '../equipment'
 import { getEngineCallbacks } from '../equipment-requests'
 import { ignoresTrickDistance, responseViewAsOptions } from '../../data/characters/standard'
 import { recover } from '../recover'
@@ -763,6 +763,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
     case '南蛮入侵': {
       // 藤甲让南蛮/万箭完全无效：不问响应，也不造成伤害
       if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId)) {
+        announceSkillInvalidation(host, targetId, resolution.cardName, null, resolution.sourceId)
         advanceToNextTarget(host)
         return
       }
@@ -777,6 +778,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
     }
     case '万箭齐发': {
       if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId)) {
+        announceSkillInvalidation(host, targetId, resolution.cardName, null, resolution.sourceId)
         advanceToNextTarget(host)
         return
       }

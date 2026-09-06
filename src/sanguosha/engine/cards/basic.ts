@@ -15,7 +15,7 @@ import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
 import type { CardId, DamageNature, EquipmentSlot, EquipmentZone, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, effectiveDamageNature, locateOwnedCard, moveCard, setCardAlias, setCardNature } from '../zones'
-import { BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
+import { announceSkillInvalidation, BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
 import { canUseSlash, slashRules, slashTargetLimit } from '../slash-rules'
 import { PASS_ROUND_ACTION } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
@@ -452,6 +452,8 @@ function enterSlashTarget(host: CardEngineHost): void {
   const card = host.state.cards[resolution.cardId]
   const slashColor = card.virtual ? null : effectiveCardColor(host.state, resolution.sourceId, card.id, skillIdsOf)
   if (isCardIneffective(host.state, resolution.targetId, '杀', slashColor, resolution.damageNature, resolution.sourceId)) {
+    // 技能造成的无效要报一行，否则桌上只会看到一张【杀】凭空消失
+    announceSkillInvalidation(host, resolution.targetId, '杀', slashColor, resolution.sourceId)
     continueSlash(host)
     return
   }

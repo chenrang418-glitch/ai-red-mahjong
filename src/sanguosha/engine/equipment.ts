@@ -3,6 +3,7 @@ import { isArmorSuppressed } from './armor-suppression'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { cardEffectInvalidBy, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
+import { skillDisplayName } from './presentation'
 import type { DamageNature, PlayerId, SanguoshaState } from './types'
 
 /** 装备特效需要的最小宿主：读状态 + 派发事件。 */
@@ -89,6 +90,47 @@ export function hasWeapon(state: SanguoshaState, playerId: PlayerId, weaponName:
  * 「不能成为目标」是 `prohibitsTarget`，在生成动作时就把人排除掉。
  * 把孟获直接从南蛮的 targets 数组里删掉是错的——祸首的伤害归属就没了依据。
  */
+/**
+ * 把这张牌判为无效的是**哪个技能**（不是装备）。没有就是 null。
+ *
+ * 「牌打过去什么都没发生」必须有个说法：仁王盾、藤甲是明置的装备，
+ * 玩家自己看得见；技能造成的无效（于禁【毅重】）没有任何可见凭据，
+ * 不报一行战报的话，桌上所有人都只会看到一张【杀】凭空消失。
+ *
+ * 判定用的是**同一个**入口，所以不会出现「报了却没挡住」或者反过来的情况。
+ */
+export function skillInvalidatingCard(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  cardName: string,
+  cardColor: 'red' | 'black' | null,
+  sourceId: PlayerId | null = null,
+): string | null {
+  return cardEffectInvalidBy(state, targetId, sourceId, cardName, cardColor)?.id ?? null
+}
+
+/**
+ * 技能造成的「无效」报一行战报。装备造成的不报——那是装备自己的事，
+ * 而且牌就摆在桌上，玩家看得见。
+ */
+export function announceSkillInvalidation(
+  host: EquipmentHost,
+  targetId: PlayerId,
+  cardName: string,
+  cardColor: 'red' | 'black' | null,
+  sourceId: PlayerId | null = null,
+): void {
+  const skillId = skillInvalidatingCard(host.state, targetId, cardName, cardColor, sourceId)
+  if (!skillId) return
+  const target = host.state.players.find((candidate) => candidate.id === targetId)
+  if (!target) return
+  const skillName = skillDisplayName(skillId)
+  host.dispatch('SkillActivated', {
+    skillId, skillName, playerId: targetId,
+    logText: `${target.nickname}的【${skillName}】令【${cardName}】对其无效`,
+  }, { sourceId: targetId, targetId })
+}
+
 export function isCardIneffective(
   state: SanguoshaState,
   targetId: PlayerId,

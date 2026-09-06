@@ -241,6 +241,23 @@ describe('于禁：毅重', () => {
     expect(asked, '红色转化【杀】照常求闪').toBe(true)
     assertGameInvariants(game.state)
   })
+
+  it('技能造成的无效会报一行战报：牌不能凭空消失', () => {
+    const game = gameAt('yj-log')
+    playerOf(game, 'p1').hp = playerOf(game, 'p1').maxHp
+    const skills: string[] = []
+    game.events.on('SkillActivated', (handled) => {
+      const skillId = (handled.event.payload as { skillId?: string }).skillId
+      if (skillId) skills.push(skillId)
+    })
+    const slash = giveCard(game, 'p0', '杀', 'black')
+    slashYuJin(game, slash)
+    /*
+     * 仁王盾、藤甲摆在桌上，玩家自己看得见；技能造成的无效没有任何可见凭据，
+     * 不报的话所有人只会看到一张【杀】凭空消失。
+     */
+    expect(skills, '毅重挡下来的时候要有战报').toContain('yizhong')
+  })
 })
 
 describe('于禁：版本锁', () => {
