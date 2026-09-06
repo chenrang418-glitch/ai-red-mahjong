@@ -88,6 +88,7 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   if (state.status !== 'choosing-general' && state.status !== 'setup') throw new Error('牌局已经开始')
   state.status = 'playing'
   state.turnNumber = 1
+  state.roundNumber = 1
   state.phase = 'prepare'
   state.skippedPhases = []
   state.judgedDelayedCards = []
@@ -96,6 +97,7 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   // 正常座次游标从主公开始；只有额外回合插队时才需要靠它记住位置
   state.normalTurnPlayerId = state.currentPlayerId
   state.currentTurnKind = 'normal'
+  emit('RoundStart', { roundNumber: state.roundNumber })
   emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber, kind: 'normal' })
   emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
 }
@@ -122,10 +124,27 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
    * 走到这里说明 TurnEnd 触发的技能已经全部结算完了。
    */
   clearTurnKills(state, state.turnNumber)
+  const previousNormalId = state.normalTurnPlayerId ?? state.currentPlayerId
+  const previousNormalSeat = state.players.find((candidate) => candidate.id === previousNormalId)?.seat ?? 0
   const next = nextTurnEntry(state)
   state.currentPlayerId = next.playerId
   state.currentTurnKind = next.kind
   state.turnNumber += 1
+  /*
+   * 轮次只由**正常回合**推进，而且只在座次绕回起点时才 +1。
+   *
+   * 额外回合是插队，不该开新的一轮——有技能的代价正是「下一轮开始时死亡」，
+   * 让插队算作新一轮会把它提前结算掉。
+   * 判据是「新的正常回合角色的座位号不比上一个大」，也就是绕了一圈回来了；
+   * 中途有人阵亡、座次被重排都不影响这个判断，因为它只看当下的座位号。
+   */
+  if (next.kind === 'normal') {
+    const nextSeat = state.players.find((candidate) => candidate.id === next.playerId)?.seat ?? 0
+    if (nextSeat <= previousNormalSeat) {
+      state.roundNumber = (state.roundNumber ?? 1) + 1
+      emit('RoundStart', { roundNumber: state.roundNumber })
+    }
+  }
   state.skippedPhases = []
   state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }

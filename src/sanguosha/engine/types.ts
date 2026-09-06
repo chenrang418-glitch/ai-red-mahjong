@@ -89,6 +89,12 @@ export interface PlayerState {
   /** 限定技：**一局一次**，永不重置。 */
   usedLimitedSkills: string[]
   /**
+   * 本局进入过几次濒死状态。
+   *
+   * 一次完整的濒死流程只算一次，不管中间问了多少人要桃。只增不减。
+   */
+  dyingEntryCount?: number
+  /**
    * 本回合已经用过的技能（「出牌阶段限一次」这类）。
    *
    * 和 `usedLimitedSkills` 分开是因为两者的生命周期完全不同，混用过一次就出过 bug：
@@ -251,6 +257,8 @@ import type { MultiCardViewAsState } from './multi-card-viewas'
 import type { ForcedCardIdentity } from './forced-identity'
 import type { GlobalToken } from './global-token'
 import type { AttackRangeOverride } from './attack-range-override'
+import type { CardUseTargets } from './card-use-targets'
+import type { CyclicStatus } from './cyclic-status'
 import type { MissionStatus } from './mission-skill'
 import type { MovableToken } from './movable-tokens'
 import type { SkillSuppression } from './skill-suppression'
@@ -658,6 +666,14 @@ export interface SanguoshaState {
   /** 当前回合是正常回合还是插队的额外回合。决定下一个正常回合从哪里数起。 */
   currentTurnKind: 'normal' | 'extra'
   turnNumber: number
+  /**
+   * 第几轮。从 1 开始。
+   *
+   * **轮次不等于回合。** 一轮是「正常座次绕场一周」，而额外回合是插队，
+   * 不推进轮次也不占用别人的正常回合。有技能的代价是「下一轮开始时死亡」，
+   * 拿回合数去凑会让它在插队之后立刻结算。
+   */
+  roundNumber: number
   phase: TurnPhase
   skippedPhases: TurnPhase[]
   /**
@@ -752,6 +768,10 @@ export interface SanguoshaState {
   movableTokens?: MovableToken[]
   /** 定向的「视为在攻击范围内」。见 engine/attack-range-override.ts。 */
   attackRangeOverrides?: AttackRangeOverride[]
+  /** 有序循环状态（神华佗【五灵】）。见 engine/cyclic-status.ts。 */
+  cyclicStatuses?: CyclicStatus[]
+  /** 正在结算的使用牌各自指定了哪些目标。见 engine/card-use-targets.ts。 */
+  cardUseTargets?: CardUseTargets[]
   /**
    * 本回合判定阶段已经结算过的延时锦囊。
    *

@@ -3,6 +3,7 @@ import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRng } from '../rng'
 import type { CardId, PlayerId, PlayerState, SanguoshaState } from '../types'
 import { resolvedCardRecipientOf, type SkillHost } from '../skills/runtime'
+import { popCardUseTargets, pushCardUseTargets } from '../card-use-targets'
 import { locateOwnedCard, moveCard, type ZoneRef } from '../zones'
 import { skillDisplayName } from '../../data/characters/standard'
 
@@ -72,6 +73,14 @@ export function beginPhysicalCard(
     finishPhysicalCard(host, sourceId, cardId, targetIds, true, cardName)
     return false
   }
+  /*
+   * 记下这次使用指定了哪些目标。
+   *
+   * 结算到伤害那一刻已经查不到「原本几个目标」了——多目标【杀】走到最后一个
+   * 目标时，剩余表已经空了，和单目标杀长得一模一样。有技能的条件正是
+   * 「这张牌只指定了一个目标」，只能在这里记。
+   */
+  pushCardUseTargets(host.state, { cardId, sourceId, targetIds })
   host.dispatch('CardUsed', { cardId, cardName, targetIds }, metadata)
   /*
    * 使用时机里的技能可能把牌局直接打完。
@@ -123,4 +132,6 @@ export function finishPhysicalCard(host: CardEngineHost, sourceId: PlayerId, car
   const payload = { cardId, cardName, targetIds, cancelled, virtual, sourceSkillId }
   host.dispatch('CardResolved', payload, metadata)
   host.dispatch('AfterCardUse', payload, metadata)
+  // 收束之后再弹：结束时机里的技能仍然要看得到这次使用的目标表
+  popCardUseTargets(host.state, cardId)
 }

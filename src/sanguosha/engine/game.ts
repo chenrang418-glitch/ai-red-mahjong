@@ -102,6 +102,7 @@ export class SanguoshaGame {
       currentTurnKind: 'normal',
       targetStates: [],
       turnNumber: 0,
+      roundNumber: 0,
       phase: 'prepare',
       skippedPhases: [],
       phaseEntry: null,
@@ -665,6 +666,9 @@ export class SanguoshaGame {
     mutable.state.cardNatures ??= {}
     mutable.state.multiCardViewAs ??= null
     mutable.state.turnKills ??= []
+    // 旧存档没有轮次，按第一轮补：轮次只用于「下一轮开始时」这类判断，
+    // 从头算起不会让任何已经发生过的事情重放
+    mutable.state.roundNumber ??= 1
     mutable.state.conversionStates ??= {}
     mutable.state.forcedIdentities ??= []
     mutable.state.abolishedSlots ??= {}

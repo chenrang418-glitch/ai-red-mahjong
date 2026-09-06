@@ -414,6 +414,14 @@ export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId:
     responderIndex: 0,
     requestId: null,
   }
+  /*
+   * 「本局进入过几次濒死」记在这里。
+   *
+   * 一次完整的濒死流程只算一次，**不管中间问了多少人要桃**——所以记在
+   * 濒死真正开始的这一刻，而不是每问一个人记一次。有技能拿它当倍率，
+   * 记多了会直接把数值翻倍。
+   */
+  target.dyingEntryCount = (target.dyingEntryCount ?? 0) + 1
   host.dispatch('EnterDying', { playerId, hp: target.hp }, { sourceId: sourceId ?? undefined, targetId: playerId, damageNature: nature })
 
   // 濒死介入（周泰【不屈】）：技能有机会在求桃之前直接把这次濒死解决掉。
