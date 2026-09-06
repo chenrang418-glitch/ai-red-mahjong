@@ -237,8 +237,21 @@ export interface SkillRuntime {
   ignoresTrickDistance?: boolean | ((state: SanguoshaState, ownerId: PlayerId) => boolean)
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
   trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
-  /** 锁定技：指定牌对拥有者无效。和“不能成为目标”是两个不同规则。 */
-  cardEffectInvalid?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null, cardName: string): boolean
+  /**
+   * 锁定技：指定牌对拥有者无效。和「不能成为目标」是两个不同规则——
+   * 无效的角色**仍然是这张牌的合法目标**，只是这张牌对他不产生效果。
+   *
+   * `cardColor` 是这张牌的**有效颜色**（转化技按实体牌算，多张实体牌合成的
+   * 转化牌按统一口径算），技能凭空生成的虚拟牌没有颜色，是 null。
+   * 于禁【毅重】按它判断「黑色的【杀】」——只看印刷颜色或者只看第一张子牌都是错的。
+   */
+  cardEffectInvalid?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    sourceId: PlayerId | null,
+    cardName: string,
+    cardColor?: 'red' | 'black' | null,
+  ): boolean
   /** 锁定技：在伤害事件产生前改写伤害来源。 */
   modifyDamageSource?(state: SanguoshaState, ownerId: PlayerId, context: DamageSourceContext): PlayerId | null | undefined
   /**
@@ -806,10 +819,11 @@ export function cardEffectInvalidBy(
   targetId: PlayerId,
   sourceId: PlayerId | null,
   cardName: string,
+  cardColor: 'red' | 'black' | null = null,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): SkillRuntime | null {
   return skillsOf(state, targetId, skillIdsOf)
-    .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName) ?? false) ?? null
+    .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName, cardColor) ?? false) ?? null
 }
 
 /** 按座次稳定地应用第一个伤害来源改写技能。 */

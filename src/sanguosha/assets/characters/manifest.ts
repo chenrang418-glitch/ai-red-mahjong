@@ -545,7 +545,7 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
  */
 export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // 一将成名 2011 · 第一批：立绘待上传
-  'caozhi',
+  'caozhi', 'yujin',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

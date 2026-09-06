@@ -97,7 +97,7 @@ export function isCardIneffective(
   damageNature: DamageNature,
   sourceId: PlayerId | null = null,
 ): boolean {
-  if (cardEffectInvalidBy(state, targetId, sourceId, cardName)) return true
+  if (cardEffectInvalidBy(state, targetId, sourceId, cardName, cardColor)) return true
   if (cardName === '杀') {
     if (hasArmor(state, targetId, '仁王盾', sourceId) && cardColor === 'black') return true
     // 藤甲只挡普通杀，火杀雷杀照样打得进来
