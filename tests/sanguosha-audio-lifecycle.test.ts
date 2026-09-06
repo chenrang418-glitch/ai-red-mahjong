@@ -134,11 +134,16 @@ function installFakeEnvironment(): void {
   }))
 }
 
+/** 当前用例正在驱动的那份模块，用于收尾时把它的异步工作停掉。 */
+let currentAudio: Awaited<ReturnType<typeof freshAudio>> | null = null
+
 /** 每个用例都要拿一份全新的模块：上下文是模块级单例。 */
 async function freshAudio() {
   vi.resetModules()
   installFakeEnvironment()
-  return (await import('@/sanguosha/composables/useSgsAudio')).sgsAudio
+  const audio = (await import('@/sanguosha/composables/useSgsAudio')).sgsAudio
+  currentAudio = audio
+  return audio
 }
 
 function liveContexts(): FakeAudioContext[] {
@@ -146,7 +151,20 @@ function liveContexts(): FakeAudioContext[] {
 }
 
 beforeEach(() => { installFakeEnvironment() })
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(async () => {
+  /*
+   * **先把模块停下来，再撤掉假环境。**
+   *
+   * 音乐加载是异步的：撤掉 globals 之后那条 `.then` 才跑到 `startMusic()`，
+   * 里面要读 `document.hidden`，此时 `document` 已经没了，就变成一条
+   * 「测试之外抛出的未捕获错误」。`stop()` 会把 active 置假，
+   * 那个短路条件排在最前面，后面的回调就什么都不做了。
+   */
+  currentAudio?.stop()
+  currentAudio = null
+  await new Promise((settle) => { setTimeout(settle, 0) })
+  vi.unstubAllGlobals()
+})
 
 describe('上下文坏掉之后能自愈', () => {
   it('上下文被浏览器关掉后，下一次播放会重建一个新的', async () => {
