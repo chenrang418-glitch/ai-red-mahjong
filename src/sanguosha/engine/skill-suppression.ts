@@ -1,3 +1,4 @@
+import { isLockedSkill } from './locked-skills'
 import type { PlayerId, SanguoshaState } from './types'
 
 /**
@@ -17,7 +18,19 @@ import type { PlayerId, SanguoshaState } from './types'
 export interface SkillSuppression {
   /** 谁的技能失效了。 */
   targetId: PlayerId
-  skillId: string
+  /** 单技能压制（夺锐）压的是哪一个；范围压制不写这个字段。 */
+  skillId?: string
+  /**
+   * 压制范围。
+   *
+   * - `'skill'`（默认）：只压 `skillId` 这一个。
+   * - `'non-locked'`：压目标的**全部非锁定技**（神马超【霆威】）。
+   *
+   * 范围压制不能退化成「把当前技能 id 列一遍」：那样期间新获得的非锁定技
+   * 会漏网，而这恰恰是这条规则最要紧的一半。所以存的是范围，
+   * 每次查询时现算。
+   */
+  scope?: 'skill' | 'non-locked'
   /** 谁让它失效的。到期和清理都按这个来源走。 */
   sourceId: PlayerId
   /** 施加它的技能，用于战报和调试。 */
@@ -33,18 +46,26 @@ export interface SkillSuppression {
   armedAtTurn: number
 }
 
-/** 这个技能此刻是不是被压制了。 */
+/** 这个技能此刻是不是被压制了。单技能压制和范围压制在这里统一聚合。 */
 export function isSkillSuppressed(state: SanguoshaState, targetId: PlayerId, skillId: string): boolean {
-  return (state.skillSuppressions ?? []).some((entry) => (
-    entry.targetId === targetId && entry.skillId === skillId
-  ))
+  return (state.skillSuppressions ?? []).some((entry) => {
+    if (entry.targetId !== targetId) return false
+    if (entry.scope === 'non-locked') return !isLockedSkill(skillId)
+    return entry.skillId === skillId
+  })
 }
 
-/** 这名角色现在有哪些技能被压制。 */
+/**
+ * 这名角色现在有哪些**具名**技能被压制。
+ *
+ * 范围压制列不进来——它压的是一个条件，不是一份名单。要判断某个技能
+ * 现在有没有失效，走 `isSkillSuppressed`。
+ */
 export function suppressedSkillsOf(state: SanguoshaState, targetId: PlayerId): string[] {
   return (state.skillSuppressions ?? [])
-    .filter((entry) => entry.targetId === targetId)
+    .filter((entry) => entry.targetId === targetId && entry.scope !== 'non-locked')
     .map((entry) => entry.skillId)
+    .filter((skillId): skillId is string => !!skillId)
 }
 
 /** 某个来源当前压制着的那一条（夺锐同时最多一条）。 */
@@ -56,7 +77,20 @@ export function suppressionBySource(state: SanguoshaState, sourceId: PlayerId, s
 
 export function suppressSkill(state: SanguoshaState, entry: SkillSuppression): void {
   state.skillSuppressions ??= []
-  if (isSkillSuppressed(state, entry.targetId, entry.skillId)) return
+  if (entry.scope === 'non-locked') {
+    // 同一个来源对同一个人只压一次；重复施加只该刷新期限，不该堆叠两条
+    const existing = state.skillSuppressions.find((candidate) => candidate.targetId === entry.targetId
+      && candidate.scope === 'non-locked'
+      && candidate.sourceId === entry.sourceId
+      && candidate.sourceSkillId === entry.sourceSkillId)
+    if (existing) {
+      existing.armedAtTurn = entry.armedAtTurn
+      return
+    }
+    state.skillSuppressions.push(entry)
+    return
+  }
+  if (!entry.skillId || isSkillSuppressed(state, entry.targetId, entry.skillId)) return
   state.skillSuppressions.push(entry)
 }
 

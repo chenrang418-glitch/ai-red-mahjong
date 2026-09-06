@@ -27,6 +27,16 @@ export interface CharacterSkillInfo {
    * 邓艾一上来就能用急袭，觉醒技也就没意义了。
    */
   granted?: boolean
+  /**
+   * 这是不是一个**锁定技**。
+   *
+   * 不写就按技能说明里有没有「锁定技」三个字来判定——本项目所有锁定技的说明
+   * 都以它开头，这是唯一真相，不必再手抄一份名单。只有说明里写法特殊的技能
+   * 才需要在这里显式声明，覆盖那次推断。
+   *
+   * 神马超【霆威】要令目标的非锁定技失效，判定就走这里。
+   */
+  locked?: boolean
 }
 
 export interface CharacterDefinition {

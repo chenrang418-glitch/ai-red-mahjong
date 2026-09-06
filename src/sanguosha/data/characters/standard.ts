@@ -3,6 +3,7 @@ import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { loseHp } from '../../engine/hp'
 import { provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
+import { provideLockedSkillLookup } from '../../engine/locked-skills'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
@@ -405,6 +406,19 @@ export function skillDisplayName(state: SanguoshaState, ownerId: PlayerId, skill
 }
 
 provideSkillIdsLookup(skillIdsOf)
+
+/**
+ * 锁定技名单：说明里写了「锁定技」的就是，`locked` 字段可以显式覆盖。
+ *
+ * 从说明推断而不是另立一份名单，是为了不让两处失配——新武将只要按惯例
+ * 把「锁定技」写进说明，【霆威】这类按锁定与否分流的效果就自动认得它。
+ */
+const LOCKED_SKILL_IDS = new Set(ALL_CHARACTERS
+  .flatMap((character) => character.skills)
+  .filter((skill) => skill.locked ?? skill.description.includes('锁定技'))
+  .map((skill) => skill.id))
+
+provideLockedSkillLookup((skillId) => LOCKED_SKILL_IDS.has(skillId))
 
 export function allCharacterIds(): string[] {
   return ALL_CHARACTERS.map((character) => character.id)

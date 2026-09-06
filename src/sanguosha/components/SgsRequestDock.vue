@@ -121,6 +121,26 @@ const targetCountOk = computed(() => {
  * 改主意只能等超时；联机时每一步还各要一个网络往返。
  * 也不做拖拽：手机上小目标拖拽很难点准，点选反而更稳。
  */
+/**
+ * 多选项：可以一项都不选，也可以全选，点一下切换。
+ *
+ * 不拆成 N 次单选：那样玩家挑到第三项时已经看不到前两项选了什么，
+ * 改主意只能等超时，联机时每一步还各要一个网络往返。
+ */
+const multiRequest = computed(() => (props.request.kind === 'choose-options' ? props.request : null))
+const multiPicked = ref<string[]>([])
+watch(() => props.request.id, () => { multiPicked.value = [] })
+function toggleMulti(id: string): void {
+  multiPicked.value = multiPicked.value.includes(id)
+    ? multiPicked.value.filter((picked) => picked !== id)
+    : [...multiPicked.value, id]
+}
+const multiReady = computed(() => {
+  const request = multiRequest.value
+  if (!request) return false
+  return multiPicked.value.length >= request.min && multiPicked.value.length <= request.max
+})
+
 const orderRequest = computed(() => (props.request.kind === 'arrange-options' ? props.request : null))
 const orderPicked = ref<string[]>([])
 watch(() => props.request.id, () => { orderPicked.value = [] })
@@ -375,6 +395,30 @@ function withCharacterNames(text: string): string {
           :class="actionId.endsWith('-pass') ? 'ghost' : 'primary'"
           @click="submit({ actionId })"
         >{{ actionLabel(actionId) }}</button>
+      </div>
+    </template>
+
+    <!-- 多选项：霆威的四选任意 -->
+    <template v-else-if="request.kind === 'choose-options'">
+      <p class="sgs-dock__hint">点一下选中，再点一下取消</p>
+      <div class="sgs-dock__actions sgs-dock__actions--wrap">
+        <button
+          v-for="option in request.options"
+          :key="option.id"
+          type="button"
+          :class="multiPicked.includes(option.id) ? 'primary' : 'ghost'"
+          :aria-pressed="multiPicked.includes(option.id)"
+          @click="toggleMulti(option.id)"
+        >{{ option.label }}</button>
+      </div>
+      <div class="sgs-dock__actions">
+        <span class="sgs-dock__count">已选 {{ multiPicked.length }} / 最多 {{ request.max }}</span>
+        <button
+          type="button"
+          class="primary"
+          :disabled="!multiReady"
+          @click="submit({ optionIds: [...multiPicked] })"
+        >确定</button>
       </div>
     </template>
 

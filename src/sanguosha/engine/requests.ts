@@ -53,6 +53,21 @@ export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
 }
 export type ChooseTargetsRequest = RequestBase<'choose-targets'> & { candidateIds: PlayerId[]; min: number; max: number }
 export type ChooseOptionRequest = RequestBase<'choose-option'> & { options: Array<{ id: string; label: string }> }
+/**
+ * 从一组选项里挑**任意多项**（神马超【霆威】的四选任意）。
+ *
+ * 和 `choose-option` 的区别就是「一次能挑几个」：那个是单选，
+ * 拆成四次单选会让玩家挑到第三项时已经看不到前两项，改主意只能等超时，
+ * 联机时还要四个网络往返。
+ *
+ * 回应格式：`{ optionIds: string[] }`，必须互不重复、且都在 `options` 里，
+ * 数量落在 `[min, max]`。
+ */
+export type ChooseOptionsRequest = RequestBase<'choose-options'> & {
+  options: Array<{ id: string; label: string }>
+  min: number
+  max: number
+}
 export type ChooseSuitRequest = RequestBase<'choose-suit'> & { suits: Suit[] }
 export type ChooseNumberRequest = RequestBase<'choose-number'> & { min: number; max: number }
 export type UseCardRequest = RequestBase<'use-card'> & { actionIds: string[] }
@@ -91,7 +106,7 @@ export type RescueRequest = RequestBase<'rescue'> & { dyingPlayerId: PlayerId; a
 
 export type GameRequest =
   | ChooseGeneralRequest | ChooseCardsRequest | ChooseTargetsRequest | ChooseOptionRequest
-  | ChooseSuitRequest | ChooseNumberRequest | UseCardRequest | RespondCardRequest
+  | ChooseOptionsRequest | ChooseSuitRequest | ChooseNumberRequest | UseCardRequest | RespondCardRequest
   | InvokeSkillRequest | ArrangeCardsRequest | ArrangeOptionsRequest | DistributeCardsRequest | RescueRequest
 
 export interface GameResponse {
@@ -117,6 +132,7 @@ export function requestLabel(request: GameRequest): string {
     case 'invoke-skill': return '发动技能'
     case 'arrange-cards': return '排列卡牌'
     case 'arrange-options': return '排列顺序'
+    case 'choose-options': return '选择任意项'
     case 'distribute-cards': return '分配卡牌'
     case 'rescue': return '濒死救援'
     default: return assertNever(request)
@@ -164,6 +180,15 @@ export function validateResponse(request: GameRequest, response: GameResponse): 
     case 'respond-card':
     case 'invoke-skill':
     case 'rescue': return typeof payload.actionId === 'string' && request.actionIds.includes(payload.actionId) ? null : 'actionId 非法'
+    case 'choose-options': {
+      if (!isStringArray(payload.optionIds)) return '选项格式错误'
+      const ids = request.options.map((option) => option.id)
+      // 互不重复、都在候选里、数量落在区间内；三条缺一个都会让后面的结算读到脏数据
+      if (new Set(payload.optionIds).size !== payload.optionIds.length) return '同一项不能选两次'
+      if (!payload.optionIds.every((id) => ids.includes(id))) return '选项不存在'
+      if (payload.optionIds.length < request.min || payload.optionIds.length > request.max) return '选择数量不合法'
+      return null
+    }
     case 'arrange-options': {
       if (!isStringArray(payload.optionIds)) return '排列格式错误'
       // 「可以」发动的排列允许交白卷＝放弃，例如榻谟不想重排座次

@@ -1850,6 +1850,22 @@ export function decideResponse(context: AIContext, request: GameRequest): GameRe
       return { ...base, payload: { top: ranked.slice(0, topCount), bottom: request.allowBottom ? ranked.slice(topCount) : [] } }
     }
 
+    case 'choose-options': {
+      /*
+       * 多选项：AI 取**最低承诺**——只选到 `min` 为止。
+       *
+       * 这里是通用请求层，读不到「这一项对我有多疼」；霆威那四项的代价
+       * 各不相同，真要算最小代价得由技能自己给权重。在有权重之前，
+       * 少选比乱选稳：多选一项就是多受一份效果。
+       * `min` 为 0 时偶尔也拿一项，免得对手几盘就摸清 AI 永远交白卷。
+       */
+      const ids = request.options.map((option) => option.id)
+      const take = request.min > 0
+        ? request.min
+        : (context.rng.nextInt(3) === 0 ? Math.min(1, request.max) : 0)
+      return { ...base, payload: { optionIds: ids.slice(0, take) } }
+    }
+
     case 'arrange-options': {
       /*
        * 排列类请求 AI 直接给一个随机排列。

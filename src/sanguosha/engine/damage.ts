@@ -15,9 +15,13 @@ import { isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } f
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
+import { adjustOutgoingDamage, interceptIncomingDamage } from './damage-modifiers'
 import { DAWU_STATE, KUANGFENG_STATE, applyTargetStateDamage, clearTargetStatesOf } from './target-state'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
+
+/** 战报里怎么称呼一种伤害属性。 */
+const DAMAGE_NATURE_NAMES: Record<DamageNature, string> = { normal: '', fire: '火焰', thunder: '雷电' }
 import { moveCard } from './zones'
 import { setChained } from './character-state'
 import { deathCardClaimantOf, holdDeathCards, releaseDeathCards } from './death-claim'
@@ -316,9 +320,59 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
     sourceId = override.sourceId
   }
 
-  const nature = options.nature ?? 'normal'
+  let nature = options.nature ?? 'normal'
   let amount = options.amount ?? 1
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('伤害值必须是正整数')
+
+  /*
+   * 技能对属性和数值的修正排在**最前面**（神马超【驭雳】把伤害改成雷电）。
+   *
+   * 晚一步就全错：藤甲会按已经不存在的火属性 +1，狂风同理，大雾会按「非雷伤」
+   * 把一发雷伤防掉，铁索也会按旧属性判断传不传导。
+   */
+  const outgoing = adjustOutgoingDamage(host.state, sourceId, {
+    targetId: target.id,
+    amount,
+    nature,
+    cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null,
+    chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (outgoing.appliedSkillIds.length > 0 && (outgoing.nature !== nature || outgoing.amount !== amount)) {
+    for (const skillId of outgoing.appliedSkillIds) {
+      const skillName = skillDisplayName(host.state, sourceId!, skillId)
+      host.dispatch('SkillActivated', {
+        skillId, skillName, playerId: sourceId, targetIds: [target.id], result: 'damage-modified',
+        logText: `【${skillName}】${target.nickname}受到的这次伤害变为${DAMAGE_NATURE_NAMES[outgoing.nature]}${outgoing.amount} 点`,
+      }, { sourceId: sourceId ?? undefined, targetId: target.id, damageNature: outgoing.nature })
+    }
+  }
+  nature = outgoing.nature
+  amount = outgoing.amount
+  if (amount <= 0) return
+
+  /*
+   * 受伤者把这次伤害整个挡下来（【驭雳】防雷伤并摸牌）。
+   *
+   * 放在扣血和全部伤害时机之前：伤害被防止就是**没有发生**，
+   * 狂暴、忍戒、濒死一个都不该被触发。
+   */
+  const intercepted = interceptIncomingDamage(host as unknown as SkillHost, target.id, {
+    sourceId,
+    amount,
+    nature,
+    cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null,
+    chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (intercepted) {
+    const skillName = skillDisplayName(host.state, target.id, intercepted)
+    host.dispatch('SkillActivated', {
+      skillId: intercepted, skillName, playerId: target.id, result: 'damage-prevented',
+      logText: `【${skillName}】防止了${target.nickname}受到的这次伤害`,
+    }, { targetId: target.id, damageNature: nature })
+    return
+  }
 
   // 装备的数值修正放在技能时机之前：古锭刀 / 藤甲加成、白银狮子封顶都是牌本身的规则，
   // 技能仍然可以在随后的时机里继续改或者直接取消。

@@ -526,6 +526,23 @@ function askSlashInterceptors(host: CardEngineHost): boolean {
     ['cixiong', () => askCixiongSword(host, resolution.sourceId, resolution.targetId)],
     ['liuli', () => askSlashTransfer(host, resolution.sourceId, resolution.targetId)],
   ]
+  /*
+   * 使用者自己的插入点排在目标方之前：【铁骑】就在这个位置，
+   * 神马超【霆威】同理——都是「我指定了目标之后立刻做的事」。
+   */
+  for (const runtime of skillsOf(host.state, resolution.sourceId, skillIdsOf)) {
+    if (!runtime.interceptSourceTarget) continue
+    interceptors.push([
+      `source-skill:${runtime.id}`,
+      () => runtime.interceptSourceTarget!(host, resolution.sourceId, {
+        sourceId: resolution.sourceId,
+        targetId: resolution.targetId,
+        cardId: resolution.cardId,
+        cardName: '杀',
+        category: 'basic',
+      }),
+    ])
+  }
   for (const runtime of skillsOf(host.state, resolution.targetId, skillIdsOf)) {
     if (!runtime.interceptTarget) continue
     interceptors.push([

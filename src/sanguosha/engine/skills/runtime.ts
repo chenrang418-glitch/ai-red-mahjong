@@ -4,7 +4,7 @@ import { clearForcedAwakening, hasForcedAwakening } from '../forced-awakening'
 import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
-import { suppressedSkillsOf } from '../skill-suppression'
+import { isSkillSuppressed } from '../skill-suppression'
 import type { MultiCardViewAsSpec } from '../multi-card-viewas'
 import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit, TurnPhase } from '../types'
 
@@ -227,6 +227,29 @@ export interface SkillRuntime {
   /** 锁定技：在伤害事件产生前改写伤害来源。 */
   modifyDamageSource?(state: SanguoshaState, ownerId: PlayerId, context: DamageSourceContext): PlayerId | null | undefined
   /**
+   * 拥有者**造成**伤害时对属性和数值的修正（神马超【驭雳】）。
+   *
+   * 排在藤甲、狂风、大雾之前，见 `damage-modifiers.ts`。返回改动后的值；
+   * 不改就返回 null。**不要在这里直接改血或者另造一笔伤害**——
+   * 那会变成两次「受到伤害」，藤甲、连环、濒死全部结算两遍。
+   */
+  outgoingDamage?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    context: { targetId: PlayerId; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): { amount?: number; nature?: DamageNature } | null
+  /**
+   * 拥有者**受到**伤害时把它整个挡下来（神马超【驭雳】防雷伤）。
+   *
+   * 返回 true 表示这次伤害不发生：不扣血，也不触发「受到伤害后」那批时机。
+   * 允许在挡下的同时做事（摸牌），所以拿的是 host。
+   */
+  interceptIncomingDamage?(
+    host: SkillHost,
+    ownerId: PlayerId,
+    context: { sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): boolean
+  /**
    * 锁定「这名角色死亡时，我要认领他的牌」。
    *
    * 只是**声明意向**：声明之后引擎会把死者的牌暂存到处理区而不是弃牌堆，
@@ -343,6 +366,17 @@ export interface SkillRuntime {
   prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
   /** 成为【杀】或普通锦囊目标后可插入发问；返回 true 表示结算已挂起。 */
   interceptTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
+  /**
+   * **使用者**在指定目标后的插入点（神马超【霆威】）。
+   *
+   * 和 `interceptTarget` 同一个挂起点，只是方向相反：那个属于被指定的人，
+   * 这个属于出牌的人。排在装备和目标方的反应之前——【铁骑】就是这个位置，
+   * 它先于雌雄双股剑和【流离】。
+   *
+   * 返回 true 表示已经发问、结算挂起；答完之后**必须**调 `resumeCardTarget()`
+   * 把控制权交回去，否则牌局停在这里。
+   */
+  interceptSourceTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /**
    * 锁定技式的「取消自己这个目标」（神荀彧【定汉】）。
    *
@@ -501,8 +535,8 @@ export function ownedSkillIds(
    * AI 全都自然失效——不需要在每条路径上各写一遍判断。
    * 和断肠的「全部技能失效」是两条独立规则，各管各的。
    */
-  const suppressed = new Set(suppressedSkillsOf(state, playerId))
-  return [...new Set([...own, ...granted, ...temporary])].filter((skillId) => !suppressed.has(skillId))
+  return [...new Set([...own, ...granted, ...temporary])]
+    .filter((skillId) => !isSkillSuppressed(state, playerId, skillId))
 }
 
 /**

@@ -1,5 +1,5 @@
 import { getSkillRuntime } from './skills/runtime'
-import { suppressedSkillsOf } from './skill-suppression'
+import { isSkillSuppressed } from './skill-suppression'
 import type { PlayerId, SanguoshaState } from './types'
 
 /**
@@ -71,8 +71,7 @@ export function stealableSkillsOf(
   if (!target?.alive || !target.characterId) return []
   // 断肠：技能全部失效，没有可夺的
   if (target.characterSkillsDisabled) return []
-  const suppressed = new Set(suppressedSkillsOf(state, targetId))
   return skillsOfCharacter(target.characterId)
     .map((skill) => evaluateSkillTheft(skill))
-    .filter((entry) => entry.eligible && !suppressed.has(entry.skillId))
+    .filter((entry) => entry.eligible && !isSkillSuppressed(state, targetId, entry.skillId))
 }
