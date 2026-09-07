@@ -1002,6 +1002,17 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
       const needed = effect.kind === 'ask-slash' ? '杀' : '闪'
       if (askTrickSurrogate(host, resolution, effect, needed)) return
       resolution.effect = null
+      /*
+       * **落地前再确认目标还活着。**
+       *
+       * 发问和回答之间目标可能已经死了——他自己的技能付了「失去 1 点体力」
+       * 的代价（王异【贞烈】）就是一种。对死人造成伤害会被引擎直接拒绝，
+       * 整局崩在这里（压测 seed=ci-7-11）。死了就跳过这个目标继续往下走。
+       */
+      if (!playerOf(host.state, effect.targetId).alive) {
+        advanceToNextTarget(host)
+        return
+      }
       resolveDamage(host, { sourceId: resolution.sourceId, targetId: effect.targetId, amount: 1, nature: 'normal', cardName: resolution.cardName, cardId: resolution.cardId })
       // 濒死时暂停，等救援结束后由 resumeTrickResolution 继续下一个目标
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)

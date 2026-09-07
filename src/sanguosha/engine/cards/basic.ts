@@ -1163,6 +1163,26 @@ export function resumeCardResolution(host: CardEngineHost): void {
 export function resumeCardTarget(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution) return
+  /*
+   * 「成为目标后」的技能可能付出了**会致死的代价**（王异【贞烈】失去 1 点体力）。
+   *
+   * 这时候两件事都不能做：不能接着结算这张牌（濒死流程还开着，
+   * 再造成一次伤害会被引擎直接拒绝），也不能停在 `awaiting-intercept`
+   * ——那个阶段的含义是「还在等技能回答」，而回答已经收到了，
+   * 不变量会当场报「成为目标阶段缺少技能等待状态」。
+   *
+   * 正确的做法是把结算**停到等待续接的那个阶段**上：
+   * 濒死结清之后，`resumeAfterDying` 会沿着既有的路径把它接着走完。
+   */
+  if (host.state.dying) {
+    if (resolution.kind === 'trick') {
+      resolution.stage = 'awaiting-effect'
+      resolution.requestId = null
+    } else {
+      resolution.stage = 'awaiting-dying'
+    }
+    return
+  }
   if (resolution.kind === 'trick') {
     resumeTrickTarget(host)
     return

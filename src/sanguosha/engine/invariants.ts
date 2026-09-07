@@ -193,7 +193,13 @@ export function assertGameInvariants(state: SanguoshaState): void {
      * 正在收多人决定（于吉【蛊惑】的质疑），或者正在拼点。
      * 不排除这几种，「八卦阵判定 + 有人能改判」就会误报成坏状态。
      */
-    const parked = Boolean(state.judgment || state.retrial || state.groupDecision || state.pindian || state.pindianSettlement)
+    /*
+     * 「停住」的情形里**必须包含濒死**：技能在「成为目标后」付出的代价
+     * 可能把人打进濒死（王异【贞烈】），那时这张牌的结算是合法地挂着的，
+     * 阶段账目要等濒死结清之后才继续。
+     */
+    const parked = Boolean(state.judgment || state.retrial || state.groupDecision
+      || state.pindian || state.pindianSettlement || state.dying)
     // 「成为目标时」那一步挂的是技能 Request，不是求闪 Request
     if (parked) {
       // 停住期间不检查请求，等结算继续时再查
