@@ -8,6 +8,7 @@ import { recordTurnKill } from './turn-kills'
 import { discardAllCards } from './discard-all'
 import { cleanupDetainedCardsOf } from './turn-bound-pile'
 import { clearCardColorLocksOf } from './card-play-lock'
+import { recordCardDamage } from './card-damage-ledger'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { checkIdentityVictory } from './modes/identity'
@@ -557,6 +558,13 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
    * 既不可靠也扛不住重连，所以落成可序列化的状态位。
    */
   target.hasTakenDamage = true
+  /*
+   * 按牌记一笔「这次使用造成过伤害」。
+   *
+   * 记在这里而不是各技能自己挂 `AfterDamage`：多目标的一张牌会派发多次
+   * 伤害时机，各自记账很容易变成「伤了两个人就失去两点体力」。
+   */
+  recordCardDamage(host.state, cardId, amount)
   dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
   dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
   if (target.hp > 0) return

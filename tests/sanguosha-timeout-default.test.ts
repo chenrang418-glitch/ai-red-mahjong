@@ -128,12 +128,21 @@ describe('超时默认放弃：联机房间', () => {
         const handBefore = [...room.state.game!.players.find((player) => player.id === me)!.zones.hand]
         room.runDueJobs(waiting.dueAt)
         at = Math.max(at, waiting.dueAt)
-        const handAfter = room.state.game!.players.find((player) => player.id === me)!.zones.hand
-        // 放弃只会让请求消失，不该少牌（多牌是可能的：放弃之后可能被技能补牌）
-        for (const cardId of handBefore) {
-          expect(handAfter, `超时放弃不该打出 ${cardId}`).toContain(cardId)
+        const after = room.state.game!.players.find((player) => player.id === me)!
+        /*
+         * **阵亡是例外。**
+         *
+         * 濒死时超时放弃 = 不吃桃，人就死了，而阵亡会把区域内所有牌收进弃牌堆。
+         * 那不是「替玩家打出了牌」，是死亡结算。不排除这一种的话，
+         * 武将池一变、恰好抽到一次致命的濒死放弃，这条就会假报失败。
+         */
+        if (after.alive) {
+          // 放弃只会让请求消失，不该少牌（多牌是可能的：放弃之后可能被技能补牌）
+          for (const cardId of handBefore) {
+            expect(after.zones.hand, `超时放弃不该打出 ${cardId}`).toContain(cardId)
+          }
+          checked += 1
         }
-        checked += 1
         continue
       }
       room.handle(HOST.userId, { type: 'trustee', enabled: false }, at)

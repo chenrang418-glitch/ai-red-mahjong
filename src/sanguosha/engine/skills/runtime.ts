@@ -235,6 +235,14 @@ export interface SkillRuntime {
    */
   extraPhaseAtTurnStart?(state: SanguoshaState, ownerId: PlayerId): TurnPhase | null
 
+  /**
+   * 按【杀】的**属性**多指定几个目标（程普【疠火】的火【杀】+1）。
+   *
+   * 和 `slash-rules.ts` 里那个回合级的 `extraTargets` 分开：那一个是
+   * 「这一回合每张杀都多一个目标」（太史慈【天义】），这一个只看这张牌
+   * 是什么属性，和回合无关。两者在 `slashTargetLimit` 里相加。
+   */
+  extraSlashTargets?(state: SanguoshaState, ownerId: PlayerId, nature: DamageNature): number
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
   /**
@@ -868,6 +876,17 @@ export function isTargetProhibited(
  * 各条求牌路径（求闪、南蛮万箭决斗的求牌）共用这一个入口，
  * 不要各写一遍——漏一条就等于那条路上的禁令不存在。
  */
+/** 技能给出的、按属性算的额外【杀】目标数之和。 */
+export function extraSlashTargetsOf(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  nature: DamageNature,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  return skillsOf(state, playerId, skillIdsOf)
+    .reduce((total, runtime) => total + Math.max(0, Math.trunc(runtime.extraSlashTargets?.(state, playerId, nature) ?? 0)), 0)
+}
+
 export function isCardResponseProhibited(
   state: SanguoshaState,
   responderId: PlayerId,

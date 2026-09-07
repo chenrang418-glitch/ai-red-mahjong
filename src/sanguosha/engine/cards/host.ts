@@ -1,3 +1,4 @@
+import { clearCardDamage } from '../card-damage-ledger'
 import type { LegalAction } from '../actions'
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRng } from '../rng'
@@ -144,4 +145,6 @@ export function finishPhysicalCard(host: CardEngineHost, sourceId: PlayerId, car
   host.dispatch('AfterCardUse', payload, metadata)
   // 收束之后再弹：结束时机里的技能仍然要看得到这次使用的目标表
   popCardUseTargets(host.state, cardId)
+  // 「这次使用造成过伤害吗」同理：疠火挂在 AfterCardUse 上读它，读完才销毁
+  clearCardDamage(host.state, cardId)
 }

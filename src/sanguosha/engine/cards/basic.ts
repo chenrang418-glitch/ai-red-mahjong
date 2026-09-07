@@ -124,7 +124,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
       const forcedUnlimited = hasUnlimitedSlash(state, playerId) || forced.unlimitedUses
       // 次数用光了也可能还有定向豁免的目标（高顺【陷阵】），所以这里不能直接跳过
       if (!canUseSlash(state, playerId, forcedUnlimited) && !hasSlashUsesBypass(state, playerId)) continue
-      for (const combo of slashTargetCombos(state, playerId, cardId)) {
+      for (const combo of slashTargetCombos(state, playerId, cardId, forced.nature)) {
         if (!canUseSlashAtTargets(state, playerId, forcedUnlimited, combo)) continue
         const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
         actions.push({
@@ -136,7 +136,8 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     }
     if (card.name === '杀'
       && (canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId)) || hasSlashUsesBypass(state, playerId))) {
-      for (const combo of slashTargetCombos(state, playerId, cardId)) {
+      // 属性按**最终**属性算：火【杀】的额外目标（程普【疠火】）对实体火杀同样生效
+      for (const combo of slashTargetCombos(state, playerId, cardId, effectiveDamageNature(state, cardId))) {
         // 定向豁免只在**每个目标**都被豁免时才成立，不能捎带普通目标
         if (!canUseSlashAtTargets(state, playerId, hasUnlimitedSlash(state, playerId), combo)) continue
         const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
@@ -204,13 +205,15 @@ export function declaredCardActions(
   cardId: CardId,
   asCardName: string,
   label: string,
+  /** 转化后这张【杀】的属性；决定「火【杀】多一个目标」这类按属性给的加成。 */
+  options: { nature?: DamageNature } = {},
 ): LegalAction[] {
   const actions: LegalAction[] = []
   if (asCardName === '杀') {
     // 转化出来的杀同样受本回合的临时规则约束：天义失败时武圣、龙胆、蛊惑
     // 一律用不出杀，不能只把手牌那条藏起来
     if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId)) && !hasSlashUsesBypass(state, playerId)) return actions
-    for (const combo of slashTargetCombos(state, playerId, cardId)) {
+    for (const combo of slashTargetCombos(state, playerId, cardId, options.nature ?? effectiveDamageNature(state, cardId))) {
       if (!canUseSlashAtTargets(state, playerId, hasUnlimitedSlash(state, playerId), combo)) continue
       const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
       actions.push({
@@ -269,7 +272,12 @@ export function declaredCardActions(
  * 只生成到 `slashTargetLimit` 为止，且**不做全排列**：多目标是少数情况，
  * 组合数按人数是 C(n,2)，5~8 人局最多二十来条，够用又不会把动作表撑爆。
  */
-function slashTargetCombos(state: SanguoshaState, playerId: PlayerId, cardId?: CardId): PlayerId[][] {
+function slashTargetCombos(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  cardId?: CardId,
+  nature: DamageNature = 'normal',
+): PlayerId[][] {
   const rules = slashRules(state, playerId)
   // 载体牌要传下去：武神只对红桃当的【杀】免距离，真【杀】仍然讲距离
   const skillIgnoreDistance = skillsOf(state, playerId, skillIdsOf)
@@ -284,7 +292,7 @@ function slashTargetCombos(state: SanguoshaState, playerId: PlayerId, cardId?: C
     .map((target) => target.id)
 
   const combos: PlayerId[][] = legal.map((id) => [id])
-  const limit = slashTargetLimit(state, playerId)
+  const limit = slashTargetLimit(state, playerId, nature)
   if (limit < 2) return combos
   for (let first = 0; first < legal.length; first += 1) {
     for (let second = first + 1; second < legal.length; second += 1) {

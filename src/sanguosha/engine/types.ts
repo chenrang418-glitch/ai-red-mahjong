@@ -801,6 +801,18 @@ export interface SanguoshaState {
    *
    * 绑定回合序号，回合结束由 `turn.ts` 统一清。见 `card-play-lock.ts`。
    */
+  /**
+   * 这一次使用的牌造成过多少伤害，按牌 id 记；随这次使用结算收束一起销毁。
+   * 见 `card-damage-ledger.ts`（程普【疠火】读它）。
+   */
+  cardDamageLedger?: Record<string, number>
+  /**
+   * 正在结算、且属性是被程普【疠火】改成火的那几张【杀】。
+   *
+   * 代价只属于**被疠火改过**的那一张，所以标记落在牌上而不是回合上；
+   * 结算收束时由技能自己摘掉。
+   */
+  lihuoCardIds?: string[]
   cardColorLocks?: Array<{
     targetId: PlayerId
     color: 'red' | 'black'

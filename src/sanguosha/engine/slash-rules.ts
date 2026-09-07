@@ -1,5 +1,5 @@
-import { globalSlashUsesOf, ignoresSlashUsesTo } from './skills/runtime'
-import type { PlayerId, SanguoshaState } from './types'
+import { extraSlashTargetsOf, globalSlashUsesOf, ignoresSlashUsesTo } from './skills/runtime'
+import type { DamageNature, PlayerId, SanguoshaState } from './types'
 
 /**
  * 回合内临时的【杀】规则修正。
@@ -107,8 +107,19 @@ export function hasSlashUsesBypass(state: SanguoshaState, playerId: PlayerId): b
 }
 
 /** 一张杀最多能指定几个目标。 */
-export function slashTargetLimit(state: SanguoshaState, playerId: PlayerId): number {
-  return 1 + slashRules(state, playerId).extraTargets
+/**
+ * 这一张【杀】最多能指定几个目标。
+ *
+ * `nature` 是这张【杀】**最终的**属性：程普【疠火】的「使用火【杀】时可以多
+ * 选择一个目标」按属性给，本来就是火【杀】的也算，所以这个参数必须一路
+ * 传到动作生成那一层——写成「程普出杀就多一个目标」是错的。
+ */
+export function slashTargetLimit(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  nature: DamageNature = 'normal',
+): number {
+  return 1 + slashRules(state, playerId).extraTargets + extraSlashTargetsOf(state, playerId, nature)
 }
 
 function addMark(state: SanguoshaState, playerId: PlayerId, key: string, amount: number): void {
