@@ -725,6 +725,24 @@ export function grantSkill(state: SanguoshaState, playerId: PlayerId, skillId: s
 
 /** 同一来源只保留一个临时技能，替换对序列化状态是原子的。 */
 export function replaceTemporarySkill(state: SanguoshaState, playerId: PlayerId, source: string, skillId: string | null): void {
+  replaceTemporarySkills(state, playerId, source, skillId ? [skillId] : [])
+}
+
+/**
+ * 同一来源整批替换临时技能。
+ *
+ * 关兴张苞【父魂】一次给**两个**技能（武圣、咆哮），逐个调
+ * `replaceTemporarySkill` 会让后一个把前一个覆盖掉，最后只剩一个。
+ *
+ * 「按来源替换」还保证了收回时**只收回这一次授予的**：
+ * 他本来就有的、或别的技能给的同名技能不会被一起收走。
+ */
+export function replaceTemporarySkills(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  source: string,
+  skillIds: readonly string[],
+): void {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player) return
   player.temporaryGrantedSkills ??= []
@@ -733,9 +751,10 @@ export function replaceTemporarySkill(state: SanguoshaState, playerId: PlayerId,
     .map((entry) => entry.skillId))
   player.temporaryGrantedSkills = player.temporaryGrantedSkills.filter((entry) => entry.source !== source)
   if (removedSkillIds.size > 0) {
+    // 已经排队但还没问出去的那些，随技能一起收走
     state.skillQueue = state.skillQueue.filter((prompt) => prompt.ownerId !== playerId || !removedSkillIds.has(prompt.skillId))
   }
-  if (skillId) player.temporaryGrantedSkills.push({ source, skillId })
+  for (const skillId of skillIds) player.temporaryGrantedSkills.push({ source, skillId })
 }
 
 /**

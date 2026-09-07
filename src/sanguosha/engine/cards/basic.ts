@@ -374,6 +374,43 @@ function beginActionPhysicalCard(host: CardEngineHost, playerId: PlayerId, cardI
  * 一张【杀】，实体牌上的花色和属性（火杀、雷杀）也要照常生效，
  * 所以不能改成「弃掉实体牌再放一张虚拟杀」。
  */
+/**
+ * 合成一张虚拟【杀】并放进使用者手牌，返回它的 id。
+ *
+ * 只负责印牌，**不发起使用**：调用方拿到 id 之后自己决定走哪条路——
+ * `beginVirtualSlash` 那种「技能生成的杀」不吃距离和次数，
+ * 而关兴张苞【父魂】把两张手牌当【杀】**正常使用**，
+ * 距离、次数、酒的增伤、武器效果全部照常，所以它要走
+ * `declaredCardActions` + `executeUseCardAction` 那条正常管线。
+ *
+ * 牌的销毁由 `finishPhysicalCard` 统一负责，调用方不要自己删。
+ */
+export function createVirtualSlashCard(
+  state: SanguoshaState,
+  sourceId: PlayerId,
+  sourceSkillId: string,
+  nature: 'normal' | 'fire' | 'thunder' = 'normal',
+): CardId {
+  const source = player(state, sourceId)
+  const cardId = `virtual:${sourceSkillId}:${state.seq + 1}:${state.decisions.length}`
+  state.cards[cardId] = {
+    id: cardId,
+    ruleset: state.rulesetVersion,
+    expansion: 'standard',
+    name: '杀',
+    // 虚拟牌没有真实花色；字段仅满足统一牌对象结构，规则判断必须查看 virtual。
+    suit: 'spade',
+    rank: 1,
+    color: 'black',
+    category: 'basic',
+    damageNature: nature,
+    virtual: true,
+    sourceSkillId,
+  }
+  source.zones.hand.push(cardId)
+  return cardId
+}
+
 export function beginVirtualSlash(
   host: CardEngineHost,
   options: {
@@ -405,22 +442,7 @@ export function beginVirtualSlash(
     beginSlash(host, realAction, { countUsage: false, consumeWine: false })
     return
   }
-  const cardId = `virtual:${options.sourceSkillId}:${host.state.seq + 1}:${host.state.decisions.length}`
-  host.state.cards[cardId] = {
-    id: cardId,
-    ruleset: host.state.rulesetVersion,
-    expansion: 'standard',
-    name: '杀',
-    // 虚拟牌没有真实花色；字段仅满足统一牌对象结构，规则判断必须查看 virtual。
-    suit: 'spade',
-    rank: 1,
-    color: 'black',
-    category: 'basic',
-    damageNature: options.nature ?? 'normal',
-    virtual: true,
-    sourceSkillId: options.sourceSkillId,
-  }
-  source.zones.hand.push(cardId)
+  const cardId = createVirtualSlashCard(host.state, source.id, options.sourceSkillId, options.nature)
   const action = useAction(cardId, source.id, '杀', [target.id], `对${target.nickname}使用虚拟【杀】`)
   if (action.kind !== 'use-card') throw new Error('虚拟杀动作构造失败')
   beginSlash(host, action, { countUsage: false, consumeWine: false })
