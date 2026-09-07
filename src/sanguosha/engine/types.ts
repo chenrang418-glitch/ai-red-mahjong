@@ -796,6 +796,18 @@ export interface SanguoshaState {
    * 或被跳过就清成 null。见 `phase.ts` 的 `beginPhaseEntry`。
    */
   phaseEntry: PhaseEntryState | null
+  /**
+   * 「不能使用或打出某种颜色的手牌」的在场禁令（马岱【潜袭】）。
+   *
+   * 绑定回合序号，回合结束由 `turn.ts` 统一清。见 `card-play-lock.ts`。
+   */
+  cardColorLocks?: Array<{
+    targetId: PlayerId
+    color: 'red' | 'black'
+    sourceId: PlayerId
+    skillId: string
+    turnNumber: number
+  }>
   /** 正在执行的额外阶段；没有额外阶段时不存在这个字段。 */
   extraPhase?: ExtraPhaseState
   /** 还没轮到的额外阶段（同一个回合开始时排了不止一个）。 */

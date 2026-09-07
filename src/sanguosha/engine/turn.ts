@@ -5,6 +5,7 @@ import { clearForcedIdentities } from './forced-identity'
 import { expireStolenSkills } from './skill-theft-expiry'
 import { clearAttackRangeOverrides } from './attack-range-override'
 import { clearTurnSlashRules } from './slash-rules'
+import { clearTurnCardColorLocks } from './card-play-lock'
 import { returnDetainedCards } from './turn-bound-pile'
 import { expireOwnerTurnStates, expireTargetStates } from './target-state'
 import { replacementPhaseFor } from './phase-replacement'
@@ -291,6 +292,8 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   returnDetainedCards(state, state.turnNumber, (name, payload) => emit(name, payload))
   // 本回合的临时杀规则（太史慈【天义】）同样在这里统一抹掉，技能不各自注册清理
   clearTurnSlashRules(state)
+  // 「直到回合结束」的颜色禁令（马岱【潜袭】）同样统一在这里到期
+  clearTurnCardColorLocks(state, state.turnNumber)
   // 来源绑定的防具失效（神吕布【无前】）也是「直到本回合结束」，同样统一清
   expireArmorSuppressions(state)
   // 龙怒的强制牌身份也是「本回合」，同样统一清

@@ -95,5 +95,13 @@ describe('AI 阵营判断', () => {
     expect(results).toHaveLength(120)
     expect(wins.rebel / results.length).toBeLessThan(0.65)
     expect(wins.lord / results.length).toBeGreaterThan(0.2)
-  }, 30_000)
+    /*
+     * 超时给到 120 秒。
+     *
+     * 这一条跑 120 局完整对局，耗时随**武将池**增长——单跑约 12 秒，
+     * 和整个测试套件并行跑时接近 30 秒，正好卡在原来的 30 秒预算上，
+     * 于是它会随机地红一次。放宽的只有时间预算，
+     * 上面两条胜率断言一个字没动。
+     */
+  }, 120_000)
 })

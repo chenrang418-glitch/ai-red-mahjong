@@ -1,6 +1,6 @@
 import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from '../multi-card-viewas'
 import { canUseCardAs, forcedIdentityFor } from '../forced-identity'
-import { cardPlayableBySuit } from '../card-suit-lock'
+import { cardPlayable } from '../card-play-lock'
 import { ZHONGSHU_STATE, clearTargetState, hasTargetState } from '../target-state'
 import { SLOT_LABELS, equipmentSlotsOf } from '../equipment-slots'
 import { findLegalAction, type LegalAction } from '../actions'
@@ -94,7 +94,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
   // 必须两条动作都在，玩家才选得到用途。
   for (const option of viewAsPlayOptions(state, playerId)) {
     // 转化用的**子牌**也受花色禁令约束：动的仍然是那张实体牌
-    if (!cardPlayableBySuit(state, playerId, option.cardId)) continue
+    if (!cardPlayable(state, playerId, option.cardId)) continue
     actions.push(...declaredCardActions(state, playerId, option.cardId, option.asCardName, option.label))
   }
 
@@ -111,7 +111,7 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     const card = state.cards[cardId]
     if (!card) continue
     // 被花色禁令锁住的牌不能使用（气海禁红桃）；弃置、交给不受影响
-    if (!cardPlayableBySuit(state, playerId, cardId)) continue
+    if (!cardPlayable(state, playerId, cardId)) continue
     /*
      * 身份被强制改写的手牌（神刘备【龙怒】）**只出转化后的动作**，
      * 原用途一条都不出——「均视为火【杀】」是强制的，不是多给一个入口。
