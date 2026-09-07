@@ -16,7 +16,7 @@ import { recover } from '../recover'
 import type { CardId, DamageNature, EquipmentSlot, EquipmentZone, PlayerId, SanguoshaState, SlashResolutionState } from '../types'
 import { effectiveCardName, effectiveDamageNature, locateOwnedCard, moveCard, setCardAlias, setCardNature } from '../zones'
 import { announceSkillInvalidation, BAGUA_ACTION_ID, canInvokeBagua, handleEquipmentLost, hasUnlimitedSlash, isCardIneffective } from '../equipment'
-import { canUseSlash, slashRules, slashTargetLimit } from '../slash-rules'
+import { canUseSlash, canUseSlashAtTargets, hasSlashUsesBypass, slashRules, slashTargetLimit } from '../slash-rules'
 import { PASS_ROUND_ACTION } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
@@ -121,8 +121,11 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
     const forced = forcedIdentityFor(state, playerId, cardId)
     if (forced) {
       if (forced.asCardName !== '杀') continue
-      if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId) || forced.unlimitedUses)) continue
+      const forcedUnlimited = hasUnlimitedSlash(state, playerId) || forced.unlimitedUses
+      // 次数用光了也可能还有定向豁免的目标（高顺【陷阵】），所以这里不能直接跳过
+      if (!canUseSlash(state, playerId, forcedUnlimited) && !hasSlashUsesBypass(state, playerId)) continue
       for (const combo of slashTargetCombos(state, playerId, cardId)) {
+        if (!canUseSlashAtTargets(state, playerId, forcedUnlimited, combo)) continue
         const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
         actions.push({
           ...useAction(cardId, playerId, '杀', combo, `将【${card.name}】当作${natureLabel(forced.nature)}【杀】对${names}使用`),
@@ -131,8 +134,11 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
       }
       continue
     }
-    if (card.name === '杀' && canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) {
+    if (card.name === '杀'
+      && (canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId)) || hasSlashUsesBypass(state, playerId))) {
       for (const combo of slashTargetCombos(state, playerId, cardId)) {
+        // 定向豁免只在**每个目标**都被豁免时才成立，不能捎带普通目标
+        if (!canUseSlashAtTargets(state, playerId, hasUnlimitedSlash(state, playerId), combo)) continue
         const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
         actions.push({
           ...useAction(cardId, playerId, '杀', combo, `对${names}使用【杀】`),
@@ -203,8 +209,9 @@ export function declaredCardActions(
   if (asCardName === '杀') {
     // 转化出来的杀同样受本回合的临时规则约束：天义失败时武圣、龙胆、蛊惑
     // 一律用不出杀，不能只把手牌那条藏起来
-    if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId))) return actions
+    if (!canUseSlash(state, playerId, hasUnlimitedSlash(state, playerId)) && !hasSlashUsesBypass(state, playerId)) return actions
     for (const combo of slashTargetCombos(state, playerId, cardId)) {
+      if (!canUseSlashAtTargets(state, playerId, hasUnlimitedSlash(state, playerId), combo)) continue
       const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
       actions.push({
         ...useAction(cardId, playerId, '杀', combo, `${label}，目标${names}`),

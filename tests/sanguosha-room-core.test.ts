@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { NULLIFICATION_TIMEOUT_MS } from '@/sanguosha/engine/nullification'
 import {
   InvalidSgsCommandError,
@@ -6,6 +6,13 @@ import {
   normalizeSettings,
   type SgsRoomUser,
 } from '../server/sanguosha-room-core'
+
+/*
+ * 「整局跑到结束」这条单跑一秒多，但全量并行时会超过 5 秒的默认预算——
+ * 武将池每次变大都会让它更接近那条线。这里放宽的只是**墙钟预算**，
+ * 断言一条没动。
+ */
+vi.setConfig({ testTimeout: 60_000 })
 
 /**
  * 联机房间核心。

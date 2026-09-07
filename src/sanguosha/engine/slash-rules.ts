@@ -1,4 +1,4 @@
-import { globalSlashUsesOf } from './skills/runtime'
+import { globalSlashUsesOf, ignoresSlashUsesTo } from './skills/runtime'
 import type { PlayerId, SanguoshaState } from './types'
 
 /**
@@ -62,6 +62,33 @@ export function canUseSlash(state: SanguoshaState, playerId: PlayerId, unlimited
   if (unlimited) return true
   // 全场效果给的次数加成（神甘宁的「营」）和本回合的临时加成一起算
   return state.turnUsage.slashUses < 1 + rules.extraUses + globalSlashUsesOf(state, playerId)
+}
+
+/**
+ * 对这一组目标使用【杀】现在合不合次数规则。
+ *
+ * 定向的次数豁免（高顺【陷阵】胜利后）只有在**每个目标都被豁免**时才成立。
+ * 写成「任一目标被豁免就放行」的话，捎带一个普通目标就能无限出杀。
+ *
+ * 「本回合不能使用杀」（陷阵失败）优先于一切豁免。
+ */
+export function canUseSlashAtTargets(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  unlimited: boolean,
+  targetIds: readonly PlayerId[],
+): boolean {
+  if (slashRules(state, playerId).prohibited) return false
+  if (canUseSlash(state, playerId, unlimited)) return true
+  if (targetIds.length === 0) return false
+  return targetIds.every((targetId) => ignoresSlashUsesTo(state, playerId, targetId))
+}
+
+/** 场上现在有没有「对他出杀不计次数」的目标。用于决定要不要继续生成动作。 */
+export function hasSlashUsesBypass(state: SanguoshaState, playerId: PlayerId): boolean {
+  return state.players.some((candidate) => candidate.alive
+    && candidate.id !== playerId
+    && ignoresSlashUsesTo(state, playerId, candidate.id))
 }
 
 /** 一张杀最多能指定几个目标。 */

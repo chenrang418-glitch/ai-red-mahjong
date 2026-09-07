@@ -1,4 +1,5 @@
 import { cardPlayableBySuit } from './card-suit-lock'
+import { skillForcedCardIdentity } from './skills/runtime'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 
 /**
@@ -67,7 +68,26 @@ export function forcedIdentityFor(
     if (entry.ownerId !== playerId) continue
     if (matchesScope(state, cardId, entry.scope)) return entry
   }
-  return null
+  /*
+   * 技能自己声明的改写（高顺【禁酒】：他的【酒】均视为【杀】）。
+   *
+   * 这类改写是**锁定技带来的、常驻的**，不写进 `state.forcedIdentities`——
+   * 那张表是给「本回合」的临时改写用的，常驻的东西塞进去还要负责清理。
+   * 这里现问现答，所以技能被夺走、被压制时它自然就没了。
+   */
+  const skillForced = skillForcedCardIdentity(state, playerId, cardId)
+  if (!skillForced) return null
+  return {
+    ownerId: playerId,
+    scope: 'red',
+    asCardName: skillForced.asCardName,
+    nature: skillForced.nature ?? 'normal',
+    ignoreDistance: false,
+    unlimitedUses: false,
+    skillId: skillForced.skillId,
+    // 常驻改写不进状态表，这个字段只是为了满足结构；它永远不会被清理逻辑读到
+    expiry: 'turn-end',
+  }
 }
 
 /** 这名角色现在有没有任何强制改写生效。用于快速跳过。 */

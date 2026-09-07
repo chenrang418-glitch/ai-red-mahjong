@@ -1,6 +1,7 @@
 import type { CharacterDefinition } from './types'
 import { CAOZHI } from './yjcm2011-caozhi'
 import { CHENGONG } from './yjcm2011-chengong'
+import { GAOSHUN } from './yjcm2011-gaoshun'
 import { FAZHENG } from './yjcm2011-fazheng'
 import { MASU } from './yjcm2011-masu'
 import { LINGTONG } from './yjcm2011-lingtong'
@@ -31,4 +32,5 @@ export const YJCM2011_CHARACTERS: readonly CharacterDefinition[] = [
   WUGUOTAI,
   XUSHENG,
   CHENGONG,
+  GAOSHUN,
 ] as const

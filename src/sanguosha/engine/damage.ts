@@ -136,8 +136,13 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
   const peachProhibited = isCardUseProhibited(state, responderId, '桃', { dyingPlayerId })
   const usable = responder.zones.hand.filter((cardId) => {
     const name = state.cards[cardId]?.name
-    if (name === '酒') return responderId === dyingPlayerId
-    if (name === '桃' || viewAsPeach.has(cardId)) return !peachProhibited
+    /*
+     * 身份被强制改写的牌**不能再按原来的用途用**（高顺【禁酒】：他的【酒】
+     * 是【杀】，濒死时救不了自己）。这条统一走 `canUseCardAs`，
+     * 不在这里另写一遍判断。
+     */
+    if (name === '酒') return responderId === dyingPlayerId && canUseCardAs(state, responderId, cardId, '酒')
+    if (name === '桃' || viewAsPeach.has(cardId)) return !peachProhibited && canUseCardAs(state, responderId, cardId, '桃')
     return false
   // 身份被强制改写的牌不能再按原用途使用（神刘备【龙怒】阳状态下手里的【桃】）
   }).filter((cardId) => canUseCardAs(state, responderId, cardId, state.cards[cardId]?.name ?? ''))

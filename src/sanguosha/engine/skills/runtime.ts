@@ -389,6 +389,30 @@ export interface SkillRuntime {
    * 只在拥有者自己濒死时调用，而且在 `EnterDying` 之后、第一次求桃之前。
    */
   dyingIntercept?(host: SkillHost, ownerId: PlayerId): boolean | 'pending'
+  /**
+   * 拥有者对**这个目标**使用【杀】时不受次数限制（高顺【陷阵】胜利后）。
+   *
+   * 和「本回合无限杀」不是一回事：这是**定向**的，
+   * 对别人出杀仍然要按普通次数算。多目标的一张【杀】只有在
+   * **每个目标**都被豁免时才算突破次数限制，否则捎带一个普通目标
+   * 就成了无限杀的后门。
+   */
+  ignoresSlashUsesTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  /**
+   * 拥有者手上的某张牌**只能**按另一张牌用（高顺【禁酒】：酒均视为杀）。
+   *
+   * 和 `viewAs` 是两回事：`viewAs` 是「多给一个用途」，原用途还在；
+   * 这条是**改写身份并禁止原用途**——高顺的【酒】不能再当酒喝，
+   * 濒死时也不能靠它自救。
+   *
+   * 返回改写成的牌名（以及属性）；不改写就返回 null。
+   * 结果由 `forcedIdentityFor` 统一提供给动作生成和各条响应路径。
+   */
+  forcedCardIdentity?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    cardId: CardId,
+  ): { asCardName: string; nature?: DamageNature } | null
   /** 无真实防具时提供的虚拟防具牌名（八阵）。 */
   virtualArmor?(state: SanguoshaState, ownerId: PlayerId): string | null
   /**
@@ -886,6 +910,30 @@ export function cardEffectInvalidBy(
 ): SkillRuntime | null {
   return skillsOf(state, targetId, skillIdsOf)
     .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName, cardColor) ?? false) ?? null
+}
+
+/** 拥有者对这个目标使用【杀】时是不是不受次数限制。 */
+export function ignoresSlashUsesTo(
+  state: SanguoshaState,
+  sourceId: PlayerId,
+  targetId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresSlashUsesTo?.(state, sourceId, targetId))
+}
+
+/** 技能对这张手牌的强制身份改写（高顺【禁酒】）。没有就返回 null。 */
+export function skillForcedCardIdentity(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardId: CardId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): { asCardName: string; nature?: DamageNature; skillId: string } | null {
+  for (const runtime of skillsOf(state, ownerId, skillIdsOf)) {
+    const forced = runtime.forcedCardIdentity?.(state, ownerId, cardId)
+    if (forced) return { ...forced, skillId: runtime.id }
+  }
+  return null
 }
 
 /** 按座次稳定地应用第一个伤害来源改写技能。 */

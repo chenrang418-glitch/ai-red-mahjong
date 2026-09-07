@@ -506,9 +506,18 @@ describe('选将流程', () => {
     expect(game.state.pendingRequests).toEqual([])
     for (const player of game.state.players) {
       expect(player.characterId).not.toBeNull()
-      expect(player.hp).toBe(player.maxHp)
+      const character = getCharacter(player.characterId!)!
+      const lordBonus = player.identity === 'lord' ? 1 : 0
+      expect(player.maxHp, `${character.name} 的体力上限`).toBe(character.maxHp + lordBonus)
+      /*
+       * **不能一律断言「初始体力 = 体力上限」。**
+       * 有的武将初始体力本来就低于上限（神·甘宁 6/3、神·孙策 6/1），
+       * 这条通例只是以前没被种子抽中而已。
+       */
+      expect(player.hp, `${character.name} 的初始体力`)
+        .toBe(Math.min(player.maxHp, (character.initialHp ?? character.maxHp) + lordBonus))
     }
-    // 五人局主公体力上限 +1
+    // 五人局主公体力上限 +1（上面已经逐个核过，这里再单独钉一次主公）
     const lord = game.state.players.find((player) => player.identity === 'lord')!
     expect(lord.maxHp).toBe(getCharacter(lord.characterId!)!.maxHp + 1)
 
