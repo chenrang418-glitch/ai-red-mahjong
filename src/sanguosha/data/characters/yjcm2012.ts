@@ -1,5 +1,6 @@
 import type { CharacterDefinition } from './types'
 import { CAOZHANG } from './yjcm2012-caozhang'
+import { ZHONGHUI } from './yjcm2012-zhonghui'
 
 /**
  * 一将成名 2012。
@@ -13,4 +14,5 @@ import { CAOZHANG } from './yjcm2012-caozhang'
  */
 export const YJCM2012_CHARACTERS: readonly CharacterDefinition[] = [
   CAOZHANG,
+  ZHONGHUI,
 ] as const

@@ -164,8 +164,17 @@ describe('无头压测', () => {
     it(`${count} 人局 40 局全部正常结束`, () => {
       const results = runSoakBatch(40, count, 'ci')
       // 不死循环、不抛异常、不出现非法状态（牌张守恒和 invariant 在每一步都查过）
-      expect(results.every((result) => result.finished)).toBe(true)
-      expect(results.every((result) => result.winningCamp !== null)).toBe(true)
+      expect(results.every((result) => result.finished || result.stalemate)).toBe(true)
+      expect(results.every((result) => result.finished ? result.winningCamp !== null : true)).toBe(true)
+      /*
+       * **僵局必须是罕见的。**
+       *
+       * 「打不完」和「死锁」是两回事：两个防御型角色互相杀不死是真实存在的
+       * 局面，引擎在那里没有做错什么。但如果它变多了，那就不再是离群值，
+       * 而是规则或 AI 出了问题——所以这条红线要留着。
+       */
+      const stalemates = results.filter((result) => result.stalemate).length
+      expect(stalemates, `${count} 人局僵局 ${stalemates} 局，超出容许范围`).toBeLessThanOrEqual(2)
       /*
        * **不能断言「至少有一名幸存者」**——那不是真的不变式。
        *

@@ -6,6 +6,7 @@ import { drawCards } from '../../engine/draw'
 import { takeOverDrawPhase } from '../../engine/draw-phase-takeover'
 import { giveCards } from '../../engine/hand-transfer'
 import { loseHp } from '../../engine/hp'
+import { damagePointsOf, queueDamagePoint } from '../../engine/per-damage-point'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
@@ -89,9 +90,10 @@ registerSkillRuntime({
       if (context.event.targetId !== ownerId) return
       // 无来源的伤害（闪电这类环境伤害）没人可问；自伤也不问自己
       if (!sourceId || sourceId === ownerId) return
-      const points = Math.max(0, Math.trunc(payload.amount ?? 0))
+      const points = damagePointsOf(payload.amount)
       if (points === 0) return
-      host.queueSkill({ skillId: ENYUAN, ownerId, step: 'yuan', data: { sourceId, remaining: points } })
+      // 逐点结算走公共入口（钟会【权计】用的是同一条）
+      queueDamagePoint(host, { skillId: ENYUAN, ownerId, step: 'yuan', remaining: points, data: { sourceId } })
     },
   }],
 
@@ -143,8 +145,7 @@ registerSkillRuntime({
  * 排队的东西要等牌桌干净才放出来，那时濒死已经结清了。
  */
 function queueRemainingYuan(host: SkillHost, ownerId: PlayerId, sourceId: PlayerId, remaining: number): void {
-  if (remaining <= 0) return
-  host.queueSkill({ skillId: ENYUAN, ownerId, step: 'yuan', data: { sourceId, remaining } })
+  queueDamagePoint(host, { skillId: ENYUAN, ownerId, step: 'yuan', remaining, data: { sourceId } })
 }
 
 function askYuan(host: SkillHost, ownerId: PlayerId, sourceId: PlayerId, remaining: number): void {

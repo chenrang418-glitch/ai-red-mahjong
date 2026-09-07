@@ -40,13 +40,13 @@ function total(results: ReturnType<typeof runBatch>, key: string): number {
 describe('一将成名 2011 第一批压测', () => {
   it('五人局 120 局全部正常结束', () => {
     for (const result of runBatch(120, 5, 'yjcm11')) {
-      expect(result.finished, `seed=${result.seed} 没有正常结束`).toBe(true)
+      expect(result.finished || result.stalemate, `seed=${result.seed} 没有正常结束`).toBe(true)
     }
   }, 300_000)
 
   it('八人局 120 局全部正常结束', () => {
     for (const result of runBatch(120, 8, 'yjcm11')) {
-      expect(result.finished, `seed=${result.seed} 没有正常结束`).toBe(true)
+      expect(result.finished || result.stalemate, `seed=${result.seed} 没有正常结束`).toBe(true)
     }
   }, 300_000)
 

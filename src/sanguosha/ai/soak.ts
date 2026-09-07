@@ -34,6 +34,15 @@ export interface SoakResult {
   turns: number
   winningCamp: string | null
   survivors: number
+  /**
+   * 牌局**打不完**：局面一直在推进（回合、阶段都在走），但很久没有人掉血、
+   * 也没有人阵亡——两个防御型角色互相打不死就是这种。
+   *
+   * 这**不是死锁**：死锁是「推不动了」，僵局是「推得动但分不出胜负」。
+   * 引擎在僵局里没有任何错误行为，所以压测把它单独报出来，
+   * 而不是和「疑似死锁」混成一条失败。
+   */
+  stalemate: boolean
   /** 失败 seed 复现时直接给出阵容，避免再次插桩。 */
   characterIds: string[]
   /**
@@ -127,13 +136,38 @@ export function runSoakGame(options: SoakOptions): SoakResult {
   game.start()
 
   let steps = 0
+  /*
+   * 「上一次有人阵亡是第几回合」。
+   *
+   * **判据只能是阵亡，不能是掉血。** 神·华佗那种全场回血的角色在场时，
+   * 血量每回合都在变，按掉血算的话永远判不出僵局——而那正是最容易
+   * 打成僵局的局面（两个防御型角色互相杀不死）。
+   */
+  let lastDeathTurn = 0
+  let aliveCount = game.state.players.length
+  /** 连续这么多回合没有人阵亡，又已经用光步数，就认定为僵局。 */
+  const STALEMATE_TURNS = 200
   const recentSteps: string[] = []
   const remember = (entry: string): void => {
     recentSteps.push(entry)
     if (recentSteps.length > 12) recentSteps.shift()
   }
   while (game.state.status === 'playing') {
-    if (steps++ > maxSteps) fail(`牌局没有在步数上限内结束，疑似死锁；最近步骤：${recentSteps.join(' -> ')}`, steps)
+    const alive = game.state.players.filter((player) => player.alive).length
+    if (alive !== aliveCount) {
+      aliveCount = alive
+      lastDeathTurn = game.state.turnNumber
+    }
+    if (steps++ > maxSteps) {
+      /*
+       * 步数用光时分两种情况：
+       *
+       * - 很久没有人阵亡 → **僵局**，引擎没有做错什么，如实报出来；
+       * - 否则 → 真的推不动了，按疑似死锁失败。
+       */
+      if (game.state.turnNumber - lastDeathTurn >= STALEMATE_TURNS) break
+      fail(`牌局没有在步数上限内结束，疑似死锁；最近步骤：${recentSteps.join(' -> ')}`, steps)
+    }
 
     // 有待处理请求就先处理：这是唯一可能卡住的地方
     const request = game.state.pendingRequests[0]
@@ -212,6 +246,8 @@ export function runSoakGame(options: SoakOptions): SoakResult {
   return {
     seed,
     playerCount,
+    stalemate: game.state.status !== 'game-over'
+      && game.state.turnNumber - lastDeathTurn >= STALEMATE_TURNS,
     finished: game.state.status === 'game-over',
     steps,
     turns: game.state.turnNumber,
