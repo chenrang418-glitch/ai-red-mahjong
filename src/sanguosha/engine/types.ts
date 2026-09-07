@@ -807,12 +807,13 @@ export interface SanguoshaState {
    */
   cardDamageLedger?: Record<string, number>
   /**
-   * 正在结算、且属性是被程普【疠火】改成火的那几张【杀】。
+   * 这一次使用的属性**被技能改写过**的那几张牌。
    *
-   * 代价只属于**被疠火改过**的那一张，所以标记落在牌上而不是回合上；
-   * 结算收束时由技能自己摘掉。
+   * 「改写属性要付代价」的技能（程普【疠火】把普通【杀】改成火【杀】）
+   * 靠它区分「这一张是我改的」和「本来就是这个属性的」——
+   * 代价只属于前者。标记落在**牌**上而不是回合上，结算收束时由技能自己摘掉。
    */
-  lihuoCardIds?: string[]
+  natureConvertedCardIds?: string[]
   cardColorLocks?: Array<{
     targetId: PlayerId
     color: 'red' | 'black'

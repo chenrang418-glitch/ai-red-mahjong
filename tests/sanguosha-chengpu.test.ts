@@ -279,7 +279,7 @@ describe('程普【疠火】：体力代价', () => {
     setHand(game, CHENGPU_ID, [slash])
     playLihuo(game, ['p0'])
     expect(cardDamageDealt(game.state, slash), '账已经销毁，不会留到下一次使用').toBe(0)
-    expect(game.state.lihuoCardIds ?? [], '疠火的牌标记也摘掉了').toHaveLength(0)
+    expect(game.state.natureConvertedCardIds ?? [], '疠火的牌标记也摘掉了').toHaveLength(0)
   })
 })
 

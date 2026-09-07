@@ -168,7 +168,7 @@ registerSkillRuntime({
        * 代价只属于被疠火改过的那一张，本来就是火【杀】的不付；
        * 所以标记落在牌上，不落在「程普这回合出过火杀」这种回合级判据上。
        */
-      host.state.lihuoCardIds = [...new Set([...(host.state.lihuoCardIds ?? []), cardId])]
+      host.state.natureConvertedCardIds = [...new Set([...(host.state.natureConvertedCardIds ?? []), cardId])]
       executeUseCardAction(host as never, ownerId, action)
     }
   },
@@ -185,9 +185,9 @@ registerSkillRuntime({
     handle(host, ownerId, context) {
       const payload = context.event.payload as { cardId?: CardId }
       const cardId = payload.cardId
-      if (!cardId || !(host.state.lihuoCardIds ?? []).includes(cardId)) return
-      host.state.lihuoCardIds = (host.state.lihuoCardIds ?? []).filter((candidate) => candidate !== cardId)
-      if (host.state.lihuoCardIds.length === 0) delete host.state.lihuoCardIds
+      if (!cardId || !(host.state.natureConvertedCardIds ?? []).includes(cardId)) return
+      host.state.natureConvertedCardIds = (host.state.natureConvertedCardIds ?? []).filter((candidate) => candidate !== cardId)
+      if (host.state.natureConvertedCardIds.length === 0) delete host.state.natureConvertedCardIds
       const owner = playerOf(host.state, ownerId)
       // 一点伤害都没造成就不失去体力——被闪掉、被防止、被换成失去体力都算没造成
       if (cardDamageDealt(host.state, cardId) <= 0) return

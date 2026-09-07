@@ -98,6 +98,41 @@ for (const viewport of [DESKTOP, PORTRAIT, LANDSCAPE, WIDE_LANDSCAPE]) {
   })
 }
 
+/*
+ * 一将成名 2012 第二批四将**都还没有立绘**。
+ *
+ * 没有立绘的座位卡走的是文字底纹那条分支，而势力角标和武将名在那条分支上
+ * 曾经叠在一起过（角标压住名字最后一个字）。四个人一次全上，
+ * 正是最容易复现的阵容，所以单独按三个视口盯一遍。
+ */
+for (const viewport of [PORTRAIT, WIDE_LANDSCAPE, DESKTOP]) {
+  test(`${viewport.width}x${viewport.height} 一将成名 2012 第二批四将在牌桌上显示正常`, async ({ page }, testInfo) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await page.setViewportSize(viewport)
+    await enterDevLineup(page, ['liaohua', 'guanxingzhangbao', 'madai', 'chengpu', 'guanyu'])
+    const seats = page.locator('.sgs-seat')
+    await expect(seats).toHaveCount(5)
+    // 名字真的渲染出来了，不是空壳
+    for (const name of ['廖化', '关兴张苞', '马岱', '程普']) {
+      await expect(page.locator('.sgs-seat').filter({ hasText: name })).toHaveCount(1)
+    }
+    // 势力角标不压住武将名（无立绘那条分支上曾经压住过）
+    const overlaps = await seats.evaluateAll((nodes) => nodes.map((seat) => {
+      const badge = seat.querySelector('.sgs-faction-badge') as HTMLElement | null
+      const general = seat.querySelector('.sgs-seat__general') as HTMLElement | null
+      if (!badge || !general) return false
+      const b = badge.getBoundingClientRect()
+      const g = general.getBoundingClientRect()
+      return b.left < g.right && b.right > g.left && b.top < g.bottom && b.bottom > g.top
+    }))
+    expect(overlaps.every((hit) => !hit), '势力角标不该压住武将名').toBe(true)
+    await expectNoPageScroll(page)
+    await page.screenshot({ path: testInfo.outputPath('yjcm2012-batch2-table.png'), animations: 'disabled' })
+    expect(errors).toEqual([])
+  })
+}
+
 for (const viewport of REQUIRED_FACTION_VIEWPORTS) {
   test(`${viewport.width}x${viewport.height} 对局势力角标清晰且不遮挡公开信息`, async ({ page }) => {
     await page.setViewportSize(viewport)
