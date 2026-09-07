@@ -81,9 +81,15 @@ registerSkillRuntime({
         id: requestId, kind: 'choose-targets', playerId: ownerId,
         prompt: '【陷阵】：选择一名角色与其拼点',
         timeoutMs: 25_000,
-        // 取消不消耗次数
-        optional: true,
-        candidateIds, min: 0, max: 1,
+        /*
+         * **必答**：点技能这一下就是发动，选人不是一个可以反悔的窗口。
+         *
+         * 留成可取消的话，「发动 → 取消 → 没计次 → 动作又回到列表里」
+         * 是一个纯粹的空转，压测里当场变成死循环（seed=yjcm11b3-5-1）。
+         * 入口本身已经保证了「一定有合法的拼点对象」，所以永远选得出人。
+         */
+        optional: false,
+        candidateIds, min: 1, max: 1,
       }),
     })
   },

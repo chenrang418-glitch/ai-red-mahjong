@@ -78,8 +78,19 @@ export function runSoakGame(options: SoakOptions): SoakResult {
     if (typeof skillId === 'string') bump(`skill:${skillId}`)
   })
   game.events.on('CardUsed', (context) => {
-    const cardName = (context.event.payload as { cardName?: unknown }).cardName
-    if (typeof cardName === 'string') bump(`card:${cardName}`)
+    const payload = context.event.payload as { cardName?: unknown; cardId?: unknown }
+    const cardName = payload.cardName
+    if (typeof cardName !== 'string') return
+    bump(`card:${cardName}`)
+    /*
+     * **转化使用**单独记一笔：实体牌印的是什么、当成什么用了。
+     *
+     * 高顺【禁酒】这类「牌身份被改写」的锁定技不派发技能事件，
+     * 只按技能事件统计的话它永远是 0，看起来像 AI 完全不会用。
+     */
+    const cardId = typeof payload.cardId === 'string' ? payload.cardId : null
+    const printed = cardId ? game.state.cards[cardId]?.name : null
+    if (printed && printed !== cardName) bump(`viewas:${printed}->${cardName}`)
   })
   game.events.on('Recover', (context) => {
     const amount = (context.event.payload as { amount?: unknown }).amount
