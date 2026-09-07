@@ -1,13 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * 一将成名 2011 第二批：三档视口下的可用性。
+ * 一将成名 2011（全 11 人）：三档视口下的可用性。
  *
  * 三档分别对应竖屏手机、横屏手机和桌面。每一档都守两件事：
  *
  * 1. **整页不滚动**。牌桌是一屏应用，页面级滚动会把顶部信息推出视野；
  *    面板、弹窗内部该滚的照滚。
- * 2. 新武将的卡片**读得出名字、势力角标不压字**。这四个人暂时没有立绘，
+ * 2. 新武将的卡片**读得出名字、势力角标不压字**。这 11 个人暂时都没有立绘，
  *    走的是「没有立绘」那条布局分支，正是容易和角标打架的那一条。
  */
 
@@ -17,8 +17,12 @@ const VIEWPORTS = [
   { name: '1280x800 桌面', width: 1280, height: 800 },
 ] as const
 
-/** 这一批四个人。用名字找卡片，不依赖内部 id。 */
-const BATCH_TWO_NAMES = ['马谡', '徐庶', '凌统', '吴国太']
+/** 一将成名 2011 的 11 个人。用名字找卡片，不依赖内部 id。 */
+const YJCM2011_NAMES = [
+  '曹植', '于禁', '张春华', '法正',
+  '马谡', '徐庶', '凌统', '吴国太',
+  '徐盛', '陈宫', '高顺',
+]
 
 async function openGeneralPicker(page: Page): Promise<void> {
   await page.goto('/?game=sanguosha')
@@ -41,7 +45,7 @@ async function wholePageScrolls(page: Page): Promise<{ vertical: boolean; horizo
 }
 
 for (const viewport of VIEWPORTS) {
-  test(`${viewport.name}：自选武将页整页不滚动，新武将卡片可读`, async ({ page }) => {
+  test(`${viewport.name}：自选武将页整页不滚动，一将成名 2011 的卡片都可读`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await openGeneralPicker(page)
 
@@ -49,7 +53,7 @@ for (const viewport of VIEWPORTS) {
     expect(scroll.horizontal, '页面不该横向滚动').toBe(false)
     expect(scroll.vertical, '页面不该整页纵向滚动（面板内部滚动是允许的）').toBe(false)
 
-    for (const name of BATCH_TWO_NAMES) {
+    for (const name of YJCM2011_NAMES) {
       const card = page.locator('.sgs-dock__general').filter({ has: page.locator(':scope > strong', { hasText: name }) })
       await expect(card, `${name} 应该在自选池里`).toHaveCount(1)
     }
@@ -66,14 +70,14 @@ for (const viewport of VIEWPORTS) {
   })
 }
 
-test('四个人同桌时，三档视口下牌桌都不整页滚动', async ({ page }) => {
+test('第三批同桌时，三档视口下牌桌都不整页滚动', async ({ page }) => {
   /*
    * `lineup` 是开发用参数（不进生产构建），这里用它把这一批四个人
    * 直接摆上桌——随机阵容抽不到他们，也就验不到他们的技能面板。
    */
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
-    await page.goto('/?game=sanguosha&lineup=masu,xushu,lingtong,wuguotai,zhangfei')
+    await page.goto('/?game=sanguosha&lineup=xusheng,chengong,gaoshun,masu,wuguotai')
     await page.getByRole('button', { name: /单机游戏/ }).click()
     await page.getByRole('button', { name: '较快', exact: true }).click()
     await page.getByRole('button', { name: '开始', exact: true }).click()
