@@ -100,10 +100,16 @@ registerSkillRuntime({
         id: requestId, kind: 'choose-targets', playerId: ownerId,
         prompt: `【甘露】：选择第一名角色（两人装备数之差不大于 ${lostHpOf(host.state, ownerId)}）`,
         timeoutMs: 25_000,
-        // 取消不消耗「出牌阶段限一次」
-        optional: true,
+        /*
+         * **必答**：点技能这一下就是发动，选人不再是一个可以反悔的窗口。
+         *
+         * 留成可取消的话，「发动 → 取消 → 技能没计次 → 动作又回到列表里」
+         * 是一个纯粹的空转，压测里当场变成死循环（seed=yjcm11b2-5-25）。
+         * 入口本身已经保证了「一定存在合法配对」，所以这里永远选得出人。
+         */
+        optional: false,
         // 自己也在候选里：文本是「两名角色」，没有「其他」
-        candidateIds, min: 0, max: 1,
+        candidateIds, min: 1, max: 1,
       }),
     })
   },
@@ -111,7 +117,6 @@ registerSkillRuntime({
   resume(host, ownerId, resolution, response) {
     if (resolution.step === 'first') {
       const [leftId] = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
-      // 取消：不消耗「出牌阶段限一次」
       if (!leftId) return
       const partnerIds = ganluPartnersOf(host, ownerId, leftId)
       if (partnerIds.length === 0) return

@@ -140,6 +140,17 @@ function ganluAction(game: SanguoshaGame) {
   return game.legalActions('p0').find((action) => action.id.includes('ganlu'))
 }
 
+/** 发动甘露并读出第一步的候选名单，然后取消掉整个流程。 */
+function ganluFirstCandidates(game: SanguoshaGame): string[] {
+  const action = ganluAction(game)
+  if (!action) return []
+  game.act('p0', action.id)
+  const request = game.state.pendingRequests[0] as unknown as { candidateIds?: string[] } | undefined
+  const candidates = [...(request?.candidateIds ?? [])]
+  settle(game)
+  return candidates
+}
+
 /** 跑一次甘露。返回是否真的换成了。 */
 function runGanlu(game: SanguoshaGame, targets: string[]) {
   const action = ganluAction(game)
@@ -160,16 +171,19 @@ function runGanlu(game: SanguoshaGame, targets: string[]) {
 }
 
 describe('吴国太：甘露的条件', () => {
-  it('满血时 X = 0，只能选装备数相同的两人', () => {
+  it('满血时 X = 0，装备数和别人都不同的人根本不在候选里', () => {
     const game = gameAt('wgt-full')
     const owner = playerOf(game, 'p0')
     owner.hp = owner.maxHp
     equipAny(game, 'p1', 'weapon')
-    // p1 有 1 张、p2 有 0 张，差 1 > X=0
-    const before = { p1: equipmentOf(game, 'p1'), p2: equipmentOf(game, 'p2') }
-    runGanlu(game, ['p1', 'p2'])
-    expect(equipmentOf(game, 'p1'), '差值超了，不该换').toEqual(before.p1)
-    expect(equipmentOf(game, 'p2')).toEqual(before.p2)
+    /*
+     * p1 有 1 张、其余人都是 0 张，X=0 时他和谁都配不成对。
+     * 断言写在**候选名单**上而不是「选了他但没换成」：
+     * 候选里只放真的走得通的人，是这个技能不空转的前提。
+     */
+    const candidates = ganluFirstCandidates(game)
+    expect(candidates, '配不成对的人不该出现在候选里').not.toContain('p1')
+    expect(candidates.length, '装备数相同的那些人仍然可选').toBeGreaterThan(0)
   })
 
   it('掉血之后 X 变大，同一对目标就合法了', () => {
@@ -189,9 +203,16 @@ describe('吴国太：甘露的条件', () => {
     owner.hp = 5
     equipAny(game, 'p1', 'weapon')
     equipAny(game, 'p1', 'armor')
-    const before = equipmentOf(game, 'p1')
-    runGanlu(game, ['p1', 'p2'])
-    expect(equipmentOf(game, 'p1'), '上限 5 时满血仍然是 X=0').toEqual(before)
+    expect(ganluFirstCandidates(game), '上限 5 时满血仍然是 X=0，两件装备的人配不成对').not.toContain('p1')
+
+    // 掉 2 点之后 X=2，同一个人立刻进候选
+    const other = gameAt('wgt-dynamic-hurt')
+    const hurt = playerOf(other, 'p0')
+    hurt.maxHp = 5
+    hurt.hp = 3
+    equipAny(other, 'p1', 'weapon')
+    equipAny(other, 'p1', 'armor')
+    expect(ganluFirstCandidates(other), 'X=2 时差 2 张也合法').toContain('p1')
   })
 
   it('出牌阶段限一次', () => {
