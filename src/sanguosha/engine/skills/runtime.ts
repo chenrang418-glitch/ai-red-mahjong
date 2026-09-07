@@ -49,6 +49,17 @@ export interface ResolvedCardContext {
  *    玩家才点得到，AI 才选得到，回放才对得上。
  */
 
+/** 一次伤害在被防止之前的全部已知信息。 */
+export interface DamagePreventionContext {
+  sourceId: PlayerId | null
+  targetId: PlayerId
+  amount: number
+  nature: DamageNature
+  cardId: CardId | null
+  cardName: string | null
+  chainTransfer: boolean
+}
+
 export interface SkillHost {
   state: SanguoshaState
   rng: GameRng
@@ -516,6 +527,19 @@ export interface SkillRuntime {
    * 队列里的事实是触发当时抓下来的，牌局已经往前走了一段，
    * 所以这里必须重新确认前提还成立（人还活着、牌还在原处），不成立就安静地放弃。
    */
+  /**
+   * 防止一次伤害。`side` 说明现在问的是**这次伤害的哪一侧**：
+   * `source` 是「我造成的伤害」，`target` 是「我受到的伤害」。
+   *
+   * 防止 ≠ 改成 0 点：防止意味着这次伤害**没有发生**，
+   * 「受到伤害后」那批时机、连环传导、濒死一个都不该跑。
+   */
+  preventsDamage?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    side: 'source' | 'target',
+    context: DamagePreventionContext,
+  ): boolean
   startQueued?(host: SkillHost, ownerId: PlayerId, prompt: QueuedSkillPrompt): void
   /**
    * 主公技代打：拥有者作为主公需要打出某张牌时，哪些角色可以替他打。
@@ -826,6 +850,29 @@ export function trickDistanceBonusOf(
 ): number {
   return skillsOf(state, sourceId, skillIdsOf)
     .reduce((total, runtime) => total + Math.trunc(runtime.trickDistanceBonus?.(state, sourceId, targetId, cardName) ?? 0), 0)
+}
+
+/**
+ * 「防止这次伤害」——**发生在伤害真的落地之前**的一整条阻断。
+ *
+ * 徐庶【无言】两个方向都要：他用锦囊打不出伤害，别人用锦囊也伤不到他。
+ * 所以这里问的是**某一侧的某个人**（来源侧 / 目标侧），
+ * 由伤害管线在两个不同的位置各调一次。
+ *
+ * 返回防止它的技能 id；没防住就是 null。
+ */
+export function damagePreventedBy(
+  state: SanguoshaState,
+  playerId: PlayerId | null,
+  side: 'source' | 'target',
+  context: DamagePreventionContext,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): string | null {
+  if (!playerId) return null
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    if (runtime.preventsDamage?.(state, playerId, side, context)) return runtime.id
+  }
+  return null
 }
 
 /** 返回让牌对目标无效的第一个技能；顺序固定为武将技能登记顺序。 */

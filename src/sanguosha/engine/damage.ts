@@ -12,7 +12,7 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } from './skills/runtime'
+import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
@@ -301,6 +301,22 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   }
 }
 
+/** 「防止了这次伤害」统一报一行战报：牌打过去什么都没发生必须有个说法。 */
+function announceDamagePrevented(
+  host: DamageEngineHost,
+  skillId: string,
+  ownerId: PlayerId | null,
+  targetId: PlayerId,
+  nature: DamageNature,
+): void {
+  const target = host.state.players.find((candidate) => candidate.id === targetId)
+  const skillName = ownerId ? skillDisplayName(host.state, ownerId, skillId) : skillId
+  host.dispatch('SkillActivated', {
+    skillId, skillName, playerId: ownerId, result: 'damage-prevented',
+    logText: `【${skillName}】防止了${target?.nickname ?? ''}受到的这次伤害`,
+  }, { targetId, damageNature: nature })
+}
+
 function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOptions): void {
   if (host.state.status !== 'playing') throw new Error('只有进行中的牌局可以造成伤害')
   if (host.state.dying) throw new Error('当前濒死流程尚未结束')
@@ -340,6 +356,29 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   let nature = options.nature ?? 'normal'
   let amount = options.amount ?? 1
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('伤害值必须是正整数')
+
+  /*
+   * 伤害防止 · 来源侧（徐庶【无言】防止自己使用的锦囊造成的伤害）。
+   *
+   * 排在**数值修正之前**：防止就是「这次伤害没有发生」，
+   * 既然不会发生，就没有必要先让裸衣、驭雳去改它的数值和属性，
+   * 那些修正的战报也不该出现。来源改写要排在它前面——
+   * 得先知道这次伤害算谁造成的，才能问「他有没有防止它」。
+   */
+  const preventionContext = {
+    sourceId,
+    targetId: target.id,
+    amount,
+    nature,
+    cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null,
+    chainTransfer: Boolean(options.chainTransfer),
+  }
+  const preventedBySource = damagePreventedBy(host.state, sourceId, 'source', preventionContext)
+  if (preventedBySource) {
+    announceDamagePrevented(host, preventedBySource, sourceId, target.id, nature)
+    return
+  }
 
   /*
    * 技能对属性和数值的修正排在**最前面**（神马超【驭雳】把伤害改成雷电）。
@@ -396,6 +435,19 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
     return
   }
   if (amount <= 0) return
+
+  /*
+   * 伤害防止 · 目标侧（徐庶【无言】防止自己受到的锦囊伤害）。
+   *
+   * 排在【绝情】那条替换**之后**：绝情把伤害整个换成了失去体力，
+   * 换完之后已经不存在「一次伤害」，无言也就没有可防的东西——
+   * 两个技能各自成立，最终只产生一条结果，不会「防止了却又扣一次血」。
+   */
+  const preventedByTarget = damagePreventedBy(host.state, target.id, 'target', { ...preventionContext, amount, nature })
+  if (preventedByTarget) {
+    announceDamagePrevented(host, preventedByTarget, target.id, target.id, nature)
+    return
+  }
 
   /*
    * 受伤者把这次伤害整个挡下来（【驭雳】防雷伤并摸牌）。

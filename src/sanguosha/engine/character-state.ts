@@ -44,6 +44,21 @@ export function flipCharacter(
   host.dispatch('CharacterFlip', { playerId, faceDown: next, reason }, { targetId: playerId })
 }
 
+/**
+ * 「复原武将牌」：翻至正面 **并且** 解除横置。
+ *
+ * 这是一个整体，不是「翻面」的同义词——只翻正面的话，一个正面朝上但被
+ * 横置着的角色选了「复原」会什么都得不到。两件事分开写在各个技能里，
+ * 迟早会有一处只做一半。
+ *
+ * 已经是正面、且未横置时是一次空操作：规则允许这么选，只是没有变化。
+ * 连环锁（神刘备【结营】）由 `setChained` 自己挡住——复原不能绕过它。
+ */
+export function restoreCharacter(host: CharacterStateHost, playerId: PlayerId, reason: string): void {
+  flipCharacter(host, playerId, reason, false)
+  setChained(host, playerId, reason, false)
+}
+
 /** 角色是否背面朝上。给回合流转和界面共用，避免各处直接读字段。 */
 export function isFaceDown(state: SanguoshaState, playerId: PlayerId): boolean {
   return state.players.find((player) => player.id === playerId)?.faceDown ?? false
