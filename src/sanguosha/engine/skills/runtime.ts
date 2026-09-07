@@ -453,6 +453,16 @@ export interface SkillRuntime {
     ownerId: PlayerId,
     context: { userId: PlayerId; cardName: string; dyingPlayerId: PlayerId | null },
   ): boolean
+  /**
+   * 禁止**拥有者自己**打出某个牌名的牌（曹彰【将驰】的多摸分支）。
+   *
+   * 和 `prohibitsCardUse` 是两件事：那条管的是「使用」，这条管的是「打出」。
+   * 技能文本说「不能使用或打出」时两条都要声明——只堵一条的话，
+   * 他照样能打出【杀】响应南蛮和决斗。
+   *
+   * 判断的是**有效牌名**：转化出来的【杀】（武圣、龙胆、禁酒的酒）同样被堵住。
+   */
+  prohibitsOwnResponse?(state: SanguoshaState, ownerId: PlayerId, cardName: string): boolean
   /** 拥有者作为用牌者时，临时禁止其把某名角色设为指定目标。 */
   prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
   /** 成为【杀】或普通锦囊目标后可插入发问；返回 true 表示结算已挂起。 */
@@ -820,6 +830,22 @@ export function isTargetProhibited(
  * 遍历**全场存活角色**的技能，因为施加限制的人（贾诩）和被限制的人不是同一个。
  * 目前只有濒死救援会问到这里，所以上下文里带当前濒死角色。
  */
+/**
+ * 这名角色现在能不能**打出**这个牌名的牌。
+ *
+ * 各条求牌路径（求闪、南蛮万箭决斗的求牌）共用这一个入口，
+ * 不要各写一遍——漏一条就等于那条路上的禁令不存在。
+ */
+export function isCardResponseProhibited(
+  state: SanguoshaState,
+  responderId: PlayerId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(state, responderId, skillIdsOf)
+    .some((runtime) => runtime.prohibitsOwnResponse?.(state, responderId, cardName))
+}
+
 export function isCardUseProhibited(
   state: SanguoshaState,
   userId: PlayerId,

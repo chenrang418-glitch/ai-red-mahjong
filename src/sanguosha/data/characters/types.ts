@@ -11,7 +11,7 @@ export type Gender = 'male' | 'female'
  * `wind` / `fire` / `forest` / `mountain` / `god` 是本项目的五个角色分包。加包时要同时更新
  * `ALL_CHARACTERS` 的汇入，否则新武将进不了候选池。
  */
-export type CharacterPack = 'standard' | 'wind' | 'fire' | 'forest' | 'mountain' | 'god' | 'yjcm2011' | 'entertainment'
+export type CharacterPack = 'standard' | 'wind' | 'fire' | 'forest' | 'mountain' | 'god' | 'yjcm2011' | 'yjcm2012' | 'entertainment'
 
 export interface CharacterSkillInfo {
   id: string

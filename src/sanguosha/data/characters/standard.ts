@@ -22,6 +22,7 @@ import { FOREST_CHARACTERS } from './forest'
 import { MOUNTAIN_CHARACTERS } from './mountain'
 import { GOD_CHARACTERS } from './god'
 import { YJCM2011_CHARACTERS } from './yjcm2011'
+import { YJCM2012_CHARACTERS } from './yjcm2012'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -374,6 +375,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...MOUNTAIN_CHARACTERS,
   ...GOD_CHARACTERS,
   ...YJCM2011_CHARACTERS,
+  ...YJCM2012_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 

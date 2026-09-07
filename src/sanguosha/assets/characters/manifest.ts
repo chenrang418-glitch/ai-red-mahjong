@@ -550,6 +550,8 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   'masu', 'xushu', 'lingtong', 'wuguotai',
   // 一将成名 2011 · 第三批：立绘待上传
   'xusheng', 'chengong', 'gaoshun',
+  // 一将成名 2012 · 第一批：立绘待上传
+  'caozhang',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

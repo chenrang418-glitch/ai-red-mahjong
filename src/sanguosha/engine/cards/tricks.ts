@@ -18,7 +18,7 @@ import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutio
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
-import { effectiveCardSuit, isTargetProhibited, skillsOf } from '../skills/runtime'
+import { effectiveCardSuit, isCardResponseProhibited, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { skillIdsOf } from '../../data/characters/standard'
 import { setChained } from '../character-state'
 
@@ -679,13 +679,18 @@ function askRespondCard(
   for (const [cardId, cardNames] of responseCards) {
     for (const name of cardNames) {
       if (!canUseCardAs(host.state, responderId, cardId, name)) continue
+      // 「本回合不能打出【杀】」这类禁令（曹彰【将驰】）在这里拦掉
+      if (isCardResponseProhibited(host.state, responderId, name, skillIdsOf)) continue
       // 只有二选一的求牌才需要在 action 里写死牌名；单一牌名沿用原格式，
       // 免得把蛊惑、龙魂那些回填 `respond-trick:` 的地方一起改坏
       actionIds.push(alternativeCardName ? `${RESPOND_AS_PREFIX[name]}${cardId}` : `respond-trick:${cardId}`)
     }
   }
-  if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
-  if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
+  // 声明牌和多牌转化同样受「不能打出」的约束——只挡实体牌等于没挡
+  if (!isCardResponseProhibited(host.state, responderId, requiredCardName, skillIdsOf)) {
+    if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+    if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
+  }
   // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
   if (canRennai(host.state, responderId, resolution.sourceId, actionIds.length > 0,
     usedThisTurn(host.state, responderId, RENNAI_SKILL), skillIdsOf)) {

@@ -9,7 +9,7 @@ import { canTarget, getDistance, ignoresDistanceTo } from '../distance'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from '../requests'
 import { validateResponse } from '../requests'
 import { dodgeViewAsOptions, ignoresTrickDistance, responseViewAsOptions, skillIdsOf } from '../../data/characters/standard'
-import { effectiveCardColor, getSkillRuntime, isCardUseProhibited, isTargetProhibited, skillsOf, trickDistanceBonusOf } from '../skills/runtime'
+import { effectiveCardColor, getSkillRuntime, isCardResponseProhibited, isCardUseProhibited, isTargetProhibited, skillsOf, trickDistanceBonusOf } from '../skills/runtime'
 import { performJudgment, registerJudgmentContinuation } from '../judgment'
 import { advanceGamePhase } from '../phase'
 import { recover } from '../recover'
@@ -650,6 +650,14 @@ function askSlashDodge(host: CardEngineHost): void {
  */
 function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, allowBagua: boolean): void {
   const responder = player(host.state, responderId)
+  /*
+   * 「本回合不能打出【闪】」这类禁令在这里一次拦掉：候选一条都不给，
+   * 只剩「不响应」。散到各个候选生成里去过滤会漏掉八卦阵、蛊惑、龙魂那几条路。
+   */
+  if (isCardResponseProhibited(host.state, responderId, '闪', skillIdsOf)) {
+    askRespondPassOnly(host, responderId, prompt)
+    return
+  }
   const actionIds = responder.zones.hand
     .filter((candidateId) => host.state.cards[candidateId]?.name === '闪')
     // 身份被强制改写的牌不能再按原用途打出（神刘备【龙怒】阳状态下的红色【闪】）
@@ -696,6 +704,27 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
     timeoutMs: 30_000,
     optional: true,
     actionIds,
+    requiredCardName: '闪',
+  }
+  host.state.pendingRequests.push(request)
+  if (host.state.cardResolution) host.state.cardResolution.requestId = request.id
+}
+
+/**
+ * 只发一个「不响应」的求牌请求。
+ *
+ * 「本回合不能打出【闪】」这类禁令下必须仍然**问一次**：求闪这一步是牌结算的
+ * 一部分，跳过它会让后续结算没有回应可续接。给的候选只有放弃。
+ */
+function askRespondPassOnly(host: CardEngineHost, responderId: PlayerId, prompt: string): void {
+  const request: RespondCardRequest = {
+    id: `request-${host.state.seq}-${host.state.decisions.length}`,
+    kind: 'respond-card',
+    playerId: responderId,
+    prompt,
+    timeoutMs: 30_000,
+    optional: true,
+    actionIds: ['respond-pass'],
     requiredCardName: '闪',
   }
   host.state.pendingRequests.push(request)
