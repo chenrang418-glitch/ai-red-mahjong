@@ -4,7 +4,7 @@ import type { LegalAction } from '../actions'
 import { resolveDamage } from '../damage'
 import { canTarget, getDistance, ignoresDistanceTo } from '../distance'
 import { drawCards } from '../draw'
-import { announceSkillInvalidation, handleEquipmentLost, isCardIneffective } from '../equipment'
+import { announceSkillInvalidation, handleEquipmentLost, isCardIneffective, skillInvalidatingCard } from '../equipment'
 import { getEngineCallbacks } from '../equipment-requests'
 import { ignoresTrickDistance, responseViewAsOptions } from '../../data/characters/standard'
 import { recover } from '../recover'
@@ -745,6 +745,23 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
   if (!resolution || resolution.kind !== 'trick') return
   const target = playerOf(host.state, targetId)
   const cannotRespond = resolution.unresponsiveTargetIds.includes(targetId)
+
+  /*
+   * 技能造成的「这张牌对我无效」在这里统一拦一次（陈宫【智迟】）。
+   *
+   * 放在**每个目标的效果入口**，而不是散到每张牌的分支里：
+   * 「非延时锦囊对你无效」说的是所有非延时锦囊，包括桃园结义和五谷丰登
+   * ——那两张对陈宫无效正是这个技能的代价。逐张写迟早漏一张。
+   *
+   * 藤甲那种**按牌名**的无效仍然留在各自的分支里（它只挡南蛮和万箭），
+   * 这里问的只是「有没有技能说这张牌对他无效」。
+   */
+  const invalidatedBy = skillInvalidatingCard(host.state, targetId, resolution.cardName, null, resolution.sourceId)
+  if (invalidatedBy) {
+    announceSkillInvalidation(host, targetId, resolution.cardName, null, resolution.sourceId)
+    advanceToNextTarget(host)
+    return
+  }
 
   switch (resolution.cardName) {
     case '无中生有':
