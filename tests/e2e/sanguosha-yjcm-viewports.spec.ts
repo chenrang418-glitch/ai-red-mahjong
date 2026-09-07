@@ -17,11 +17,12 @@ const VIEWPORTS = [
   { name: '1280x800 桌面', width: 1280, height: 800 },
 ] as const
 
-/** 一将成名 2011 的 11 个人。用名字找卡片，不依赖内部 id。 */
+/** 一将成名 2011（11 人）+ 2012 第一批（4 人）。用名字找卡片，不依赖内部 id。 */
 const YJCM2011_NAMES = [
   '曹植', '于禁', '张春华', '法正',
   '马谡', '徐庶', '凌统', '吴国太',
   '徐盛', '陈宫', '高顺',
+  '曹彰', '钟会', '荀攸', '王异',
 ]
 
 async function openGeneralPicker(page: Page): Promise<void> {
@@ -45,7 +46,7 @@ async function wholePageScrolls(page: Page): Promise<{ vertical: boolean; horizo
 }
 
 for (const viewport of VIEWPORTS) {
-  test(`${viewport.name}：自选武将页整页不滚动，一将成名 2011 的卡片都可读`, async ({ page }) => {
+  test(`${viewport.name}：自选武将页整页不滚动，一将成名的卡片都可读`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await openGeneralPicker(page)
 
@@ -70,14 +71,14 @@ for (const viewport of VIEWPORTS) {
   })
 }
 
-test('第三批同桌时，三档视口下牌桌都不整页滚动', async ({ page }) => {
+test('一将成名 2012 第一批同桌时，三档视口下牌桌都不整页滚动', async ({ page }) => {
   /*
    * `lineup` 是开发用参数（不进生产构建），这里用它把这一批四个人
    * 直接摆上桌——随机阵容抽不到他们，也就验不到他们的技能面板。
    */
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
-    await page.goto('/?game=sanguosha&lineup=xusheng,chengong,gaoshun,masu,wuguotai')
+    await page.goto('/?game=sanguosha&lineup=caozhang,zhonghui,xunyou,wangyi,gaoshun')
     await page.getByRole('button', { name: /单机游戏/ }).click()
     await page.getByRole('button', { name: '较快', exact: true }).click()
     await page.getByRole('button', { name: '开始', exact: true }).click()
