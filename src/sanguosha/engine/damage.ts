@@ -5,6 +5,7 @@ import { clearAbolishedSlotsOf } from './equipment-slots'
 import { clearTokensOf } from './global-token'
 import { releaseStolenSkillsOf } from './skill-theft-expiry'
 import { recordTurnKill } from './turn-kills'
+import { discardAllCards } from './discard-all'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { checkIdentityVictory } from './modes/identity'
@@ -60,7 +61,6 @@ export interface DamageEngineHost {
   ): EventContext
 }
 
-const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = ['weapon', 'armor', 'offensiveHorse', 'defensiveHorse']
 
 function player(state: SanguoshaState, playerId: PlayerId): PlayerState {
   const found = state.players.find((candidate) => candidate.id === playerId)
@@ -215,9 +215,9 @@ function discardOwnedCards(host: DamageEngineHost, owner: PlayerState, includeJu
   for (const cardId of [...owner.zones.hand]) {
     moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'discardPile' })
   }
-  for (const slot of EQUIPMENT_SLOTS) {
-    const cardId = owner.zones.equipment[slot]
-    if (cardId) moveCard(host.state, cardId, { kind: 'equipment', playerId: owner.id, slot }, { kind: 'discardPile' })
+  // 遍历装备区里实际存在的牌：额外武器栏里的那张不能被漏在死者身上
+  for (const [slot, cardId] of Object.entries(owner.zones.equipment)) {
+    if (cardId) moveCard(host.state, cardId, { kind: 'equipment', playerId: owner.id, slot: slot as EquipmentSlot }, { kind: 'discardPile' })
   }
   if (includeJudgingArea) {
     for (const cardId of [...owner.zones.judgingArea]) {
@@ -278,7 +278,14 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   if (dead.identity === 'rebel' && killer) {
     drawCards(host.state, host.rng, killer.id, 3, (name, payload) => { host.dispatch(name, payload) })
   } else if (dead.identity === 'loyalist' && killer?.identity === 'lord') {
-    discardOwnedCards(host, killer, false)
+    /*
+     * 主公杀死忠臣：弃光他自己的牌。
+     *
+     * 走公共的「弃置所有牌」入口，和马谡【挥泪】同一个实现——
+     * 原来这里是直接把两个区搬空，枭姬、旋风、落英、白银狮子这一批
+     * 「因弃置而触发」的效果全被静默跳过了。
+     */
+    discardAllCards(host as never, killer.id, 'identity-punishment')
   }
 
   const result = checkIdentityVictory(host.state.players)

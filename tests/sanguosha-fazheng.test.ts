@@ -261,6 +261,23 @@ describe('法正：恩怨·怨', () => {
     expect(playerOf(game, 'p1').hp, '直接掉 1 点').toBe(source.maxHp - 1)
   })
 
+  it('第一点就把来源打进濒死时，第二点要等濒死结算完再扣', () => {
+    /*
+     * 压测 seed=yjcm11-8-53 抓到的：来源没有手牌、只剩 1 点体力，挨了 2 点伤害。
+     * 原来是在同一条同步链上连扣两点，第二点撞上还没结束的濒死流程，
+     * 引擎直接抛「已有濒死流程正在进行」，整局崩掉。
+     */
+    const game = gameAt('fz-yuan-dying')
+    playerOf(game, 'p0').hp = playerOf(game, 'p0').maxHp
+    const source = playerOf(game, 'p1')
+    source.hp = 1
+    trimHand(game, 'p1', 0)
+    expect(() => hitFazheng(game, 2, 'give'), '不能崩').not.toThrow()
+    expect(playerOf(game, 'p1').alive, '一点就掉到 0，没人救就死了').toBe(false)
+    assertGameInvariants(game.state)
+    assertCardConservation(game.state)
+  })
+
   it('无来源的伤害不问任何人', () => {
     const game = gameAt('fz-yuan-nosource')
     playerOf(game, 'p0').hp = playerOf(game, 'p0').maxHp

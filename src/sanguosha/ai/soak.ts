@@ -134,7 +134,13 @@ export function runSoakGame(options: SoakOptions): SoakResult {
         game.respond(response)
       } catch (cause) {
         const reason = cause instanceof Error ? cause.message : String(cause)
-        fail(`${reason}；请求=${JSON.stringify(request)}；响应=${JSON.stringify(response)}`, steps)
+        /*
+         * 把**原始堆栈**带上。只有一句错误消息的话，压测报的位置永远是
+         * 「respond 抛了」，真正出问题的那一层看不见——查一次要重新加一遍日志。
+         */
+        const stack = cause instanceof Error ? `
+原始堆栈：${cause.stack}` : ''
+        fail(`${reason}；请求=${JSON.stringify(request)}；响应=${JSON.stringify(response)}${stack}`, steps)
       }
       if (game.state.seq === before && game.state.pendingRequests[0]?.id === request.id) {
         fail(`Request ${request.kind} 响应后没有推进`, steps)

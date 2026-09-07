@@ -17,6 +17,11 @@ export type GameEventName =
   | 'PindianResult' | 'DuelResult'
   | 'Recover'
   | 'LoseHp' | 'MaxHpChange'
+  /**
+   * 「一次失去装备区里的牌」，按**原子操作**计数（一次换三件只发一条）。
+   * 每张一条的是 `LoseEquipment`。两个粒度都真实存在，见 engine/equipment-zone-loss.ts。
+   */
+  | 'EquipmentZoneLoss'
   | 'LoseEquipment' | 'EnterDying' | 'AskForPeach' | 'QuitDying' | 'BeforeDeath' | 'Death'
   | 'CardMove' | 'LoseCard' | 'GainCard' | 'HandSwap' | 'JudgeStart' | 'JudgeResult' | 'JudgeEnd'
   /** 弃牌堆被洗回牌堆。见 engine/deck.ts；这是唯一的洗牌痕迹，不要靠牌堆剩几张去猜。 */

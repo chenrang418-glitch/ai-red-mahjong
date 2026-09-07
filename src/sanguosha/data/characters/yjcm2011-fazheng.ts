@@ -123,8 +123,8 @@ registerSkillRuntime({
         loseHp(host as never, sourceId, 1, ENYUAN)
       }
     }
-    // 逐点结算：这一点问完了，还欠几点就接着问几次
-    if (remaining > 1) askYuan(host, ownerId, sourceId, remaining - 1)
+    // 逐点结算：这一点问完了，还欠几点就排队接着问
+    queueRemainingYuan(host, ownerId, sourceId, remaining - 1)
   },
 })
 
@@ -134,6 +134,19 @@ registerSkillRuntime({
  * 没有手牌可交时不弹一个只能拒绝的窗口，直接扣血——规则上他确实
  * 「不能交出手牌」，结果一样，但少一次无意义的等待。
  */
+/**
+ * 把还欠的点数**排队**，不要在同一条同步链上接着结算。
+ *
+ * 这一点的结果可能是「来源掉 1 点体力」，而那一下可能正好把他打进濒死。
+ * 濒死流程还没结束就扣第二点，引擎会直接抛「已有濒死流程正在进行」
+ * （压测 seed=yjcm11-8-53：来源没有手牌、只剩 1 点体力，挨了 2 点伤害）。
+ * 排队的东西要等牌桌干净才放出来，那时濒死已经结清了。
+ */
+function queueRemainingYuan(host: SkillHost, ownerId: PlayerId, sourceId: PlayerId, remaining: number): void {
+  if (remaining <= 0) return
+  host.queueSkill({ skillId: ENYUAN, ownerId, step: 'yuan', data: { sourceId, remaining } })
+}
+
 function askYuan(host: SkillHost, ownerId: PlayerId, sourceId: PlayerId, remaining: number): void {
   const owner = playerOf(host.state, ownerId)
   const source = playerOf(host.state, sourceId)
@@ -144,7 +157,7 @@ function askYuan(host: SkillHost, ownerId: PlayerId, sourceId: PlayerId, remaini
       logText: `${source.nickname}没有手牌可交，因【恩怨】失去 1 点体力`,
     }, { sourceId: ownerId, targetId: sourceId })
     loseHp(host as never, sourceId, 1, ENYUAN)
-    if (remaining > 1) askYuan(host, ownerId, sourceId, remaining - 1)
+    queueRemainingYuan(host, ownerId, sourceId, remaining - 1)
     return
   }
   host.askSkill({

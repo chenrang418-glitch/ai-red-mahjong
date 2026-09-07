@@ -192,9 +192,22 @@ export function hasUnlimitedSlash(state: SanguoshaState, playerId: PlayerId): bo
  *
  * 必须在牌真正移出装备槽之后调用——被替换、被拆、被顺走都算「失去」。
  */
-export function handleEquipmentLost(host: EquipmentHost, playerId: PlayerId, cardId: string): void {
+export function handleEquipmentLost(
+  host: EquipmentHost,
+  playerId: PlayerId,
+  cardId: string,
+  options: { batched?: boolean } = {},
+): void {
   // 先广播「失去了一张装备」，孙尚香【枭姬】这类技能挂在这个时机上
   host.dispatch('LoseEquipment', { playerId, cardId }, { targetId: playerId, cardIds: [cardId] })
+  /*
+   * 再广播一条**按原子操作计数**的（凌统【旋风】要的粒度）。
+   * `batched` 表示调用方正在成批搬装备，总的那一条由它自己发——
+   * 不这样区分的话，一次换三件装备会给三次旋风机会。
+   */
+  if (!options.batched) {
+    host.dispatch('EquipmentZoneLoss', { playerId, cardIds: [cardId] }, { targetId: playerId, cardIds: [cardId] })
+  }
   if (host.state.cards[cardId]?.name !== '白银狮子') return
   const owner = playerOf(host.state, playerId)
   if (!owner.alive || owner.hp >= owner.maxHp) return
