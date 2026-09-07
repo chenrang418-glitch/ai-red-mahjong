@@ -126,6 +126,8 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
    * 走到这里说明 TurnEnd 触发的技能已经全部结算完了。
    */
   clearTurnKills(state, state.turnNumber)
+  // 弃牌阶段账本只在本回合内有意义，跨回合一律作废
+  state.discardPhaseLedger = null
   const previousNormalId = state.normalTurnPlayerId ?? state.currentPlayerId
   const previousNormalSeat = state.players.find((candidate) => candidate.id === previousNormalId)?.seat ?? 0
   const next = nextTurnEntry(state)
@@ -193,9 +195,18 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
 export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   if (state.status !== 'playing') throw new Error('牌局尚未进入进行状态')
   if (state.pendingRequests.length > 0) throw new Error('仍有待处理 Request，不能推进阶段')
-  const endingPhase = state.phase
   emit('PhaseEnd', { playerId: state.currentPlayerId, phase: state.phase })
-  if (endingPhase === 'discard') state.discardPhaseLedger = null
+  /*
+   * **弃牌阶段的账本不在这里清。**
+   *
+   * 「弃牌阶段结束时」的技能（神华佗【游医】、凌统【旋风】）正是挂在上面这条
+   * `PhaseEnd` 上，而且它们要发问——回答落地的时候已经离开这一行了。
+   * 原来在这里清账本，那些技能的「落地前重新查一遍」永远读到一本空账，
+   * 效果静默落空（既有测试是手工 dispatch PhaseEnd，绕过了这条真实路径）。
+   *
+   * 账本改为在**回合开始时**清（见 `beginTurn`）：同一个回合里它一直可读，
+   * 跨回合不会留下上一个人的记录，下一次弃牌阶段进入时又会整本换新。
+   */
 
   // 回合角色在自己回合里死掉（自己的闪电劈到自己、决斗输了、被反伤……）时，
   // 剩下的阶段不能继续跑——那会让摸牌、出牌、弃牌发生在一个死人身上。

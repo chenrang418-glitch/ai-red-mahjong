@@ -93,7 +93,15 @@ describe('超时默认放弃：联机房间', () => {
 
     const after = room.state.game!.players.find((player) => player.id === me)!
     // 弃牌阶段可能要求弃牌（那是必答请求，另有兜底），所以只断言「出牌阶段结束了」
-    expect(room.state.game!.phase, '超时后不该还停在出牌阶段').not.toBe('play')
+    /*
+     * 断言的是「**他的**出牌阶段结束了」，不是「全局 phase 不再是 play」。
+     *
+     * 后者只是一个代理条件：超时之后牌局可能已经一路推进到另一名角色的
+     * 出牌阶段，那时 phase 仍然是 play，但真人的回合早就过去了。
+     * 武将池一变，这个代理就会假报失败。
+     */
+    const stillHisPlayPhase = room.state.game!.currentPlayerId === me && room.state.game!.phase === 'play'
+    expect(stillHisPlayPhase, '超时后不该还停在他自己的出牌阶段').toBe(false)
     expect(after.zones.hand, '超时不该替玩家打出任何牌').toEqual(handBefore)
     expect(JSON.stringify(after.zones.equipment), '超时不该替玩家装备任何牌').toBe(equipBefore)
   })

@@ -208,21 +208,41 @@ describe('公共机制：弃牌阶段来源账本', () => {
     }
   })
 
-  it('弃牌阶段结束后账本清空，不会跨回合累计', () => {
+  it('账本活到本回合结束，回合一开始就作废', () => {
+    /*
+     * **不能在弃牌阶段刚结束时就清。**
+     *
+     * 「弃牌阶段结束时」的技能（神华佗【游医】、凌统【旋风】）挂在 `PhaseEnd` 上，
+     * 而且要发问；回答落地时早就离开那一行了。当场清账本的话，
+     * 它们的「落地前重新查一遍」永远读到一本空账，效果静默落空。
+     * 所以账本改为在**回合开始**时作废：本回合内一直可读，跨回合不残留。
+     */
     const game = newGame()
-    game.state.discardPhaseLedger = {
+    const ledger = {
       phaseInstanceId: 'x',
       ownerPlayerId: 'p0',
-      records: [{ cardId: 'c1', sourcePlayerId: 'p0', originalZone: 'hand', moveReason: 'discard', enteredDiscardAt: 0 }],
+      records: [{ cardId: 'c1', sourcePlayerId: 'p0', originalZone: 'hand' as const, moveReason: 'discard' as const, enteredDiscardAt: 0 }],
     }
+    game.state.discardPhaseLedger = ledger
     game.state.currentPlayerId = 'p0'
     game.state.normalTurnPlayerId = 'p0'
     game.state.currentTurnKind = 'normal'
     game.state.phase = 'discard'
     game.state.skippedPhases = []
     game.state.judgedDelayedCards = []
+
     game.advancePhase()
-    expect(game.state.discardPhaseLedger, '离开弃牌阶段就清账本').toBeNull()
+    expect(game.state.phase, '进入结束阶段').toBe('finish')
+    expect(game.state.discardPhaseLedger, '同一个回合里账本还读得到').toEqual(ledger)
+
+    // 再推一次就换人了：新回合开始，账本作废
+    game.advancePhase()
+    while (game.state.pendingRequests.length > 0) {
+      const request = game.state.pendingRequests[0]
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'respond-pass' } })
+    }
+    expect(game.state.currentPlayerId, '换人了').not.toBe('p0')
+    expect(game.state.discardPhaseLedger, '跨回合不残留').toBeNull()
   })
 })
 
