@@ -223,6 +223,18 @@ export interface SkillRuntime {
    */
   replacesPhase?(state: SanguoshaState, ownerId: PlayerId, slot: TurnPhase): TurnPhase | null
 
+  /**
+   * 锁定技：回合开始时**额外执行**一个阶段（廖化【当先】）。
+   *
+   * 返回要执行的阶段，返回 null / undefined 表示这个回合不给。
+   * 和 `replacesPhase` 的区别在「额外」二字：没有阶段位被顶掉，
+   * 这个回合原有的六个阶段一个不少地照跑。
+   *
+   * **必须是锁定技、必须同步返回**：判定发生在 `beginTurn` 里，
+   * 那里发不了问。需要询问的额外阶段要另起一个可挂起的窗口。
+   */
+  extraPhaseAtTurnStart?(state: SanguoshaState, ownerId: PlayerId): TurnPhase | null
+
   /** 锁定技：出牌阶段【杀】不限次。 */
   unlimitedSlash?: boolean
   /**

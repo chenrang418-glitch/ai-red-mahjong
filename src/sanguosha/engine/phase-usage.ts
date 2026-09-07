@@ -18,7 +18,13 @@ import type { PlayerId, SanguoshaState } from './types'
 
 /** 当前阶段的唯一键：第几个回合 + 哪个阶段位 + 实际在跑的阶段。 */
 function phaseKey(state: SanguoshaState): string {
-  return `${state.turnNumber}:${phaseSlotOf(state)}:${state.phase}`
+  /*
+   * 额外阶段（廖化【当先】）和随后的正常出牌阶段占的是**同一个阶段位**，
+   * 只靠阶段位区分不开，「出牌阶段限一次」会被两个阶段合起来用掉一次。
+   * 额外阶段有自己的实例号，拼进键里，两个阶段各有一次。
+   */
+  const extra = state.extraPhase ? `x${state.extraPhase.instanceId}` : ''
+  return `${state.turnNumber}:${phaseSlotOf(state)}${extra}:${state.phase}`
 }
 
 function markFor(state: SanguoshaState, skillId: string): string {

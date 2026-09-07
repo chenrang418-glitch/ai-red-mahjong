@@ -334,7 +334,11 @@ function beginSlash(
   const countUsage = options.countUsage ?? true
   const consumeWine = options.consumeWine ?? true
   const damageAmount = 1 + (consumeWine ? host.state.turnUsage.wineDamageBonus : 0)
-  if (countUsage) host.state.turnUsage.slashUses += 1
+  if (countUsage) {
+    host.state.turnUsage.slashUses += 1
+    // 回合级的那本账不随出牌阶段归零，「本回合使用过杀吗」读的是它
+    host.state.turnUsage.slashUsesThisTurn = (host.state.turnUsage.slashUsesThisTurn ?? 0) + 1
+  }
   if (consumeWine) host.state.turnUsage.wineDamageBonus = 0
   host.state.cardResolution = {
     kind: 'slash', cardId, sourceId: action.playerId, targetId,
@@ -1306,10 +1310,12 @@ provideEquipmentCallbacks({
     // 青龙偃月刀的追杀不受距离和次数限制，所以不走 legalPlayActions，
     // 直接构造动作。用完把次数补回去，免得吃掉本回合正常的出杀机会。
     const usesBefore = engineHost.state.turnUsage.slashUses
+    const turnUsesBefore = engineHost.state.turnUsage.slashUsesThisTurn ?? 0
     const extraSlash = useAction(cardId, sourceId, '杀', [targetId], `【青龙偃月刀】追加【杀】，目标${target.nickname}`)
     if (extraSlash.kind !== 'use-card') throw new Error('青龙偃月刀追杀动作构造失败')
     beginSlash(engineHost, { ...extraSlash, id: `equip:qinglong:${cardId}:${targetId}` })
     engineHost.state.turnUsage.slashUses = usesBefore
+    engineHost.state.turnUsage.slashUsesThisTurn = turnUsesBefore
   },
 })
 

@@ -56,6 +56,21 @@ export function slashRules(state: SanguoshaState, playerId: PlayerId): SlashRule
  * `unlimited` 由调用方给（诸葛连弩、张飞【咆哮】那类）。**已经无限时再加次数
  * 不会把它变回有限**——聚合规则是「无限优先」，两个 modifier 不会互相盖掉。
  */
+/**
+ * 本**回合**内使用【杀】的次数。
+ *
+ * 和 `state.turnUsage.slashUses` 的区别：后者按出牌阶段实例算，
+ * 进入每个出牌阶段时归零（廖化【当先】的两个出牌阶段各有一次）。
+ * 「本回合是否使用过【杀】」这类判据必须读这一个，
+ * 否则第二个出牌阶段一开始就把前面那张【杀】忘了。
+ *
+ * 旧存档里没有这个字段，退回按阶段那本账——那时一个回合只有一个出牌阶段，
+ * 两者本来就相等。
+ */
+export function slashUsesThisTurn(state: SanguoshaState): number {
+  return state.turnUsage.slashUsesThisTurn ?? state.turnUsage.slashUses
+}
+
 export function canUseSlash(state: SanguoshaState, playerId: PlayerId, unlimited: boolean): boolean {
   const rules = slashRules(state, playerId)
   if (rules.prohibited) return false

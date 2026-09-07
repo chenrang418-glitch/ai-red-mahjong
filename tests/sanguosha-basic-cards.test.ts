@@ -150,7 +150,8 @@ describe('基础牌的合法动作与可恢复结算', () => {
     useAction(game, slashId, 'p1')
     respond(game, 'respond-pass')
     expect(game.state.players[1].hp).toBe(2)
-    expect(game.state.turnUsage).toEqual({ slashUses: 1, wineUses: 1, wineDamageBonus: 0 })
+    // slashUses 按出牌阶段实例算，slashUsesThisTurn 按回合算；这里一个回合只有一个出牌阶段，两者相等
+    expect(game.state.turnUsage).toEqual({ slashUses: 1, slashUsesThisTurn: 1, wineUses: 1, wineDamageBonus: 0 })
     expect(game.legalActions('p0').some((action) => action.kind === 'use-card' && action.asCardName === '杀')).toBe(false)
     expect(game.legalActions('p0').some((action) => action.kind === 'use-card' && action.cardIds.includes(secondWineId))).toBe(false)
   })
@@ -191,7 +192,7 @@ describe('基础牌的合法动作与可恢复结算', () => {
     game.advancePhase()
     game.advancePhase()
     expect(game.state.phase).toBe('prepare')
-    expect(game.state.turnUsage).toEqual({ slashUses: 0, wineUses: 0, wineDamageBonus: 0 })
+    expect(game.state.turnUsage).toEqual({ slashUses: 0, slashUsesThisTurn: 0, wineUses: 0, wineDamageBonus: 0 })
   })
 
   it('锦囊→无懈后效果取消，响应 Request 只发送给当前响应者', () => {

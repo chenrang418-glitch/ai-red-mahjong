@@ -80,6 +80,15 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       return
     }
     case 'play':
+      /*
+       * 【杀】的使用次数**按出牌阶段实例算**，所以在每个出牌阶段开始时归零。
+       *
+       * 廖化【当先】让一个回合里出现两个出牌阶段，各有自己的一次出杀机会；
+       * 「本回合多使用一张【杀】」这类加成是回合级的，两个阶段都叠加生效，
+       * 所以清的只有已用次数，`slashRules` 那边不动。
+       * 回合级的判据（陆逊【克己】）读的是 `slashUsesThisTurn`，不受影响。
+       */
+      host.state.turnUsage.slashUses = 0
       host.dispatch('PlayPhase', { playerId }, { sourceId: playerId, phase: 'play' })
       return
     case 'discard': {

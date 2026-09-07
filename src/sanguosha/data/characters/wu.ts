@@ -4,6 +4,7 @@ import { drawCards } from '../../engine/draw'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseSuitRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
 import { effectiveCardSuit, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { PlayerId, Suit } from '../../engine/types'
+import { slashUsesThisTurn } from '../../engine/slash-rules'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 
@@ -26,7 +27,7 @@ registerSkillRuntime({
       handle(host, ownerId, context) {
         const payload = context.event.payload as { playerId?: PlayerId }
         const owner = host.state.players.find((player) => player.id === ownerId)
-        if (payload.playerId !== ownerId || host.state.turnUsage.slashUses > 0 || owner?.marks.kejiRespondedSlash) return
+        if (payload.playerId !== ownerId || slashUsesThisTurn(host.state) > 0 || owner?.marks.kejiRespondedSlash) return
         if (!owner?.alive || owner.zones.hand.length <= Math.max(0, owner.hp)) return
         context.cancel()
         host.askSkill({

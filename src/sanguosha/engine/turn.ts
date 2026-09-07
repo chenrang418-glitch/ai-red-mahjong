@@ -9,6 +9,7 @@ import { returnDetainedCards } from './turn-bound-pile'
 import { expireOwnerTurnStates, expireTargetStates } from './target-state'
 import { replacementPhaseFor } from './phase-replacement'
 import { clearTurnKills } from './turn-kills'
+import { advanceExtraPhase, clearExtraPhases, scheduleTurnStartExtraPhases } from './extra-phase'
 
 export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'play', 'discard', 'finish']
 
@@ -95,13 +96,16 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   delete state.phaseReplacedFrom
   state.skippedPhases = []
   state.judgedDelayedCards = []
-  state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
+  state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0, slashUsesThisTurn: 0 }
   state.extraTurns = []
+  clearExtraPhases(state)
   // 正常座次游标从主公开始；只有额外回合插队时才需要靠它记住位置
   state.normalTurnPlayerId = state.currentPlayerId
   state.currentTurnKind = 'normal'
   emit('RoundStart', { roundNumber: state.roundNumber })
   emit('TurnStart', { playerId: state.currentPlayerId, turnNumber: state.turnNumber, kind: 'normal' })
+  const firstExtra = scheduleTurnStartExtraPhases(state, state.currentPlayerId, state.phase)
+  if (firstExtra) state.phase = firstExtra
   emit('PhaseStart', { playerId: state.currentPlayerId, phase: state.phase })
 }
 
@@ -152,7 +156,8 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   }
   state.skippedPhases = []
   state.judgedDelayedCards = []
-  state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0 }
+  state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0, slashUsesThisTurn: 0 }
+  clearExtraPhases(state)
   emit('TurnStart', {
     playerId: state.currentPlayerId,
     turnNumber: state.turnNumber,
@@ -174,11 +179,38 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   state.phase = 'prepare'
   delete state.phaseReplacedFrom
   /*
+   * 【当先】这类锁定技给的额外阶段插在**准备阶段之前**，作为这个回合的第一个阶段。
+   *
+   * 放在翻面跳过整个回合的分支**之后**：那种回合每个阶段都被跳过，
+   * 额外阶段自然也不执行。
+   */
+  const firstExtra = scheduleTurnStartExtraPhases(state, state.currentPlayerId, state.phase)
+  if (firstExtra) state.phase = firstExtra
+  /*
    * 临时状态（狂风、大雾）在**施加者的下一个回合开始前**失效。
    * 统一在这里清，技能不各自注册清理——散着写迟早漏一个，
    * 然后某个玩家身上挂着一个永远不消失的大雾。
    */
   expireTargetStates(state, state.currentPlayerId)
+  return true
+}
+
+/**
+ * 从 `startIndex` 这个阶段位开始往后找第一个没被跳过的位，并进入它。
+ *
+ * 找到了就写好 `phase` / `phaseReplacedFrom` 并返回 true；
+ * 后面已经没有阶段位了返回 false，由调用方收束这一回合。
+ */
+function enterSlotFrom(state: SanguoshaState, startIndex: number): boolean {
+  let index = Math.max(0, startIndex)
+  // 「跳过某阶段」跳的也是位置：乐不思蜀跳的是出牌位
+  while (index < TURN_PHASES.length && state.skippedPhases.includes(TURN_PHASES[index])) index += 1
+  if (index >= TURN_PHASES.length) return false
+  const slot = TURN_PHASES[index]
+  const replacement = replacementPhaseFor(state, state.currentPlayerId, slot)
+  if (replacement) state.phaseReplacedFrom = slot
+  else delete state.phaseReplacedFrom
+  state.phase = replacement ?? slot
   return true
 }
 
@@ -219,18 +251,28 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
    * 判定位被【持纲】跑成了摸牌阶段时，`state.phase` 是 draw；
    * 按它去找下一个阶段会直接跳到出牌，把真正的摸牌阶段吃掉。
    */
-  const currentIndex = TURN_PHASES.indexOf(state.phaseReplacedFrom ?? state.phase)
-  if (current?.alive && currentIndex < TURN_PHASES.length - 1) {
-    let nextIndex = currentIndex + 1
-    // 「跳过某阶段」跳的也是位置：乐不思蜀跳的是出牌位
-    while (nextIndex < TURN_PHASES.length && state.skippedPhases.includes(TURN_PHASES[nextIndex])) nextIndex += 1
-    if (nextIndex < TURN_PHASES.length) {
-      const slot = TURN_PHASES[nextIndex]
-      const replacement = replacementPhaseFor(state, state.currentPlayerId, slot)
-      if (replacement) state.phaseReplacedFrom = slot
-      else delete state.phaseReplacedFrom
-      state.phase = replacement ?? slot
-      return true
+  /*
+   * 额外阶段（廖化【当先】）先收束，**必须排在阶段位查表之前**。
+   *
+   * 额外出牌阶段跑的是 play，按阶段位往后找会直接跳到弃牌阶段，
+   * 把这个回合真正的出牌阶段吃掉。
+   */
+  if (state.extraPhase) {
+    const resume = advanceExtraPhase(state)
+    delete state.phaseReplacedFrom
+    if (current?.alive && resume) {
+      // 还排着下一个额外阶段：直接跑它，不回阶段位
+      if (state.extraPhase) {
+        state.phase = resume
+        return true
+      }
+      // 额外阶段跑完了，从 resume 这个阶段位**本身**开始（不是它的下一个）
+      if (enterSlotFrom(state, TURN_PHASES.indexOf(resume))) return true
+    }
+  } else {
+    const currentIndex = TURN_PHASES.indexOf(state.phaseReplacedFrom ?? state.phase)
+    if (current?.alive && currentIndex < TURN_PHASES.length - 1) {
+      if (enterSlotFrom(state, currentIndex + 1)) return true
     }
   }
 
@@ -258,6 +300,8 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   // 「视为在攻击范围内」的定向豁免（神太史慈【破围】）同样只管本回合，
   // 额外回合结束也要清，所以挂在这里而不是按回合序号推算
   clearAttackRangeOverrides(state)
+  // 额外阶段状态不留到下一个回合（回合角色在额外阶段里阵亡时会走到这里）
+  clearExtraPhases(state)
   // 神甘宁【魄袭】「弃一张」留下的本回合手牌上限 -1，同样在这里统一清
   for (const player of state.players) delete player.marks['poxi-maxcards']
   /*

@@ -184,6 +184,18 @@ export function assertGameInvariants(state: SanguoshaState): void {
     }
   }
   if (state.turnUsage.slashUses < 0 || state.turnUsage.wineUses < 0 || state.turnUsage.wineDamageBonus < 0) throw new Error('回合用牌计数非法')
+  if ((state.turnUsage.slashUsesThisTurn ?? 0) < 0) throw new Error('回合用牌计数非法')
+  /*
+   * 额外阶段（廖化【当先】）永远属于当前回合角色，而且必须真的在跑。
+   *
+   * 归属错位的后果很难查：额外阶段结束时会按 `resumeSlot` 回到阶段位，
+   * 若它记的是上一名角色，这个回合会从一个错误的阶段接着跑。
+   */
+  if (state.extraPhase) {
+    if (state.extraPhase.playerId !== state.currentPlayerId) throw new Error('额外阶段不属于当前回合角色')
+    if (state.phase !== state.extraPhase.phase) throw new Error('额外阶段与当前阶段不一致')
+  }
+  if (!state.extraPhase && (state.pendingExtraPhases?.length ?? 0) > 0) throw new Error('没有额外阶段在跑却排着后续额外阶段')
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')
     const stage = state.cardResolution.stage

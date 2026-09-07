@@ -497,7 +497,21 @@ export interface TrickResolutionState {
 export type CardResolutionState = SlashResolutionState | TrickResolutionState
 
 export interface TurnUsageState {
+  /**
+   * 本**出牌阶段实例**内使用【杀】的次数。
+   *
+   * 按阶段而不是按回合记：廖化【当先】让一个回合里出现两个出牌阶段，
+   * 每个阶段各有自己的一次。进入每个出牌阶段时归零（见 `phase.ts`）。
+   */
   slashUses: number
+  /**
+   * 本**回合**内使用【杀】的次数，中途不归零。
+   *
+   * 「本回合是否使用过【杀】」这类判据（吴国太之外还有陆逊【克己】）读的是它——
+   * 读 `slashUses` 的话，当先的第二个出牌阶段一开始就把前面那张杀忘了。
+   * 旧存档里没有这个字段，读取方一律 `?? slashUses` 兜底。
+   */
+  slashUsesThisTurn?: number
   wineUses: number
   wineDamageBonus: number
 }
@@ -621,6 +635,33 @@ export interface PhaseEntryState {
    * （发了 Request、或者把拥有者打进濒死），阶段内容要等场面干净了再跑。
    */
   stage?: 'ask-skip' | 'await-content'
+}
+
+/**
+ * 正在执行的额外阶段（廖化【当先】）。
+ *
+ * 它是一个**阶段**而不是额外回合：不新建回合实例、不推进轮次、
+ * 不进 `extraTurns` 队列，回合级的状态两边共享。走完之后回到 `resumeSlot`
+ * 这个阶段位继续跑这个回合的其余部分。
+ *
+ * `instanceId` 让「出牌阶段限一次」分得清这是哪一个出牌阶段——
+ * 额外出牌阶段和随后的正常出牌阶段占的阶段位相同，只靠阶段位区分不开。
+ */
+export interface ExtraPhaseState {
+  phase: TurnPhase
+  resumeSlot: TurnPhase
+  playerId: PlayerId
+  skillId: string
+  instanceId: number
+  /**
+   * 这个额外阶段开始时，它跑的那个阶段**已经**被标记为跳过了吗。
+   *
+   * 用来分辨「跳过标记是冲着这个额外阶段来的」还是本来就有。
+   * 冲着它来的（张郃【巧变】弃一张牌跳掉这个额外出牌阶段）在额外阶段结束时
+   * 随它一起消失，不能牵连这个回合里正常的出牌阶段位——
+   * 一次巧变只跳一个阶段。
+   */
+  preSkipped: boolean
 }
 
 /**
@@ -755,6 +796,10 @@ export interface SanguoshaState {
    * 或被跳过就清成 null。见 `phase.ts` 的 `beginPhaseEntry`。
    */
   phaseEntry: PhaseEntryState | null
+  /** 正在执行的额外阶段；没有额外阶段时不存在这个字段。 */
+  extraPhase?: ExtraPhaseState
+  /** 还没轮到的额外阶段（同一个回合开始时排了不止一个）。 */
+  pendingExtraPhases?: ExtraPhaseState[]
   /**
    * TurnEnd 已发出，但其触发的技能尚未结算完；结算干净后才开始下一回合。
    *

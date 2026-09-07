@@ -107,7 +107,7 @@ export class SanguoshaGame {
       skippedPhases: [],
       phaseEntry: null,
       turnTransitionPending: false,
-      turnUsage: { slashUses: 0, wineUses: 0, wineDamageBonus: 0 },
+      turnUsage: { slashUses: 0, wineUses: 0, wineDamageBonus: 0, slashUsesThisTurn: 0 },
       pendingRequests: [],
       dying: null,
       damageChain: null,
