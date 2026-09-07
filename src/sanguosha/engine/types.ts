@@ -719,6 +719,11 @@ export interface SanguoshaState {
    */
   detainedCards?: import('./turn-bound-pile').DetainedCardEntry[]
   /**
+   * 牌的**有效颜色改写**，见 `engine/card-color.ts`。
+   * 多张子牌合成的虚拟牌（荀攸【奇策】）靠它表达「全红 / 全黑 / 无色」。
+   */
+  cardColorOverrides?: Record<string, 'red' | 'black' | null>
+  /**
    * 当前这个阶段是**从哪个阶段位替换来的**（神孙权【持纲】把判定位跑成摸牌阶段）。
    *
    * 只有正在发生替换时才有值，平时不存在。回合往前走时看的是「位置」——

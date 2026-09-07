@@ -1,4 +1,5 @@
 import { destroyCharacterEquipment, isCharacterEquipment } from './character-equipment'
+import { clearCardColorOverride } from './card-color'
 import { clearGainEntry, recordGainEntry } from './card-gain-provenance'
 import { clearDiscardEntry, recordDiscardEntry, type DiscardReason } from './discard-provenance'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, SanguoshaState } from './types'
@@ -124,6 +125,8 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
   if (to.kind !== 'judgingArea' && to.kind !== 'processingArea') {
     delete state.cardAliases[cardId]
     delete state.cardNatures[cardId]
+    // 颜色改写和「当作什么用」同寿命：牌回到手牌、弃牌堆或牌堆就该忘掉
+    clearCardColorOverride(state, cardId)
   }
 }
 

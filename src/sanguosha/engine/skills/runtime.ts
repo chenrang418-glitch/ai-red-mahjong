@@ -5,6 +5,7 @@ import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
 import type { GameRng } from '../rng'
 import { isSkillSuppressed } from '../skill-suppression'
+import { cardColorOverrideOf } from '../card-color'
 import type { MultiCardViewAsSpec } from '../multi-card-viewas'
 import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit, TurnPhase } from '../types'
 
@@ -885,7 +886,13 @@ export function effectiveCardColor(
   ownerId: PlayerId,
   cardId: CardId,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
-): 'red' | 'black' {
+): 'red' | 'black' | null {
+  /*
+   * 颜色改写优先（荀攸【奇策】把一把混色手牌合成一张**无色**的锦囊）。
+   * 有记录就照记录，包括记着「无色」的那一种——那正是需要表达的第三种结果。
+   */
+  const override = cardColorOverrideOf(state, cardId)
+  if (override !== undefined) return override
   const suit = effectiveCardSuit(state, ownerId, cardId, skillIdsOf)
   return suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
 }
