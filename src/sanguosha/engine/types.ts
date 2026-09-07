@@ -714,6 +714,11 @@ export interface SanguoshaState {
    */
   gainProvenance?: Record<string, import('./card-gain-provenance').GainEntry>
   /**
+   * 暂时扣置、当前回合结束后归还的牌，见 `engine/turn-bound-pile.ts`。
+   * 绑定的是「这一个回合」，不是轮次。
+   */
+  detainedCards?: import('./turn-bound-pile').DetainedCardEntry[]
+  /**
    * 当前这个阶段是**从哪个阶段位替换来的**（神孙权【持纲】把判定位跑成摸牌阶段）。
    *
    * 只有正在发生替换时才有值，平时不存在。回合往前走时看的是「位置」——

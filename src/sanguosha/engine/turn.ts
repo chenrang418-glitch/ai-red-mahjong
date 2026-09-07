@@ -5,6 +5,7 @@ import { clearForcedIdentities } from './forced-identity'
 import { expireStolenSkills } from './skill-theft-expiry'
 import { clearAttackRangeOverrides } from './attack-range-override'
 import { clearTurnSlashRules } from './slash-rules'
+import { returnDetainedCards } from './turn-bound-pile'
 import { expireOwnerTurnStates, expireTargetStates } from './target-state'
 import { replacementPhaseFor } from './phase-replacement'
 import { clearTurnKills } from './turn-kills'
@@ -238,6 +239,14 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   // 那样散着写漏过一个（青囊），「限一次」直接变成了「一局一次」。
   // 清全场而不只是当前回合角色：回合外也能发动的技能同样按回合计数。
   for (const player of state.players) player.turnUsedSkills = []
+  /*
+   * 「当前回合结束后归还」的临时扣置牌（徐盛【破军】）在这里还给主人。
+   *
+   * 绑定的是**这一个回合**：额外回合各自独立，不按轮次推算。
+   * 和其他「直到本回合结束」的清理放在一起，技能不各自注册归还——
+   * 散着写漏一个，牌就再也回不来了。
+   */
+  returnDetainedCards(state, state.turnNumber, (name, payload) => emit(name, payload))
   // 本回合的临时杀规则（太史慈【天义】）同样在这里统一抹掉，技能不各自注册清理
   clearTurnSlashRules(state)
   // 来源绑定的防具失效（神吕布【无前】）也是「直到本回合结束」，同样统一清

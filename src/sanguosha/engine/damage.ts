@@ -6,6 +6,7 @@ import { clearTokensOf } from './global-token'
 import { releaseStolenSkillsOf } from './skill-theft-expiry'
 import { recordTurnKill } from './turn-kills'
 import { discardAllCards } from './discard-all'
+import { cleanupDetainedCardsOf } from './turn-bound-pile'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { checkIdentityVictory } from './modes/identity'
@@ -247,6 +248,14 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
    * 「从弃牌堆捡回来」不是一回事。真正拿不拿由认领者的技能在 Death 之后发问，
    * 那时候牌局才回到能安全提问的状态。
    */
+  /*
+   * 暂时扣置着的牌（徐盛【破军】）在这里清理：直接进弃牌堆。
+   *
+   * **必须排在「有人要吗」之前**：这些牌此刻既不是他的手牌也不是他的装备，
+   * 行殇拿到的应该只有真正属于他的那些。清理用的原因是「专属牌堆清理」，
+   * 所以落英也不会把它们当成「因弃置进入弃牌堆」。
+   */
+  cleanupDetainedCardsOf(host as never, playerId)
   const claimant = deathCardClaimantOf(host.state, playerId)
   if (claimant) holdDeathCards(host, dead, claimant)
   else discardOwnedCards(host, dead, true)
