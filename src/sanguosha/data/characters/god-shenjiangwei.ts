@@ -92,6 +92,12 @@ function discardFromZone(host: SkillHost, playerId: PlayerId, zone: TiantaoZone,
 
 registerSkillRuntime({
   id: XINGHUN,
+  /*
+   * 这条主动入口最终会**使用【杀】**，所以被「不能使用牌 / 不能使用【杀】」
+   * 的效果封住时不该再展示。`legalPlayActions` 末尾那道封牌过滤只筛
+   * use-card 动作，筛不到主动技按钮。
+   */
+  activeActionUsesCard: true,
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
     if (!owner?.alive || usedThisTurn(state, ownerId, XINGHUN)) return []
@@ -244,7 +250,14 @@ registerSkillRuntime({
      * 走 `beginVirtualSlash`：它内部用 `countUsage: false`，
      * 技能使用的【杀】不占出牌阶段的出杀次数，否则第一张就把额度用光了。
      */
-    host.beginVirtualSlash({ sourceId: ownerId, targetId: target.id, sourceSkillId: XINGHUN, cardId })
+    /*
+     * 用不出去（他被封牌 / 本回合不能使用【杀】）时，
+     * **借出去的那张牌要还回牌堆顶**——否则它会白白留在他手上，
+     * 而技能文本里根本没有「获得这张牌」这一条。
+     */
+    if (!host.beginVirtualSlash({ sourceId: ownerId, targetId: target.id, sourceSkillId: XINGHUN, cardId })) {
+      moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'drawPile' }, { toTop: true })
+    }
   },
 })
 

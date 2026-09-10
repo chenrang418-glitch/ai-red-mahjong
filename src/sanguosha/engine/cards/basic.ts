@@ -381,6 +381,11 @@ function beginActionPhysicalCard(host: CardEngineHost, playerId: PlayerId, cardI
  * 给了 `cardId` 就用这张**实体手牌**——牛来【麻麻】的「跟上」要求真的花掉
  * 一张【杀】，实体牌上的花色和属性（火杀、雷杀）也要照常生效，
  * 所以不能改成「弃掉实体牌再放一张虚拟杀」。
+ *
+ * **「视为使用」同样受封牌规则约束。** 返回 false 表示这次用不出去，
+ * 调用方**必须**据此收尾（该失去体力的失去体力、该跳过的跳过）。
+ * 查的是 `sourceId`——「令某角色使用一张【杀】」里用牌的是**那个角色**，
+ * 不是技能拥有者。
  */
 /**
  * 合成一张虚拟【杀】并放进使用者手牌，返回它的 id。
@@ -429,11 +434,13 @@ export function beginVirtualSlash(
     /** 用作载体的实体手牌；不传则生成临时牌 */
     cardId?: CardId
   },
-): void {
+): boolean {
   if (host.state.cardResolution) throw new Error('已有卡牌正在结算')
   const source = player(host.state, options.sourceId)
   const target = player(host.state, options.targetId)
   if (!source.alive || !target.alive || source.id === target.id) throw new Error('虚拟杀目标非法')
+  // 曹彰【将驰】的「本回合不能使用【杀】」、一行【离迹】的封牌都在这里生效
+  if (isCardUseProhibited(host.state, options.sourceId, '杀', { dyingPlayerId: host.state.dying?.playerId ?? null }, skillIdsOf)) return false
   if (options.cardId) {
     if (!source.zones.hand.includes(options.cardId)) throw new Error('作为载体的【杀】不在手牌里')
     /*
@@ -448,12 +455,13 @@ export function beginVirtualSlash(
     const realAction = useAction(options.cardId, source.id, '杀', [target.id], `对${target.nickname}使用【杀】`)
     if (realAction.kind !== 'use-card') throw new Error('技能杀动作构造失败')
     beginSlash(host, realAction, { countUsage: false, consumeWine: false })
-    return
+    return true
   }
   const cardId = createVirtualSlashCard(host.state, source.id, options.sourceSkillId, options.nature)
   const action = useAction(cardId, source.id, '杀', [target.id], `对${target.nickname}使用虚拟【杀】`)
   if (action.kind !== 'use-card') throw new Error('虚拟杀动作构造失败')
   beginSlash(host, action, { countUsage: false, consumeWine: false })
+  return true
 }
 
 /**

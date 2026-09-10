@@ -1,7 +1,7 @@
 import { flipCharacter } from '../../engine/character-state'
 import { newDiscardEntries } from '../../engine/discard-provenance'
 import { recover } from '../../engine/recover'
-import { registerSkillRuntime } from '../../engine/skills/runtime'
+import { isCardUseProhibited, registerSkillRuntime } from '../../engine/skills/runtime'
 import { applyWineEffect, canUseWineThisTurn, useVirtualWine } from '../../engine/virtual-wine'
 import { moveCard } from '../../engine/zones'
 import type { ChooseCardsRequest } from '../../engine/requests'
@@ -150,8 +150,26 @@ function canJiushi(state: SanguoshaState, ownerId: PlayerId): boolean {
   return !!owner?.alive && !owner.faceDown
 }
 
+/**
+ * 现在能不能以【酒诗】视为使用一张【酒】。
+ *
+ * **封牌规则要在这里查一次**：一行【离迹】封住他的用牌之后，
+ * 酒诗按钮就不该出现。只在 `useVirtualWine` 里挡住是不够的——
+ * 那时候武将牌已经翻过去了，玩家白白付出一次翻面。
+ */
+function jiushiUsable(state: SanguoshaState, ownerId: PlayerId, dyingPlayerId: PlayerId | null): boolean {
+  if (!canJiushi(state, ownerId)) return false
+  return !isCardUseProhibited(state, ownerId, '酒', { dyingPlayerId })
+}
+
 registerSkillRuntime({
   id: JIUSHI,
+  /*
+   * 这条主动入口最终会**使用一张牌**（视为使用【酒】），
+   * 所以被「不能使用牌」的效果封住时不该再展示。
+   * `legalPlayActions` 末尾那道封牌过滤只筛 use-card 动作，筛不到主动技按钮。
+   */
+  activeActionUsesCard: true,
   activeActions(state, ownerId) {
     if (!canJiushi(state, ownerId)) return []
     // 和实体酒共用「本回合限一次」的账
@@ -160,32 +178,40 @@ registerSkillRuntime({
   },
   invokeActive(host, ownerId, actionId) {
     if (actionId !== JIUSHI) return
-    if (!canJiushi(host.state, ownerId) || !canUseWineThisTurn(host)) return
+    if (!jiushiUsable(host.state, ownerId, null) || !canUseWineThisTurn(host)) return
     const owner = playerOf(host.state, ownerId)!
+    /*
+     * **先把酒用出去，再翻面。**
+     *
+     * 顺序反过来的话，被封牌时他已经白翻了一次面——代价付了、效果没有。
+     * `useVirtualWine` 返回 false 就是「这次没用出去」，
+     * 那就当作没发动过，一分代价都不收。
+     */
+    if (!useVirtualWine(host, ownerId, JIUSHI)) return
     flipCharacter(host as never, ownerId, JIUSHI, true)
     host.dispatch('SkillActivated', {
       skillId: JIUSHI, skillName: '酒诗', playerId: ownerId,
       logText: `${owner.nickname}发动【酒诗】，将武将牌翻面，视为使用一张【酒】`,
     }, { sourceId: ownerId })
-    useVirtualWine(host, ownerId, JIUSHI)
     applyWineEffect(host)
   },
   /** 濒死时同样可以靠酒诗视为使用一张【酒】自救。 */
   rescueActions(state, ownerId, dyingPlayerId) {
     // 酒只能救自己：和实体酒同一条规则
-    if (ownerId !== dyingPlayerId || !canJiushi(state, ownerId)) return []
+    if (ownerId !== dyingPlayerId || !jiushiUsable(state, ownerId, dyingPlayerId)) return []
     return [{ id: JIUSHI_RESCUE_ACTION, label: '发动【酒诗】：翻面视为使用一张【酒】' }]
   },
   invokeRescueAction(host, ownerId, actionId, dyingPlayerId) {
     if (actionId !== JIUSHI_RESCUE_ACTION) return false
-    if (ownerId !== dyingPlayerId || !canJiushi(host.state, ownerId)) return false
+    if (ownerId !== dyingPlayerId || !jiushiUsable(host.state, ownerId, dyingPlayerId)) return false
     const owner = playerOf(host.state, ownerId)!
+    // 同上：先确认酒真的用得出去，再翻面
+    if (!useVirtualWine(host, ownerId, JIUSHI)) return false
     flipCharacter(host, ownerId, JIUSHI, true)
     host.dispatch('SkillActivated', {
       skillId: JIUSHI, skillName: '酒诗', playerId: ownerId,
       logText: `${owner.nickname}发动【酒诗】，翻面视为使用一张【酒】自救`,
     }, { sourceId: ownerId })
-    useVirtualWine(host, ownerId, JIUSHI)
     /*
      * 濒死时的酒和桃一样回复 1 点体力——这条是本项目既有的濒死规则，
      * 实体酒走的也是同一段。这里不另起一套。

@@ -325,19 +325,23 @@ registerSkillRuntime({
     const dying = playerOf(host.state, dyingPlayerId)
     if (!dying?.alive) return false
 
+    /*
+     * **先把酒用出去，再移去那张「醇」。**
+     *
+     * 使用者是那名濒死角色本人，不是程普；所以封牌规则查的也是**他**。
+     * 用不出去（他被封牌）就一分代价都不收——原来是先移醇再用酒，
+     * 那种顺序下醇会白白花掉。
+     *
+     * 濒死时的【酒】不受「一回合一次」约束——实体酒救人走的也是同一条
+     * 规则（见 `damage.ts` 的救援候选：那里没有查回合次数）。
+     */
+    if (!useVirtualWine(host, dyingPlayerId, CHUNLAO)) return false
     // 醇那张【杀】进弃牌堆；酒是凭空的虚拟牌，两者分开
     moveCard(host.state, chunId, { kind: 'characterPile', playerId: ownerId, pile: CHUN_PILE }, { kind: 'discardPile' })
     host.dispatch('SkillActivated', {
       skillId: CHUNLAO, skillName: '醇醪', playerId: ownerId, cardIds: [chunId],
       logText: `${owner.nickname}移去一张「醇」，视为${dying.nickname}使用一张【酒】`,
     }, { sourceId: ownerId, targetId: dyingPlayerId, cardIds: [chunId] })
-    /*
-     * **使用者是那名濒死角色本人**，不是程普。
-     *
-     * 而且濒死时的【酒】不受「一回合一次」约束——实体酒救人走的也是同一条
-     * 规则（见 `damage.ts` 的救援候选：那里没有查回合次数）。
-     */
-    useVirtualWine(host, dyingPlayerId, CHUNLAO)
     recover(host as never, dyingPlayerId, 1, dyingPlayerId)
     return true
   },

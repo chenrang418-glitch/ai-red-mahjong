@@ -103,13 +103,14 @@ export interface SkillHost {
    * 不给 `cardId` 就是纯虚拟【杀】；给了则用这张实体手牌当载体，
    * 牌该弃还是照常弃，花色和火/雷属性照常生效。
    */
+  /** 「视为使用一张【杀】」。返回 false 表示被封牌规则挡住、这次没用出去。 */
   beginVirtualSlash(options: {
     sourceId: PlayerId
     targetId: PlayerId
     sourceSkillId: string
     nature?: DamageNature
     cardId?: CardId
-  }): void
+  }): boolean
   /** “成为目标后”的技能回答完毕，把控制权交回当前牌的结算管线。 */
   resumeCardTarget(): void
   /** 技能完成阶段替代效果后，按统一回合状态机进入下一阶段。 */

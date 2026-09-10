@@ -1,4 +1,4 @@
-import type { SkillHost } from './skills/runtime'
+import { isCardUseProhibited, type SkillHost } from './skills/runtime'
 import type { PlayerId } from './types'
 
 /**
@@ -10,8 +10,19 @@ import type { PlayerId } from './types'
  *
  * 生成的那张牌是**临时的**：进处理区、发一条使用事件、然后当场销毁。
  * 不留在弃牌堆里——牌堆构成不该因为一个技能凭空多出一张酒。
+ *
+ * **「视为使用」同样受封牌规则约束。** 返回 false 表示这次用不出去，
+ * 调用方**必须**据此收尾（不要翻面、不要移去代价、不要发战报）。
+ * 原来这里不查禁令，于是一行【离迹】封住某人的用牌之后，
+ * 曹植【酒诗】照样把【酒】用了出来——按钮出现、酒生效，规则上是错的。
  */
-export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillId: string): void {
+export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillId: string): boolean {
+  /*
+   * 查的是**这个「视为使用」的人**，不是技能拥有者。
+   * 程普【醇醪】给的是「视为**该濒死角色**使用一张【酒】」，
+   * 按拥有者去查会查错人。
+   */
+  if (isCardUseProhibited(host.state, playerId, '酒', { dyingPlayerId: host.state.dying?.playerId ?? null })) return false
   const cardId = `virtual:${sourceSkillId}:${host.state.seq + 1}:${host.state.decisions.length}`
   host.state.cards[cardId] = {
     id: cardId,
@@ -36,6 +47,7 @@ export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillI
   // 用完就销毁：留着它，牌张守恒会认为场上凭空多了一张酒
   host.state.zones.processingArea = host.state.zones.processingArea.filter((id) => id !== cardId)
   delete host.state.cards[cardId]
+  return true
 }
 
 /**

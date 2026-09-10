@@ -1,6 +1,6 @@
 import { responseViewAsOptions, skillIdsOf } from '../data/characters/standard'
 import { canTarget } from './distance'
-import { isTargetProhibited } from './skills/runtime'
+import { isCardUseProhibited, isTargetProhibited } from './skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 
 /**
@@ -32,6 +32,15 @@ export function slashUseOptions(state: SanguoshaState, userId: PlayerId, targetI
   const user = state.players.find((candidate) => candidate.id === userId)
   const target = state.players.find((candidate) => candidate.id === targetId)
   if (!user?.alive || !target?.alive || userId === targetId) return []
+  /*
+   * **「不能使用【杀】」在这里就要挡掉。**
+   *
+   * 曹彰【将驰】的本回合禁令、一行【离迹】的封牌都属于这一类：
+   * 被禁的人根本使不出【杀】，所以他手上有多少张牌都不该进候选。
+   * 漏掉这一条的话，挑衅、明策、眩惑、耍剑、乱武会给他一个
+   * 点下去必然失败的选项。
+   */
+  if (isCardUseProhibited(state, userId, '杀', { dyingPlayerId: state.dying?.playerId ?? null }, skillIdsOf)) return []
   // 帷幕这类「不能成为目标」在这里就要挡掉，不能等到杀已经开始才发现没有合法目标
   if (isTargetProhibited(state, userId, targetId, '杀', skillIdsOf)) return []
 
