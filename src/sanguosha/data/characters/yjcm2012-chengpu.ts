@@ -1,6 +1,6 @@
 import { cardDamageDealt } from '../../engine/card-damage-ledger'
 import { declaredCardActions, executeUseCardAction } from '../../engine/cards/basic'
-import { declinedThisPhase, markDeclinedThisPhase } from '../../engine/phase-usage'
+import { clearDeclinedThisPhase, declinedThisPhase, markDeclinedThisPhase } from '../../engine/phase-usage'
 import { recover } from '../../engine/recover'
 import { loseHp } from '../../engine/hp'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
@@ -66,6 +66,15 @@ export function chunOf(state: SanguoshaState, ownerId: PlayerId): CardId[] {
 registerSkillRuntime({
   id: LIHUO,
   announcesSelf: true,
+  /*
+   * 这条主动入口最终会**使用一张牌**，所以被「不能使用牌」的效果封住时
+   * 不该再展示。
+   *
+   * `legalPlayActions` 末尾那道禁用过滤只筛 `use-card` 动作，筛不到
+   * 主动技按钮；不声明这一条的话，按钮照出、点下去却静默失败，
+   * 场面一点没变——压测里这就是个无限循环（seed=banner-18）。
+   */
+  activeActionUsesCard: true,
 
   /**
    * 「你使用火【杀】时可以多选择一个目标」。
@@ -138,6 +147,15 @@ registerSkillRuntime({
       }
       if (!owner?.alive || !convertibleSlashes(host.state, ownerId).includes(cardId)) return
       /*
+       * **提交的一刻先上锁。**
+       *
+       * 到这里为止疠火一分代价都没付（属性还没落到牌上），所以后面任何一条
+       * 失败分支都会让场面**一点没变**——同一条动作原样重现，压测里就是个
+       * 无限循环（seed=banner-18）。先上锁，等这次使用真的落地了再解开：
+       * 失败路径必然停住，成功路径一次合法发动都不损失。
+       */
+      markDeclinedThisPhase(host.state, ownerId, LIHUO)
+      /*
        * **先算目标再落属性。**
        *
        * 目标按「已经是火【杀】」算，所以这里把 nature 作为参数传下去，
@@ -146,7 +164,11 @@ registerSkillRuntime({
        */
       const actions = declaredCardActions(host.state, ownerId, cardId, '杀', '【疠火】', { nature: 'fire' })
       const useActions = actions.filter((action) => action.kind === 'use-card')
-      if (useActions.length === 0) return
+      // 落地不了就留放弃记号：这一步没有付任何代价，不留记号会被反复点开
+      if (useActions.length === 0) {
+        markDeclinedThisPhase(host.state, ownerId, LIHUO)
+        return
+      }
       const candidateIds = [...new Set(useActions.flatMap((action) => action.kind === 'use-card' ? action.targetIds : []))]
       const maxTargets = Math.max(...useActions.map((action) => action.kind === 'use-card' ? action.targetIds.length : 1))
       host.askSkill({
@@ -166,12 +188,21 @@ registerSkillRuntime({
     if (resolution.step === 'targets') {
       const cardId = resolution.data.cardId as CardId
       const targetIds = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
-      if (!owner?.alive || targetIds.length === 0) return
+      /*
+       * **选目标这一步落空时必须留放弃记号。**
+       *
+       * 到这里为止疠火一分代价都没付（属性还没落到牌上），所以什么都不做
+       * 意味着场面**一点没变**——同一条动作会原样重新出现，选出同样的空目标，
+       * 再原样什么都不做。压测里这就是个无限循环（seed=banner-18）。
+       */
+      const decline = (): void => { markDeclinedThisPhase(host.state, ownerId, LIHUO) }
+      if (!owner?.alive) return
+      if (targetIds.length === 0) return decline()
       const actions = declaredCardActions(host.state, ownerId, cardId, '杀', '【疠火】', { nature: 'fire' })
       const action = actions.find((candidate) => candidate.kind === 'use-card'
         && candidate.targetIds.length === targetIds.length
         && candidate.targetIds.every((id) => targetIds.includes(id)))
-      if (!action || action.kind !== 'use-card') return
+      if (!action || action.kind !== 'use-card') return decline()
 
       // 属性落到这张实体牌上：不新造牌，仍然是原来那一张
       setCardNature(host.state, cardId, 'fire')
@@ -186,6 +217,8 @@ registerSkillRuntime({
        * 所以标记落在牌上，不落在「程普这回合出过火杀」这种回合级判据上。
        */
       host.state.natureConvertedCardIds = [...new Set([...(host.state.natureConvertedCardIds ?? []), cardId])]
+      // 真的用出去了：解开提交时上的那把锁，本阶段还能再发动（若还打得出杀）
+      clearDeclinedThisPhase(host.state, ownerId, LIHUO)
       executeUseCardAction(host as never, ownerId, action)
     }
   },

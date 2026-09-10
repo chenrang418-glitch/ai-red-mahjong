@@ -83,6 +83,15 @@ function discardVirtual(state: SanguoshaState, ownerId: PlayerId, cardId: CardId
 registerSkillRuntime({
   id: FUHUN,
   announcesSelf: true,
+  /*
+   * 这条主动入口最终会**使用一张牌**，所以被「不能使用牌」的效果封住时
+   * 不该再展示。
+   *
+   * `legalPlayActions` 末尾那道禁用过滤只筛 `use-card` 动作，筛不到
+   * 主动技按钮；不声明这一条的话，按钮照出、点下去却静默失败，
+   * 场面一点没变——压测里这就是个无限循环（seed=banner-18）。
+   */
+  activeActionUsesCard: true,
 
   // ── 使用：出牌阶段主动把两张手牌当【杀】用 ──
   activeActions(state, ownerId) {
@@ -190,6 +199,7 @@ registerSkillRuntime({
       if (actions.length === 0) {
         // 落地时已经没有合法目标：把印出来的牌撤掉，不留残牌
         discardVirtual(host.state, ownerId, cardId)
+        markDeclinedThisPhase(host.state, ownerId, FUHUN)
         return
       }
       const candidateIds = [...new Set(actions.flatMap((action) => action.kind === 'use-card' ? action.targetIds : []))]
@@ -213,7 +223,9 @@ registerSkillRuntime({
         && candidate.targetIds.length === targetIds.length
         && candidate.targetIds.every((id) => targetIds.includes(id)))
       if (!action || action.kind !== 'use-card') {
+        // 选目标落空：撤掉虚拟牌，并留放弃记号免得同一个阶段里被反复点开
         discardVirtual(host.state, ownerId, cardId)
+        markDeclinedThisPhase(host.state, ownerId, FUHUN)
         return
       }
       executeUseCardAction(host as never, ownerId, action)

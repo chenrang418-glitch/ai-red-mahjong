@@ -70,3 +70,18 @@ export function declinedThisPhase(state: SanguoshaState, playerId: PlayerId, ski
 export function markDeclinedThisPhase(state: SanguoshaState, playerId: PlayerId, skillId: string): void {
   markUsedThisPhase(state, playerId, `${skillId}:declined`)
 }
+
+/**
+ * 撤掉放弃记号。
+ *
+ * 给「提交即上锁、成功落地再解锁」这种用法：有的技能在玩家**确认之前**
+ * 一分代价都不付（程普【疠火】选完牌还没落属性），失败分支因此零状态变化、
+ * 会被反复点开。那类技能在提交的一刻就先上锁，真的落地之后再解开——
+ * 于是失败路径必然停住，而成功路径不损失任何一次合法发动。
+ */
+export function clearDeclinedThisPhase(state: SanguoshaState, playerId: PlayerId, skillId: string): void {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player?.turnUsedSkills) return
+  const mark = `${skillId}:declined@${phaseKey(state)}`
+  player.turnUsedSkills = player.turnUsedSkills.filter((entry) => entry !== mark)
+}

@@ -4,6 +4,7 @@ import { GUANXING_ZHANGBAO } from './yjcm2012-guanxingzhangbao'
 import { BULIANSHI } from './yjcm2012-bulianshi'
 import { CHENGPU } from './yjcm2012-chengpu'
 import { HANDANG } from './yjcm2012-handang'
+import { HUAXIONG } from './yjcm2012-huaxiong'
 import { LIUBIAO } from './yjcm2012-liubiao'
 import { MADAI } from './yjcm2012-madai'
 import { LIAOHUA } from './yjcm2012-liaohua'
@@ -33,4 +34,5 @@ export const YJCM2012_CHARACTERS: readonly CharacterDefinition[] = [
   HANDANG,
   BULIANSHI,
   LIUBIAO,
+  HUAXIONG,
 ] as const

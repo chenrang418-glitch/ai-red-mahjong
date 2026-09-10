@@ -44,6 +44,15 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
 registerSkillRuntime({
   id: QICE,
   announcesSelf: true,
+  /*
+   * 这条主动入口最终会**使用一张牌**，所以被「不能使用牌」的效果封住时
+   * 不该再展示。
+   *
+   * `legalPlayActions` 末尾那道禁用过滤只筛 `use-card` 动作，筛不到
+   * 主动技按钮；不声明这一条的话，按钮照出、点下去却静默失败，
+   * 场面一点没变——压测里这就是个无限循环（seed=banner-18）。
+   */
+  activeActionUsesCard: true,
 
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
