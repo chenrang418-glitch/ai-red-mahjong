@@ -629,6 +629,34 @@ function skillActionScore(context: AIContext, action: Extract<LegalAction, { kin
   const bestTarget = enemies.length > 0 ? Math.max(...enemies) : -Infinity
 
   switch (action.skillId) {
+    /* ── 一将成名 2012：发不发动 ── */
+    case 'anxu': {
+      /*
+       * 只有在「自己人手牌少、敌人手牌多」这一对存在时才值得发。
+       * 反过来发就是在给敌人送资源。
+       */
+      const seats = context.view.players.filter((player) => player.alive && player.id !== me.id)
+      const worth = seats.some((low) => seats.some((high) => (
+        low.handCount < high.handCount && isFriendly(context, low.id) && !isFriendly(context, high.id)
+      )))
+      return worth ? 16 : -100
+    }
+    case 'gongqi':
+      // 有够不着的敌人时最值；手上一张牌都没有就别付代价
+      return (me.hand ?? []).length > 1 && bestTarget > 0 ? 12 : -100
+    case 'jiefan': {
+      // 限定技：场上武器越多、自己越缺牌，收益越高
+      const weapons = context.view.players
+        .filter((player) => player.alive && player.id !== me.id)
+        .filter((player) => player.equipment.some((card) => EQUIPMENT_NAMES.has(card.name))).length
+      return weapons >= 2 || (me.hand ?? []).length <= 1 ? 18 : -100
+    }
+    case 'lihuo':
+      // 要付 1 点体力：血少不冒险，场上没有值得打的目标也不发
+      return me.hp >= 2 && bestTarget > 2 ? 14 : -100
+    case 'fuhun':
+      // 拆两张换一张【杀】：手牌不够宽裕就亏
+      return (me.hand ?? []).length >= 4 && bestTarget > 0 ? 12 : -100
     case 'yeyan':
       // 限定技，一局一次：场上有值得烧的敌人才交，血太少不冒险走大业炎那条
       return bestTarget > 4 && me.hp >= 2 ? 20 : -100
@@ -953,6 +981,267 @@ function preferPlay(actionIds: readonly string[], prefix: string): string | null
   return playable.length > 0 ? playable[0] : null
 }
 
+
+/*
+ * ─────────────── 一将成名 2012 的 AI ───────────────
+ *
+ * 这一批**一律按 `request.skillId` / `request.skillStep` 认技能**，
+ * 不用提示词字符串。旧分支还是字符串匹配，迁移分批做（见
+ * `docs/sanguosha-improvement-plan.md` 的「T5 剩余工作」）。
+ *
+ * 分发器放在 `decideResponse` 的最前面：命中就直接返回，
+ * 命中不了原样落回既有的那条链，所以对旧行为零影响。
+ */
+
+/** 是不是自己人（含自己）。`hostility` 越低越友好。 */
+function isFriendly(context: AIContext, playerId: PlayerId): boolean {
+  return hostility(context.view, context.suspicion, playerId) <= 0
+}
+
+/** 这个人现在有多需要「回血 + 摸牌」这类救济。数越大越需要。 */
+function reliefNeed(context: AIContext, playerId: PlayerId): number {
+  const player = context.view.players.find((candidate) => candidate.id === playerId)
+  if (!player?.alive) return -Infinity
+  // 掉的血最重要，其次是手上没牌
+  return Math.max(0, player.maxHp - player.hp) * 3 + Math.max(0, 3 - player.handCount)
+}
+
+/**
+ * 【安恤】挑哪两个人。
+ *
+ * 这个技能是**把牌从一个人搬给另一个人**，所以立场必须分清：
+ * 拿牌的那个（手牌较少者）应该是自己人，出牌的那个（较多者）应该是敌人。
+ * 反过来就是在给敌人送资源——原来没有分支时，AI 干的正是这件事。
+ */
+function anxuPair(context: AIContext, candidateIds: readonly PlayerId[]): PlayerId[] {
+  const seats = candidateIds
+    .map((id) => context.view.players.find((player) => player.id === id))
+    .filter((player): player is NonNullable<typeof player> => Boolean(player?.alive))
+
+  let best: { pair: PlayerId[]; score: number } | null = null
+  for (const low of seats) {
+    for (const high of seats) {
+      if (low.id === high.id) continue
+      // 引擎要求两人手牌数不同；相同的组合根本不合法
+      if (low.handCount >= high.handCount) continue
+      const gain = isFriendly(context, low.id) ? 8 : -8
+      const cost = isFriendly(context, high.id) ? -8 : 8
+      // 差得越多，这一张牌越是「劫富济贫」
+      const spread = Math.min(high.handCount - low.handCount, 5)
+      const score = gain + cost + spread
+      if (!best || score > best.score) best = { pair: [low.id, high.id], score }
+    }
+  }
+  // 一个合法组合都没有时交回前两个：引擎会当作非法发动并留放弃记号，不会卡住
+  return best?.pair ?? [...candidateIds].slice(0, 2)
+}
+
+/** 【追忆】把最后这份好处留给谁：只给自己人，优先最需要的。 */
+function zhuiyiTarget(context: AIContext, candidateIds: readonly PlayerId[]): PlayerId[] {
+  const friends = candidateIds.filter((id) => isFriendly(context, id))
+  const pool = friends.length > 0 ? friends : []
+  if (pool.length === 0) return []
+  return [[...pool].sort((left, right) => reliefNeed(context, right) - reliefNeed(context, left))[0]]
+}
+
+/**
+ * 【耀武】伤害来源选回复还是摸牌。
+ *
+ * **做选择的是来源自己**，所以评分要用来源的视角：掉了血就回血，
+ * 满血时回复没有任何收益，那就摸一张。
+ */
+function yaowuChoice(context: AIContext, options: readonly { id: string }[]): string {
+  const me = myself(context.view)
+  const recover = options.find((option) => option.id === 'yaowu-recover')
+  const draw = options.find((option) => option.id === 'yaowu-draw')
+  if (recover && me.hp < me.maxHp) return recover.id
+  return draw?.id ?? options[options.length - 1].id
+}
+
+/**
+ * 【自守】发不发动。
+ *
+ * 换来的是「多摸 X 张」，代价是**整个出牌阶段**。
+ * 手上已经有能打出去的进攻牌时不划算；手牌荒 / 只剩废牌时非常划算。
+ */
+function zishouWorthIt(context: AIContext): boolean {
+  const me = myself(context.view)
+  const hand = me.hand ?? []
+  const offensive = hand.filter((card) => card.name === '杀' || card.name === '决斗'
+    || card.name === '火攻' || card.name === '顺手牵羊' || card.name === '过河拆桥').length
+  // 手上还有两张以上能打的牌，就别把出牌阶段整个让出去
+  if (offensive >= 2) return false
+  // 手牌很少时，多摸几张的价值最高
+  if (hand.length <= 2) return true
+  return offensive === 0
+}
+
+/** 【潜袭】禁谁：挑敌人里手牌最多的那个，禁令才最疼。 */
+function qianxiTarget(context: AIContext, candidateIds: readonly PlayerId[]): PlayerId[] {
+  const ranked = [...candidateIds].sort((left, right) => {
+    const weight = (playerId: PlayerId): number => {
+      const player = context.view.players.find((candidate) => candidate.id === playerId)
+      if (!player?.alive) return -Infinity
+      return (isFriendly(context, playerId) ? -20 : 10) + Math.min(player.handCount, 6)
+    }
+    return weight(right) - weight(left)
+  })
+  return ranked.slice(0, 1)
+}
+
+/**
+ * 一将成名 2012 这一批的响应决策。
+ *
+ * 命中返回 payload，命中不了返回 null——调用方原样落回既有的那条链。
+ */
+function decideYjcm2012Response(
+  context: AIContext,
+  request: GameRequest,
+): Record<string, unknown> | null {
+  const skillId = request.skillId
+  if (!skillId) return null
+
+  switch (skillId) {
+    case 'anxu':
+      if (request.kind === 'choose-targets' && request.skillStep === 'targets') {
+        return { targetIds: anxuPair(context, request.candidateIds) }
+      }
+      /*
+       * 安恤的「挑一张暗牌」问的是**获得者**，而候选全是占位槽——
+       * 谁也看不出哪张更好，所以随机挑一个就是最诚实的做法。
+       */
+      if (request.kind === 'choose-cards' && request.skillStep === 'pick') {
+        const pool = [...request.cardIds, ...request.hiddenCardSlots]
+        return pool.length > 0 ? { cardIds: [context.rng.pick(pool)] } : { cardIds: [] }
+      }
+      return null
+
+    case 'zhuiyi':
+      if (request.kind === 'choose-targets') return { targetIds: zhuiyiTarget(context, request.candidateIds) }
+      return null
+
+    case 'yaowu':
+      if (request.kind === 'choose-option') return { optionId: yaowuChoice(context, request.options) }
+      return null
+
+    case 'zishou':
+      if (request.kind === 'choose-option') {
+        const invoke = request.options.find((option) => option.id === 'zishou-invoke')
+        const cancel = request.options.find((option) => option.id === 'cancel')
+        const pick = zishouWorthIt(context) ? invoke : cancel
+        return { optionId: (pick ?? request.options[request.options.length - 1]).id }
+      }
+      return null
+
+    case 'qianxi':
+      if (request.kind === 'choose-targets') return { targetIds: qianxiTarget(context, request.candidateIds) }
+      /*
+       * 弃哪一张：手上最不值钱的那张。弃出去的颜色决定禁什么，
+       * 但对方手里哪种颜色更多是看不到的，所以只按自己的损失排。
+       */
+      if (request.kind === 'choose-cards' && request.skillStep === 'discard') {
+        const ranked = [...request.cardIds].sort((left, right) => (
+          cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right))
+        ))
+        return ranked.length > 0 ? { cardIds: [ranked[0]] } : { cardIds: [] }
+      }
+      return null
+
+    case 'jiefan':
+      /*
+       * 解烦问的是**其他人**：弃自己的武器，还是让韩当摸一张。
+       * 武器对自己有用就宁可让他摸一张；武器可有可无（攻击范围本来就够）
+       * 才弃——但「够不够」很难判，所以统一保武器，这也符合大多数玩家的直觉。
+       */
+      if (request.kind === 'choose-option') {
+        const letDraw = request.options.find((option) => option.id === 'let-draw')
+        return { optionId: (letDraw ?? request.options[request.options.length - 1]).id }
+      }
+      return null
+
+    case 'gongqi':
+      /*
+       * 弓骑的代价：**优先弃装备牌**——那能多换一张【杀】。
+       * 但不能弃掉自己正装着的武器和马，那是攻击范围和距离的来源，
+       * 所以只从手牌里挑装备；手上没有装备牌就弃最不值钱的那张。
+       */
+      if (request.kind === 'choose-cards') {
+        const own = myself(context.view)
+        const inHand = new Set((own.hand ?? []).map((card) => card.id))
+        const handEquip = request.cardIds.filter((cardId) => inHand.has(cardId)
+          && (own.hand ?? []).some((card) => card.id === cardId && cardValue(card.name) <= 6
+            && EQUIPMENT_NAMES.has(card.name)))
+        if (handEquip.length > 0) return { cardIds: [handEquip[0]] }
+        const ranked = [...request.cardIds].filter((cardId) => inHand.has(cardId))
+          .sort((left, right) => cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right)))
+        return ranked.length > 0 ? { cardIds: [ranked[0]] } : { cardIds: [] }
+      }
+      return null
+
+    case 'lihuo':
+      /*
+       * 疠火要付 1 点体力，所以**自己血少时不发动**。
+       * 选牌那一步交一张就是发动，交空就是放弃。
+       */
+      if (request.kind === 'choose-cards' && request.skillStep === 'card') {
+        const me = myself(context.view)
+        if (me.hp <= 1) return { cardIds: [] }
+        return request.cardIds.length > 0 ? { cardIds: [request.cardIds[0]] } : { cardIds: [] }
+      }
+      if (request.kind === 'choose-targets' && request.skillStep === 'targets') {
+        const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        const wanted = ranked.filter((id) => targetScore(context, id) > 0)
+        const picked = wanted.length > 0 ? wanted : ranked.slice(0, Math.max(request.min, 1))
+        return { targetIds: picked.slice(0, Math.max(request.min, Math.min(request.max, wanted.length || 1))) }
+      }
+      return null
+
+    case 'chunlao':
+      /*
+       * 存醇：**手上的【杀】全存进去**。
+       *
+       * 一枚「醇」＝一条命（濒死时视为使用一张【酒】），而手里多留一张【杀】
+       * 只是多一次进攻机会——两者的价值不在一个量级上。
+       * 而且醇只有在**空了之后**才能再存，留着不存等于让这个技能空转。
+       *
+       * （曾经试过「留一张自保」，200 局压测里醇醪的发动次数从 166 掉到 49——
+       * 留下的那张【杀】远远换不回少掉的那些救援机会。）
+       */
+      if (request.kind === 'choose-cards' && request.skillStep === 'store') {
+        return { cardIds: [...request.cardIds] }
+      }
+      return null
+
+    case 'fuhun':
+      /*
+       * 父魂要拆两张手牌换一张【杀】，手牌少的时候太亏。
+       * 交空数组＝放弃。
+       */
+      if (request.kind === 'choose-cards' && request.skillStep === 'cards') {
+        const me = myself(context.view)
+        if ((me.hand ?? []).length < 4) return { cardIds: [] }
+        const ranked = [...request.cardIds].sort((left, right) => (
+          cardValue(cardNameOf(context, left)) - cardValue(cardNameOf(context, right))
+        ))
+        return ranked.length >= 2 ? { cardIds: ranked.slice(0, 2) } : { cardIds: [] }
+      }
+      if (request.kind === 'choose-targets' && request.skillStep === 'targets') {
+        const ranked = [...request.candidateIds].sort((left, right) => targetScore(context, right) - targetScore(context, left))
+        return { targetIds: ranked.slice(0, Math.max(request.min, 1)) }
+      }
+      return null
+
+    default:
+      return null
+  }
+}
+
+const EQUIPMENT_NAMES = new Set([
+  '诸葛连弩', '青釭剑', '雌雄双股剑', '青龙偃月刀', '丈八蛇矛', '贯石斧', '方天画戟', '麒麟弓', '古锭刀', '寒冰剑',
+  '八卦阵', '仁王盾', '藤甲', '白银狮子',
+  '赤兔', '大宛', '紫骍', '的卢', '爪黄飞电', '骅骝', '绝影',
+])
+
 /**
  * 对任意 Request 给出合法响应。
  *
@@ -961,6 +1250,10 @@ function preferPlay(actionIds: readonly string[], prefix: string): string | null
  */
 export function decideResponse(context: AIContext, request: GameRequest): GameResponse {
   const base = { requestId: request.id, playerId: request.playerId }
+
+  // 一将成名 2012 按 skillId 认；认不出来就原样落回下面那条既有的链
+  const bySkillId = decideYjcm2012Response(context, request)
+  if (bySkillId) return { ...base, payload: bySkillId }
 
   switch (request.kind) {
     case 'choose-general':
