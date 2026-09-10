@@ -5,6 +5,7 @@ import { abolishSlot, equipmentSlotsOf, grantExtraWeaponSlot } from '../../engin
 import { handleEquipmentLost } from '../../engine/equipment'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import { canTarget, getDistance } from '../../engine/distance'
+import { declinedThisPhase, markDeclinedThisPhase } from '../../engine/phase-usage'
 import { moveCard } from '../../engine/zones'
 import type { ChooseCardsRequest, ChooseOptionsRequest } from '../../engine/requests'
 import type { CardId, EquipmentSlot, PlayerId, SanguoshaState } from '../../engine/types'
@@ -195,6 +196,14 @@ registerSkillRuntime({
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
     if (!owner?.alive) return []
+    /*
+     * 这个阶段里已经点开又放弃过：不再报出来。
+     *
+     * 取消之后场面一点没变，同一条动作会原样重新出现——压测里那就是个
+     * 无限循环。护栏的完整说明见 `docs/sanguosha-architecture.md`
+     * 的「可取消主动技的活锁护栏」一节。
+     */
+    if (declinedThisPhase(state, ownerId, CUIJUE)) return []
     // 代价是弃一张自己的牌：手牌或装备区都行
     if (owner.zones.hand.length === 0 && Object.values(owner.zones.equipment).every((cardId) => !cardId)) return []
     if (cuijueTargets(state, ownerId).length === 0) return []
@@ -216,7 +225,15 @@ registerSkillRuntime({
         prompt: '【摧决】：弃置一张牌',
         timeoutMs: 25_000, optional: true, purpose: 'skill',
         cardIds: payable, hiddenCardSlots: [],
-        min: 1, max: 1,
+        /*
+         * **可取消的「恰好选 N 张」必须写成 `min: 0`。**
+         *
+         * `optional: true` 只是给界面看的；校验读的是 `min`，
+         * 超时兜底（`timeout-default.ts`）读的也是 `min === 0`。
+         * 写成 `min: 1` 的话，技能标着「可以取消」却交不上空数组，
+         * 联机超时还会落到没有默认答案的分支。
+         */
+        min: 0, max: 1,
       }),
     })
   },
@@ -224,7 +241,12 @@ registerSkillRuntime({
     if (resolution.step === 'cost') {
       const [cardId] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
       const owner = playerOf(host.state, ownerId)
-      if (!owner?.alive || !cardId) return
+      // 交空数组 = 放弃：一分代价都不收，但要留下放弃记号免得被反复点开
+      if (!cardId) {
+        markDeclinedThisPhase(host.state, ownerId, CUIJUE)
+        return
+      }
+      if (!owner?.alive) return
       discardOwn(host, ownerId, cardId)
       /*
        * **弃完之后重新算目标**。

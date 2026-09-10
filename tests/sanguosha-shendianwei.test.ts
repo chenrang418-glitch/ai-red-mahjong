@@ -9,6 +9,7 @@ import { equipmentSlotsOf, hasExtraWeaponSlot, isSlotAbolished, weaponCardsOf } 
 import { getAttackRange } from '@/sanguosha/engine/distance'
 import { ruleCardNumber } from '@/sanguosha/engine/deck'
 import { ownedSkillIds } from '@/sanguosha/engine/skills/runtime'
+import { declinedThisPhase } from '@/sanguosha/engine/phase-usage'
 import { borrowableSkillIdsOf, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId, SanguoshaState } from '@/sanguosha/engine/types'
 
@@ -277,6 +278,18 @@ describe('公共机制：武将牌当装备', () => {
   })
 })
 
+/**
+ * 摧决的代价问现在是 `min: 0`（真的可以取消），
+ * 所以**默认答案是空数组＝放弃**。想真的发动就必须把代价牌交上去。
+ */
+function payCuijueCost(request: AnyRequest): Record<string, unknown> | null {
+  if (request.kind === 'choose-cards' && request.prompt?.includes('摧决')) {
+    const pick = request as unknown as { cardIds: string[] }
+    return { cardIds: pick.cardIds.slice(0, 1) }
+  }
+  return null
+}
+
 describe('神·典韦：摧决', () => {
   it('只打攻击范围内距离最远的，且每名角色每回合限一次', () => {
     const game = gameAt('dw-cuijue')
@@ -294,7 +307,7 @@ describe('神·典韦：摧决', () => {
       const action = game.legalActions('p0').find((candidate) => candidate.kind === 'invoke-skill' && candidate.skillId === 'cuijue')
       if (!action) break
       game.act('p0', action.id)
-      settle(game)
+      settle(game, payCuijueCost)
     }
     expect(hit.length, '打了不止一次').toBeGreaterThan(1)
     expect(new Set(hit).size, '每名角色每回合最多被打一次').toBe(hit.length)
@@ -308,7 +321,7 @@ describe('神·典韦：摧决', () => {
     giveCard(game, 'p0', '闪')
     const action = game.legalActions('p0').find((candidate) => candidate.kind === 'invoke-skill' && candidate.skillId === 'cuijue')!
     game.act('p0', action.id)
-    settle(game)
+    settle(game, payCuijueCost)
     expect(Object.keys(playerOf(game, 'p0').marks).some((key) => key.startsWith('cuijue-hit:'))).toBe(true)
 
     for (let guard = 0; guard < 8 && game.state.currentPlayerId === 'p0'; guard += 1) {
@@ -319,6 +332,36 @@ describe('神·典韦：摧决', () => {
       Object.keys(playerOf(game, 'p0').marks).some((key) => key.startsWith('cuijue-hit:')),
       '回合一结束就清空，下个回合还能打同一个人',
     ).toBe(false)
+  })
+
+  it('取消：一分代价都不收，但同一阶段不再重复弹出', () => {
+    const game = gameAt('dw-cuijue-cancel')
+    playerOf(game, 'p0').attackRangeBonus = 10
+    trimHand(game, 'p0', 0)
+    giveCard(game, 'p0', '闪')
+    const handBefore = playerOf(game, 'p0').zones.hand.length
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'invoke-skill' && candidate.skillId === 'cuijue')!
+    game.act('p0', action.id)
+    // 交空数组 = 取消。原来 min 是 1，这一步会直接抛「卡牌选择非法」
+    settle(game, (request) => (
+      request.kind === 'choose-cards' && request.prompt?.includes('摧决') ? { cardIds: [] } : null
+    ))
+
+    expect(playerOf(game, 'p0').zones.hand.length, '代价牌还在手上').toBe(handBefore)
+    expect(
+      Object.keys(playerOf(game, 'p0').marks).some((key) => key.startsWith('cuijue-hit:')),
+      '没有打到任何人',
+    ).toBe(false)
+    expect(declinedThisPhase(game.state, 'p0', 'cuijue'), '留下了放弃记号').toBe(true)
+    /*
+     * 取消之后场面一点没变，所以这条动作在**同一个阶段实例**里不再报出来——
+     * 不加这道护栏，压测里会被反复点开成无限循环。
+     */
+    const again = game.legalActions('p0').find((candidate) => candidate.kind === 'invoke-skill' && candidate.skillId === 'cuijue')
+    expect(again, '同一个阶段里不再重复弹出').toBeUndefined()
+    assertCardConservation(game.state)
+    assertGameInvariants(game.state)
   })
 })
 
