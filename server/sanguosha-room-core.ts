@@ -2,6 +2,8 @@ import { SanguoshaGame } from '../src/sanguosha/engine/game'
 import { GameRng } from '../src/sanguosha/engine/rng'
 import { decideResponse, decidePlayAction, isTrivialAIRequest, type AIContext, type AIDifficulty } from '../src/sanguosha/ai'
 import { emptySuspicion, observeEvent, type SuspicionMap } from '../src/sanguosha/ai/belief'
+import { assertGameInvariants } from '../src/sanguosha/engine/invariants'
+import { assertCardConservation } from '../src/sanguosha/engine/zones'
 import { describeEvent } from '../src/sanguosha/engine/log'
 import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha/engine/presentation'
 import type { GameRequest, GameResponse } from '../src/sanguosha/engine/requests'
@@ -11,6 +13,16 @@ import type { PlayerView } from '../src/sanguosha/engine/view'
 import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS, playActionDelay } from '../src/sanguosha/shared/timing'
 import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView, SgsSeatTimer, SgsTimerKind } from '../src/sanguosha/online/protocol'
 export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
+
+/**
+ * 会推进引擎的指令。只有这些需要在失败时整体回滚。
+ *
+ * 聊天、准备、换座、离座不碰牌局，拍快照纯属浪费。
+ */
+const ENGINE_MUTATING_COMMANDS = new Set(['respond', 'act', 'advance', 'start-game', 'trustee'])
+
+/** 每多少个引擎步跑一次牌张守恒。见 `assertGameHealthy`。 */
+const CONSERVATION_CHECK_EVERY = 8
 
 export interface SgsRoomTiming {
   aiPaceMs: number
@@ -484,7 +496,26 @@ export class SanguoshaRoomCoordinator {
       }
     }
 
-    const result = this.handleCommand(userId, command, now)
+    /*
+     * **玩家指令也要能整体回滚。**
+     *
+     * `game.act()` / `game.respond()` 可能已经改了一半引擎状态，
+     * 后面的 hook 或不变量校验才抛异常。不回滚的话这个房间会带着
+     * 半改过的状态继续跑（Worker 那层只是把错误回给客户端、不落盘，
+     * 但同一个 DO 实例的内存状态已经脏了）。
+     *
+     * 用的是和定时任务同一套 restore point（含 RNG、战报、表现事件）。
+     * 只对**会动引擎**的指令拍快照——聊天、准备、换座不需要。
+     */
+    const guarded = ENGINE_MUTATING_COMMANDS.has(command.type)
+    const restorePoint = guarded && this.state.game ? this.captureRestorePoint() : null
+    let result: SgsChatMessage | null
+    try {
+      result = this.handleCommand(userId, command, now)
+    } catch (cause) {
+      if (restorePoint) this.restoreTo(restorePoint)
+      throw cause
+    }
     if (command.actionId) {
       this.state.processedActionIds!.push(command.actionId)
       if (this.state.processedActionIds!.length > 256) this.state.processedActionIds!.splice(0, this.state.processedActionIds!.length - 256)
@@ -751,6 +782,35 @@ export class SanguoshaRoomCoordinator {
     this.state.stageKey = `${game.state.seq}:${game.state.pendingRequests[0]?.id ?? ''}:${game.state.currentPlayerId}:${game.state.phase}`
     this.touch(now)
     this.scheduleNext(now)
+    /*
+     * **每走一步都验一次牌局是不是还合法。**
+     *
+     * 放在这里是因为所有推进引擎的路径最后都会经过 `afterEngineStep`：
+     * 玩家指令、AI 步、超时兜底、阶段自动推进。
+     *
+     * 校验失败会抛，两条路径都接得住并整体回滚：定时任务走
+     * `runDueJobs` 的 catch，玩家指令走 `handle` 的 catch。
+     * 没有这道校验的话，「牌被复制」「请求发给死人」这类**不抛错的坏状态**
+     * 会带着往下跑，直到某一步撞上别的错误才暴露——那时已经离现场很远了。
+     */
+    this.assertGameHealthy(game.state)
+  }
+
+  /**
+   * 牌局健康检查。**只读，不修改任何状态。**
+   *
+   * 分两档跑，是因为两者的代价差一个量级：
+   *
+   * - `assertGameInvariants` 只扫玩家和待处理请求，每步都跑；
+   * - `assertCardConservation` 要遍历全部牌（约 160 张）并建集合，
+   *   按 `CONSERVATION_CHECK_EVERY` 抽样跑。抽样不是为了省那点 CPU，
+   *   而是因为它在**每一步**都跑时会明显拉长 Durable Object 的单次唤醒。
+   *   牌张不守恒是持续性的坏状态，抽样一样抓得到，只是晚几步。
+   */
+  private assertGameHealthy(state: SanguoshaState): void {
+    assertGameInvariants(state)
+    this.healthCheckTick = (this.healthCheckTick + 1) % CONSERVATION_CHECK_EVERY
+    if (this.healthCheckTick === 0) assertCardConservation(state)
   }
 
   /**
@@ -1022,6 +1082,9 @@ export class SanguoshaRoomCoordinator {
    *
    * 现在的做法是执行前留一份可回滚的快照，失败时整体回滚再按退避重排。
    */
+  /** 牌张守恒的抽样计数器。见 `assertGameHealthy`。 */
+  private healthCheckTick = 0
+
   runDueJobs(now = Date.now()): boolean {
     let changed = false
     for (let guard = 0; guard < 200; guard += 1) {
