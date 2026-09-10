@@ -133,6 +133,36 @@ for (const viewport of [PORTRAIT, WIDE_LANDSCAPE, DESKTOP]) {
   })
 }
 
+/*
+ * 一将成名 2012 第三批四将**也都还没有立绘**，走的是文字底纹那条分支。
+ * 和第二批同样的理由：势力角标曾经在这条分支上压住武将名。
+ */
+for (const viewport of [PORTRAIT, WIDE_LANDSCAPE, DESKTOP]) {
+  test(`${viewport.width}x${viewport.height} 一将成名 2012 第三批四将在牌桌上显示正常`, async ({ page }, testInfo) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await page.setViewportSize(viewport)
+    await enterDevLineup(page, ['handang', 'bulianshi', 'liubiao', 'huaxiong', 'guanyu'])
+    const seats = page.locator('.sgs-seat')
+    await expect(seats).toHaveCount(5)
+    for (const name of ['韩当', '步练师', '刘表', '华雄']) {
+      await expect(page.locator('.sgs-seat').filter({ hasText: name })).toHaveCount(1)
+    }
+    const overlaps = await seats.evaluateAll((nodes) => nodes.map((seat) => {
+      const badge = seat.querySelector('.sgs-faction-badge') as HTMLElement | null
+      const general = seat.querySelector('.sgs-seat__general') as HTMLElement | null
+      if (!badge || !general) return false
+      const b = badge.getBoundingClientRect()
+      const g = general.getBoundingClientRect()
+      return b.left < g.right && b.right > g.left && b.top < g.bottom && b.bottom > g.top
+    }))
+    expect(overlaps.every((hit) => !hit), '势力角标不该压住武将名').toBe(true)
+    await expectNoPageScroll(page)
+    await page.screenshot({ path: testInfo.outputPath('yjcm2012-batch3-table.png'), animations: 'disabled' })
+    expect(errors).toEqual([])
+  })
+}
+
 for (const viewport of REQUIRED_FACTION_VIEWPORTS) {
   test(`${viewport.width}x${viewport.height} 对局势力角标清晰且不遮挡公开信息`, async ({ page }) => {
     await page.setViewportSize(viewport)

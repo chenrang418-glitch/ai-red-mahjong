@@ -266,48 +266,52 @@ describe('华雄【耀武】：来源选择', () => {
     assertGameInvariants(game.state)
   })
 
-  it('来源就是华雄自己时不弹选择', () => {
-    /*
-     * 让华雄手里的红【杀】打到自己身上是构造不出来的（【杀】不能指定自己），
-     * 所以直接从伤害入口造一次「自己是来源」的红【杀】伤害。
-     */
-    const game = gameAt('yaowu-self-source')
+  /*
+   * 下面三条走 `game.damage` 直接造伤害，因为「自己是来源」「没有来源」
+   * 这两种局面用真实出牌构造不出来（【杀】不能指定自己、也没有无来源的【杀】）。
+   *
+   * **断言的是触发器有没有排队，不是「有没有弹出请求」。**
+   * `game.damage` 只跑伤害管线，不会把技能队列排空——按「没弹请求」去断言的话，
+   * 三条用例会因为队列根本没被放出去而全部空过。
+   */
+  function queuedYaowu(game: SanguoshaGame): boolean {
+    return game.state.skillQueue.some((prompt) => prompt.skillId === 'yaowu')
+  }
+
+  it('对照：来源合法时触发器确实排了队', () => {
+    const game = gameAt('yaowu-queue-control')
     const slash = findCard(game, (card) => card.name === '杀' && card.color === 'red')
-    let asked = false
-    game.damage({ sourceId: HUAXIONG_ID, targetId: HUAXIONG_ID, amount: 1, nature: 'normal', cardId: slash, cardName: '杀' })
-    settle(game, (request) => {
-      if (request.prompt?.includes('耀武')) asked = true
-      return null
-    })
-    expect(asked, '自己打自己不该让自己挑收益').toBe(false)
+    game.damage({ sourceId: 'p2', targetId: HUAXIONG_ID, amount: 1, nature: 'normal', cardId: slash, cardName: '杀' })
+    expect(queuedYaowu(game), '这是下面三条的对照组：合法来源会排队').toBe(true)
   })
 
-  it('无来源的红【杀】伤害不弹选择', () => {
+  it('来源就是华雄自己时不排队', () => {
+    const game = gameAt('yaowu-self-source')
+    const slash = findCard(game, (card) => card.name === '杀' && card.color === 'red')
+    game.damage({ sourceId: HUAXIONG_ID, targetId: HUAXIONG_ID, amount: 1, nature: 'normal', cardId: slash, cardName: '杀' })
+    expect(queuedYaowu(game), '自己打自己不该让自己挑收益').toBe(false)
+  })
+
+  it('无来源的红【杀】伤害不排队', () => {
     const game = gameAt('yaowu-null-source')
     const slash = findCard(game, (card) => card.name === '杀' && card.color === 'red')
-    let asked = false
     game.damage({ sourceId: null, targetId: HUAXIONG_ID, amount: 1, nature: 'normal', cardId: slash, cardName: '杀' })
-    settle(game, (request) => {
-      if (request.prompt?.includes('耀武')) asked = true
-      return null
-    })
-    expect(asked, '没有来源就没有人可选').toBe(false)
+    expect(queuedYaowu(game), '没有来源就没有人可选').toBe(false)
     expect(playerOf(game, HUAXIONG_ID).hp, '伤害本身照常').toBe(playerOf(game, HUAXIONG_ID).maxHp - 1)
   })
 
-  it('来源在排队期间阵亡：安静跳过，不弹无人可答的请求', () => {
+  it('来源在排队期间阵亡：放出去时安静跳过，不弹无人可答的请求', () => {
     const game = gameAt('yaowu-source-dies')
     const slash = findCard(game, (card) => card.name === '杀' && card.color === 'red')
-    let asked = false
     game.damage({ sourceId: 'p2', targetId: HUAXIONG_ID, amount: 1, nature: 'normal', cardId: slash, cardName: '杀' })
-    // 排队已经挂上了；在它被放出去之前把来源打死
+    expect(queuedYaowu(game), '先确认确实排上了队').toBe(true)
     // 阵亡必然伴随身份公开，不补这一句会撞上「死亡角色身份未公开」的不变量
     playerOf(game, 'p2').alive = false
     playerOf(game, 'p2').identityRevealed = true
-    settle(game, (request) => {
-      if (request.prompt?.includes('耀武')) asked = true
-      return null
-    })
+    // 推进一步让队列真正排空
+    game.advancePhase()
+    settle(game)
+    const asked = game.state.pendingRequests.some((request) => String((request as AnyRequest).prompt ?? '').includes('耀武'))
     expect(asked, '来源已经出局，不弹请求').toBe(false)
     assertGameInvariants(game.state)
   })
