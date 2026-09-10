@@ -340,6 +340,24 @@ tests/sanguosha-ai-request-identity.test.ts
 - AI 行为在迁移前后**不应有可观测差异**：同一 seed 的压测计数应当一致
   （迁移一批就对比一次，差异必须能解释）。
 
+### T5 剩余工作（第一步已完成，第二步待做）
+
+**已完成**：`RequestBase` 加了 `skillId` / `skillStep`；`Game.askSkill` 统一回填；
+`GroupDecisionOptions` 加了 `skillId`，三个发起方（解烦、蛊惑声明、蛊惑质疑）都传了；
+`tests/sanguosha-request-skill-identity.test.ts` 钉住「每条技能请求都带身份」。
+
+**待做**：把 `ai/index.ts` 里既有的**提示词字符串分支**迁移到按 `skillId` 匹配。
+做法：
+
+1. 先 `grep -n "request.prompt.startsWith\|request.prompt.includes" src/sanguosha/ai/index.ts`
+   列出全部分支（约 40+ 处）；
+2. **分批迁移**，一次 5～8 个，每批之后跑一遍固定 seed 的压测并**对比技能计数**——
+   数字必须一致，不一致说明匹配条件写窄了或写宽了；
+3. 迁移完再把这份文档里这一段删掉。
+
+注意：有几处是**同一个技能的不同步骤**（【驱虎】有两个选目标窗口、
+【巧变】有三个），迁移后要用 `skillStep` 区分，不能只看 `skillId`。
+
 ---
 
 ## 7. T6 · 12 名 YJCM2012 武将的 AI
@@ -676,7 +694,7 @@ for path in glob.glob('src/sanguosha/**/*.ts', recursive=True):
 | T2 | 摧决取消不了 | ✅ 完成 | min 1→0 + 放弃记号；既有两条用例原来靠「默认答案恰好等于代价牌」通过，现在明确交代价 |
 | T3 | 生产不变量 | ✅ 完成 | 挂在 `afterEngineStep`（所有推进路径的唯一汇合点）；玩家指令原来**没有**回滚护栏，一并补上；守恒按 8 步抽样 |
 | T4 | 狂骨 / 烈弓 测试 | ✅ 完成 | 13 条；烈弓的边界表问运行时（没有导出的聚合入口），接线由两条真打一刀的用例兜底 |
-| T5 | AI 提示词解耦 | ⬜ 未开始 | |
+| T5 | AI 提示词解耦 | 🟡 第一步完成 | 请求已带 `skillId` / `skillStep`（askSkill 统一回填，群体决定由调用方给），防回归测试已就位。**旧分支的迁移还没做**——见下方「T5 剩余工作」 |
 | T6 | 12 名武将 AI | ⬜ 未开始 | |
 | T7 | AI 难度分层 | ⬜ 未开始 | |
 | T8 | 移动端字号 / 触控 / 无障碍 | ⬜ 未开始 | |

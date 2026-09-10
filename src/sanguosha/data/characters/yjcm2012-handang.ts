@@ -193,6 +193,8 @@ registerSkillRuntime({
     startGroupDecision(host, {
       id: `jiefan-${host.state.seq}`,
       tag: JIEFAN_TAG,
+      // AI 靠 skillId 认技能，不靠提示词字符串
+      skillId: JIEFAN,
       playerIds: order,
       prompt: `${owner.nickname}发动【解烦】：弃置装备区里的武器牌，或令其摸一张牌`,
       options: [

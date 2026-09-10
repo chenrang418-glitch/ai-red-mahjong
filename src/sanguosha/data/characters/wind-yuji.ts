@@ -233,6 +233,8 @@ function beginChallenge(
   startGroupDecision(host, {
     id: `guhuo-${host.state.seq}`,
     tag: CHALLENGE_TAG,
+    // AI 靠 skillId 认技能，不靠提示词字符串
+    skillId: GUHUO,
     playerIds: order,
     prompt: `${owner.nickname}发动【蛊惑】，声明【${declaredName}】，是否质疑？`,
     options: [{ id: CHALLENGE, label: '质疑' }, { id: PASS, label: '不质疑' }],

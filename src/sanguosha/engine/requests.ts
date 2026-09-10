@@ -7,6 +7,18 @@ interface RequestBase<K extends string> {
   prompt: string
   timeoutMs: number
   optional: boolean
+  /**
+   * 这条请求是哪个技能发出来的，以及走到了它的哪一步。
+   *
+   * **AI 靠它认技能，不要再靠提示词字符串。** 原来 `ai/index.ts` 里全是
+   * `request.prompt.startsWith('【巧变】：获得至多')` 这样的分支：改一个字
+   * AI 就静默降级到通用兜底，而且没有任何测试会红。
+   *
+   * 由 `Game.askSkill` 统一回填，技能不需要自己传。
+   * 非技能来源的请求（求闪、求桃、选将、弃牌阶段）没有这两个字段。
+   */
+  skillId?: string
+  skillStep?: string
 }
 
 export type ChooseGeneralRequest = RequestBase<'choose-general'> & {

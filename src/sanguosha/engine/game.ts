@@ -207,6 +207,15 @@ export class SanguoshaGame {
       announced: this.recentAnnounce?.skillId === options.skillId
         && this.recentAnnounce.ownerId === options.ownerId,
     }
+    /*
+     * **把技能身份写进请求本身。**
+     *
+     * 统一在这里回填，技能不需要各自传，也不会漏。AI 靠这两个字段认技能，
+     * 不再靠提示词字符串——那种写法改一个字就会静默降级到通用兜底，
+     * 而且没有任何测试会红。
+     */
+    request.skillId = options.skillId
+    request.skillStep = options.step
     this.state.pendingRequests.push(request)
   }
 

@@ -38,6 +38,14 @@ export function registerGroupDecision(tag: string, run: GroupDecisionContinuatio
 export interface GroupDecisionOptions {
   id: string
   tag: string
+  /**
+   * 发起这次决定的技能 id。
+   *
+   * 和 `Game.askSkill` 回填的那个是同一个用途：**AI 靠它认技能**，
+   * 不要靠提示词字符串。群体决定走的是另一条构造路径，
+   * 所以要由调用方显式给出。
+   */
+  skillId?: string
   /** 参与者。死人和不该参与的人由调用方过滤掉。 */
   playerIds: readonly PlayerId[]
   prompt: string
@@ -106,6 +114,7 @@ export function startGroupDecision(host: GroupDecisionHost, options: GroupDecisi
       timeoutMs: options.timeoutMs,
       optional: false,
       options: [...offered],
+      ...(options.skillId ? { skillId: options.skillId, skillStep: options.tag } : {}),
     }
     host.state.pendingRequests.push(request)
     decision.requestIds[playerId] = request.id
