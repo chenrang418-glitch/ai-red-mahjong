@@ -1,6 +1,7 @@
 import { aggregateCardColor, setCardColorOverride } from '../../engine/card-color'
 import { createVirtualSlashCard, declaredCardActions, executeUseCardAction } from '../../engine/cards/basic'
 import { finishMultiCardViewAs } from '../../engine/multi-card-viewas'
+import { declinedThisPhase, markDeclinedThisPhase } from '../../engine/phase-usage'
 import { registerSkillRuntime, replaceTemporarySkills } from '../../engine/skills/runtime'
 import { moveCard } from '../../engine/zones'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
@@ -86,6 +87,8 @@ registerSkillRuntime({
   // ── 使用：出牌阶段主动把两张手牌当【杀】用 ──
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
+    // 这个阶段里已经点开又放弃过：不再报出来，否则会跑成无限循环
+    if (declinedThisPhase(state, ownerId, FUHUN)) return []
     if (!canUseFuhunSlash(state, ownerId)) return []
     return [{ id: FUHUN_ACTION, label: '父魂：将两张手牌当【杀】使用' }]
   },
@@ -104,7 +107,16 @@ registerSkillRuntime({
         optional: true,
         purpose: 'skill',
         cardIds: [...owner.zones.hand], hiddenCardSlots: [],
-        min: 2, max: 2,
+        /*
+         * **可取消的「恰好选 N 张」必须写成 `min: 0`。**
+         *
+         * `optional: true` 只是给界面看的；校验读的是 `min`，超时兜底
+         * （`timeout-default.ts`）读的也是 `min === 0`。写成 `min: N` 的话，
+         * 交空数组会被判「卡牌选择非法」——技能标着「可以取消」却取消不掉，
+         * 联机超时还会退回没有默认答案的分支。
+         * 落地那一步再确认张数是不是恰好 N，不足就当作放弃。
+         */
+        min: 0, max: 2,
       }),
     })
   },
@@ -142,7 +154,12 @@ registerSkillRuntime({
     if (resolution.step === 'cards') {
       const cardIds = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
       const unique = [...new Set(cardIds)]
-      if (!owner?.alive || unique.length !== 2) return
+      // 张数不足 2（含交空数组）= 放弃：留下放弃记号，免得被反复点开
+      if (unique.length !== 2) {
+        markDeclinedThisPhase(host.state, ownerId, FUHUN)
+        return
+      }
+      if (!owner?.alive) return
       // 落地前重新验一次：发问期间手牌可能被顺被拆
       if (!unique.every((cardId) => owner.zones.hand.includes(cardId))) return
 

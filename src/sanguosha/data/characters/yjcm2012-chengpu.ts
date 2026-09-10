@@ -1,5 +1,6 @@
 import { cardDamageDealt } from '../../engine/card-damage-ledger'
 import { declaredCardActions, executeUseCardAction } from '../../engine/cards/basic'
+import { declinedThisPhase, markDeclinedThisPhase } from '../../engine/phase-usage'
 import { recover } from '../../engine/recover'
 import { loseHp } from '../../engine/hp'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
@@ -78,6 +79,8 @@ registerSkillRuntime({
 
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
+    // 这个阶段里已经点开又放弃过：不再报出来，否则会跑成无限循环
+    if (declinedThisPhase(state, ownerId, LIHUO)) return []
     const candidates = convertibleSlashes(state, ownerId)
     if (candidates.length === 0) return []
     /*
@@ -109,7 +112,16 @@ registerSkillRuntime({
         optional: true,
         purpose: 'skill',
         cardIds: candidates, hiddenCardSlots: [],
-        min: 1, max: 1,
+        /*
+         * **可取消的「恰好选 N 张」必须写成 `min: 0`。**
+         *
+         * `optional: true` 只是给界面看的；校验读的是 `min`，超时兜底
+         * （`timeout-default.ts`）读的也是 `min === 0`。写成 `min: N` 的话，
+         * 交空数组会被判「卡牌选择非法」——技能标着「可以取消」却取消不掉，
+         * 联机超时还会退回没有默认答案的分支。
+         * 落地那一步再确认张数是不是恰好 N，不足就当作放弃。
+         */
+        min: 0, max: 1,
       }),
     })
   },
@@ -119,7 +131,12 @@ registerSkillRuntime({
 
     if (resolution.step === 'card') {
       const [cardId] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
-      if (!owner?.alive || !cardId || !convertibleSlashes(host.state, ownerId).includes(cardId)) return
+      // 交空数组 = 放弃：留下放弃记号，免得同一个阶段里被反复点开
+      if (!cardId) {
+        markDeclinedThisPhase(host.state, ownerId, LIHUO)
+        return
+      }
+      if (!owner?.alive || !convertibleSlashes(host.state, ownerId).includes(cardId)) return
       /*
        * **先算目标再落属性。**
        *

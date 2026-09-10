@@ -44,3 +44,29 @@ export function markUsedThisPhase(state: SanguoshaState, playerId: PlayerId, ski
   const mark = markFor(state, skillId)
   if (!player.turnUsedSkills.includes(mark)) player.turnUsedSkills.push(mark)
 }
+
+/**
+ * 「这个出牌阶段里已经问过、而且被放弃了」。
+ *
+ * **活锁护栏**，不是规则的一部分。
+ *
+ * 可取消、而且取消之后什么都不改变的主动技（父魂、疠火、弓骑）有一个共同的
+ * 危险形状：AI 点开 → 交空答案 → 场面没变 → 同一条动作又出现在合法动作里 →
+ * 再点开。压测里这会直接跑成无限循环（一局 20000 步还没结束）。
+ *
+ * 所以放弃**也要留一个记号**：这一次出牌阶段实例里不再把这条动作报出来。
+ * 记号和「出牌阶段限一次」共用同一套阶段实例键，所以：
+ *
+ * - 下一个出牌阶段（含廖化【当先】给的额外阶段）各自重新开始；
+ * - 回合结束由 `turn.ts` 统一清，技能不各自注册清理。
+ *
+ * 代价是「这个阶段里改主意」要等到下个阶段——用一次可以撤销的确认换掉
+ * 一个会把牌局跑死的循环，这笔交易是划算的，而且它只影响放弃过的那一次。
+ */
+export function declinedThisPhase(state: SanguoshaState, playerId: PlayerId, skillId: string): boolean {
+  return usedThisPhase(state, playerId, `${skillId}:declined`)
+}
+
+export function markDeclinedThisPhase(state: SanguoshaState, playerId: PlayerId, skillId: string): void {
+  markUsedThisPhase(state, playerId, `${skillId}:declined`)
+}

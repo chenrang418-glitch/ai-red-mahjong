@@ -42,6 +42,17 @@ export interface GroupDecisionOptions {
   playerIds: readonly PlayerId[]
   prompt: string
   options: ReadonlyArray<{ id: string; label: string }>
+  /**
+   * 按人裁剪选项：某个人做不到的那一项不该出现在他的面板上。
+   *
+   * 韩当【解烦】的「弃置装备区里的武器牌」对一个没有武器的人是做不到的，
+   * 给他一个点了等于没点的按钮既误导又会让 AI 选出无效答案。
+   *
+   * 返回的必须是 `options` 的**子集**，而且必须包含 `defaultOptionId`——
+   * 超时兜底填的就是它，不在候选里会让这个人的答案永远非法。
+   * 不给这个函数时所有人共用同一份 `options`。
+   */
+  optionsFor?(playerId: PlayerId): ReadonlyArray<{ id: string; label: string }>
   /** 超时或掉线时替玩家填的默认选项，必须在 `options` 里。 */
   defaultOptionId: string
   timeoutMs: number
@@ -83,6 +94,10 @@ export function startGroupDecision(host: GroupDecisionHost, options: GroupDecisi
 
   host.state.groupDecision = decision
   participants.forEach((playerId, index) => {
+    const offered = options.optionsFor?.(playerId) ?? options.options
+    if (!offered.some((option) => option.id === options.defaultOptionId)) {
+      throw new Error('按人裁剪后的选项必须仍然包含默认选项')
+    }
     const request: ChooseOptionRequest = {
       id: `${options.id}:${playerId}:${index}`,
       kind: 'choose-option',
@@ -90,7 +105,7 @@ export function startGroupDecision(host: GroupDecisionHost, options: GroupDecisi
       prompt: options.prompt,
       timeoutMs: options.timeoutMs,
       optional: false,
-      options: [...options.options],
+      options: [...offered],
     }
     host.state.pendingRequests.push(request)
     decision.requestIds[playerId] = request.id

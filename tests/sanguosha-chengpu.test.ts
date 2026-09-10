@@ -214,7 +214,14 @@ describe('程普【疠火】：体力代价', () => {
     game.act(CHENGPU_ID, lihuoAction(game)!.id)
     settle(game, (request) => {
       if (request.playerId === CHENGPU_ID) {
-        if (request.kind === 'choose-cards' && request.prompt?.includes('疠火')) return null
+        /*
+         * 选牌那一问现在是 `min: 0`（可取消），所以默认答案是**空数组**＝放弃。
+         * 想真的发动就必须在这里把候选牌交上去，不能落回默认分支。
+         */
+        if (request.kind === 'choose-cards' && request.prompt?.includes('疠火')) {
+          const pick = request as unknown as { cardIds: string[] }
+          return { cardIds: pick.cardIds.slice(0, 1) }
+        }
         if (request.kind === 'choose-targets' && request.prompt?.includes('疠火')) return { targetIds }
         return null
       }
