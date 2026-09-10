@@ -1,6 +1,6 @@
 import { flipCharacter } from '../../engine/character-state'
 import { continueDyingRescue } from '../../engine/damage'
-import { effectiveKingdomOf } from '../../engine/huashen'
+import { livingKingdomCount } from '../../engine/living-kingdoms'
 import type { ChooseOptionRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
 import type { PlayerId, SanguoshaState } from '../../engine/types'
@@ -17,23 +17,13 @@ function ownerOf(state: SanguoshaState, ownerId: PlayerId) {
 /**
  * 【伏枥】回复到的目标体力 X = **当前存活角色的不同势力数**。
  *
- * 三点口径：
- * - 去重。三个蜀国角色只算一个势力。
- * - 只数**存活**角色，已阵亡的不算——技能文本说的是「现存势力」。
- * - 走 `effectiveKingdomOf`，所以化身（神吕蒙【化身】）当下顶的那个势力算数，
- *   而不是他武将牌上印的势力。
+ * 口径和刘表【自守】【宗室】完全一致，所以走**同一个**公共计数器
+ * （`engine/living-kingdoms.ts`）：去重、只数活人、神势力单独算一种、
+ * 实时计算不缓存。各写一套的话三个技能迟早对不上。
  *
  * 发动伏枥的人自己也活着，所以 X 至少是 1，回复之后必定脱离濒死。
  */
-export function livingKingdomCount(state: SanguoshaState): number {
-  const kingdoms = new Set<string>()
-  for (const player of state.players) {
-    if (!player.alive) continue
-    const kingdom = effectiveKingdomOf(state, player.id)
-    if (kingdom) kingdoms.add(kingdom)
-  }
-  return kingdoms.size
-}
+export { livingKingdomCount }
 
 /**
  * 廖化【当先】：锁定技，回合开始时执行一个额外的出牌阶段。
