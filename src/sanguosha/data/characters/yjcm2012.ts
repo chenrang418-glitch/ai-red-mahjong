@@ -1,6 +1,7 @@
 import type { CharacterDefinition } from './types'
 import { CAOZHANG } from './yjcm2012-caozhang'
 import { GUANXING_ZHANGBAO } from './yjcm2012-guanxingzhangbao'
+import { BULIANSHI } from './yjcm2012-bulianshi'
 import { CHENGPU } from './yjcm2012-chengpu'
 import { HANDANG } from './yjcm2012-handang'
 import { MADAI } from './yjcm2012-madai'
@@ -29,4 +30,5 @@ export const YJCM2012_CHARACTERS: readonly CharacterDefinition[] = [
   MADAI,
   CHENGPU,
   HANDANG,
+  BULIANSHI,
 ] as const

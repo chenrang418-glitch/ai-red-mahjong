@@ -1,4 +1,4 @@
-import { skillsOf } from './skills/runtime'
+import { getSkillRuntime, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { EquipmentSlot, SanguoshaState } from './types'
 import { assertCardConservation } from './zones'
@@ -69,7 +69,21 @@ export function assertGameInvariants(state: SanguoshaState): void {
   const requestIds = state.pendingRequests.map((request) => request.id)
   if (new Set(requestIds).size !== requestIds.length) throw new Error('Request id 不唯一')
   for (const request of state.pendingRequests) {
-    if (!state.players.some((candidate) => candidate.id === request.playerId && candidate.alive)) throw new Error(`Request 响应玩家非法：${request.id}`)
+    const responder = state.players.find((candidate) => candidate.id === request.playerId)
+    if (responder?.alive) continue
+    /*
+     * 请求发给一个出局的人**通常**意味着某条路径没清理干净。
+     *
+     * 唯一的例外是「当你死亡时」这一类技能（步练师【追忆】）：它本来就是
+     * 死后才跑的，那一次决定合法地属于已经出局的那个人。
+     * 例外必须由技能**显式声明** `allowsDeadResponder`，而且只在这条请求
+     * 确实属于那次技能结算时才放行——否则真正的漏网请求就再也拦不住了。
+     */
+    const resolution = state.skillResolution
+    const declared = resolution?.requestId === request.id
+      && Boolean(getSkillRuntime(resolution.skillId)?.allowsDeadResponder)
+    if (responder && declared) continue
+    throw new Error(`Request 响应玩家非法：${request.id}`)
   }
   /*
    * 每个待回答的「打出牌」请求都必须有主。

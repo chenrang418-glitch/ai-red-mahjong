@@ -611,6 +611,17 @@ export interface QueuedSkillPrompt {
   ownerId: PlayerId
   step: string
   data: Record<string, unknown>
+  /**
+   * 拥有者已经阵亡时也要放行。
+   *
+   * 队列默认把死人的排队丢掉：技能触发之后武将可能已经死了或被换掉，
+   * 那时前提通常已经不成立。但**「当你死亡时」这一类技能本身就是死后才跑的**
+   * （步练师【追忆】），不声明这一条它一次也不会响。
+   *
+   * 和触发器上的 `allowDeadOwner` 是配套的两半：那个管「事件要不要派给死人」，
+   * 这个管「排队的发问要不要为死人放出去」。只声明其中一个仍然跑不通。
+   */
+  allowDeadOwner?: boolean
 }
 
 export interface DeathClaimState {

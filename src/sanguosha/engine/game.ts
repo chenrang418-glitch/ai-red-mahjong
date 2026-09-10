@@ -272,8 +272,16 @@ export class SanguoshaGame {
       const prompt = this.state.skillQueue.shift()!
       const runtime = getSkillRuntime(prompt.skillId)
       const owner = this.state.players.find((candidate) => candidate.id === prompt.ownerId)
-      // 触发之后武将可能已经死了或者被换掉，前提不成立就安静地丢弃
-      if (!runtime?.startQueued || !owner?.alive) continue
+      /*
+       * 触发之后武将可能已经死了或者被换掉，前提不成立就安静地丢弃。
+       *
+       * 例外是**声明了 `allowDeadOwner` 的排队**：「当你死亡时」这一类技能
+       * （步练师【追忆】）本来就是在拥有者阵亡之后才跑的，
+       * 按「死人一律丢弃」处理的话它一次也不会响。
+       * 座位本身必须还在（只是 `alive` 为 false），换将后查不到人仍然丢弃。
+       */
+      if (!runtime?.startQueued || !owner) continue
+      if (!owner.alive && !prompt.allowDeadOwner) continue
       runtime.startQueued(this, prompt.ownerId, prompt)
     }
   }
