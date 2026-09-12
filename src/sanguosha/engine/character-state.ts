@@ -73,6 +73,11 @@ function isUnchainPrevented(state: SanguoshaState, playerId: PlayerId): boolean 
   return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.preventsUnchain)
 }
 
+/** 这名角色是否不能进入横置状态（陆抗【谦节】）。 */
+function isChainingPrevented(state: SanguoshaState, playerId: PlayerId): boolean {
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.preventsChaining)
+}
+
 export function setChained(
   host: CharacterStateHost,
   playerId: PlayerId,
@@ -90,6 +95,7 @@ export function setChained(
    * 锁挡的是【铁索连环】这张牌和其他技能主动解除他连环的效果。
    */
   if (!next && reason !== 'elemental-damage' && isUnchainPrevented(host.state, playerId)) return
+  if (next && isChainingPrevented(host.state, playerId)) return
   if (target.chained === next) return
   target.chained = next
   host.dispatch('CharacterChained', { playerId, chained: next, reason }, { targetId: playerId })

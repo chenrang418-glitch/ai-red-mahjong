@@ -1,5 +1,5 @@
 import { closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivateZone, privateZoneCards } from './private-zone'
-import { pindianRankOverrideOf } from './skills/runtime'
+import { pindianRankOverrideOf, prohibitsBeingPindianTargetOf } from './skills/runtime'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import type { CardId, PhysicalCard, PindianState, PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
@@ -113,6 +113,11 @@ export function startPindian(host: PindianHost, options: PindianOptions): void {
   if (!canPindian(host.state, options.initiatorId) || !canPindian(host.state, options.opponentId)) {
     throw new Error('拼点双方都必须有手牌')
   }
+  /*
+   * 陆抗【谦节】：不能成为其他角色发起的拼点目标。这里静默放弃而不是抛错——
+   * 调用方的候选列表未必知道这条限制，抛错会把发起方的整个技能流程打断。
+   */
+  if (options.opponentId !== options.initiatorId && prohibitsBeingPindianTargetOf(host.state, options.opponentId)) return
 
   const pindian: PindianState = {
     id: options.id,

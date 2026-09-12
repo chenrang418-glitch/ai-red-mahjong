@@ -49,6 +49,16 @@ import { ZHOUFANG } from './sp-zhoufang'
 import { HUANGZU } from './sp-huangzu'
 import { LINGCAO } from './sp-lingcao'
 import { YUANTAN_YUANSHANG } from './sp-yuantanyuanshang'
+import { LUKANG } from './sp-lukang'
+import { XURONG } from './sp-xurong'
+import { FANCHOU } from './sp-fanchou'
+import { BEIMIHU } from './sp-beimihu'
+import { QUYI } from './sp-quyi'
+import { CHUNYUQIONG } from './sp-chunyuqiong'
+import { LIUQI } from './sp-liuqi'
+import { SIMAHUI } from './sp-simahui'
+import { LUKAI } from './sp-lukai'
+import { CAOXING } from './sp-caoxing'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -60,6 +70,7 @@ import { YUANTAN_YUANSHANG } from './sp-yuantanyuanshang'
  * 第三批 10 / 10：程昱、曹爽、张昌蒲、吕虔、蒋干、诸葛诞、许靖、高览、李傕、郭汜。
  * 第四批 10 / 10：潘凤、士燮、诸葛瑾、董白、诸葛恪、诸葛瞻、张绣、蹋顿、孙乾、沙摩柯。
  * 第五批 10 / 10：王平、祖茂、徐氏、严畯、费祎、潘濬、周鲂、黄祖、凌操、袁谭袁尚。
+ * 第六批 10 / 10：陆抗、徐荣、樊稠、卑弥呼、麹义、淳于琼、刘琦、司马徽、陆凯、曹性。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -112,4 +123,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   HUANGZU,
   LINGCAO,
   YUANTAN_YUANSHANG,
+  LUKANG,
+  XURONG,
+  FANCHOU,
+  BEIMIHU,
+  QUYI,
+  CHUNYUQIONG,
+  LIUQI,
+  SIMAHUI,
+  LUKAI,
+  CAOXING,
 ] as const

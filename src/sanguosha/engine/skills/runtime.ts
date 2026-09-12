@@ -395,6 +395,16 @@ export interface SkillRuntime {
    */
   preventsUnchain?: boolean
   /**
+   * 锁定技：拥有者不能进入横置（连环）状态（陆抗【谦节】）。
+   * 直接挡在 `setChained` 变为 true 之前，不是「横置后再解除」。
+   */
+  preventsChaining?: boolean
+  /**
+   * 锁定技：拥有者不能成为其他角色发起的拼点的目标（陆抗【谦节】）。
+   * 自己发起拼点不受影响，挡在 `startPindian` 里。
+   */
+  prohibitsBeingPindianTarget?: boolean
+  /**
    * 这个技能能不能被临时夺走（神张辽【夺锐】）。
    *
    * **默认可以**。限定技、觉醒技、主公技由 `limited` / `awakening` / `lord`
@@ -1081,6 +1091,15 @@ export function pindianRankOverrideOf(
     if (value != null) return value
   }
   return null
+}
+
+/** 这名角色是不是不能成为拼点目标（陆抗【谦节】）。 */
+export function prohibitsBeingPindianTargetOf(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.prohibitsBeingPindianTarget)
 }
 
 /** 拥有者对这个目标使用【杀】时是不是不受次数限制。 */

@@ -1067,6 +1067,32 @@ export interface SanguoshaState {
   fuzhuPending?: { ownerId: PlayerId; targetId: PlayerId; remaining: number }
   /** 潘濬【观微】：这名角色本出牌阶段实例内使用过的牌花色记录。 */
   panjunSuitLog?: Record<PlayerId, { turnNumber: number; suits: Array<string | null> }>
+  /** 陆抗【决堰】防具栏分支：本回合手牌上限+3。 */
+  lukangArmorMaxCardsTurn?: number
+  /** 陆抗【决堰】坐骑栏分支：本回合使用牌无距离限制。 */
+  lukangMountUnlimitedTurn?: number
+  /** 陆抗【决堰】宝物栏分支：本回合是否已授予集智（配合 replaceTemporarySkill 清理）。 */
+  lukangTreasureGrantTurn?: number
+  /** 徐荣【凶镬】选项1：本回合内这名角色不能用杀指定徐荣为目标。 */
+  xurongSlashBan?: Record<PlayerId, { turnNumber: number }>
+  /** 徐荣【凶镬】选项2：本回合内这名角色手牌上限-1。 */
+  xurongMaxCardsDebuff?: Record<PlayerId, { turnNumber: number }>
+  /** 徐荣【杀绝】：这名角色最近一次受到伤害时的来源实体牌，供进入濒死时判断取牌。 */
+  shajueLastDamageCard?: Record<PlayerId, CardId>
+  /** 曹性【流矢】：当前这次虚拟杀的来源信息，等它造成伤害时点判断是否附加流矢标记。 */
+  caoxingLiushiPending?: { ownerId: PlayerId; targetId: PlayerId }
+  /** 刘琦【问计】：本回合内使用与这张牌同名的牌不能被响应。 */
+  liuqiWenjiLock?: Record<PlayerId, { cardName: string; turnNumber: number }>
+  /** 刘琦【屯江】：本回合是否进入过出牌阶段。 */
+  liuqiPlayPhaseTurn?: number
+  /** 刘琦【屯江】：本回合出牌阶段是否已经使用牌指定过其他角色为目标。 */
+  liuqiTargetedOthers?: Record<PlayerId, boolean>
+  /** 淳于琼【仓储】：本回合是否已经因回合外获得牌而增加过粮。 */
+  cangchuGainTurn?: number
+  /** 司马徽【荐杰】：龙印/凤印当前分别在谁身上。 */
+  simahuiSeals?: { long: PlayerId | null; feng: PlayerId | null }
+  /** 陆凯【謇谔】：陆凯抵消一张牌后，本回合不能成为牌的目标。 */
+  lukaiJianeUntargetable?: Record<PlayerId, { turnNumber: number }>
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
