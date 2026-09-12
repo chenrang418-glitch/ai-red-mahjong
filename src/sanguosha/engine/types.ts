@@ -991,6 +991,35 @@ export interface SanguoshaState {
    * 没有别的锦囊会用到这个字段。
    */
   suspendedTrickResolution?: TrickResolutionState | null
+  /**
+   * 程昱【设伏】：暗置在「伏兵」堆里的手牌与声明牌名的绑定。
+   * 键是程昱的 `playerId`；伏兵牌本体存在 `characterPiles.fubing` 里，
+   * 这里只记「哪张 cardId 绑定了哪个牌名」。
+   */
+  fubingRecords?: Record<PlayerId, Array<{ cardId: CardId; cardName: string }>>
+  /**
+   * 张昌蒲【省身】给下一次【严教】累积的额外亮牌张数（可跨多次省身叠加，
+   * 使用严教时一次性消费掉，见 sp3-zhangchangpu 的实现说明）。
+   */
+  yanjiaoBonus?: Record<PlayerId, number>
+  /** 吕虔【威虏】：本回合内对吕虔造成过伤害、下一次出牌阶段开始还没结算的来源。 */
+  weiluPending?: Record<PlayerId, PlayerId[]>
+  /** 吕虔【威虏】：已经在本回合结算过、等吕虔回合结束时要恢复的失去量。 */
+  weiluRecoverable?: Record<PlayerId, Array<{ sourceId: PlayerId; amount: number }>>
+  /**
+   * 郭汜【贪狈】选项 1：直到当前回合结束，郭汜不能对这个目标使用牌。
+   * 用「施加时的回合序号」自然过期，不需要额外的回合结束清理。
+   */
+  guosiTanbeiLock?: Record<PlayerId, { targetId: PlayerId; turnNumber: number }>
+  /** 郭汜【贪狈】选项 2：直到当前回合结束，郭汜对这个目标使用牌无距离/次数限制。 */
+  guosiTanbeiUnlimited?: Record<PlayerId, { targetId: PlayerId; turnNumber: number }>
+  /** 郭汜【伺盗】：本出牌阶段实例内，最近一次连续对同一目标使用牌的计数。 */
+  guosiConsecutiveUse?: Record<PlayerId, { targetId: PlayerId; count: number; phaseKey: string }>
+  /**
+   * 许靖【实荐】：这名角色在当前回合内已经使用过的牌数量。
+   * 按 `turnNumber` 自然过期，不需要额外的回合结束清理。
+   */
+  turnCardUseCount?: Record<PlayerId, { turnNumber: number; count: number }>
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

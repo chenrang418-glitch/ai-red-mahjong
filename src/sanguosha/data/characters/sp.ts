@@ -19,6 +19,16 @@ import { YIJI } from './sp-yiji'
 import { TIANCHOU } from './sp-tianchou'
 import { TIANYU } from './sp-tianyu'
 import { LUJI } from './sp-luji'
+import { CHENGYU } from './sp-chengyu'
+import { CAOSHUANG } from './sp-caoshuang'
+import { ZHANGCHANGPU } from './sp-zhangchangpu'
+import { LVQIAN } from './sp-lvqian'
+import { JIANGGAN } from './sp-jianggan'
+import { ZHUGE_DAN } from './sp-zhugedan'
+import { XUJING } from './sp-xujing'
+import { GAOLAN } from './sp-gaolan'
+import { LIJUE } from './sp-lijue'
+import { GUOSI } from './sp-guosi'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -27,6 +37,7 @@ import { LUJI } from './sp-luji'
  * 第一批 10 / 10：袁术、杨修、陈琳、张星彩、关银屏、曹昂、何太后、刘协、
  * 马云騄、糜竺。
  * 第二批 10 / 10：曹纯、戏志才、郝昭、王基、董允、秦宓、伊籍、田畴、田豫、陆绩。
+ * 第三批 10 / 10：程昱、曹爽、张昌蒲、吕虔、蒋干、诸葛诞、许靖、高览、李傕、郭汜。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -49,4 +60,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   TIANCHOU,
   TIANYU,
   LUJI,
+  CHENGYU,
+  CAOSHUANG,
+  ZHANGCHANGPU,
+  LVQIAN,
+  JIANGGAN,
+  ZHUGE_DAN,
+  XUJING,
+  GAOLAN,
+  LIJUE,
+  GUOSI,
 ] as const
