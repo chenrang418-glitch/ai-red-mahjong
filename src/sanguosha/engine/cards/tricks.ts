@@ -1046,14 +1046,37 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
       advanceToNextTarget(host)
       return
     }
-    // 出了杀就走**完整的**杀结算：仁王盾要挡得住、无双要生效、流离要转得走。
-    // 借刀杀人是单目标锦囊，所以先把它自己收掉，再开始那张【杀】——
-    // 结算状态只有一份，不先收掉会被覆盖。
+    /*
+     * 出了杀就走**完整的**杀结算：仁王盾要挡得住、无双要生效、流离要转得走。
+     * `cardResolution` 只有一格，不能既是这张锦囊又是那张杀。
+     *
+     * **借刀杀人不是单目标锦囊**——多个目标时（榜样：井阑一类给的额外目标）
+     * 这里不能先 `advanceToNextTarget`：那会把 `cardResolution` 重新指向
+     * 锦囊的下一个目标，紧接着又被这张杀的结算覆盖掉，锦囊那份「下一个目标
+     * 还等着回应」的挂起状态就凭空丢了（压测 seed=ci-6-34 抓到：下一个目标
+     * 的『借刀杀人：选择受害者』请求还挂着，`cardResolution` 却已经变成了
+     * 这张杀，等真人/AI 回答那条旧请求时找不到匹配的结算而报错）。
+     *
+     * 正确顺序：把这份锦囊结算**暂存**起来，杀真正结算完（`cardResolution`
+     * 归零那一刻，见 `continueSlash`）才恢复它、继续走剩下的目标。
+     */
     const attackerId = effect.targetId
     const victimId = effect.victimId
     resolution.effect = null
-    advanceToNextTarget(host)
+    host.state.suspendedTrickResolution = resolution
+    host.state.cardResolution = null
     getEngineCallbacks()?.beginBorrowedSlash(host, attackerId, victimId, playedCardId)
+    /*
+     * 万一杀根本没能起来（牌局已经结束、攻击者或受害者中途死亡……），
+     * `cardResolution` 还是空的，没有人会去触发「杀结算完毕」那个恢复点。
+     * 这里兜底：状态没被谁占走就直接把暂存的锦囊结算恢复回来，继续走它的
+     * 下一个目标，不留下一份永远恢复不了的挂起态。
+     */
+    if (!host.state.cardResolution && host.state.suspendedTrickResolution === resolution) {
+      host.state.cardResolution = resolution
+      host.state.suspendedTrickResolution = null
+      advanceToNextTarget(host)
+    }
     return
   }
 

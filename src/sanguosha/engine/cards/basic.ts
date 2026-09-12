@@ -28,6 +28,7 @@ import { beginPhysicalCard, finishPhysicalCard, playerOf, playerOf as player, us
 import {
   DELAYED_TRICKS,
   INSTANT_TRICKS,
+  advanceToNextTarget,
   askNullification,
   beginInstantTrick,
   instantTrickActions,
@@ -566,6 +567,19 @@ function continueSlash(host: CardEngineHost): void {
   if (next === undefined) {
     finishSlash(host, resolution)
     host.state.cardResolution = null
+    /*
+     * 借刀杀人在多目标场景下把自己的锦囊结算暂存在了这里（见
+     * `resolveTrickEffectResponse` 的 'borrowed-knife' 分支），等这张
+     * （借来的）杀真正结算完毕——就是这一刻——才恢复它，继续走剩下的目标。
+     * 不恢复的话，锦囊那边还挂着一个「借刀杀人：选择受害者」的旧请求，
+     * 但 `cardResolution` 已经不认得它了。
+     */
+    const suspendedTrick = host.state.suspendedTrickResolution
+    if (suspendedTrick) {
+      host.state.suspendedTrickResolution = null
+      host.state.cardResolution = suspendedTrick
+      advanceToNextTarget(host)
+    }
     return
   }
   resolution.targetId = next

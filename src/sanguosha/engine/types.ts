@@ -983,6 +983,14 @@ export interface SanguoshaState {
    */
   deathClaim: DeathClaimState | null
   cardResolution: CardResolutionState | null
+  /**
+   * 借刀杀人在多目标场景下的挂起态：一个目标选择真的出杀后，那张杀要走
+   * **完整的**杀结算（`cardResolution` 只有一格，被借刀杀人的锦囊结算占着
+   * 就得先让位）。这里存的是「让位前」那份锦囊结算状态，杀真正结算完毕
+   * （`cardResolution` 归零的那一刻）才恢复它、继续走它剩下的目标。
+   * 没有别的锦囊会用到这个字段。
+   */
+  suspendedTrickResolution?: TrickResolutionState | null
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
