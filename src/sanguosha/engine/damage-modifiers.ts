@@ -76,6 +76,31 @@ export function adjustOutgoingDamage(
 }
 
 /**
+ * 受伤者的技能对这次伤害的数值 / 属性修正（潘濬【公清】按来源攻击范围
+ * 改伤害值）。和 `adjustOutgoingDamage` 是同一种形状，只是换到受伤方，
+ * 排在源头修正**之后**——源头的加成（裸衣、驭雳）先算完，受伤方的修正
+ * 再在这个基础上继续调整，藤甲/狂风/大雾仍然按最终属性判断。
+ */
+export function adjustIncomingDamage(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  context: OutgoingDamageContext & { sourceId: PlayerId | null },
+): DamageAdjustment {
+  let amount = context.amount
+  let nature = context.nature
+  const appliedSkillIds: string[] = []
+  for (const runtime of runtimesOf(state, targetId)) {
+    if (!runtime.incomingDamage) continue
+    const change = runtime.incomingDamage(state, targetId, { ...context, amount, nature })
+    if (!change) continue
+    if (change.nature && change.nature !== nature) nature = change.nature
+    if (typeof change.amount === 'number') amount = change.amount
+    appliedSkillIds.push(runtime.id)
+  }
+  return { amount: Math.max(0, Math.trunc(amount)), nature, appliedSkillIds }
+}
+
+/**
  * 伤害来源的技能有没有把这次伤害**整个换成失去体力**（张春华【绝情】）。
  *
  * 返回换掉它的那个技能 id；没换就返回 null。

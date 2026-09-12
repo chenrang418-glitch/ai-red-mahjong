@@ -361,6 +361,40 @@ function beginSlash(
 }
 
 /**
+ * 直接用牌堆里的一张真实【杀】发起一次完整的正常杀结算（徐氏【伏诛】）。
+ *
+ * 和 `beginVirtualSlash` 不一样：那个是凭空印一张虚拟杀，这个是**牌堆里
+ * 现成的实体牌**，用完之后跟着正常结算走向（放【无懈】/被弃/被技能拿走
+ * 都按引擎统一规则处理），不会被 `finishPhysicalCard` 当成虚拟牌销毁。
+ *
+ * 不检查距离——技能发起的杀本来就不受距离限制，调用方也不需要再查一遍。
+ * 次数：固定不计入 `turnUsage.slashUses`（伏诛这类技能杀历来不占次数），
+ * 需要占用次数的技能自己在这之外调整。
+ */
+export function beginSlashFromDrawPile(
+  host: CardEngineHost,
+  sourceId: PlayerId,
+  targetId: PlayerId,
+  cardId: CardId,
+): boolean {
+  if (host.state.cardResolution) return false
+  const source = player(host.state, sourceId)
+  const target = player(host.state, targetId)
+  if (!source.alive || !target.alive || sourceId === targetId) return false
+  if (!host.state.zones.drawPile.includes(cardId)) return false
+  if (!beginPhysicalCard(host, sourceId, cardId, [targetId], '杀', { kind: 'drawPile' })) return false
+  host.state.cardResolution = {
+    kind: 'slash', cardId, sourceId, targetId,
+    damageNature: effectiveDamageNature(host.state, cardId), damageAmount: 1,
+    stage: 'awaiting-dodge', requestId: null, surrogate: null, interceptsDone: [], extraCardIds: [],
+    remainingTargetIds: [],
+    dodgeRemaining: slashDodgeRequirement(host, sourceId, targetId),
+  }
+  enterSlashTarget(host)
+  return true
+}
+
+/**
  * 支持转化技从装备区和武将专属牌堆使用牌，并保证装备离场时机只走一次。
  *
  * 专属牌堆是邓艾【急袭】要的：把一张「田」当【顺手牵羊】用，底牌就是那张

@@ -20,7 +20,7 @@ import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-r
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
 import { loseHp } from './hp'
-import { adjustOutgoingDamage, damageReplacedWithHpLoss, interceptIncomingDamage } from './damage-modifiers'
+import { adjustIncomingDamage, adjustOutgoingDamage, damageReplacedWithHpLoss, interceptIncomingDamage } from './damage-modifiers'
 import { DAWU_STATE, KUANGFENG_STATE, applyTargetStateDamage, clearTargetStatesOf } from './target-state'
 import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
@@ -423,6 +423,26 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   }
   nature = outgoing.nature
   amount = outgoing.amount
+
+  /*
+   * 受伤方的数值/属性修正（潘濬【公清】），紧跟在源头修正之后——
+   * 藤甲/狂风/大雾这些后续规则仍按这里定下来的最终属性判断。
+   */
+  const incoming = adjustIncomingDamage(host.state, target.id, {
+    targetId: target.id, sourceId, amount, nature,
+    cardId: options.cardId ?? null, cardName: options.cardName ?? null, chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (incoming.appliedSkillIds.length > 0 && (incoming.nature !== nature || incoming.amount !== amount)) {
+    for (const skillId of incoming.appliedSkillIds) {
+      const skillName = skillDisplayName(host.state, target.id, skillId)
+      host.dispatch('SkillActivated', {
+        skillId, skillName, playerId: target.id, result: 'damage-modified',
+        logText: `【${skillName}】${target.nickname}受到的这次伤害变为${DAMAGE_NATURE_NAMES[incoming.nature]}${incoming.amount} 点`,
+      }, { sourceId: sourceId ?? undefined, targetId: target.id, damageNature: incoming.nature })
+    }
+  }
+  nature = incoming.nature
+  amount = incoming.amount
 
   /*
    * 「造成的伤害改为等量失去体力」（张春华【绝情】）。

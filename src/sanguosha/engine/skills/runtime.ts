@@ -308,6 +308,16 @@ export interface SkillRuntime {
     context: { targetId: PlayerId; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
   ): { amount?: number; nature?: DamageNature } | null
   /**
+   * 拥有者**受到**伤害时对数值 / 属性的修正（潘濬【公清】按来源攻击范围
+   * 改伤害值）。和 `outgoingDamage` 是同一形状，只是站在受伤者这一边，
+   * 排在源头的 `outgoingDamage` 结算完之后。
+   */
+  incomingDamage?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    context: { sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): { amount?: number; nature?: DamageNature } | null
+  /**
    * 锁定技：把拥有者**造成的伤害**整个换成等量的失去体力（张春华【绝情】）。
    *
    * 返回 true 表示这次伤害不再作为伤害发生——目标改为失去等量体力。

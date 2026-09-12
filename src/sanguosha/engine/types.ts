@@ -1051,6 +1051,22 @@ export interface SanguoshaState {
   zhangxiuXiongluan?: Record<PlayerId, { targetId: PlayerId; turnNumber: number }>
   /** 潘凤【狂斧】：当前这次虚拟杀的来源信息，等它结算完毕再按结果分支。 */
   pendingKuangfu?: { ownerId: PlayerId; targetId: PlayerId; fromOwnEquipment: boolean }
+  /** 王平【兵略】：已经因【飞军】触发过摸牌的目标集合，一局内持久有效。 */
+  bingluTargets?: Record<PlayerId, PlayerId[]>
+  /** 严畯【观潮】：当前出牌阶段实例里，牌点是否仍保持严格递增/递减。 */
+  yanjunTrend?: Record<PlayerId, { direction: 'asc' | 'desc'; lastRank: number | null; broken: boolean }>
+  /** 费祎【和衷】：本回合尚未消费的“大于/小于 N”额外结算标记。 */
+  hezhongMarkers?: Record<PlayerId, Array<{ kind: 'gt' | 'lt'; value: number }>>
+  /** 周鲂【断发】：本出牌阶段实例内已经通过断发弃置的牌数量，按 maxHp 封顶。 */
+  duanfaPhaseTotal?: Record<PlayerId, { phaseKey: string; total: number }>
+  /** 黄祖【挽弓】：上一张真正使用的牌是不是基本牌，供下一张【杀】判断是否强化。 */
+  huangzuLastBasic?: Record<PlayerId, boolean>
+  /** 袁谭袁尚【内伐】：本回合的分支、X 值与装备过牌计数。 */
+  neifaState?: Record<PlayerId, { branch: 'basic' | 'nonbasic'; x: number; turnNumber: number; equipUseCount: number }>
+  /** 徐氏【伏诛】：依次使用牌堆里的杀，跨越多次异步结算需要记住还剩几次机会。 */
+  fuzhuPending?: { ownerId: PlayerId; targetId: PlayerId; remaining: number }
+  /** 潘濬【观微】：这名角色本出牌阶段实例内使用过的牌花色记录。 */
+  panjunSuitLog?: Record<PlayerId, { turnNumber: number; suits: Array<string | null> }>
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

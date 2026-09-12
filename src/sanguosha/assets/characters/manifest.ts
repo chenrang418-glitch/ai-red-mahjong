@@ -761,6 +761,9 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // SP 独立历史人物第四批：立绘待上传
   'panfeng', 'shixie', 'zhugejin', 'dongbai', 'zhugeke',
   'zhugezhan', 'zhangxiu', 'tadun', 'sunqian', 'shamoke',
+  // SP 独立历史人物第五批：立绘待上传
+  'wangping', 'zumao', 'xushi', 'yanjun', 'feiyi',
+  'panjun', 'zhoufang', 'huangzu', 'lingcao', 'yuantan_yuanshang',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

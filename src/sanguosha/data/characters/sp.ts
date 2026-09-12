@@ -39,6 +39,16 @@ import { ZHANGXIU } from './sp-zhangxiu'
 import { TADUN } from './sp-tadun'
 import { SUNQIAN } from './sp-sunqian'
 import { SHAMOKE } from './sp-shamoke'
+import { WANGPING } from './sp-wangping'
+import { ZUMAO } from './sp-zumao'
+import { XUSHI } from './sp-xushi'
+import { YANJUN } from './sp-yanjun'
+import { FEIYI } from './sp-feiyi'
+import { PANJUN } from './sp-panjun'
+import { ZHOUFANG } from './sp-zhoufang'
+import { HUANGZU } from './sp-huangzu'
+import { LINGCAO } from './sp-lingcao'
+import { YUANTAN_YUANSHANG } from './sp-yuantanyuanshang'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -49,6 +59,7 @@ import { SHAMOKE } from './sp-shamoke'
  * 第二批 10 / 10：曹纯、戏志才、郝昭、王基、董允、秦宓、伊籍、田畴、田豫、陆绩。
  * 第三批 10 / 10：程昱、曹爽、张昌蒲、吕虔、蒋干、诸葛诞、许靖、高览、李傕、郭汜。
  * 第四批 10 / 10：潘凤、士燮、诸葛瑾、董白、诸葛恪、诸葛瞻、张绣、蹋顿、孙乾、沙摩柯。
+ * 第五批 10 / 10：王平、祖茂、徐氏、严畯、费祎、潘濬、周鲂、黄祖、凌操、袁谭袁尚。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -91,4 +102,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   TADUN,
   SUNQIAN,
   SHAMOKE,
+  WANGPING,
+  ZUMAO,
+  XUSHI,
+  YANJUN,
+  FEIYI,
+  PANJUN,
+  ZHOUFANG,
+  HUANGZU,
+  LINGCAO,
+  YUANTAN_YUANSHANG,
 ] as const
