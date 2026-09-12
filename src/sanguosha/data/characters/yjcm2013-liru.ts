@@ -335,6 +335,13 @@ registerSkillRuntime({
  * `queueSkill` 排队，等牌局回到干净状态（濒死结束）后由 `startQueued` 接力。
  */
 function continueFencheng(host: SkillHost, ownerId: PlayerId, queue: PlayerId[], index: number, lastDiscardCount: number): void {
+  /*
+   * 焚城对前一名目标的伤害可能直接终结身份局（把最后一名敌对角色打死）。
+   * 那之后 `state.status` 已经是 `game-over`，`pendingRequests` 也已清空——
+   * 这时候不能再对队列里剩下的人继续走「求响应/造伤害」，`resolveDamage`
+   * 会直接抛「只有进行中的牌局可以造成伤害」（压测 seed=ci-6-11 抓到）。
+   */
+  if (host.state.status !== 'playing') return
   if (host.state.dying || host.state.damageChain) {
     host.queueSkill({ skillId: FENCHENG, ownerId, step: 'continue', data: { queue, index, lastDiscardCount } })
     return

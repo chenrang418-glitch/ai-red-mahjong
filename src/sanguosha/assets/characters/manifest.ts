@@ -745,6 +745,10 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
 export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // 一将成名 2014 第一批：立绘待上传
   'zhangsong', 'sunluban', 'zhuhuan', 'guyong',
+  // 一将成名 2014 收官（蔡夫人、沮授）+ 一将成名 2015 全部 11 人：立绘待上传
+  'caifuren', 'jushou',
+  'caorui', 'caoxiu', 'zhongyao', 'liuchen', 'xiahoushi', 'zhangni',
+  'sunxiu', 'zhuzhi', 'quanzong', 'gongsunyuan', 'guotu_fengji',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

@@ -25,6 +25,7 @@ import { YJCM2011_CHARACTERS } from './yjcm2011'
 import { YJCM2012_CHARACTERS } from './yjcm2012'
 import { YJCM2013_CHARACTERS } from './yjcm2013'
 import { YJCM2014_CHARACTERS } from './yjcm2014'
+import { YJCM2015_CHARACTERS } from './yjcm2015'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -380,6 +381,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...YJCM2012_CHARACTERS,
   ...YJCM2013_CHARACTERS,
   ...YJCM2014_CHARACTERS,
+  ...YJCM2015_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 

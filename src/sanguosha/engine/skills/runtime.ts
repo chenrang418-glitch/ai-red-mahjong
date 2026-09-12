@@ -551,6 +551,15 @@ export interface SkillRuntime {
    * 【顺手牵羊】【兵粮寸断】的距离 1 都一并覆盖，不是只管杀。
    */
   ignoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  /**
+   * 拥有者的技能让**任意第三方**对某个目标无视距离（孙休【诏缚】：与孙休
+   * 距离为 1 的角色视为处于所有其他吴势力角色的攻击范围内）。
+   *
+   * 和 `ignoresDistanceTo` 的区别：那个只问「拥有者自己打这个目标」，
+   * 这个要覆盖「别人打这个目标」，`attackerId` 因此和 `ownerId` 是两个人。
+   * 动态计算，不建立常驻覆盖记录——诏缚这类效果会随距离实时变化。
+   */
+  globalIgnoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, attackerId: PlayerId, targetId: PlayerId): boolean
   /** 对方在与拥有者【决斗】时，每轮需要连续打出多少张【杀】。 */
   duelSlashResponses?: number
   /**

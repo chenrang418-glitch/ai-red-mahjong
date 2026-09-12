@@ -828,6 +828,11 @@ export interface SanguoshaState {
   natureConvertedCardIds?: string[]
   /** 某次【杀】结算中，目标实际打出的【闪】——键是这张杀的来源。周仓【忠勇】用。 */
   lastSlashDodgeCard?: Record<PlayerId, CardId>
+  /**
+   * 正在追踪的虚拟【决斗】：谁真正因此受到过伤害。
+   * 键是虚拟牌 id，用于结算完毕时判断该不该让受伤者额外摸牌。刘谌【战绝】用。
+   */
+  trackedDuelVictim?: Record<CardId, PlayerId>
   cardColorLocks?: Array<{
     targetId: PlayerId
     color: 'red' | 'black'

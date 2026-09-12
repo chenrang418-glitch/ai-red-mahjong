@@ -88,11 +88,23 @@ export function ignoresDistanceTo(state: SanguoshaState, sourceId: PlayerId, tar
   return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresDistanceTo?.(state, sourceId, targetId))
 }
 
+/** 场上有没有第三方技能让 `attackerId` 对 `targetId` 无视距离（孙休【诏缚】）。 */
+export function globalIgnoresDistanceTo(state: SanguoshaState, attackerId: PlayerId, targetId: PlayerId): boolean {
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      if (runtime.globalIgnoresDistanceTo?.(state, owner.id, attackerId, targetId)) return true
+    }
+  }
+  return false
+}
+
 export function canTarget(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, range = getAttackRange(state, sourceId)): boolean {
   const target = player(state, targetId)
   if (sourceId === targetId || !target.alive) return false
   if (ignoresDistanceTo(state, sourceId, targetId)) return true
   // 定向的「视为在攻击范围内」（神太史慈【破围】）：只对这一对角色成立
   if (isForcedInAttackRange(state, sourceId, targetId)) return true
+  if (globalIgnoresDistanceTo(state, sourceId, targetId)) return true
   return getDistance(state, sourceId, targetId) <= range
 }

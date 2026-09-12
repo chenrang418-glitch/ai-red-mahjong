@@ -8,6 +8,8 @@ import { ZHANGSONG } from './yjcm2014-zhangsong'
 import { SUNLUBAN } from './yjcm2014-sunluban'
 import { ZHUHUAN } from './yjcm2014-zhuhuan'
 import { GUYONG } from './yjcm2014-guyong'
+import { CAIFUREN } from './yjcm2014-caifuren'
+import { JUSHOU } from './yjcm2014-jushou'
 
 /**
  * 一将成名 2014。
@@ -16,7 +18,7 @@ import { GUYONG } from './yjcm2014-guyong'
  * 谋 / 势 / 星、移动版强化、十周年重做或斗地主特殊版本。玩法表述和版本锁
  * 记录在 `docs/sanguosha-ruleset-v1.md` 的 YJCM2014 一节。
  *
- * 本批 9 / 11：剩余蔡夫人、沮授未实现。
+ * 11 / 11，本包已完成。
  */
 export const YJCM2014_CHARACTERS: readonly CharacterDefinition[] = [
   CAOZHEN,
@@ -28,4 +30,6 @@ export const YJCM2014_CHARACTERS: readonly CharacterDefinition[] = [
   SUNLUBAN,
   ZHUHUAN,
   GUYONG,
+  CAIFUREN,
+  JUSHOU,
 ] as const
