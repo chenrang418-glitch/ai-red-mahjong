@@ -105,19 +105,24 @@ registerSkillRuntime({
     handle(host, ownerId, context) {
       const payload = context.event.payload as { playerId?: PlayerId; phase?: string }
       if (payload.phase !== 'finish' || payload.playerId !== ownerId) return
-      const candidateIds = host.state.players.filter((candidate) => candidate.alive).map((candidate) => candidate.id)
-      if (candidateIds.length === 0) return
-      host.askSkill({
-        skillId: ZHIYAN, ownerId, step: 'target',
-        build: (requestId): ChooseTargetsRequest => ({
-          id: requestId, kind: 'choose-targets', playerId: ownerId,
-          prompt: '【直言】：选择一名角色，其摸一张牌并展示',
-          timeoutMs: 20_000, optional: true,
-          candidateIds, min: 1, max: 1,
-        }),
-      })
+      host.queueSkill({ skillId: ZHIYAN, ownerId, step: 'target', data: {} })
     },
   }],
+
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'target') return
+    const candidateIds = host.state.players.filter((candidate) => candidate.alive).map((candidate) => candidate.id)
+    if (candidateIds.length === 0) return
+    host.askSkill({
+      skillId: ZHIYAN, ownerId, step: 'target',
+      build: (requestId): ChooseTargetsRequest => ({
+        id: requestId, kind: 'choose-targets', playerId: ownerId,
+        prompt: '【直言】：选择一名角色，其摸一张牌并展示',
+        timeoutMs: 20_000, optional: true,
+        candidateIds, min: 1, max: 1,
+      }),
+    })
+  },
 
   resume(host, ownerId, resolution, response) {
     if (resolution.step !== 'target') return

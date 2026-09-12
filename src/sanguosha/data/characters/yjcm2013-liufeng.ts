@@ -51,19 +51,24 @@ registerSkillRuntime({
     handle(host, ownerId, context) {
       const payload = context.event.payload as { playerId?: PlayerId; phase?: string }
       if (payload.phase !== 'prepare' || payload.playerId !== ownerId) return
-      const candidateIds = hasNiCandidates(host.state)
-      if (candidateIds.length === 0) return
-      host.askSkill({
-        skillId: XIANSI, ownerId, step: 'target',
-        build: (requestId): ChooseTargetsRequest => ({
-          id: requestId, kind: 'choose-targets', playerId: ownerId,
-          prompt: '【陷嗣】：选择一至两名有牌的角色（可以是你自己），各取其一张牌作为「逆」',
-          timeoutMs: 25_000, optional: true,
-          candidateIds, min: 1, max: 2,
-        }),
-      })
+      host.queueSkill({ skillId: XIANSI, ownerId, step: 'target', data: {} })
     },
   }],
+
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'target') return
+    const candidateIds = hasNiCandidates(host.state)
+    if (candidateIds.length === 0) return
+    host.askSkill({
+      skillId: XIANSI, ownerId, step: 'target',
+      build: (requestId): ChooseTargetsRequest => ({
+        id: requestId, kind: 'choose-targets', playerId: ownerId,
+        prompt: '【陷嗣】：选择一至两名有牌的角色（可以是你自己），各取其一张牌作为「逆」',
+        timeoutMs: 25_000, optional: true,
+        candidateIds, min: 1, max: 2,
+      }),
+    })
+  },
 
   resume(host, ownerId, resolution, response) {
     const owner = playerOf(host.state, ownerId)

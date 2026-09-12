@@ -9,6 +9,7 @@ import { PANZHANG_MAZHONG } from './yjcm2013-panzhangmazhong'
 import { ZHURAN } from './yjcm2013-zhuran'
 import { YUFAN } from './yjcm2013-yufan'
 import { LIRU } from './yjcm2013-liru'
+import { FUHUANGHOU } from './yjcm2013-fuhuanghou'
 
 /**
  * 一将成名 2013。
@@ -17,7 +18,7 @@ import { LIRU } from './yjcm2013-liru'
  * 「一将成名 2013」平衡调整后的成熟版，不实现 2013 初版已淘汰的技能文本。
  * 玩法表述和版本锁记录在 `docs/sanguosha-ruleset-v1.md` 的 YJCM2013 一节。
  *
- * 本批 10 / 11：剩余伏皇后未实现。
+ * YJCM2013：11 / 11 COMPLETE。
  */
 export const YJCM2013_CHARACTERS: readonly CharacterDefinition[] = [
   GUOHUAI,
@@ -30,4 +31,5 @@ export const YJCM2013_CHARACTERS: readonly CharacterDefinition[] = [
   ZHURAN,
   YUFAN,
   LIRU,
+  FUHUANGHOU,
 ] as const

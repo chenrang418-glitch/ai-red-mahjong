@@ -4,6 +4,7 @@ import { expireArmorSuppressions } from './armor-suppression'
 import { clearForcedIdentities } from './forced-identity'
 import { expireStolenSkills } from './skill-theft-expiry'
 import { clearAttackRangeOverrides } from './attack-range-override'
+import { clearDistanceOverrides } from './distance-override'
 import { clearTurnSlashRules } from './slash-rules'
 import { clearTurnCardColorLocks } from './card-play-lock'
 import { returnDetainedCards } from './turn-bound-pile'
@@ -303,6 +304,8 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   // 「视为在攻击范围内」的定向豁免（神太史慈【破围】）同样只管本回合，
   // 额外回合结束也要清，所以挂在这里而不是按回合序号推算
   clearAttackRangeOverrides(state)
+  // 「视为距离 N」的定向覆盖（伏皇后【惴恐】）同样只到本回合结束
+  clearDistanceOverrides(state)
   // 额外阶段状态不留到下一个回合（回合角色在额外阶段里阵亡时会走到这里）
   clearExtraPhases(state)
   // 神甘宁【魄袭】「弃一张」留下的本回合手牌上限 -1，同样在这里统一清

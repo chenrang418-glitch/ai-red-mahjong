@@ -49,19 +49,24 @@ registerSkillRuntime({
     handle(host, ownerId, context) {
       const payload = context.event.payload as { playerId?: PlayerId; phase?: string }
       if (payload.phase !== 'finish' || payload.playerId !== ownerId) return
-      const candidateIds = jueceTargets(host.state, ownerId)
-      if (candidateIds.length === 0) return
-      host.askSkill({
-        skillId: JUECE, ownerId, step: 'target',
-        build: (requestId): ChooseTargetsRequest => ({
-          id: requestId, kind: 'choose-targets', playerId: ownerId,
-          prompt: '【绝策】：选择一名没有手牌的其他角色，对其造成 1 点伤害',
-          timeoutMs: 20_000, optional: true,
-          candidateIds, min: 1, max: 1,
-        }),
-      })
+      host.queueSkill({ skillId: JUECE, ownerId, step: 'target', data: {} })
     },
   }],
+
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'target') return
+    const candidateIds = jueceTargets(host.state, ownerId)
+    if (candidateIds.length === 0) return
+    host.askSkill({
+      skillId: JUECE, ownerId, step: 'target',
+      build: (requestId): ChooseTargetsRequest => ({
+        id: requestId, kind: 'choose-targets', playerId: ownerId,
+        prompt: '【绝策】：选择一名没有手牌的其他角色，对其造成 1 点伤害',
+        timeoutMs: 20_000, optional: true,
+        candidateIds, min: 1, max: 1,
+      }),
+    })
+  },
 
   resume(host, ownerId, resolution, response) {
     if (resolution.step !== 'target') return

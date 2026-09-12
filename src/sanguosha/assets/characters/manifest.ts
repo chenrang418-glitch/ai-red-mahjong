@@ -695,6 +695,37 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·李儒',
   },
+  fuhuanghou: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·伏皇后',
+  },
+  /* ── 一将成名 2014 ── 统一竖构图半身像 */
+  caozhen: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹真',
+  },
+  chenqun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·陈群',
+  },
+  hanhaoshihuan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·韩浩史涣',
+  },
+  wuyi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·吴懿',
+  },
+  zhoucang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·周仓',
+  },
 }
 
 /**
@@ -712,18 +743,8 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
  * 座位卡安静地回退到文字底纹。
  */
 export const PENDING_PORTRAIT_IDS: readonly string[] = [
-  // 一将成名 2011 · 第一批：立绘待上传
-  'caozhi', 'yujin', 'zhangchunhua', 'fazheng',
-  // 一将成名 2011 · 第二批：立绘待上传
-  'masu', 'xushu', 'lingtong', 'wuguotai',
-  // 一将成名 2011 · 第三批：立绘待上传
-  'xusheng', 'chengong', 'gaoshun',
-  // 一将成名 2012 · 第一批：立绘待上传
-  'caozhang', 'zhonghui', 'xunyou', 'wangyi',
-  // 一将成名 2012 · 第二批：立绘待上传
-  'liaohua', 'guanxingzhangbao', 'madai', 'chengpu',
-  // 一将成名 2012 · 第三批：立绘待上传
-  'handang', 'bulianshi', 'liubiao', 'huaxiong',
+  // 一将成名 2014 第一批：立绘待上传
+  'zhangsong', 'sunluban', 'zhuhuan', 'guyong',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

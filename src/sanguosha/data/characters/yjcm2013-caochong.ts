@@ -123,6 +123,22 @@ registerSkillRuntime({
       const owner = playerOf(host.state, ownerId)
       if (!owner?.alive || owner.faceDown) return
       if (equipmentCandidatesOf(host.state, ownerId).length === 0) return
+      /*
+       * **属性伤害传导中不介入**：`resumeDamageChain` 是一个同步 while 循环，
+       * 一边遍历剩余目标一边直接调用 `resolveSingleDamage`；这里如果
+       * `cancel()` 挂起发问，循环会在等到回答之前就继续处理下一个目标，
+       * 状态会乱。传导链只有这一种同步实现，仁心不掺和这种伤害。
+       */
+      if (host.state.damageChain) return
+      /*
+       * **群体锦囊（南蛮入侵、万箭齐发）的多目标结算同样不介入**：
+       * 那套流程在处理完一个目标之后会立刻同步推进到下一个目标——
+       * 这里如果 `cancel()` 挂起发问，代码会在等到回答之前就把下一个目标
+       * 的请求也发出去，两个 pending 状态互相打架。仁心只管单体伤害。
+       */
+      if (host.state.cardResolution?.kind === 'trick') return
+      // 已经有别的技能在这次事件里挂起发问了，不重复挤占同一个 skillResolution
+      if (host.state.skillResolution) return
 
       const payload = context.event.payload as { amount?: number; cardId?: CardId; cardName?: string; redirectedBy?: string }
       const amount = typeof payload.amount === 'number' ? payload.amount : 0

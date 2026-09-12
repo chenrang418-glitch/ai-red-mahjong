@@ -275,6 +275,7 @@ import type { MultiCardViewAsState } from './multi-card-viewas'
 import type { ForcedCardIdentity } from './forced-identity'
 import type { GlobalToken } from './global-token'
 import type { AttackRangeOverride } from './attack-range-override'
+import type { DistanceOverride } from './distance-override'
 import type { CardUseTargets } from './card-use-targets'
 import type { CyclicStatus } from './cyclic-status'
 import type { MissionStatus } from './mission-skill'
@@ -825,6 +826,8 @@ export interface SanguoshaState {
    * 代价只属于前者。标记落在**牌**上而不是回合上，结算收束时由技能自己摘掉。
    */
   natureConvertedCardIds?: string[]
+  /** 某次【杀】结算中，目标实际打出的【闪】——键是这张杀的来源。周仓【忠勇】用。 */
+  lastSlashDodgeCard?: Record<PlayerId, CardId>
   cardColorLocks?: Array<{
     targetId: PlayerId
     color: 'red' | 'black'
@@ -921,6 +924,8 @@ export interface SanguoshaState {
   movableTokens?: MovableToken[]
   /** 定向的「视为在攻击范围内」。见 engine/attack-range-override.ts。 */
   attackRangeOverrides?: AttackRangeOverride[]
+  /** 定向的「视为距离 N」。见 engine/distance-override.ts。 */
+  distanceOverrides?: DistanceOverride[]
   /** 有序循环状态（神华佗【五灵】）。见 engine/cyclic-status.ts。 */
   cyclicStatuses?: CyclicStatus[]
   /** 正在结算的使用牌各自指定了哪些目标。见 engine/card-use-targets.ts。 */

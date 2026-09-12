@@ -1,4 +1,5 @@
 import { isForcedInAttackRange } from './attack-range-override'
+import { distanceOverrideFor } from './distance-override'
 import { weaponCardsOf } from './equipment-slots'
 import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
@@ -47,6 +48,14 @@ export function getSeatDistance(state: SanguoshaState, sourceId: PlayerId, targe
 }
 
 export function getDistance(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): number {
+  if (sourceId === targetId) return 0
+  /*
+   * 定向的「视为距离 N」（伏皇后【惴恐】没赢）优先于正常计算——
+   * 这条要连带影响顺手牵羊、兵粮寸断这些直接读距离的效果，
+   * 不能只做一个「攻击范围内」的布尔豁免，所以覆盖的是距离本身。
+   */
+  const overridden = distanceOverrideFor(state, sourceId, targetId)
+  if (overridden !== null) return overridden
   const source = player(state, sourceId)
   const target = player(state, targetId)
   const sourceHorse = source.zones.equipment.offensiveHorse ? 1 : 0
