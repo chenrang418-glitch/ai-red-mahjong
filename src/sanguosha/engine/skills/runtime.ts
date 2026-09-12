@@ -290,6 +290,12 @@ export interface SkillRuntime {
   /** 锁定技：在伤害事件产生前改写伤害来源。 */
   modifyDamageSource?(state: SanguoshaState, ownerId: PlayerId, context: DamageSourceContext): PlayerId | null | undefined
   /**
+   * 拥有者这张拼点牌的有效点数覆盖（秦宓【天辩】：自己的红桃拼点牌视为 13）。
+   * 返回 null/undefined 表示不覆盖，按牌面点数算。只改拼点里的比较值，
+   * 不改这张牌本身的点数。
+   */
+  pindianRankOverride?(state: SanguoshaState, ownerId: PlayerId, card: { rank: number; suit?: string }): number | null | undefined
+  /**
    * 拥有者**造成**伤害时对属性和数值的修正（神马超【驭雳】）。
    *
    * 排在藤甲、狂风、大雾之前，见 `damage-modifiers.ts`。返回改动后的值；
@@ -351,6 +357,14 @@ export interface SkillRuntime {
     toOthers?: number | ((state: SanguoshaState, ownerId: PlayerId) => number)
     fromOthers?: number | ((state: SanguoshaState, ownerId: PlayerId) => number)
   }
+  /**
+   * 拥有者对**某一个特定目标**的距离修正（田豫【追讨】：只对被选中的那个人
+   * -1，不是对所有人都 -1）。和 `distanceModifier.toOthers` 是两回事——
+   * 那个对所有人生效，这个只对 `targetId` 生效，技能自己按
+   * source-target 维护持久状态（不建立在 `distanceModifier` 里，避免
+   * 「对所有人」和「对某一个人」两种语义混进同一个字段）。
+   */
+  directedDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
   /**
    * 固定手牌上限。返回 null 表示沿用通常的“当前体力值”。
    *
@@ -502,6 +516,13 @@ export interface SkillRuntime {
    * 把控制权交回去，否则牌局停在这里。
    */
   interceptSourceTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
+  /**
+   * 旁观者插入点（秦宓【谏征】）：既不是使用者也不是目标，只要求某个前置
+   * 条件（谏征要求「在使用者攻击范围内」，由技能自己判断，这里不做通用
+   * 校验）。目前只有【杀】的结算会遍历它，见 `askSlashInterceptors`。
+   * 返回 true 表示已经发问、结算挂起；答完之后同样要调 `resumeCardTarget()`。
+   */
+  interceptBystanderTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /**
    * 锁定技式的「取消自己这个目标」（神荀彧【定汉】）。
    *
@@ -1027,6 +1048,20 @@ export function cardEffectInvalidBy(
 ): SkillRuntime | null {
   return skillsOf(state, targetId, skillIdsOf)
     .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName, cardColor) ?? false) ?? null
+}
+
+/** 拼点点数的有效值覆盖（秦宓【天辩】把自己的红桃拼点牌视为 13）；没有覆盖返回 null。 */
+export function pindianRankOverrideOf(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  card: { rank: number; suit?: string },
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number | null {
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    const value = runtime.pindianRankOverride?.(state, playerId, card)
+    if (value != null) return value
+  }
+  return null
 }
 
 /** 拥有者对这个目标使用【杀】时是不是不受次数限制。 */

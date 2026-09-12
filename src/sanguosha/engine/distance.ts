@@ -23,6 +23,8 @@ function skillDistanceModifier(state: SanguoshaState, sourceId: PlayerId, target
   let total = 0
   for (const runtime of skillsOf(state, sourceId, skillIdsOf)) {
     total += resolveModifier(runtime.distanceModifier?.toOthers, state, sourceId)
+    // 定向修正（田豫【追讨】：只对这一个 target 生效，不是对所有人都 -1）
+    total += Math.trunc(runtime.directedDistanceTo?.(state, sourceId, targetId) ?? 0)
   }
   for (const runtime of skillsOf(state, targetId, skillIdsOf)) {
     total += resolveModifier(runtime.distanceModifier?.fromOthers, state, targetId)

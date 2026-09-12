@@ -638,6 +638,27 @@ function askSlashInterceptors(host: CardEngineHost): boolean {
       }),
     ])
   }
+  /*
+   * 旁观者插入点（秦宓【谏征】：既不是使用者也不是目标，只要求「在使用者
+   * 攻击范围内」）。和上面两组的区别是遍历对象——不看 sourceId/targetId
+   * 自己的技能，看**其他所有存活角色**的技能。
+   */
+  for (const bystander of host.state.players) {
+    if (!bystander.alive || bystander.id === resolution.sourceId || bystander.id === resolution.targetId) continue
+    for (const runtime of skillsOf(host.state, bystander.id, skillIdsOf)) {
+      if (!runtime.interceptBystanderTarget) continue
+      interceptors.push([
+        `bystander-skill:${runtime.id}:${bystander.id}`,
+        () => runtime.interceptBystanderTarget!(host, bystander.id, {
+          sourceId: resolution.sourceId,
+          targetId: resolution.targetId,
+          cardId: resolution.cardId,
+          cardName: '杀',
+          category: 'basic',
+        }),
+      ])
+    }
+  }
   for (const [id, ask] of interceptors) {
     // 同一个目标只问一次：插入点结算完会回到这里，不记账就会把自己再问一遍
     if (resolution.interceptsDone.includes(id)) continue

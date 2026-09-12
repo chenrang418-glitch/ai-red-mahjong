@@ -1,4 +1,5 @@
 import { closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivateZone, privateZoneCards } from './private-zone'
+import { pindianRankOverrideOf } from './skills/runtime'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import type { CardId, PhysicalCard, PindianState, PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
@@ -62,6 +63,15 @@ export function resetPindianContinuations(): void {
  */
 export function pindianRank(card: Pick<PhysicalCard, 'rank'>): number {
   return card.rank
+}
+
+/**
+ * 拼点点数的有效值——大多数情况下就是牌面点数，秦宓【天辩】把自己的红桃
+ * 拼点牌视为 13 点时改走 `pindianRankOverrideOf`（挂在 `skills/runtime.ts`，
+ * 复用它已有的技能钩子聚合和依赖注入，不再另起一套 provide/inject）。
+ */
+export function effectivePindianRank(state: SanguoshaState, playerId: PlayerId, card: PhysicalCard): number {
+  return pindianRankOverrideOf(state, playerId, card) ?? pindianRank(card)
 }
 
 function playerOf(state: SanguoshaState, playerId: PlayerId) {
@@ -206,8 +216,8 @@ function revealPindian(host: PindianHost): void {
   pindian.stage = 'revealing'
   const initiatorCardId = pindian.initiatorCardId!
   const opponentCardId = pindian.opponentCardId!
-  const initiatorRank = pindianRank(host.state.cards[initiatorCardId])
-  const opponentRank = pindianRank(host.state.cards[opponentCardId])
+  const initiatorRank = effectivePindianRank(host.state, pindian.initiatorId, host.state.cards[initiatorCardId])
+  const opponentRank = effectivePindianRank(host.state, pindian.opponentId, host.state.cards[opponentCardId])
 
   // 先一起挪到处理区亮出来，再一起进弃牌堆——不能一张留处理区一张进弃牌堆
   for (const [playerId, cardId] of [[pindian.initiatorId, initiatorCardId], [pindian.opponentId, opponentCardId]] as const) {

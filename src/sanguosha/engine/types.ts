@@ -859,6 +859,19 @@ export interface SanguoshaState {
    * 并立即消费掉，不建立本回合常驻加成。
    */
   pendingFengpoBonus?: Record<PlayerId, { cardId: CardId; amount: number }>
+  /** 戏志才【先辅】选定的先辅目标。键是戏志才的 `playerId`，本局固定不变。 */
+  xianfuTarget?: Record<PlayerId, PlayerId>
+  /**
+   * 田豫【追讨】当前生效的定向距离 -1。造成伤害后移除对应记录，
+   * 该目标就重新变回「可以被追讨选择」——不建永久黑名单。
+   */
+  zhuitaoDistance?: Array<{ ownerId: PlayerId; targetId: PlayerId }>
+  /**
+   * 郝昭【镇骨】跨两次回合结束的调整。键是目标 `playerId`；
+   * `stage: 'first'` 等郝昭当前回合真正结束时执行第一次调整，之后转
+   * `'second'` 等目标自己下一次回合真正结束时执行第二次调整并清除。
+   */
+  pendingZhengu?: Record<PlayerId, { haozhaoId: PlayerId; stage: 'first' | 'second' }>
   /** 正在执行的额外阶段；没有额外阶段时不存在这个字段。 */
   extraPhase?: ExtraPhaseState
   /** 还没轮到的额外阶段（同一个回合开始时排了不止一个）。 */
