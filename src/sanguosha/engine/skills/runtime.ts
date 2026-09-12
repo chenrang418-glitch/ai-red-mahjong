@@ -468,6 +468,15 @@ export interface SkillRuntime {
    * 所以这里只报「有哪些牌可用」，**不要自己判断该不该改**。
    */
   retrial?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): CardId[]
+  /**
+   * 改判该问谁：默认问拥有者自己（他自己决定用不用、用哪张）。
+   *
+   * 诸葛瑾【缓释】反过来——牌是诸葛瑾的，但**挑哪张牌由被判定角色决定**。
+   * 返回一个不同的 `PlayerId` 就把这一轮的询问对象换成他，候选牌仍然来自
+   * `retrial` 报的那份（拥有者的手牌），不要在这里改变牌的归属。
+   * 返回 null/undefined 就是默认行为。
+   */
+  retrialDecidedBy?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): PlayerId | null
   /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
   cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
   /**

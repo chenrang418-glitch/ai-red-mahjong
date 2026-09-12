@@ -156,14 +156,47 @@ export function clearCardCategoryLocksOf(state: SanguoshaState, playerId: Player
 }
 
 /**
- * 这张实体牌现在能不能被这名角色**使用或打出**。花色、颜色、类别三类禁令都查。
+ * 第四类禁令：按具体 Card ID 禁用（董白【黠慧】：A 获得的董白黑牌被锁定，
+ * 直到 A 体力值下降才解锁）。和颜色/类别禁令的区别是**不按回合过期**，
+ * 技能自己在正确的时机调用 `clearCardIdLocksOf` 解锁。
+ */
+export interface CardIdLockEntry {
+  targetId: PlayerId
+  cardId: CardId
+  sourceId: PlayerId
+  skillId: string
+}
+
+/** 锁定一张具体的牌；同一张牌重复锁定不产生第二条记录。 */
+export function lockCardId(state: SanguoshaState, entry: CardIdLockEntry): void {
+  state.cardIdLocks ??= []
+  if (state.cardIdLocks.some((candidate) => candidate.targetId === entry.targetId && candidate.cardId === entry.cardId)) return
+  state.cardIdLocks.push({ ...entry })
+}
+
+/** 这张具体的牌，对这名角色来说现在是不是被锁定。 */
+export function isCardIdLocked(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
+  return (state.cardIdLocks ?? []).some((entry) => entry.targetId === playerId && entry.cardId === cardId)
+}
+
+/** 解除这名角色身上**全部**的按 Card ID 锁定（体力值下降后统一解锁）。 */
+export function clearCardIdLocksOf(state: SanguoshaState, playerId: PlayerId): void {
+  if (!state.cardIdLocks) return
+  state.cardIdLocks = state.cardIdLocks.filter((entry) => entry.targetId !== playerId)
+  if (state.cardIdLocks.length === 0) delete state.cardIdLocks
+}
+
+/**
+ * 这张实体牌现在能不能被这名角色**使用或打出**。花色、颜色、类别、
+ * 具体 Card ID 四类禁令都查。
  *
- * 这是唯一出口：新增第四类禁令时加在这里，不要在各条路径上再写一遍。
+ * 这是唯一出口：新增第五类禁令时加在这里，不要在各条路径上再写一遍。
  */
 export function cardPlayable(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
   return cardPlayableBySuit(state, playerId, cardId)
     && cardPlayableByColor(state, playerId, cardId)
     && cardPlayableByCategory(state, playerId, cardId)
+    && !isCardIdLocked(state, playerId, cardId)
 }
 
 /** 这名角色现在有没有任何用牌禁令，用于界面提示。 */

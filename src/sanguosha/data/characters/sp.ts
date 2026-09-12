@@ -29,6 +29,16 @@ import { XUJING } from './sp-xujing'
 import { GAOLAN } from './sp-gaolan'
 import { LIJUE } from './sp-lijue'
 import { GUOSI } from './sp-guosi'
+import { PANFENG } from './sp-panfeng'
+import { SHIXIE } from './sp-shixie'
+import { ZHUGEJIN } from './sp-zhugejin'
+import { DONGBAI } from './sp-dongbai'
+import { ZHUGEKE } from './sp-zhugeke'
+import { ZHUGEZHAN } from './sp-zhugezhan'
+import { ZHANGXIU } from './sp-zhangxiu'
+import { TADUN } from './sp-tadun'
+import { SUNQIAN } from './sp-sunqian'
+import { SHAMOKE } from './sp-shamoke'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -38,6 +48,7 @@ import { GUOSI } from './sp-guosi'
  * 马云騄、糜竺。
  * 第二批 10 / 10：曹纯、戏志才、郝昭、王基、董允、秦宓、伊籍、田畴、田豫、陆绩。
  * 第三批 10 / 10：程昱、曹爽、张昌蒲、吕虔、蒋干、诸葛诞、许靖、高览、李傕、郭汜。
+ * 第四批 10 / 10：潘凤、士燮、诸葛瑾、董白、诸葛恪、诸葛瞻、张绣、蹋顿、孙乾、沙摩柯。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -70,4 +81,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   GAOLAN,
   LIJUE,
   GUOSI,
+  PANFENG,
+  SHIXIE,
+  ZHUGEJIN,
+  DONGBAI,
+  ZHUGEKE,
+  ZHUGEZHAN,
+  ZHANGXIU,
+  TADUN,
+  SUNQIAN,
+  SHAMOKE,
 ] as const

@@ -128,11 +128,15 @@ function askNextRetrial(host: JudgmentEngineHost): void {
     const candidates = retrialCandidates(host.state, responderId, retrial.playerId)
     if (candidates.length === 0) { retrial.responderIndex += 1; continue }
     const judgeCard = host.state.cards[retrial.judgeCardId]
+    const askId = skillsOf(host.state, responderId, skillIdsOf)
+      .map((runtime) => runtime.retrialDecidedBy?.(host.state, responderId, retrial.playerId))
+      .find((id): id is PlayerId => !!id) ?? responderId
+    retrial.sourceId = responderId
     const request: ChooseCardsRequest = {
       id: `request-retrial-${host.state.seq}-${host.state.decisions.length}-${retrial.responderIndex}`,
       kind: 'choose-cards',
-      playerId: responderId,
-      prompt: `${player(host.state, retrial.playerId).nickname}的【${retrial.reason}】判定翻出【${judgeCard.name}】，是否打出一张牌代替判定牌`,
+      playerId: askId,
+      prompt: `${player(host.state, retrial.playerId).nickname}的【${retrial.reason}】判定翻出【${judgeCard.name}】，是否用${askId === responderId ? '' : `${player(host.state, responderId).nickname}的`}一张牌代替判定牌`,
       timeoutMs: 25_000,
       optional: true,
       cardIds: candidates,
@@ -200,14 +204,15 @@ export function resolveRetrialResponse(host: JudgmentEngineHost, request: Choose
   }
 
   const replacementId = cardIds[0]
-  const source = player(host.state, response.playerId)
+  const sourceId = retrial.sourceId ?? response.playerId
+  const source = player(host.state, sourceId)
   if (!source.zones.hand.includes(replacementId)) throw new Error('改判用的牌不在手牌里')
   // 旧判定牌进弃牌堆，新牌顶上。两张牌都在处理区停留过，牌张守恒不会破
   // 被改判换下来的那一张同样是「因判定进入弃牌堆」
   moveCard(host.state, retrial.judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' }, { discardReason: 'judgment' })
-  moveCard(host.state, replacementId, { kind: 'hand', playerId: response.playerId }, { kind: 'processingArea' })
+  moveCard(host.state, replacementId, { kind: 'hand', playerId: sourceId }, { kind: 'processingArea' })
   retrial.judgeCardId = replacementId
-  host.dispatch('CardResponded', { playerId: response.playerId, cardId: replacementId, cardName: host.state.cards[replacementId].name, reason: '改判' }, { sourceId: response.playerId, targetId: retrial.playerId, cardIds: [replacementId] })
+  host.dispatch('CardResponded', { playerId: sourceId, cardId: replacementId, cardName: host.state.cards[replacementId].name, reason: '改判' }, { sourceId, targetId: retrial.playerId, cardIds: [replacementId] })
   // 换了牌就重新从头问一遍：别人（以及他自己）可以对新的判定牌再改一次
   retrial.responderIndex = 0
   askNextRetrial(host)

@@ -569,6 +569,13 @@ export interface JudgmentRetrialState {
   responderOrder: PlayerId[]
   responderIndex: number
   requestId: string
+  /**
+   * 当前这一轮询问：换牌用的是谁的手牌。默认就是被问的那个人自己
+   * （`responderOrder` 当前这一位）；诸葛瑾【缓释】要的是「诸葛瑾出牌，
+   * 被判定角色替他挑」，这两个人不是同一个，所以要单独记一笔，
+   * 不能假设「回答的人」和「出牌的人」永远相同。
+   */
+  sourceId?: PlayerId
 }
 
 /**
@@ -849,6 +856,11 @@ export interface SanguoshaState {
     turnNumber: number
   }>
   /**
+   * 按具体 Card ID 禁用（董白【黠慧】）。不按回合过期，技能自己在
+   * 正确的时机（目标体力值下降后）调用 `clearCardIdLocksOf` 解锁。
+   */
+  cardIdLocks?: Array<{ targetId: PlayerId; cardId: CardId; sourceId: PlayerId; skillId: string }>
+  /**
    * 陈琳【笔伐】暗置在目标武将牌上、等目标下一次回合开始才结算的牌。
    * 键是目标 `playerId`；同一目标同一时刻只保留最新的一份。
    */
@@ -1020,6 +1032,25 @@ export interface SanguoshaState {
    * 按 `turnNumber` 自然过期，不需要额外的回合结束清理。
    */
   turnCardUseCount?: Record<PlayerId, { turnNumber: number; count: number }>
+  /** 诸葛恪【黩武】：本次伤害是否让目标进入了濒死，等濒死结算完再回收判定。 */
+  pendingDuwu?: Record<PlayerId, PlayerId>
+  /**
+   * 诸葛瞻【父荫】：本回合第一次成为杀/决斗目标时，若使用者手牌数达标，
+   * 记下这次要被无效的来源，供 `cardEffectInvalid` 消费一次。
+   */
+  fuyinPending?: Record<PlayerId, { sourceId: PlayerId; turnNumber: number }>
+  /**
+   * 诸葛瞻【罪论】X=0 分支：双方各失去 1 点体力不能同时发生——濒死结算
+   * 期间引擎不允许嵌套第二个濒死。这里记下「先手那次 LoseHp 触发了濒死，
+   * 还欠另一方一次 LoseHp」，等这次濒死结算完（`QuitDying`/`Death`）再补上。
+   */
+  pendingZuilunLoseHp?: { ownerId: PlayerId; pendingPlayerId: PlayerId }
+  /** 张绣【雄乱】：已经废除判定区的角色（配合 prohibitsTarget 拒绝延时锦囊目标）。 */
+  zhangxiuJudgmentAbolished?: PlayerId[]
+  /** 张绣【雄乱】：直到当前回合结束，对这个目标使用牌无距离/次数限制。 */
+  zhangxiuXiongluan?: Record<PlayerId, { targetId: PlayerId; turnNumber: number }>
+  /** 潘凤【狂斧】：当前这次虚拟杀的来源信息，等它结算完毕再按结果分支。 */
+  pendingKuangfu?: { ownerId: PlayerId; targetId: PlayerId; fromOwnEquipment: boolean }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
