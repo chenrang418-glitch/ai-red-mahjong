@@ -261,6 +261,17 @@ function revealPindian(host: PindianHost): void {
   // 先清状态再回调：技能可能在续接里再发起别的东西
   host.state.pindian = null
   host.state.pindianSettlement = { id: pindian.id, cardIds: [initiatorCardId, opponentCardId] }
+  /*
+   * 通用的拼点结算时机，**任何参与者**的被动技都能挂在这上面
+   * （简雍【纵适】：不管这次拼点是谁发起的，只要自己是双方之一）。
+   * 这里派发而不是只靠 `continuationTag` 那套：续接只认发起方登记的
+   * 那一个 tag，接不住「我是参与者」这种被动反应；`pindianSettlement`
+   * 已经建好，处理器里调 `claimPindianCards` 认领拼点牌是安全的。
+   */
+  host.dispatch('PindianEnd', {
+    initiatorId: pindian.initiatorId, opponentId: pindian.opponentId,
+    initiatorCardId, opponentCardId, initiatorRank, opponentRank, outcome,
+  }, { sourceId: pindian.initiatorId, targetId: pindian.opponentId, cardIds: [initiatorCardId, opponentCardId] })
   const disposition = run?.(host, result)
   if (disposition !== 'defer-settlement') finishPindianSettlement(host)
 }

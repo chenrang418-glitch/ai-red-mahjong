@@ -433,6 +433,14 @@ export function beginVirtualSlash(
     nature?: 'normal' | 'fire' | 'thunder'
     /** 用作载体的实体手牌；不传则生成临时牌 */
     cardId?: CardId
+    /**
+     * 这张虚拟【杀】算不算一次出杀次数。
+     *
+     * 默认 `false`（老行为：技能发起的杀不吃次数限制）。刘封【陷嗣】用两张
+     * 「逆」换来的杀是**真的按次数算**的一次出杀，调用方传 `true`；
+     * 距离限制则由调用方在决定要不要发出这条动作之前自己查（这里不做）。
+     */
+    countUsage?: boolean
   },
 ): boolean {
   if (host.state.cardResolution) throw new Error('已有卡牌正在结算')
@@ -454,13 +462,13 @@ export function beginVirtualSlash(
     if (effectiveCardName(host.state, options.cardId) !== '杀') throw new Error('作为载体的牌不是【杀】')
     const realAction = useAction(options.cardId, source.id, '杀', [target.id], `对${target.nickname}使用【杀】`)
     if (realAction.kind !== 'use-card') throw new Error('技能杀动作构造失败')
-    beginSlash(host, realAction, { countUsage: false, consumeWine: false })
+    beginSlash(host, realAction, { countUsage: options.countUsage ?? false, consumeWine: false })
     return true
   }
   const cardId = createVirtualSlashCard(host.state, source.id, options.sourceSkillId, options.nature)
   const action = useAction(cardId, source.id, '杀', [target.id], `对${target.nickname}使用虚拟【杀】`)
   if (action.kind !== 'use-card') throw new Error('虚拟杀动作构造失败')
-  beginSlash(host, action, { countUsage: false, consumeWine: false })
+  beginSlash(host, action, { countUsage: options.countUsage ?? false, consumeWine: false })
   return true
 }
 

@@ -527,6 +527,174 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·神黄忠',
   },
+  /* ── 一将成名 2011 ── 统一竖构图半身像 */
+  caozhi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹植',
+  },
+  yujin: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·于禁',
+  },
+  zhangchunhua: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·张春华',
+  },
+  fazheng: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·法正',
+  },
+  masu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·马谡',
+  },
+  xushu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·徐庶',
+  },
+  lingtong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·凌统',
+  },
+  wuguotai: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·吴国太',
+  },
+  xusheng: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·徐盛',
+  },
+  chengong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·陈宫',
+  },
+  gaoshun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·高顺',
+  },
+  /* ── 一将成名 2012 ── 统一竖构图半身像 */
+  caozhang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹彰',
+  },
+  zhonghui: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·钟会',
+  },
+  xunyou: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·荀攸',
+  },
+  wangyi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·王异',
+  },
+  liaohua: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·廖化',
+  },
+  guanxingzhangbao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·关兴张苞',
+  },
+  madai: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·马岱',
+  },
+  chengpu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·程普',
+  },
+  handang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·韩当',
+  },
+  bulianshi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·步练师',
+  },
+  liubiao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·刘表',
+  },
+  huaxiong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·华雄',
+  },
+  /* ── 一将成名 2013 ── 统一竖构图半身像 */
+  guohuai: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·郭淮',
+  },
+  manchong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·满宠',
+  },
+  caochong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·曹冲',
+  },
+  guanping: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·关平',
+  },
+  jianyong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·简雍',
+  },
+  liufeng: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·刘封',
+  },
+  panzhangmazhong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·潘璋马忠',
+  },
+  zhuran: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·朱然',
+  },
+  yufan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·虞翻',
+  },
+  liru: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·李儒',
+  },
 }
 
 /**

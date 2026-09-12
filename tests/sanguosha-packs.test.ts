@@ -7,6 +7,7 @@ import { MOUNTAIN_CHARACTERS } from '@/sanguosha/data/characters/mountain'
 import { GOD_CHARACTERS } from '@/sanguosha/data/characters/god'
 import { YJCM2011_CHARACTERS } from '@/sanguosha/data/characters/yjcm2011'
 import { YJCM2012_CHARACTERS } from '@/sanguosha/data/characters/yjcm2012'
+import { YJCM2013_CHARACTERS } from '@/sanguosha/data/characters/yjcm2013'
 import { ENTERTAINMENT_CHARACTERS } from '@/sanguosha/data/characters/entertainment'
 import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 // 技能运行时靠 import 副作用注册，而装备类技能（含铁骑、流离）注册在引擎侧。
@@ -36,6 +37,7 @@ describe('包的归属不能串', () => {
     for (const character of GOD_CHARACTERS) expect(character.pack, `${character.name}`).toBe('god')
     for (const character of YJCM2011_CHARACTERS) expect(character.pack, `${character.name}`).toBe('yjcm2011')
     for (const character of YJCM2012_CHARACTERS) expect(character.pack, `${character.name}`).toBe('yjcm2012')
+    for (const character of YJCM2013_CHARACTERS) expect(character.pack, `${character.name}`).toBe('yjcm2013')
     for (const character of ENTERTAINMENT_CHARACTERS) expect(character.pack, `${character.name}`).toBe('entertainment')
   })
 
@@ -43,7 +45,7 @@ describe('包的归属不能串', () => {
     expect(ALL_CHARACTERS.length).toBe(
       STANDARD_CHARACTERS.length + WIND_CHARACTERS.length + FIRE_CHARACTERS.length + FOREST_CHARACTERS.length
         + MOUNTAIN_CHARACTERS.length + GOD_CHARACTERS.length + YJCM2011_CHARACTERS.length
-        + YJCM2012_CHARACTERS.length + ENTERTAINMENT_CHARACTERS.length,
+        + YJCM2012_CHARACTERS.length + YJCM2013_CHARACTERS.length + ENTERTAINMENT_CHARACTERS.length,
     )
     const ids = ALL_CHARACTERS.map((character) => character.id)
     expect(new Set(ids).size, '武将 id 不能重复').toBe(ids.length)

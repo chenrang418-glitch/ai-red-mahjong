@@ -1,7 +1,7 @@
 import type { CharacterId } from '../../engine/types'
 import type { Faction } from '../../shared/factions'
 
-/** 沿用既有字段名；六势力的唯一枚举定义在 shared/factions。 */
+/** 沿用既有字段名；七势力的唯一枚举定义在 shared/factions。 */
 export type Kingdom = Faction
 export type Gender = 'male' | 'female'
 
@@ -11,7 +11,7 @@ export type Gender = 'male' | 'female'
  * `wind` / `fire` / `forest` / `mountain` / `god` 是本项目的五个角色分包。加包时要同时更新
  * `ALL_CHARACTERS` 的汇入，否则新武将进不了候选池。
  */
-export type CharacterPack = 'standard' | 'wind' | 'fire' | 'forest' | 'mountain' | 'god' | 'yjcm2011' | 'yjcm2012' | 'entertainment'
+export type CharacterPack = 'standard' | 'wind' | 'fire' | 'forest' | 'mountain' | 'god' | 'yjcm2011' | 'yjcm2012' | 'yjcm2013' | 'entertainment'
 
 export interface CharacterSkillInfo {
   id: string

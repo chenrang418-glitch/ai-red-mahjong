@@ -15,6 +15,13 @@ export type GameEventName =
    * 平局不派发 `PindianResult`——平局不算赢。
    */
   | 'PindianResult' | 'DuelResult'
+  /**
+   * 拼点**结算完毕**（含平局），供任意参与者的被动技使用——公共的
+   * `PindianResult` 只在分出胜负时才派发，接不住简雍【纵适】这类
+   * 「平局也要反应」的技能。派发时机在 `state.pindianSettlement` 已经
+   * 建好、两张拼点牌仍留在处理区之后，`claimPindianCards` 在这里调用有效。
+   */
+  | 'PindianEnd'
   | 'Recover'
   | 'LoseHp' | 'MaxHpChange'
   /**

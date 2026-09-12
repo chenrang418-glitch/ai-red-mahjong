@@ -110,6 +110,8 @@ export interface SkillHost {
     sourceSkillId: string
     nature?: DamageNature
     cardId?: CardId
+    /** 这张虚拟【杀】算不算一次出杀次数；不传按老行为不计次数。 */
+    countUsage?: boolean
   }): boolean
   /** “成为目标后”的技能回答完毕，把控制权交回当前牌的结算管线。 */
   resumeCardTarget(): void

@@ -233,7 +233,7 @@ export class SanguoshaGame {
     }
   }
 
-  beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder'; cardId?: string }): boolean {
+  beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder'; cardId?: string; countUsage?: boolean }): boolean {
     return startVirtualSlash(this, options)
   }
 

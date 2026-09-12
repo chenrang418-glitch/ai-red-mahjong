@@ -523,14 +523,43 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   if (amount <= 0) return
 
   const cardId = options.cardId ?? null
-  for (const timing of ['BeforeDamage', 'DamageCaused', 'DamageInflicted'] as const) {
-    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId, options.cardName ?? null, options.redirectedBy ?? null)
+  const beforeContext = dispatchDamageTiming(host, 'BeforeDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null, options.redirectedBy ?? null)
+  if (beforeContext.cancelled) return
+  amount = amountAfter(beforeContext)
+  if (amount === 0) return
+
+  finalizeDamage(host, target, sourceId, amount, nature, cardId, options.cardName ?? null, options.redirectedBy ?? null, Boolean(options.chainTransfer))
+}
+
+/**
+ * `BeforeDamage` 之后的收尾：`DamageCaused` / `DamageInflicted` 时机、属性链传导、
+ * 真正扣血、`Damaged` / `AfterDamage` 时机、进入濒死。
+ *
+ * 从 `resolveSingleDamage` 里拆出来，专供**第三方**在 `BeforeDamage` 里先
+ * `context.cancel()` 挂起发问、事后又需要**照原样把这次伤害放行**的场景复用
+ * （曹冲【仁心】：目标是别人的伤害，防止与否要问曹冲，问不出结果之前不能真的扣血；
+ * 玩家选择不防止时，用这个函数原样续上，不重新走一遍 `BeforeDamage` 和前面已经
+ * 算好的属性/数值修正，避免那些修正的战报和一次性效果被重复触发）。
+ */
+export function finalizeDamage(
+  host: DamageEngineHost,
+  target: PlayerState,
+  sourceId: PlayerId | null,
+  amount: number,
+  nature: DamageNature,
+  cardId: CardId | null,
+  cardName: string | null,
+  redirectedBy: string | null,
+  chainTransfer: boolean,
+): void {
+  for (const timing of ['DamageCaused', 'DamageInflicted'] as const) {
+    const context = dispatchDamageTiming(host, timing, sourceId, target.id, amount, nature, cardId, cardName, redirectedBy)
     if (context.cancelled) return
     amount = amountAfter(context)
     if (amount === 0) return
   }
 
-  if (!options.chainTransfer && nature !== 'normal' && target.chained) {
+  if (!chainTransfer && nature !== 'normal' && target.chained) {
     const remainingTargetIds = chainedTargetsAfter(host.state, target.id)
     for (const chained of host.state.players.filter((candidate) => candidate.alive && candidate.chained)) {
       setChained(host, chained.id, 'elemental-damage', false)
@@ -541,8 +570,8 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
         nature,
         amount,
         cardId,
-        cardName: options.cardName ?? null,
-        redirectedBy: options.redirectedBy ?? null,
+        cardName,
+        redirectedBy,
         remainingTargetIds,
       }
     }
@@ -565,8 +594,8 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
    * 伤害时机，各自记账很容易变成「伤了两个人就失去两点体力」。
    */
   recordCardDamage(host.state, cardId, amount)
-  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
-  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null)
+  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, cardName)
+  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, cardName)
   if (target.hp > 0) return
 
   enterDying(host, target.id, sourceId, nature)
