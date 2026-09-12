@@ -687,6 +687,15 @@ export function provideSkillIdsLookup(lookup: (characterId: string) => string[])
   providedSkillIdsOf = lookup
 }
 
+/**
+ * 按角色 id 查它的完整技能表——跨角色查另一个人的技能构成时用它，
+ * 不要反过来 import `data/characters/standard`（那边引擎文件本身就被它依赖，
+ * 会成环）。袁术【伪帝】动态借主公技靠它找到「当前主公的武将有哪些技能」。
+ */
+export function characterSkillIdsOf(characterId: string): string[] {
+  return providedSkillIdsOf(characterId)
+}
+
 export function registerSkillRuntime(runtime: SkillRuntime): void {
   if (registry.has(runtime.id)) throw new Error(`技能重复注册：${runtime.id}`)
   registry.set(runtime.id, runtime)

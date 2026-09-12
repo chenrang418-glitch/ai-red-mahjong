@@ -1,7 +1,7 @@
 import { cardPlayableBySuit } from './card-suit-lock'
 import { effectiveCardColor } from './skills/runtime'
 import type { CardColorValue } from './card-color'
-import type { CardId, PlayerId, SanguoshaState } from './types'
+import type { CardCategory, CardId, PlayerId, SanguoshaState } from './types'
 
 /**
  * 「不能使用或打出某类牌」的统一入口。
@@ -108,15 +108,65 @@ export function cardPlayableByColor(state: SanguoshaState, playerId: PlayerId, c
 }
 
 /**
- * 这张实体牌现在能不能被这名角色**使用或打出**。花色和颜色两类禁令都查。
+ * 类别禁令（杨修【鸡肋】：受到伤害后声明一个牌类别，直到回合结束，来源不能
+ * 使用/打出其手牌中该类别的牌）。结构和存续规则与颜色禁令完全一样，
+ * 只是判据换成 `CardCategory`，所以照抄一份而不是把两种判据拼进一个函数——
+ * 拼在一起以后任何一条改判据都要多算一层「到底是哪种」。
+ */
+export function lockCardCategory(
+  state: SanguoshaState,
+  entry: { targetId: PlayerId; category: CardCategory; sourceId: PlayerId; skillId: string },
+): void {
+  state.cardCategoryLocks ??= []
+  state.cardCategoryLocks = state.cardCategoryLocks.filter((candidate) => (
+    !(candidate.targetId === entry.targetId && candidate.skillId === entry.skillId && candidate.sourceId === entry.sourceId)
+  ))
+  state.cardCategoryLocks.push({ ...entry, turnNumber: state.turnNumber })
+}
+
+/** 这名角色现在被禁用的牌类别。 */
+export function lockedCategoriesOf(state: SanguoshaState, playerId: PlayerId): CardCategory[] {
+  return (state.cardCategoryLocks ?? [])
+    .filter((entry) => entry.targetId === playerId)
+    .map((entry) => entry.category)
+}
+
+/** 类别禁令这一条：这张实体牌能不能被这名角色使用或打出。 */
+export function cardPlayableByCategory(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
+  const locked = lockedCategoriesOf(state, playerId)
+  if (locked.length === 0) return true
+  if (!isInHand(state, playerId, cardId)) return true
+  const category = state.cards[cardId]?.category
+  if (!category) return true
+  return !locked.includes(category)
+}
+
+/** 回合结束时统一清理，和颜色禁令走同一次调用点。 */
+export function clearTurnCardCategoryLocks(state: SanguoshaState, turnNumber: number): void {
+  if (!state.cardCategoryLocks) return
+  state.cardCategoryLocks = state.cardCategoryLocks.filter((entry) => entry.turnNumber !== turnNumber)
+  if (state.cardCategoryLocks.length === 0) delete state.cardCategoryLocks
+}
+
+/** 角色阵亡时把挂在他身上、以及由他施加的类别禁令一起收走。 */
+export function clearCardCategoryLocksOf(state: SanguoshaState, playerId: PlayerId): void {
+  if (!state.cardCategoryLocks) return
+  state.cardCategoryLocks = state.cardCategoryLocks.filter((entry) => entry.targetId !== playerId && entry.sourceId !== playerId)
+  if (state.cardCategoryLocks.length === 0) delete state.cardCategoryLocks
+}
+
+/**
+ * 这张实体牌现在能不能被这名角色**使用或打出**。花色、颜色、类别三类禁令都查。
  *
- * 这是唯一出口：新增第三类禁令时加在这里，不要在各条路径上再写一遍。
+ * 这是唯一出口：新增第四类禁令时加在这里，不要在各条路径上再写一遍。
  */
 export function cardPlayable(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
-  return cardPlayableBySuit(state, playerId, cardId) && cardPlayableByColor(state, playerId, cardId)
+  return cardPlayableBySuit(state, playerId, cardId)
+    && cardPlayableByColor(state, playerId, cardId)
+    && cardPlayableByCategory(state, playerId, cardId)
 }
 
 /** 这名角色现在有没有任何用牌禁令，用于界面提示。 */
 export function hasPlayLock(state: SanguoshaState, playerId: PlayerId): boolean {
-  return lockedColorsOf(state, playerId).length > 0
+  return lockedColorsOf(state, playerId).length > 0 || lockedCategoriesOf(state, playerId).length > 0
 }

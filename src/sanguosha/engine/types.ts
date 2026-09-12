@@ -840,6 +840,25 @@ export interface SanguoshaState {
     skillId: string
     turnNumber: number
   }>
+  /** 同 `cardColorLocks`，按牌类别（基本/锦囊/装备）禁用。杨修【鸡肋】用。 */
+  cardCategoryLocks?: Array<{
+    targetId: PlayerId
+    category: CardCategory
+    sourceId: PlayerId
+    skillId: string
+    turnNumber: number
+  }>
+  /**
+   * 陈琳【笔伐】暗置在目标武将牌上、等目标下一次回合开始才结算的牌。
+   * 键是目标 `playerId`；同一目标同一时刻只保留最新的一份。
+   */
+  pendingBifa?: Record<PlayerId, { cardId: CardId; ownerId: PlayerId; category: CardCategory }>
+  /**
+   * 马云騄【凤魄】选择「伤害 +X」分支后，绑定在某一张具体牌上的伤害加成。
+   * 键是拥有者 `playerId`；`BeforeDamage` 命中这张 `cardId` 时加上 `amount`
+   * 并立即消费掉，不建立本回合常驻加成。
+   */
+  pendingFengpoBonus?: Record<PlayerId, { cardId: CardId; amount: number }>
   /** 正在执行的额外阶段；没有额外阶段时不存在这个字段。 */
   extraPhase?: ExtraPhaseState
   /** 还没轮到的额外阶段（同一个回合开始时排了不止一个）。 */

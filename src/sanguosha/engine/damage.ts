@@ -7,7 +7,7 @@ import { releaseStolenSkillsOf } from './skill-theft-expiry'
 import { recordTurnKill } from './turn-kills'
 import { discardAllCards } from './discard-all'
 import { cleanupDetainedCardsOf } from './turn-bound-pile'
-import { clearCardColorLocksOf } from './card-play-lock'
+import { clearCardCategoryLocksOf, clearCardColorLocksOf } from './card-play-lock'
 import { recordCardDamage } from './card-damage-ledger'
 import { drawCards } from './draw'
 import type { EventContext, GameEvent, GameEventName } from './events'
@@ -274,6 +274,7 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   clearArmorSuppressionsOf(host.state, playerId)
   clearForcedIdentitiesOf(host.state, playerId)
   clearCardColorLocksOf(host.state, playerId)
+  clearCardCategoryLocksOf(host.state, playerId)
   clearAbolishedSlotsOf(host.state, playerId)
   releaseStolenSkillsOf(host.state, playerId)
   clearTokensOf(host.state, playerId)

@@ -6,6 +6,7 @@ import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
 import { fixedMaxCardsOf, globalMaxCardsBonusOf, maxCardsBonusOf, skillsOf } from './skills/runtime'
+import { cardPlayableByCategory } from './card-play-lock'
 import { skillIdsOf } from '../data/characters/standard'
 
 /**
@@ -108,18 +109,26 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       if (context.cancelled || host.state.pendingRequests.length > 0) return
       const count = current.zones.hand.length - maxCards(host.state, playerId)
       if (count <= 0) return
+      /*
+       * 类别禁令（杨修【鸡肋】）挡住的牌不能出现在弃牌阶段的候选里。
+       * 极端情况下被挡的牌太多、可弃数量不够 `count` 张时，退而求其次地
+       * 按实际能弃的张数走——弃牌阶段的强制弃置不能因为凑不够数就直接崩掉。
+       */
+      const eligible = current.zones.hand.filter((cardId) => cardPlayableByCategory(host.state, playerId, cardId))
+      const actualCount = Math.min(count, eligible.length)
+      if (actualCount <= 0) return
       const request: ChooseCardsRequest = {
         id: `request-${host.state.seq}`,
         kind: 'choose-cards',
         playerId,
-        prompt: `弃置 ${count} 张手牌`,
+        prompt: `弃置 ${actualCount} 张手牌`,
         timeoutMs: 30_000,
         optional: false,
         purpose: 'discard-phase',
-        cardIds: [...current.zones.hand],
+        cardIds: eligible,
         hiddenCardSlots: [],
-        min: count,
-        max: count,
+        min: actualCount,
+        max: actualCount,
       }
       host.state.pendingRequests.push(request)
       return

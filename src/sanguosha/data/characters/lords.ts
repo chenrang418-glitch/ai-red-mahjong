@@ -25,10 +25,23 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return found
 }
 
+/**
+ * 「坐主公位」的判定放宽成「坐主公位，或者被袁术【伪帝】动态借用了这个技能」。
+ *
+ * 真正的主公不受影响（第一个条件直接命中）；袁术借到的护驾/激将/救援
+ * 走这条口子额外放行——`weidi-active` 只在拥有者真的借到了本技能时才置位，
+ * 见 `sp-yuanshu.ts`。
+ */
+function isEffectiveLord(state: SanguoshaState, playerId: PlayerId): boolean {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player) return false
+  return player.identity === 'lord' || Boolean(player.marks['weidi-active'])
+}
+
 /** 从主公开始按座次绕一圈，找出同势力的其他存活角色。 */
 function sameKingdomAllies(state: SanguoshaState, lordId: PlayerId, kingdom: Kingdom): PlayerId[] {
   const lord = state.players.find((player) => player.id === lordId)
-  if (!lord || lord.identity !== 'lord') return []
+  if (!lord || !isEffectiveLord(state, lordId)) return []
   const allies: PlayerId[] = []
   for (let offset = 1; offset < state.players.length; offset += 1) {
     const candidate = state.players[(lord.seat + offset) % state.players.length]
@@ -203,8 +216,7 @@ registerSkillRuntime({
   id: 'jiuyuan',
   lord: true,
   rescueRecoverBonus(state, ownerId, responderId) {
-    const owner = state.players.find((player) => player.id === ownerId)
-    if (owner?.identity !== 'lord') return 0
+    if (!isEffectiveLord(state, ownerId)) return 0
     const responder = state.players.find((player) => player.id === responderId)
     if (!responder?.characterId || effectiveKingdomOf(state, responderId) !== 'wu') return 0
     return 1
