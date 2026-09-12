@@ -4,6 +4,8 @@ import { huashenEligibleSkills } from '@/sanguosha/engine/huashen'
 import { randomSkillPoolOf, sampleSkills, skillIsRandomlyGrantable } from '@/sanguosha/engine/random-skill-pool'
 import { GameRng } from '@/sanguosha/engine/rng'
 import { ALL_CHARACTERS, getCharacter } from '@/sanguosha/data/characters/standard'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { PENDING_PORTRAIT_IDS } from '@/sanguosha/assets/characters/manifest'
 import { YJCM2012_CHARACTERS } from '@/sanguosha/data/characters/yjcm2012'
 
@@ -46,9 +48,11 @@ describe('一将成名 2012：收官时的注册完整性', () => {
     }
   })
 
-  it('立绘待上传的登记齐全：不为了让检查变绿而放松完整性校验', () => {
+  it('立绘齐全：要么登记在待上传名单，要么两张真实立绘文件都在', () => {
     for (const id of BATCH_THREE) {
-      expect(PENDING_PORTRAIT_IDS, `${id} 没有登记进待上传名单`).toContain(id)
+      if (PENDING_PORTRAIT_IDS.includes(id)) continue
+      expect(existsSync(resolve(`src/sanguosha/assets/characters/portraits/${id}.webp`)), `${id} 缺座位图`).toBe(true)
+      expect(existsSync(resolve(`src/sanguosha/assets/characters/portraits-full/${id}.webp`)), `${id} 缺艺术集图`).toBe(true)
     }
   })
 
