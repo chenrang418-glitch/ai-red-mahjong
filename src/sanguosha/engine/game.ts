@@ -13,6 +13,7 @@ import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-de
 import { isPindianRequest, resolvePindianResponse } from './pindian'
 import { MULTI_VIEWAS_ACTION, beginMultiCardViewAs } from './multi-card-viewas'
 import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
+import { WEIJIE_ACTION, beginWeijieRespond } from './weijie-response'
 import { RENNAI_ACTION, RENNAI_SKILL, armRennai } from './rennai'
 import { markUsedThisTurn } from './turn-usage'
 import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
@@ -191,6 +192,17 @@ export class SanguoshaGame {
     data?: Record<string, unknown>
     build(requestId: string): GameRequest
   }): void {
+    /*
+     * 牌局已经结束就安静地放弃这次发问。
+     *
+     * 胜负判定（`checkIdentityVictory`）可能在触发器级联的中途才成立——
+     * 死亡收尾把 `pendingRequests` 清空、`status` 设成 `game-over`，
+     * 但同一串级联里排在后面的技能触发（比如觉醒技的 `PhaseStart`）
+     * 并不知道游戏刚刚结束，仍然会尝试发问。挂起一个再也不会有人回应的
+     * Request 会让「结束状态缺少结果或仍有 Request」这条不变量报错
+     * （压测 seed=persist-2 抓到，神太史慈【神著】踩过）。
+     */
+    if (this.state.status !== 'playing') return
     if (this.state.skillResolution) throw new Error('已有技能正在等待回应')
     const requestId = `request-skill-${++this.state.seq}`
     const request = options.build(requestId)
@@ -398,6 +410,18 @@ export class SanguoshaGame {
         throw new Error('当前请求不能用蛊惑打出')
       }
       beginGuhuoRespond(this, request as unknown as GameRequest)
+      return
+    }
+
+    /*
+     * 郭图【诿解】同样只是多一条 actionId，挂起和恢复在这里统一认领，
+     * 和蛊惑走的是同一套集中认领路子。
+     */
+    if ((response.payload as { actionId?: string })?.actionId === WEIJIE_ACTION) {
+      if (!('actionIds' in request) || !request.actionIds.includes(WEIJIE_ACTION)) {
+        throw new Error('当前请求不能用诿解弃牌顶替')
+      }
+      beginWeijieRespond(this, request as unknown as GameRequest)
       return
     }
 

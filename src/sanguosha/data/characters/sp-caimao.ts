@@ -84,7 +84,8 @@ registerSkillRuntime({
         const target = playerOf(host.state, entry.playerId)
         if (target?.alive && target.zones.hand.includes(entry.cardId) && host.state.zones[zone].includes(slashCardId)) {
           moveCard(host.state, slashCardId, { kind: zone }, { kind: 'hand', playerId: entry.playerId })
-          moveCard(host.state, entry.cardId, { kind: 'hand', playerId: entry.playerId }, { kind: zone })
+          // 换出的牌放回同一堆顶端，牌堆位置真实归位，不是随手塞底
+          moveCard(host.state, entry.cardId, { kind: 'hand', playerId: entry.playerId }, { kind: zone }, { toTop: true })
           host.dispatch('SkillActivated', { skillId: ZUOLIAN, skillName: '佐练', playerId: ownerId, logText: `${owner.nickname}发动【佐练】，为${target.nickname}换入属性【杀】` }, { sourceId: ownerId, targetId: entry.playerId })
         }
       }

@@ -12,9 +12,8 @@ import type { CharacterDefinition } from './types'
  *
  * 【狡威】：锁定技。A. 董翓的黑色手牌不计入手牌上限；B. 若手牌数>体力值，
  *          对体力值≤董翓的角色使用黑色牌时无距离限制、对方不能响应。
- *          （引擎里 `ignoresDistanceTo`/`slashUndodgeable`/`trickUnresponsive`
- *          三个既有钩子都不带花色参数，这里按"董翓使用牌"整体生效，不单独
- *          区分黑色牌，是已知的简化。）
+ *          `ignoresDistanceTo`/`slashUndodgeable`/`trickUnresponsive` 三个
+ *          既有钩子本批扩展了可选 cardId 参数，这里按具体牌的花色精确判断。
  * 【鞭御】：锁定技。董翓使用【杀】造成伤害，或受到【杀】造成的伤害后，
  *          受伤角色 lostHp=X，董翓选择受伤角色至多X张手牌，视为无次数限制
  *          的【杀】，直到该角色使用第一张非基本牌为止；期间若董翓或受伤者
@@ -42,17 +41,20 @@ registerSkillRuntime({
   handLimitExempt(state, _ownerId, cardId) {
     return state.cards[cardId]?.color === 'black'
   },
-  ignoresDistanceTo(state, ownerId, targetId) {
+  ignoresDistanceTo(state, ownerId, targetId, cardId) {
+    if (!cardId || state.cards[cardId]?.color !== 'black') return false
     const target = playerOf(state, targetId)
     const owner = playerOf(state, ownerId)
     return jiaoweiActive(state, ownerId) && !!target?.alive && !!owner?.alive && target.hp <= owner.hp
   },
-  slashUndodgeable(state, ownerId, targetId) {
+  slashUndodgeable(state, ownerId, targetId, cardId) {
+    if (!cardId || state.cards[cardId]?.color !== 'black') return false
     const target = playerOf(state, targetId)
     const owner = playerOf(state, ownerId)
     return jiaoweiActive(state, ownerId) && !!target?.alive && !!owner?.alive && target.hp <= owner.hp
   },
-  trickUnresponsive(state, ownerId, targetId) {
+  trickUnresponsive(state, ownerId, targetId, _cardName, cardId) {
+    if (!cardId || state.cards[cardId]?.color !== 'black') return false
     const target = playerOf(state, targetId)
     const owner = playerOf(state, ownerId)
     return jiaoweiActive(state, ownerId) && !!target?.alive && !!owner?.alive && target.hp <= owner.hp

@@ -17,6 +17,7 @@ import { validateResponse } from './requests'
 import { recover } from './recover'
 import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, offerSourceDamagePreventionAsk, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
+import { WEIJIE_ACTION, canWeijieRespond } from './weijie-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
 import { loseHp } from './hp'
@@ -157,6 +158,7 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
   const actionIds = [...usable.map((cardId) => `rescue-card:${cardId}`), 'rescue-pass']
   // 于吉【蛊惑】：声明打出一张【桃】救人（含救自己）
   if (!peachProhibited && canGuhuoRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  if (!peachProhibited && canWeijieRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(WEIJIE_ACTION)
   // 龙魂这类多牌同花色转化：同样只多挂一条声明动作，引擎集中认领
   if (!peachProhibited && canMultiCardViewAs(state, responderId, '桃')) actionIds.push(MULTI_VIEWAS_ACTION)
   /*

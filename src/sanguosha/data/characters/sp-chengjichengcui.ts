@@ -1,8 +1,8 @@
 import { moveCard } from '../../engine/zones'
-import { createVirtualTrick } from '../../engine/virtual-trick'
 import { executeUseCardAction } from '../../engine/cards/basic'
+import { applyForcedIdentity } from '../../engine/forced-identity'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
-import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
+import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
@@ -13,9 +13,10 @@ import type { CharacterDefinition } from './types'
  *          需要N张【闪】才能抵消（N=置入牌堆底的牌数）。
  * 【畜鸣】：锁定技，成济成倅对其他角色造成的伤害，或其他角色对他造成的
  *          伤害：若没有实体牌造成，此伤害+1；若有实体牌造成，本回合结束时
- *          由另一方将当时那张实体牌（若仍在弃牌堆）视为对成济成倅使用一张
- *          【过河拆桥】（简化：统一按过河拆桥处理，不复制实体牌，是已知
- *          简化）。
+ *          由另一方将当时那张实体牌（若仍在弃牌堆）拿回手里，自己选择将其
+ *          当【过河拆桥】或【借刀杀人】对成济成倅使用——用的是真实那张牌，
+ *          不生成虚拟牌，靠 `applyForcedIdentity` 的按 Card ID 身份改写
+ *          （scope:'card'）实现。
  */
 
 const TOUSUI = 'tousui'
@@ -123,15 +124,49 @@ registerSkillRuntime({
       const other = playerOf(host.state, pending.otherId)
       const owner = playerOf(host.state, ownerId)
       if (!other?.alive || !owner?.alive) return
-      const virtualId = createVirtualTrick(host.state, pending.otherId, '过河拆桥', CHUMING)
-      host.dispatch('SkillActivated', { skillId: CHUMING, skillName: '畜鸣', playerId: ownerId, logText: `${other.nickname}将造成伤害的牌视为【过河拆桥】对${owner.nickname}使用` }, { sourceId: pending.otherId, targetId: ownerId })
-      executeUseCardAction(host as never, pending.otherId, {
-        kind: 'use-card', id: `chuming:${virtualId}`, playerId: pending.otherId,
-        cardIds: [virtualId], targetIds: [ownerId], targetMin: 1, targetMax: 1,
-        asCardName: '过河拆桥', label: '【畜鸣】：视为使用【过河拆桥】',
-      })
+      const canDismantle = owner.zones.hand.length > 0 || Object.values(owner.zones.equipment).some(Boolean)
+      const canBorrow = !!owner.zones.equipment.weapon
+      if (!canDismantle && !canBorrow) return
+      // 真实那张牌拿回手里，之后按选定的牌名走标准使用管线，不生成虚拟牌
+      moveCard(host.state, pending.cardId, { kind: 'discardPile' }, { kind: 'hand', playerId: pending.otherId })
+      host.dispatch('GainCard', { playerId: pending.otherId, cardIds: [pending.cardId], reason: CHUMING }, { targetId: pending.otherId, cardIds: [pending.cardId] })
+      const options: Array<{ id: string; label: string }> = []
+      if (canDismantle) options.push({ id: '过河拆桥', label: '当【过河拆桥】使用' })
+      if (canBorrow) options.push({ id: '借刀杀人', label: '当【借刀杀人】使用' })
+      host.queueSkill({ skillId: CHUMING, ownerId, step: 'declare', data: { cardId: pending.cardId, otherId: pending.otherId, options } })
     },
   }],
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'declare') return
+    const { cardId, otherId, options } = prompt.data as { cardId: CardId; otherId: PlayerId; options: Array<{ id: string; label: string }> }
+    const other = playerOf(host.state, otherId)
+    if (!other?.alive || !other.zones.hand.includes(cardId)) return
+    host.askSkill({
+      skillId: CHUMING, ownerId, step: 'declare', data: { cardId, otherId },
+      build: (requestId): ChooseOptionRequest => ({
+        id: requestId, kind: 'choose-option', playerId: otherId,
+        prompt: '【畜鸣】：将这张牌当哪张牌对成济成倅使用？', timeoutMs: 20_000, optional: false, options,
+      }),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step !== 'declare') return
+    const { cardId, otherId } = resolution.data as { cardId: CardId; otherId: PlayerId }
+    const other = playerOf(host.state, otherId)
+    const owner = playerOf(host.state, ownerId)
+    const declared = (response.payload as { optionId?: string }).optionId
+    if (!other?.alive || !owner?.alive || !other.zones.hand.includes(cardId) || (declared !== '过河拆桥' && declared !== '借刀杀人')) return
+    applyForcedIdentity(host.state, {
+      ownerId: otherId, scope: 'card', cardId, asCardName: declared, nature: 'normal',
+      ignoreDistance: false, unlimitedUses: false, skillId: CHUMING, expiry: 'manual',
+    })
+    host.dispatch('SkillActivated', { skillId: CHUMING, skillName: '畜鸣', playerId: ownerId, logText: `${other.nickname}将造成伤害的牌当【${declared}】对${owner.nickname}使用` }, { sourceId: otherId, targetId: ownerId })
+    executeUseCardAction(host as never, otherId, {
+      kind: 'use-card', id: `chuming:${cardId}`, playerId: otherId,
+      cardIds: [cardId], targetIds: [ownerId], targetMin: 1, targetMax: 1,
+      asCardName: declared, label: `【畜鸣】：当【${declared}】使用`,
+    })
+  },
 })
 
 export const CHENGJI_CHENGCUI: CharacterDefinition = {

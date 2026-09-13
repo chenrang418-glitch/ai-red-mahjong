@@ -3,7 +3,7 @@ import { distanceOverrideFor } from './distance-override'
 import { weaponCardsOf } from './equipment-slots'
 import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
-import type { PlayerId, SanguoshaState } from './types'
+import type { CardId, PlayerId, SanguoshaState } from './types'
 
 /**
  * 技能带来的距离修正：来源的「与他人距离」和目标的「他人与我距离」都算进来。
@@ -86,8 +86,8 @@ export function getAttackRange(state: SanguoshaState, playerId: PlayerId): numbe
  * 注意问的是**使用者**的技能，而且带上了具体目标——「对有我标记的人无距离」
  * 不能写成「我对所有人无距离」。
  */
-export function ignoresDistanceTo(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): boolean {
-  return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresDistanceTo?.(state, sourceId, targetId))
+export function ignoresDistanceTo(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean {
+  return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresDistanceTo?.(state, sourceId, targetId, cardId))
 }
 
 /** 场上有没有第三方技能让 `attackerId` 对 `targetId` 无视距离（孙休【诏缚】）。 */
@@ -101,10 +101,10 @@ export function globalIgnoresDistanceTo(state: SanguoshaState, attackerId: Playe
   return false
 }
 
-export function canTarget(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, range = getAttackRange(state, sourceId)): boolean {
+export function canTarget(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, range = getAttackRange(state, sourceId), cardId?: CardId): boolean {
   const target = player(state, targetId)
   if (sourceId === targetId || !target.alive) return false
-  if (ignoresDistanceTo(state, sourceId, targetId)) return true
+  if (ignoresDistanceTo(state, sourceId, targetId, cardId)) return true
   // 定向的「视为在攻击范围内」（神太史慈【破围】）：只对这一对角色成立
   if (isForcedInAttackRange(state, sourceId, targetId)) return true
   if (globalIgnoresDistanceTo(state, sourceId, targetId)) return true

@@ -239,6 +239,14 @@ export interface GuhuoResponseState {
   request: unknown
 }
 
+/** 郭图【诿解】：等待选定弃谁的牌，见 engine/weijie-response.ts。 */
+export interface WeijieResponseState {
+  ownerId: PlayerId
+  requiredCardName: string
+  /** 存下来待重放的原请求，类型故意用 unknown，理由同 `GuhuoResponseState.request`。 */
+  request: unknown
+}
+
 /**
  * 进行中的拼点；同一时刻最多一次。
  *
@@ -918,6 +926,8 @@ export interface SanguoshaState {
   huashen: HuashenGameState | null
   /** 进行中的「蛊惑打出」；同一时刻最多一次，嵌套会把恢复逻辑绕死。 */
   guhuoResponse: GuhuoResponseState | null
+  /** 进行中的郭图【诿解】；同一时刻最多一次。 */
+  weijieResponse?: WeijieResponseState | null
   /** 多牌同花色转化的挂起流程（神赵云【龙魂】）。见 engine/multi-card-viewas.ts。 */
   multiCardViewAs: MultiCardViewAsState | null
   /** 回合内击杀账本（神司马懿【连破】）。见 engine/turn-kills.ts。 */
@@ -1236,6 +1246,24 @@ export interface SanguoshaState {
   dongheBianyuCards?: Record<PlayerId, CardId[]>
   /** 孔淑【覆巢】：延后到 AfterCardUse 时机才安全执行的额外结算记录。 */
   kongshuFuchaoPending?: { ownerId: PlayerId; sourceId: PlayerId; cardName: string; category: string }
+  /** 卫兹【援资】：本回合被援助的目标，用于判定后续 Draw2 触发。 */
+  weiziYuanziPending?: { targetId: PlayerId; turnNumber: number }
+  /** 牛辅【纵掠】：待结算的虚拟杀绑定的具体 Card ID。 */
+  niufuZongluePending?: { ownerId: PlayerId; targetId: PlayerId; cardId: CardId }
+  /** 郭图【趋势】：本回合各角色用牌类别与目标数累计账本。 */
+  guotuTargetLedger?: Record<PlayerId, { turnNumber: number; categories: string[]; totalTargets: number }>
+  /** 袁姬【镜花】：当前"镜花牌"记录。 */
+  yuanjiJinghua?: { ownerId: PlayerId; cardIds: CardId[] }
+  /** 袁姬【水月】：按轮次分批的"水月牌"记录。 */
+  yuanjiShuiyue?: Array<{ roundNumber: number; cardIds: CardId[] }>
+  /** 丁原【慈孝】："义子"当前持有者。 */
+  dingyuanYizi?: PlayerId
+  /** 丁原【叛弑】：本次杀命中后是否需要结束出牌阶段。 */
+  dingyuanBanshiArmed?: { ownerId: PlayerId; targetId: PlayerId }
+  /** 丁原【先率】：本轮是否已经出现过"第一次造成伤害"。 */
+  dingyuanFirstDamageSeen?: number
+  /** 轲比能【平端】：等待"使用的基本牌/杀完全结算完毕"再继续下一项。 */
+  kebinengPingduanPending?: { ownerId: PlayerId; targetId: PlayerId }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

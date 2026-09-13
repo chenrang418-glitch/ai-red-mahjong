@@ -19,6 +19,7 @@ import { announceSkillInvalidation, BAGUA_ACTION_ID, canInvokeBagua, handleEquip
 import { canUseSlash, canUseSlashAtTargets, hasSlashUsesBypass, slashRules, slashTargetLimit } from '../slash-rules'
 import { PASS_ROUND_ACTION } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
+import { WEIJIE_ACTION, canWeijieRespond } from '../weijie-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
 import { usedThisTurn } from '../turn-usage'
 import { equipmentPlayActions, provideSlashLookup, provideSkillLookup, askCixiongSword, askSlashTransfer, askTieji, askDodgedSlashWeapon, askMengjin, askPreDamageWeapon, provideEquipmentCallbacks, queueQilingong, type DodgedSlashFacts } from '../equipment-requests'
@@ -59,7 +60,7 @@ function canPlaceDelayedTrick(state: SanguoshaState, sourceId: PlayerId, targetI
   if (name !== '兵粮寸断') return true
   if (ignoresTrickDistance(state, sourceId)) return true
   // 英霸：对有自己平定标记的角色使用牌不受距离限制，延时锦囊也算「使用牌」
-  if (ignoresDistanceTo(state, sourceId, targetId)) return true
+  if (ignoresDistanceTo(state, sourceId, targetId, cardId)) return true
   return getDistance(state, sourceId, targetId) <= 1 + trickDistanceBonusOf(state, sourceId, targetId, name, skillIdsOf)
 }
 
@@ -303,7 +304,7 @@ function slashTargetCombos(
       if (isTargetProhibited(state, playerId, target.id, '杀', skillIdsOf)) return false
       // 无距离限制时只剩「不是自己、还活着」两条
       if (rules.ignoreDistance || skillIgnoreDistance) return target.alive && target.id !== playerId
-      return canTarget(state, playerId, target.id)
+      return canTarget(state, playerId, target.id, undefined, cardId)
     })
     .map((target) => target.id)
 
@@ -590,7 +591,7 @@ function applyUndodgeableSkills(host: CardEngineHost, sourceId: PlayerId, target
   const resolution = host.state.cardResolution
   if (resolution?.kind !== 'slash') return
   for (const runtime of skillsOf(host.state, sourceId, skillIdsOf)) {
-    if (runtime.slashUndodgeable?.(host.state, sourceId, targetId)) resolution.noDodge = true
+    if (runtime.slashUndodgeable?.(host.state, sourceId, targetId, resolution.cardId)) resolution.noDodge = true
   }
 }
 
@@ -812,6 +813,8 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   // 于吉【蛊惑】：声明打出一张【闪】。入口只是多一条动作 id，
   // 挂起和恢复由 game.respondInner 统一处理
   if (canGuhuoRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+  // 郭图【诿解】：弃邻居一张牌顶替闪，走和蛊惑一样的集中认领入口
+  if (canWeijieRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(WEIJIE_ACTION)
   if (canMultiCardViewAs(host.state, responderId, '闪')) actionIds.push(MULTI_VIEWAS_ACTION)
   /*
    * 无亮【忍耐】：本来能响应才给这个入口。

@@ -619,7 +619,7 @@ export interface SkillRuntime {
    * 每个目标单独判定——多目标【杀】里可能只有一部分满足条件。
    * 不发问、不产生请求，所以放在这里而不是「成为目标时」的插入点链上。
    */
-  slashUndodgeable?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  slashUndodgeable?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean
   /**
    * 锁定技：拥有者对某个目标使用的**锦囊**，那个目标完全不能响应
    * （神孙策【覆海】）。
@@ -628,7 +628,7 @@ export interface SkillRuntime {
    * 只封住这一个目标本人：别人替他出【无懈可击】不受影响，
    * 那是另一条规则，不从这里走。
    */
-  trickUnresponsive?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
+  trickUnresponsive?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string, cardId?: CardId): boolean
   /**
    * 拥有者对某个特定角色**使用牌时不受距离限制**（神孙策【英霸】）。
    *
@@ -636,7 +636,7 @@ export interface SkillRuntime {
    * 直接不成立。文本说的是「使用牌」，所以【杀】的攻击范围、
    * 【顺手牵羊】【兵粮寸断】的距离 1 都一并覆盖，不是只管杀。
    */
-  ignoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  ignoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean
   /**
    * 拥有者的技能让**任意第三方**对某个目标无视距离（孙休【诏缚】：与孙休
    * 距离为 1 的角色视为处于所有其他吴势力角色的攻击范围内）。

@@ -58,6 +58,8 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
   const current = host.state.players.find((player) => player.id === playerId)
   if (!current?.alive) throw new Error('当前回合角色不存在或已经死亡')
   switch (host.state.phase) {
+    // 准备阶段没有自己的内容事件——`PhaseStart`（phase:'prepare'）已经在
+    // 上一层统一发过，卫兹【援资】、曹腾【拥族】都挂在那上面即可。
     case 'prepare': return
     case 'judge':
       // 神速等技能可以接管整个判定阶段；取消后由技能在放弃发动时自行恢复判定。

@@ -12,6 +12,7 @@ import type { ChooseCardsRequest, ChooseTargetsRequest, GameResponse, RespondCar
 import { validateResponse } from '../requests'
 import { NULLIFICATION_TIMEOUT_MS, PASS_ROUND_ACTION, nullificationCardIds } from '../nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-response'
+import { WEIJIE_ACTION, canWeijieRespond } from '../weijie-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
 import { usedThisTurn } from '../turn-usage'
 import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
@@ -151,7 +152,7 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         if (!allowed(target.id)) continue
         // 顺手牵羊受距离限制，拆桥不受；奇才无视这个限制
         if (!ignoresTrickDistance(state, playerId)
-          && !ignoresDistanceTo(state, playerId, target.id)
+          && !ignoresDistanceTo(state, playerId, target.id, cardId)
           && getDistance(state, playerId, target.id) > 1) continue
         if (!hasAnyStealable(state, target.id)) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【顺手牵羊】`))
@@ -382,7 +383,7 @@ function enterTrickTarget(host: CardEngineHost): void {
    * 封的只有目标本人，别人替他出【无懈可击】走的是另一条链路。
    */
   for (const runtime of skillsOf(host.state, resolution.sourceId, skillIdsOf)) {
-    if (!runtime.trickUnresponsive?.(host.state, resolution.sourceId, targetId, resolution.cardName)) continue
+    if (!runtime.trickUnresponsive?.(host.state, resolution.sourceId, targetId, resolution.cardName, resolution.cardId)) continue
     if (!resolution.unresponsiveTargetIds.includes(targetId)) resolution.unresponsiveTargetIds.push(targetId)
   }
   /*
@@ -711,6 +712,7 @@ function askRespondCard(
   // 声明牌和多牌转化同样受「不能打出」的约束——只挡实体牌等于没挡
   if (!isCardResponseProhibited(host.state, responderId, requiredCardName, skillIdsOf)) {
     if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
+    if (canWeijieRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(WEIJIE_ACTION)
     if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
   }
   // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
