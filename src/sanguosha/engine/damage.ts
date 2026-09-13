@@ -15,7 +15,7 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, skillsOf, type SkillHost } from './skills/runtime'
+import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, offerSourceDamagePreventionAsk, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
 import { adjustDamageAmount } from './equipment'
@@ -48,6 +48,12 @@ export interface DamageOptions {
    * 不是记在某个角色身上——记在角色上就挡不住第二个牛来。
    */
   redirectedBy?: string | null
+  /**
+   * 内部续接标记：来源侧伤害防止已经问过一轮（马谡【制蛮】那类"可以防止"），
+   * 不要再挂起重问。只由 `resumeSourceDamagePrevention` 续接时设置，
+   * 技能自己不要传这个字段。
+   */
+  skipSourcePreventionAsk?: boolean
 }
 
 interface InternalDamageOptions extends DamageOptions {
@@ -397,6 +403,21 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
     announceDamagePrevented(host, preventedBySource, sourceId, target.id, nature)
     return
   }
+  /*
+   * 交互式的来源侧伤害防止询问（马谡【制蛮】"你可以防止"）。
+   *
+   * 走到这里还没有任何状态被改动（数值修正、连环传导都在后面），
+   * 挂起是安全的：`resolveSingleDamage` 直接返回，技能自己调
+   * `host.askSkill` 发问，答完后用 `resumeSourceDamagePrevention` 续接，
+   * 要么就此终止（防止），要么原样重新调用一次 `resolveDamage`。
+   */
+  if (!options.skipSourcePreventionAsk
+    && offerSourceDamagePreventionAsk(host as unknown as SkillHost, sourceId, preventionContext)) {
+    host.state.pendingSourceDamage = {
+      options: { ...options, sourceId, amount, nature, cardId: options.cardId ?? null, cardName: options.cardName ?? null },
+    }
+    return
+  }
 
   /*
    * 技能对属性和数值的修正排在**最前面**（神马超【驭雳】把伤害改成雷电）。
@@ -686,6 +707,31 @@ export function killPlayer(host: DamageEngineHost, playerId: PlayerId, sourceId:
 export function resolveDamage(host: DamageEngineHost, options: DamageOptions): void {
   resolveSingleDamage(host, options)
   if (!host.state.dying) resumeDamageChain(host)
+}
+
+/**
+ * 续接一次挂起中的"来源侧是否防止"发问（马谡【制蛮】）。
+ *
+ * `prevented=true`：就此终止，只播报防止（若给了 `preventedBySkillId`）；
+ * `prevented=false`：原样重新调用一次 `resolveDamage`，带上
+ * `skipSourcePreventionAsk` 避免同一次伤害被再问一遍。
+ */
+export function resumeSourceDamagePrevention(
+  host: DamageEngineHost,
+  prevented: boolean,
+  preventedBySkillId?: string,
+): void {
+  const pending = host.state.pendingSourceDamage
+  if (!pending) return
+  host.state.pendingSourceDamage = undefined
+  const options = pending.options as unknown as DamageOptions
+  if (prevented) {
+    if (preventedBySkillId) {
+      announceDamagePrevented(host, preventedBySkillId, options.sourceId ?? null, options.targetId, options.nature ?? 'normal')
+    }
+    return
+  }
+  resolveDamage(host, { ...options, skipSourcePreventionAsk: true })
 }
 
 /** 濒死流程结束后继续同一批属性传导；每名目标仍独立经过伤害时机。 */

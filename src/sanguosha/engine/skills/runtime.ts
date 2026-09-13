@@ -686,6 +686,16 @@ export interface SkillRuntime {
     side: 'source' | 'target',
     context: DamagePreventionContext,
   ): boolean
+  /**
+   * 可选（交互式）的伤害防止发问（马谡【制蛮】"你可以防止此伤害"）。
+   *
+   * 和 `preventsDamage` 的区别：那个是无条件、同步给结论；这个要弹一次
+   * "是否防止"的问询，返回 true 表示已经调用 `host.askSkill` 挂起——
+   * `resolveDamage` 会记下这次伤害的完整现场并立即返回（此时还没有任何
+   * 状态被改动，挂起是安全的），技能的 `resume` 用
+   * `resumeSourceDamagePrevention` 续接。目前只支持来源侧（source）。
+   */
+  offersSourceDamagePreventionAsk?(host: SkillHost, ownerId: PlayerId, context: DamagePreventionContext): boolean
   startQueued?(host: SkillHost, ownerId: PlayerId, prompt: QueuedSkillPrompt): void
   /**
    * 这个技能的发问可以问一名**已阵亡**的角色。
@@ -1128,6 +1138,20 @@ export function damagePreventedBy(
     if (runtime.preventsDamage?.(state, playerId, side, context)) return runtime.id
   }
   return null
+}
+
+/**
+ * 来源侧是否有技能想就"是否防止这次伤害"发起一次交互式发问。
+ * 只在来源侧调用（目前只支持这一侧），别的侧没有对应需求。
+ */
+export function offerSourceDamagePreventionAsk(
+  host: SkillHost,
+  sourceId: PlayerId | null,
+  context: DamagePreventionContext,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  if (!sourceId) return false
+  return skillsOf(host.state, sourceId, skillIdsOf).some((runtime) => runtime.offersSourceDamagePreventionAsk?.(host, sourceId, context) ?? false)
 }
 
 /** 返回让牌对目标无效的第一个技能；顺序固定为武将技能登记顺序。 */

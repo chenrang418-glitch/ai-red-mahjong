@@ -15,12 +15,12 @@ import type { CharacterDefinition } from './types'
  * 【蛮裔】：锁定技，【南蛮入侵】对花鬘无效。
  * 【蛮嗣】：出牌阶段限一次，可以将所有手牌当【南蛮入侵】使用；任意角色
  *          受到【南蛮入侵】伤害后，花鬘摸1张牌（此摸牌计入觉醒条件累计）。
- * 【薮影】：每个 TurnInstance 限一次，双向：她对唯一目标A使用牌后（非本
- *          回合首次对A用牌），可弃1张手牌获得那张结算完毕的实体牌；A对
- *          唯一目标花鬘使用牌（非A本回合首次对花鬘用牌）时，自动弃1张牌
- *          令这次使用对花鬘无效（生效判定需在效果结算前完成，本项目没有
- *          面向任意牌种的"结算前可选发问"插入点，故此分支简化为自动执行，
- *          不再额外发问，见批次报告"特殊处理"）。
+ * 【薮影】：每回合限一次，双向：她使用牌指定其他角色为唯一目标后，或
+ *          成为其他角色使用牌的唯一目标后，若这张牌不是本回合使用者对
+ *          目标角色使用的第一张牌，可弃1张手牌，收回此牌/令此牌对自己
+ *          无效。方向A用"结算后回收实体牌"实现；方向B复用引擎已有的
+ *          `interceptTarget`（"成为杀/普通锦囊目标后可插入发问"）通用
+ *          插入点，真实交互式发问，答案是取消/不取消这一次成为目标。
  * 【战缘】：觉醒技，蛮嗣累计摸牌数>7时，体力上限+1、回复1点，可选一名
  *          男性角色与花鬘永久获得【系力】，永久失去【蛮嗣】。
  * 【系力】：觉醒后可能获得的共享技能，见下方独立注册。
@@ -93,13 +93,9 @@ registerSkillRuntime({
 
 registerSkillRuntime({
   id: SOUYING,
-  cardEffectInvalid(state, _ownerId, sourceId, cardName) {
-    const pending = state.huamanSouyingInvalidPending
-    return !!pending && pending.turnNumber === state.turnNumber && pending.sourceId === sourceId && pending.cardName === cardName
-  },
   triggers: [
     {
-      // 方向A：花鬘对唯一目标A使用牌后，可以弃1张手牌获得那张已结算完毕的牌
+      // 方向A：花鬘对唯一目标A使用牌后，可以弃1张手牌收回那张已结算完毕的牌
       event: 'AfterCardUse',
       handle(host, ownerId, context) {
         const payload = context.event.payload as { cardId?: CardId; targetIds?: PlayerId[]; cancelled?: boolean }
@@ -115,29 +111,28 @@ registerSkillRuntime({
         host.queueSkill({ skillId: SOUYING, ownerId, step: 'ask-gain', data: { cardId } })
       },
     },
-    {
-      // 方向B：A对唯一目标花鬘使用牌，非A本回合首次——本项目没有面向任意
-      // 牌种的"结算前可选发问"插入点，简化为自动弃1张牌令其无效。
-      event: 'TargetConfirmed',
-      handle(host, ownerId, context) {
-        const sourceId = context.event.sourceId
-        if (!sourceId || sourceId === ownerId || context.event.targetId !== ownerId) return
-        const payload = context.event.payload as { cardName?: string }
-        const cardName = payload.cardName
-        if (!cardName) return
-        const isFirst = bumpUseCount(host.state, `${sourceId}->${ownerId}`)
-        if (isFirst) return
-        const owner = playerOf(host.state, ownerId)
-        if (!owner?.alive || owner.turnUsedSkills.includes(SOUYING) || owner.zones.hand.length === 0) return
-        const cardId = owner.zones.hand[host.rng.nextInt(owner.zones.hand.length)]
-        moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
-        host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: SOUYING }, { sourceId: ownerId, cardIds: [cardId] })
-        owner.turnUsedSkills.push(SOUYING)
-        host.state.huamanSouyingInvalidPending = { sourceId, cardName, turnNumber: host.state.turnNumber }
-        host.dispatch('SkillActivated', { skillId: SOUYING, skillName: '薮影', playerId: ownerId, logText: `${owner.nickname}发动【薮影】，弃1张牌令这次使用对自己无效` }, { sourceId: ownerId })
-      },
-    },
   ],
+  // 方向B：A对唯一目标花鬘使用牌，非A本回合首次——复用引擎通用的
+  // "成为杀/普通锦囊目标后可插入发问"插入点，真实交互式发问。
+  interceptTarget(host, ownerId, context) {
+    const sourceId = context.sourceId
+    if (sourceId === ownerId) return false
+    const resolution = host.state.cardResolution
+    if (resolution?.kind === 'trick' && resolution.targetIds.length !== 1) return false
+    const owner = playerOf(host.state, ownerId)
+    if (!owner?.alive || owner.turnUsedSkills.includes(SOUYING) || owner.zones.hand.length === 0) return false
+    const isFirst = bumpUseCount(host.state, `${sourceId}->${ownerId}`)
+    if (isFirst) return false
+    host.askSkill({
+      skillId: SOUYING, ownerId, step: 'invalidate-ask', data: {},
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId, kind: 'choose-cards', playerId: ownerId,
+        prompt: '【薮影】：可以弃置1张手牌，令这次使用对你无效', timeoutMs: 20_000, optional: true,
+        purpose: 'skill', cardIds: [...owner.zones.hand], hiddenCardSlots: [], min: 0, max: 1,
+      }),
+    })
+    return true
+  },
   startQueued(host, ownerId, prompt) {
     if (prompt.step !== 'ask-gain') return
     const { cardId } = prompt.data as { cardId: CardId }
@@ -148,24 +143,43 @@ registerSkillRuntime({
       skillId: SOUYING, ownerId, step: 'gain-ask', data: { cardId },
       build: (requestId): ChooseCardsRequest => ({
         id: requestId, kind: 'choose-cards', playerId: ownerId,
-        prompt: '【薮影】：可以弃置1张手牌，获得那张刚结算完毕的牌', timeoutMs: 20_000, optional: true,
+        prompt: '【薮影】：可以弃置1张手牌，收回那张刚结算完毕的牌', timeoutMs: 20_000, optional: true,
         purpose: 'skill', cardIds: [...owner.zones.hand], hiddenCardSlots: [], min: 0, max: 1,
       }),
     })
   },
   resume(host, ownerId, resolution, response) {
-    if (resolution.step !== 'gain-ask') return
-    const { cardId } = resolution.data as { cardId: CardId }
-    const [discardId] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
     const owner = playerOf(host.state, ownerId)
-    if (!discardId || !owner?.alive || !owner.zones.hand.includes(discardId) || owner.turnUsedSkills.includes(SOUYING)) return
-    if (!host.state.zones.discardPile.includes(cardId)) return
-    moveCard(host.state, discardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
-    host.dispatch('LoseCard', { playerId: ownerId, cardIds: [discardId], reason: SOUYING }, { sourceId: ownerId, cardIds: [discardId] })
-    owner.turnUsedSkills.push(SOUYING)
-    moveCard(host.state, cardId, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
-    host.dispatch('GainCard', { playerId: ownerId, cardIds: [cardId], reason: SOUYING }, { targetId: ownerId, cardIds: [cardId] })
-    host.dispatch('SkillActivated', { skillId: SOUYING, skillName: '薮影', playerId: ownerId, logText: `${owner.nickname}发动【薮影】，弃1张牌获得一张牌` }, { sourceId: ownerId })
+
+    if (resolution.step === 'gain-ask') {
+      const { cardId } = resolution.data as { cardId: CardId }
+      const [discardId] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
+      if (!discardId || !owner?.alive || !owner.zones.hand.includes(discardId) || owner.turnUsedSkills.includes(SOUYING)) return
+      if (!host.state.zones.discardPile.includes(cardId)) return
+      moveCard(host.state, discardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
+      host.dispatch('LoseCard', { playerId: ownerId, cardIds: [discardId], reason: SOUYING }, { sourceId: ownerId, cardIds: [discardId] })
+      owner.turnUsedSkills.push(SOUYING)
+      moveCard(host.state, cardId, { kind: 'discardPile' }, { kind: 'hand', playerId: ownerId })
+      host.dispatch('GainCard', { playerId: ownerId, cardIds: [cardId], reason: SOUYING }, { targetId: ownerId, cardIds: [cardId] })
+      host.dispatch('SkillActivated', { skillId: SOUYING, skillName: '薮影', playerId: ownerId, logText: `${owner.nickname}发动【薮影】，收回一张牌` }, { sourceId: ownerId })
+      return
+    }
+
+    if (resolution.step === 'invalidate-ask') {
+      const [discardId] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
+      if (!discardId || !owner?.alive || !owner.zones.hand.includes(discardId) || owner.turnUsedSkills.includes(SOUYING)) {
+        host.resumeCardTarget()
+        return
+      }
+      moveCard(host.state, discardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
+      host.dispatch('LoseCard', { playerId: ownerId, cardIds: [discardId], reason: SOUYING }, { sourceId: ownerId, cardIds: [discardId] })
+      owner.turnUsedSkills.push(SOUYING)
+      const current = host.state.cardResolution
+      if (current?.kind === 'trick' && !current.cancelledTargetIds.includes(ownerId)) current.cancelledTargetIds.push(ownerId)
+      else if (current?.kind === 'slash' && current.targetId === ownerId) current.targetCancelled = true
+      host.dispatch('SkillActivated', { skillId: SOUYING, skillName: '薮影', playerId: ownerId, logText: `${owner.nickname}发动【薮影】，令这次使用对自己无效` }, { sourceId: ownerId })
+      host.resumeCardTarget()
+    }
   },
 })
 

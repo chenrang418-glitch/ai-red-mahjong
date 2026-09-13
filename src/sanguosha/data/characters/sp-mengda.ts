@@ -10,15 +10,17 @@ import type { CharacterDefinition } from './types'
 /**
  * 孟达（三国杀 OL 经典身份 SP）。
  *
- * 【苟得】：每个 TurnInstance 结束时，若与孟达当前势力相同的角色（含孟达
- *          自己）本 TurnInstance 内执行过以下四项中的至少一项：①摸一张牌
- *          ②弃置一名角色1张手牌 ③视为使用一张【杀】 ④变更势力——孟达可以
- *          执行其中尚未被执行过的一项。
+ * 官方文本（三国杀OL WIKI 已核实）：
+ * "一名角色的回合结束时，若与你势力相同的角色于本回合执行过以下项中的
+ * 任意个，你可以选择一个未被执行过的项并执行：1.摸一张牌；2.弃置一名
+ * 角色的一张手牌；3.视为使用一张【杀】；4.变更势力。"
  *
- * 四项的判定口径（假设，未经权威文本核实，见批次报告"未解决"）：①单次
- * 摸1张（GainCard reason=draw 且张数=1）②弃置自己1张手牌（LoseCard
- * reason=discard 且张数=1）③以"视为"方式使用杀（虚拟牌或转化牌，不含直接
- * 打出的实体杀）④通过 kingdomOverride 变更势力。
+ * 四项在引擎里落地为精确事件标记，不用"看起来像"去猜：
+ * ①单次摸1张（GainCard reason=draw 且张数=1，覆盖非常规摸牌阶段的"摸1张"
+ * 效果）②某次弃牌（LoseCard reason=discard 且张数=1，判定的是执行者，不是
+ * 被弃者——"弃置一名角色的一张手牌"不限定自己/他人）③以"视为"方式使用杀
+ * （虚拟牌或转化牌，对应官方"视为使用"字面，不含直接打出的实体杀）④通过
+ * kingdomOverride 变更势力。
  */
 
 type GoudeItem = 1 | 2 | 3 | 4
@@ -59,7 +61,10 @@ registerSkillRuntime({
       handle(host, ownerId, context) {
         const payload = context.event.payload as { playerId?: PlayerId; reason?: string; cardIds?: CardId[] }
         if (payload.reason !== 'discard' || (payload.cardIds?.length ?? 0) !== 1 || !payload.playerId) return
-        if (!sameKingdom(host.state, payload.playerId, ownerId)) return
+        // 判定的是"执行者"（谁弃置了一名角色的手牌），不是被弃置的那个人；
+        // 自弃牌时二者相同，但"弃置一名角色一张手牌"官方文本不限定自己/他人。
+        const actorId = context.event.sourceId ?? payload.playerId
+        if (!sameKingdom(host.state, actorId, ownerId)) return
         markGoudeItem(host, 2)
       },
     },

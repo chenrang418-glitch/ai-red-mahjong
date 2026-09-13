@@ -1165,8 +1165,6 @@ export interface SanguoshaState {
   baosanniangZhennanUnlimited?: Record<PlayerId, { ownerId: PlayerId; turnNumber: number }>
   /** 花鬘【薮影】：(source->target) 本 TurnInstance 内的使用次数记账。 */
   huamanSouyingUseCount?: Record<string, { turnNumber: number; count: number }>
-  /** 花鬘【薮影】：待生效的"这次使用对花鬘无效"标记。 */
-  huamanSouyingInvalidPending?: { sourceId: PlayerId; cardName: string; turnNumber: number }
   /** 系力：本 TurnInstance 是否已经发动过。 */
   xiliUsedTurn?: { turnNumber: number }
   /** 诸葛果【祈禳】：绑定这张具体 Card ID 的额外目标 buff。 */
@@ -1191,6 +1189,11 @@ export interface SanguoshaState {
   yanyanBlockedByOthers?: Record<PlayerId, { turnNumber: number; blockedSourceId: PlayerId }>
   /** 严颜【拒战】阴：本回合内严颜不能对某角色使用牌。 */
   yanyanSelfBlocked?: Record<PlayerId, { turnNumber: number; blockedTargetId: PlayerId }>
+  /**
+   * 挂起中的"来源侧是否防止这次伤害"发问现场（马谡【制蛮】）。
+   * 记录时还没有任何伤害相关状态被改动，续接时原样重新走 `resolveDamage`。
+   */
+  pendingSourceDamage?: { options: Record<string, unknown> }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
