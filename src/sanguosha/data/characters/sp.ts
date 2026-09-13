@@ -129,6 +129,16 @@ import { ZHANGMANCHENG } from './sp-zhangmancheng'
 import { LUSHI } from './sp-lushi'
 import { XIAHOUXUAN } from './sp-xiahouxuan'
 import { QINLANG } from './sp-qinlang'
+import { HEQI } from './sp-heqi'
+import { CHENWU_DONGXI } from './sp-chenwu-dongxi'
+import { LVFAN } from './sp-lvfan'
+import { LIUBA } from './sp-liuba'
+import { DENGZHI } from './sp-dengzhi'
+import { SUNDENG } from './sp-sundeng'
+import { SUNRU } from './sp-sunru'
+import { CHENGBING } from './sp-chengbing'
+import { RUANJI } from './sp-ruanji'
+import { ZHOUFEI } from './sp-zhoufei'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -148,6 +158,7 @@ import { QINLANG } from './sp-qinlang'
  * 第十一批 10 / 10：王朗、郭皇后、孔淑、赵忠、蔡瑁、董翓、成济成倅、朱灵、阎柔、曹羲。
  * 第十二批 10 / 10：卫兹、梁兴、刘辟、曹腾、郭图、轲比能、牛辅、袁姬、刘焉、丁原。
  * 第十三批 10 / 10：何进、吕玲绮、文聘、陆郁生、夏侯徽、文钦、张曼成、卢氏、夏侯玄、秦朗。
+ * 第十四批 10 / 10：贺齐、陈武董袭、吕范、刘巴、邓芝、孙登、孙茹、程秉、阮籍、周妃。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -280,4 +291,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   LUSHI,
   XIAHOUXUAN,
   QINLANG,
+  HEQI,
+  CHENWU_DONGXI,
+  LVFAN,
+  LIUBA,
+  DENGZHI,
+  SUNDENG,
+  SUNRU,
+  CHENGBING,
+  RUANJI,
+  ZHOUFEI,
 ] as const

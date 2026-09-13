@@ -1298,6 +1298,26 @@ export interface SanguoshaState {
   xiahouxuanZeyue?: { ownerId: PlayerId; targetId: PlayerId; skillId: string; roundsLost: number }
   /** 夏侯玄【迮阅】：正在进行的每轮追加杀序列进度。 */
   xiahouxuanZeyueStriking?: { ownerId: PlayerId; index: number; data: { targetId: PlayerId; remaining: number } }
+  /** 吕范【典财】：当前出牌阶段实例中吕范自己失去的牌数账本。 */
+  diancaiLedger?: { phaseInstanceId: string; playPlayerId: PlayerId; count: number }
+  /** 刘巴【统度】：待放回牌堆顶的具体 Card ID。 */
+  liubaTongduCardId?: CardId
+  /** 刘巴【铸币】：当前被标记为"币"的具体 Card ID 集合。 */
+  liubaCoinIds?: CardId[]
+  /** 邓芝【素俭】：本回合已获得的具体 Card ID。 */
+  dengzhiTurnGained?: { turnNumber: number; cardIds: CardId[] }
+  /** 孙登【匡弼】：待在下个准备阶段兑现的匡弼牌与提供者。 */
+  sundengKuangbi?: Array<{ providerId: PlayerId; cardIds: CardId[] }>
+  /** 孙茹【持室】：各角色上个准备阶段的区域数量快照。 */
+  sunruSnapshot?: { turnNumber: number; playerId: PlayerId; hand: number; equipment: number; judgment: number }
+  /** 程秉【经造】：本回合展示数、已用目标、是否失效。 */
+  chengbingLedger?: { turnNumber: number; x: number; usedTargets: PlayerId[]; disabled: boolean }
+  /** 程秉【恩遇】：本回合已成为过目标的牌名集合。 */
+  enyuTargeted?: { turnNumber: number; names: string[] }
+  /** 阮籍【昭文】：本回合展示的具体 Card ID。 */
+  ruanjiShown?: { turnNumber: number; ownerId: PlayerId; cardIds: CardId[] }
+  /** 阮籍【昭文】：本回合已经使用过的转化牌名。 */
+  ruanjiUsedNames?: { turnNumber: number; names: string[] }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
