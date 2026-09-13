@@ -1212,6 +1212,30 @@ export interface SanguoshaState {
   huaxinXibingBlocked?: Record<PlayerId, { turnNumber: number; protectedId: PlayerId }>
   /** 马日磾【秉节】：本回合内是否处于生效状态。 */
   maridiBingjieActive?: { turnNumber: number; ownerId: PlayerId }
+  /** 王朗【激词】：拼点点数覆盖，一次性，用完即清。 */
+  wanglangJici?: Record<PlayerId, { overrideRank: number }>
+  /** 郭皇后【殚心】：矫诏的升级等级。 */
+  guohuanghouJiaozhao?: Record<PlayerId, { level: 0 | 1 | 2 }>
+  /** 孔淑【累卵】：本轮已经声明过的基本牌名。 */
+  kongshuUsedBasics?: Record<PlayerId, { roundNumber: number; names: string[] }>
+  /** 孔淑【累卵】：连续发动的轮次记录，用于推算 X。 */
+  kongshuStreakRound?: Record<PlayerId, { roundNumber: number; streak: number }>
+  /** 孔淑【累卵】：本轮进入弃牌堆的普通锦囊牌名（按牌使用记录，已知简化）。 */
+  kongshuRoundTricks?: { roundNumber: number; names: string[] }
+  /** 赵忠【抵慈】：等待目标由未连环变为连环的后续处理。 */
+  zhaozhongDiciPending?: { ownerId: PlayerId; targetId: PlayerId }
+  /** 成济成倅【透髓】：待结算的杀需要的闪张数。 */
+  chengjiTousuiPending?: { ownerId: PlayerId; targetId: PlayerId; n: number }
+  /** 成济成倅【畜鸣】：回合结束时延迟反用的实体伤害牌记录。 */
+  chengjiChumingPending?: { turnNumber: number; ownerId: PlayerId; otherId: PlayerId; cardId: CardId }
+  /** 朱灵【急陷】：本次虚拟杀是否已经造成伤害。 */
+  zhulingPending?: { turnNumber: number; targetId: PlayerId; dealt: boolean }
+  /** 阎柔【襄戍】：本回合造成的伤害点数总和。 */
+  yanrouTurnDamage?: Record<PlayerId, { turnNumber: number; total: number }>
+  /** 董翓【鞭御】：当前被授予无限次杀的具体 Card ID 列表，按受伤角色记录。 */
+  dongheBianyuCards?: Record<PlayerId, CardId[]>
+  /** 孔淑【覆巢】：延后到 AfterCardUse 时机才安全执行的额外结算记录。 */
+  kongshuFuchaoPending?: { ownerId: PlayerId; sourceId: PlayerId; cardName: string; category: string }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

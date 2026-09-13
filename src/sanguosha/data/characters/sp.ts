@@ -99,6 +99,16 @@ import { MAXIU_MATIE } from './sp-maxiumatie'
 import { LUZHI } from './sp-luzhi'
 import { HUAXIN } from './sp-huaxin'
 import { MARIDI } from './sp-maridi'
+import { WANGLANG } from './sp-wanglang'
+import { GUOHUANGHOU } from './sp-guohuanghou'
+import { KONGSHU } from './sp-kongshu'
+import { ZHAOZHONG } from './sp-zhaozhong'
+import { CAIMAO } from './sp-caimao'
+import { DONGHE } from './sp-donghe'
+import { CHENGJI_CHENGCUI } from './sp-chengjichengcui'
+import { ZHULING } from './sp-zhuling'
+import { YANROU } from './sp-yanrou'
+import { CAOXI } from './sp-caoxi'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -115,6 +125,7 @@ import { MARIDI } from './sp-maridi'
  * 第八批 10 / 10：张鲁、刘辩、祢衡、张琪瑛、成公英、韩馥、辛宪英、陈登、阎圃、王荣。
  * 第九批 10 / 10：关索、赵襄、鲍三娘、花鬘、诸葛果、李严、孟达、彭羕、许攸、严颜。
  * 第十批 10 / 10：公孙瓒、张宝、张济、管亥、孙邵、武安国、马休马铁、卢植、华歆、马日磾。
+ * 第十一批 10 / 10：王朗、郭皇后、孔淑、赵忠、蔡瑁、董翓、成济成倅、朱灵、阎柔、曹羲。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -217,4 +228,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   LUZHI,
   HUAXIN,
   MARIDI,
+  WANGLANG,
+  GUOHUANGHOU,
+  KONGSHU,
+  ZHAOZHONG,
+  CAIMAO,
+  DONGHE,
+  CHENGJI_CHENGCUI,
+  ZHULING,
+  YANROU,
+  CAOXI,
 ] as const

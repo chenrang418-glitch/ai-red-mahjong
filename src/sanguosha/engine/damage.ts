@@ -539,6 +539,14 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
     const source = host.state.players.find((player) => player.id === sourceId)
     if (source?.marks.luoyi) amount += 1
   }
+  /*
+   * 赵忠【隐天】：下一次造成伤害 +1，不看牌名/伤害类型，消耗后清零。
+   * 没有通用的"造成伤害时加成"钩子，最小新增一条判定，紧跟裸衣那条同类判定之后。
+   */
+  if (sourceId) {
+    const source = host.state.players.find((player) => player.id === sourceId)
+    if (source?.marks.zhaozhongYintianPending) { amount += 1; source.marks.zhaozhongYintianPending = 0 }
+  }
   amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null)
   /*
    * 临时角色状态的伤害修正（神诸葛亮【狂风】加火伤、【大雾】防非雷伤）。
