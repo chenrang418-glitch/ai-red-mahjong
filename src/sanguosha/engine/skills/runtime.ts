@@ -308,6 +308,18 @@ export interface SkillRuntime {
     context: { targetId: PlayerId; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
   ): { amount?: number; nature?: DamageNature } | null
   /**
+   * 拥有者（第三方）给**某个具体来源这次造成的伤害**加成（成公英【匡襄】：
+   * A 使用因匡襄获得的黑牌造成伤害+1，拥有者是成公英，`sourceId` 是 A，
+   * 不是拥有者自己）。和 `outgoingDamage` 的区别只是查询对象换成了
+   * 全场角色而不是伤害来源自己。
+   */
+  globalOutgoingDamage?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    sourceId: PlayerId,
+    context: { targetId: PlayerId; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): { amount?: number; nature?: DamageNature } | null
+  /**
    * 拥有者**受到**伤害时对数值 / 属性的修正（潘濬【公清】按来源攻击范围
    * 改伤害值）。和 `outgoingDamage` 是同一形状，只是站在受伤者这一边，
    * 排在源头的 `outgoingDamage` 结算完之后。
@@ -499,6 +511,12 @@ export interface SkillRuntime {
   retrialDecidedBy?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): PlayerId | null
   /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
   cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
+  /**
+   * 锁定技对判定牌点数的修正（张琪瑛【真仪·紫微】把判定结果强制改成 5）。
+   * 只在判定改判窗口关闭、真正计算最终结果时生效，不改变这张牌本身的点数。
+   * 返回 null/undefined 表示不覆盖。
+   */
+  judgmentRankOverride?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): number | null
   /**
    * 禁止拥有者成为指定牌的目标；谦逊、空城、贾诩【帷幕】统一走这个入口。
    *
@@ -1013,6 +1031,22 @@ export function effectiveCardSuit(
   if (!card) throw new Error(`卡牌不存在：${cardId}`)
   return skillsOf(state, ownerId, skillIdsOf)
     .reduce((suit, runtime) => runtime.cardSuit?.(state, ownerId, cardId, suit) ?? suit, card.suit)
+}
+
+/** 判定牌点数的有效值：没有技能覆盖就是印刷点数。 */
+export function effectiveJudgmentRank(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardId: CardId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  const card = state.cards[cardId]
+  if (!card) throw new Error(`卡牌不存在：${cardId}`)
+  for (const runtime of skillsOf(state, ownerId, skillIdsOf)) {
+    const override = runtime.judgmentRankOverride?.(state, ownerId, cardId)
+    if (override != null) return override
+  }
+  return card.rank
 }
 
 export function effectiveCardColor(

@@ -71,6 +71,24 @@ export function adjustOutgoingDamage(
     if (typeof change.amount === 'number') amount = change.amount
     appliedSkillIds.push(runtime.id)
   }
+  /*
+   * 第三方技能对「这次由 sourceId 造成的伤害」的加成（成公英【匡襄】：
+   * A 使用因匡襄获得的黑牌造成伤害时+1，拥有者是成公英，不是 A 自己，
+   * `outgoingDamage` 只查伤害来源自己的技能，接不住这种情况）。
+   */
+  if (sourceId) {
+    for (const owner of state.players) {
+      if (!owner.alive || !owner.characterId) continue
+      for (const skillId of ownedSkillIds(state, owner.id)) {
+        const runtime = getSkillRuntime(skillId)
+        const change = runtime?.globalOutgoingDamage?.(state, owner.id, sourceId, { ...context, amount, nature })
+        if (!change) continue
+        if (change.nature && change.nature !== nature) nature = change.nature
+        if (typeof change.amount === 'number') amount = change.amount
+        appliedSkillIds.push(skillId)
+      }
+    }
+  }
   // 数值被改到 0 或负数就等于没有伤害；管线上游按「不发生」处理
   return { amount: Math.max(0, Math.trunc(amount)), nature, appliedSkillIds }
 }

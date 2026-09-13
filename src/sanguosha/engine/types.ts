@@ -1119,6 +1119,40 @@ export interface SanguoshaState {
   taoqianZhaohuoDamaged?: { turnNumber: number; players: PlayerId[] }
   /** 陶谦【招祸】：因此获得、本回合不能使用/打出且不计入手牌上限的 Card ID。 */
   taoqianZhaohuoLocked?: Record<PlayerId, { cardIds: CardId[]; turnNumber: number }>
+  /** 张琪瑛【真仪·紫微】：本次判定生效前选择的强制结果。 */
+  zhangqiyingZiweiChoice?: { ownerId: PlayerId; cardId: CardId; suit: 'spade' | 'heart' }
+  /** 祢衡【狂才】：本回合是否已经使用过牌（含此，避免只记最后一次）。 */
+  mihengUsedCardTurn?: number
+  /** 祢衡【狂才】：本回合累计造成的伤害点数。 */
+  mihengDamageTurn?: Record<PlayerId, { turnNumber: number; total: number }>
+  /** 祢衡【狂才】：本回合手牌上限的临时增减。 */
+  mihengMaxCardsDelta?: { turnNumber: number; delta: number }
+  /** 祢衡【舌剑】：每个 TurnInstance 已发动次数，按回合归零。 */
+  mihengShejianUsed?: Record<PlayerId, { turnNumber: number; count: number }>
+  /** 刘辩【诗怨】：三个分支每个 TurnInstance 各自的已发动次数，按回合归零。 */
+  liubianShiyuanUsed?: Record<PlayerId, { turnNumber: number; counts: { greater: number; equal: number; less: number } }>
+  /** 成公英【匡襄】：因匡襄获得的红牌导致的下一个摸牌阶段摸牌数扣减。 */
+  chenggongyingDrawPenalty?: Record<PlayerId, number>
+  /** 成公英【匡襄】：因匡襄获得且本回合内有效的黑色 Card ID 记录。 */
+  chenggongyingBlackCards?: Record<CardId, { ownerId: PlayerId; sourceId: PlayerId; turnNumber: number }>
+  /** 韩馥【恇守】：当前 TurnInstance 内受到过伤害的不同角色集合。 */
+  hanfuDamagedTurn?: { turnNumber: number; players: PlayerId[] }
+  /** 辛宪英【才识】：本回合手牌上限+1。 */
+  xinxianyingCaishiMaxCardsTurn?: number
+  /** 辛宪英【才识】：本回合不能对自己使用牌。 */
+  xinxianyingCaishiNoSelfTurn?: number
+  /** 辛宪英【忠鉴】：本回合已发动次数/解锁的额外次数/手牌上限扣减，按回合归零。 */
+  xinxianyingZhongjian?: Record<PlayerId, { turnNumber: number; used: number; extra: number; maxCardsPenalty: number }>
+  /** 陈登【丰积】：本轮由丰积产生的摸牌/出杀次数 modifier，按受影响角色记账。 */
+  chendengModifiers?: Record<PlayerId, { roundNumber: number; drawDelta: number; slashDelta: number }>
+  /** 陈登【旋回】：发动过之后失效，直到任意角色死亡才清除。 */
+  chendengXuanhuiDisabled?: Record<PlayerId, boolean>
+  /** 阎圃【缓图】：等待在目标结束阶段结算的补偿。 */
+  yanpuHuantuPending?: { targetId: PlayerId; turnNumber: number }
+  /** 阎圃【缓图】：本次要跳过摸牌阶段的目标。 */
+  yanpuSkipDraw?: { targetId: PlayerId; turnNumber: number }
+  /** 阎圃【避祸】：当前生效的距离加成，轮开始时按记录的量收回。 */
+  yanpuBihuoActive?: { playerId: PlayerId; amount: number; roundNumber: number }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

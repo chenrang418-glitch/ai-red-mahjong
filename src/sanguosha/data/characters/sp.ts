@@ -1,4 +1,14 @@
 import type { CharacterDefinition } from './types'
+import { ZHANGLU } from './sp-zhanglu'
+import { LIUBIAN } from './sp-liubian'
+import { MIHENG } from './sp-miheng'
+import { ZHANGQIYING } from './sp-zhangqiying'
+import { CHENGGONGYING } from './sp-chenggongying'
+import { HANFU } from './sp-hanfu'
+import { XINXIANYING } from './sp-xinxianying'
+import { CHENDENG } from './sp-chendeng'
+import { YANPU } from './sp-yanpu'
+import { WANGRONG } from './sp-wangrong'
 import { SUNHAO } from './sp-sunhao'
 import { WUJING } from './sp-wujing'
 import { QIANZHAO } from './sp-qianzhao'
@@ -82,6 +92,7 @@ import { CAOXING } from './sp-caoxing'
  * 第五批 10 / 10：王平、祖茂、徐氏、严畯、费祎、潘濬、周鲂、黄祖、凌操、袁谭袁尚。
  * 第六批 10 / 10：陆抗、徐荣、樊稠、卑弥呼、麹义、淳于琼、刘琦、司马徽、陆凯、曹性。
  * 第七批 10 / 10：孙皓、吴景、牵招、鲍信、杨阜、袁涣、杜袭、蒋琬、朱儁、陶谦。
+ * 第八批 10 / 10：张鲁、刘辩、祢衡、张琪瑛、成公英、韩馥、辛宪英、陈登、阎圃、王荣。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -154,4 +165,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   JIANGWAN,
   ZHUJUN,
   TAOQIAN,
+  ZHANGLU,
+  LIUBIAN,
+  MIHENG,
+  ZHANGQIYING,
+  CHENGGONGYING,
+  HANFU,
+  XINXIANYING,
+  CHENDENG,
+  YANPU,
+  WANGRONG,
 ] as const

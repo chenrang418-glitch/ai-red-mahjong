@@ -11,7 +11,7 @@ import { retainJudgmentCard, shouldRetainJudgment } from './judgment-retention'
 import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 import { effectiveCardName, moveCard } from './zones'
-import { effectiveCardSuit, skillsOf, type SkillHost } from './skills/runtime'
+import { effectiveCardSuit, effectiveJudgmentRank, skillsOf, type SkillHost } from './skills/runtime'
 import { NULLIFICATION_TIMEOUT_MS, nullificationCardIds } from './nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { responseViewAsOptions, skillIdsOf } from '../data/characters/standard'
@@ -167,8 +167,9 @@ function finishJudgment(host: JudgmentEngineHost): void {
   const { playerId, reason, judgeCardId, tag, data } = retrial
   const judgeCard = host.state.cards[judgeCardId]
   const suit = effectiveCardSuit(host.state, playerId, judgeCardId, skillIdsOf)
+  const rank = effectiveJudgmentRank(host.state, playerId, judgeCardId, skillIdsOf)
   const color = suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
-  host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit, rank: judgeCard.rank, color }, { targetId: playerId, cardIds: [judgeCardId] })
+  host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit, rank, color }, { targetId: playerId, cardIds: [judgeCardId] })
   host.dispatch('JudgeEnd', { playerId, reason, judgeCardId }, { targetId: playerId, cardIds: [judgeCardId] })
   /*
    * 暂存中的判定不进弃牌堆，留在处理区等技能统一处置（神郭嘉【慧识】）。
