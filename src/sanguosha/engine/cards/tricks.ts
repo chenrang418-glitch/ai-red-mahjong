@@ -448,6 +448,28 @@ function enterTrickTarget(host: CardEngineHost): void {
     return
   }
   /*
+   * 旁观者插入点（文聘【镇卫】），和【杀】那边 askSlashInterceptors 的
+   * 第三组一致：之前这条锦囊结算路径完全没有接线，只有【杀】能问到。
+   */
+  for (const bystander of host.state.players) {
+    if (!bystander.alive || bystander.id === resolution.sourceId || bystander.id === targetId) continue
+    for (const runtime of skillsOf(host.state, bystander.id, skillIdsOf)) {
+      if (!runtime.interceptBystanderTarget) continue
+      const bystanderInterceptId = `bystander-skill:${runtime.id}:${bystander.id}`
+      if (resolution.interceptsDone.includes(bystanderInterceptId)) continue
+      resolution.interceptsDone.push(bystanderInterceptId)
+      if (!runtime.interceptBystanderTarget(host, bystander.id, {
+        sourceId: resolution.sourceId,
+        targetId,
+        cardId: resolution.cardId,
+        cardName: resolution.cardName,
+        category: card.category,
+      })) continue
+      resolution.stage = 'awaiting-intercept'
+      return
+    }
+  }
+  /*
    * 没有插入点要问了（或者插入点已经问完回到这里），阶段必须改回来。
    *
    * 漏掉这一行的后果：目标身上有【发呆】这类「成为目标后」的技能时，

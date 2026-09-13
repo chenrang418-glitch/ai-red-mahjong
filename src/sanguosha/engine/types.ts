@@ -1264,6 +1264,40 @@ export interface SanguoshaState {
   dingyuanFirstDamageSeen?: number
   /** 轲比能【平端】：等待"使用的基本牌/杀完全结算完毕"再继续下一项。 */
   kebinengPingduanPending?: { ownerId: PlayerId; targetId: PlayerId }
+  /** 吕玲绮【绮武】：本回合通过绮武获得的闪，不计入手牌上限。 */
+  lvlingqiQiwuDodge?: Record<PlayerId, { turnNumber: number; cardIds: CardId[] }>
+  /** 吕玲绮【绮武】：待结算虚拟杀是否不可响应。 */
+  lvlingqiQiwuPending?: { ownerId: PlayerId; targetId: PlayerId; noDodge: boolean }
+  /** 吕玲绮【妆戎】：4件专属装备当前的具体 Card ID。 */
+  lvlingqiItemIds?: Record<string, CardId>
+  /** 文聘【镇卫】：等待 resolvedCardRecipient 把牌接进手里再暗置。 */
+  wenpinRemoveArmed?: { ownerId: PlayerId; cardId: CardId; sourceId: PlayerId; turnNumber: number }
+  /** 文聘【镇卫】：暗置中的牌，回合结束归还使用者。 */
+  wenpinRemoved?: Array<{ cardId: CardId; originalUserId: PlayerId; turnNumber: number }>
+  /** 陆郁生【润微】：当前 Discard Phase 的手牌上限修正。 */
+  luyushengRunweiMod?: { targetId: PlayerId; phaseInstanceId: string; delta: number }
+  /** 文钦【犷骜】/【彗企】：本回合/上一回合成为过牌目标的角色集合。 */
+  wenqinTurnTargets?: { turnNumber: number; ids: PlayerId[] }
+  wenqinLastTurnTargets?: { turnNumber: number; ids: PlayerId[] }
+  /** 张曼成【狂信】：上个准备阶段体力快照、本回合展示的牌。 */
+  zhangmanchengHpSnapshot?: number
+  zhangmanchengShown?: { turnNumber: number; cardIds: CardId[] }
+  /** 张曼成【雷噬】：下一次判定替换。 */
+  zhangmanchengJudgeReplace?: { turnNumber: number; cardId: CardId }
+  /** 卢氏【驻颜】：各角色上个准备阶段/游戏开始快照，以及各项已使用记录。 */
+  lushiSnapshots?: Record<PlayerId, { hp: number; hand: number }>
+  lushiGameStartSnapshots?: Record<PlayerId, { hp: number; hand: number }>
+  lushiUsed?: Record<PlayerId, { hp?: boolean; hand?: boolean }>
+  /** 夏侯玄【宦浮】：待结算的弃牌数与目标实际受伤累计。 */
+  xiahouxuanHuanfuPending?: { ownerId: PlayerId; targetId: PlayerId; n: number; dealt: number }
+  /** 夏侯玄【清议】：过程中弃置且仍可能领取的牌。 */
+  xiahouxuanQingyiDiscards?: CardId[]
+  /** 夏侯玄【迮阅】：自上回合结束后曾对其造成伤害的角色集合。 */
+  xiahouxuanDamagedBy?: PlayerId[]
+  /** 夏侯玄【迮阅】：当前被移除技能的角色与已经过的轮数。 */
+  xiahouxuanZeyue?: { ownerId: PlayerId; targetId: PlayerId; skillId: string; roundsLost: number }
+  /** 夏侯玄【迮阅】：正在进行的每轮追加杀序列进度。 */
+  xiahouxuanZeyueStriking?: { ownerId: PlayerId; index: number; data: { targetId: PlayerId; remaining: number } }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
