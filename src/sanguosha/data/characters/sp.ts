@@ -1,4 +1,14 @@
 import type { CharacterDefinition } from './types'
+import { SUNHAO } from './sp-sunhao'
+import { WUJING } from './sp-wujing'
+import { QIANZHAO } from './sp-qianzhao'
+import { BAOXIN } from './sp-baoxin'
+import { YANGFU } from './sp-yangfu'
+import { YUANHUAN } from './sp-yuanhuan'
+import { DUXI } from './sp-duxi'
+import { JIANGWAN } from './sp-jiangwan'
+import { ZHUJUN } from './sp-zhujun'
+import { TAOQIAN } from './sp-taoqian'
 import { YUANSHU } from './sp-yuanshu'
 import { YANGXIU } from './sp-yangxiu'
 import { CHENLIN } from './sp-chenlin'
@@ -71,6 +81,7 @@ import { CAOXING } from './sp-caoxing'
  * 第四批 10 / 10：潘凤、士燮、诸葛瑾、董白、诸葛恪、诸葛瞻、张绣、蹋顿、孙乾、沙摩柯。
  * 第五批 10 / 10：王平、祖茂、徐氏、严畯、费祎、潘濬、周鲂、黄祖、凌操、袁谭袁尚。
  * 第六批 10 / 10：陆抗、徐荣、樊稠、卑弥呼、麹义、淳于琼、刘琦、司马徽、陆凯、曹性。
+ * 第七批 10 / 10：孙皓、吴景、牵招、鲍信、杨阜、袁涣、杜袭、蒋琬、朱儁、陶谦。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -133,4 +144,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   SIMAHUI,
   LUKAI,
   CAOXING,
+  SUNHAO,
+  WUJING,
+  QIANZHAO,
+  BAOXIN,
+  YANGFU,
+  YUANHUAN,
+  DUXI,
+  JIANGWAN,
+  ZHUJUN,
+  TAOQIAN,
 ] as const

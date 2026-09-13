@@ -1093,6 +1093,32 @@ export interface SanguoshaState {
   simahuiSeals?: { long: PlayerId | null; feng: PlayerId | null }
   /** 陆凯【謇谔】：陆凯抵消一张牌后，本回合不能成为牌的目标。 */
   lukaiJianeUntargetable?: Record<PlayerId, { turnNumber: number }>
+  /** 孙皓【残蚀】：本回合是否已发动，发动后使用杀/普通锦囊须付出弃1张牌的代价。 */
+  sunhaoCostTurn?: number
+  /** 吴景【流兵】：本回合已经视为方块的第一张实体杀。 */
+  wujingFirstSlashTurn?: Record<PlayerId, { turnNumber: number; cardId: CardId }>
+  /** 吴景【流兵】：这些 Card ID 曾经造成过伤害（跨越单次 CardUse 生命周期的独立记账）。 */
+  wujingDamagedCardIds?: CardId[]
+  /** 牵招【威抚】：待消费的"下一张同类别牌"加成，可多次叠加。 */
+  qianzhaoModifiers?: Record<PlayerId, Array<{ category: CardCategory; turnNumber: number }>>
+  /** 杨阜【屏忠】：本回合已使用的牌数（用于判断是否落在前 X 张）。 */
+  yangfuCardUseCount?: Record<PlayerId, { turnNumber: number; count: number }>
+  /** 杜袭【避凶】：本回合内因弃牌阶段实际弃牌而封锁的花色集合。 */
+  duxiForbiddenSuits?: { suits: Suit[]; sinceTurn: number }
+  /** 蒋琬【蓄发】：当前可选的普通锦囊转化牌名（发动一次蓄发分支后短暂存在）。 */
+  jiangwanPendingNames?: { ownerId: PlayerId; names: string[]; turnNumber: number }
+  /** 蒋琬【自若】：本回合是否已经因自若摸牌而不能整理手牌顺序（暂无对应 UI，仅记录）。 */
+  jiangwanNoReorderTurn?: number
+  /** 朱儁【摧破】：本回合已使用的牌数（用于判断是否命中第 X 张）。 */
+  zhujunCardUseCount?: Record<PlayerId, { turnNumber: number; count: number }>
+  /** 朱儁【摧破】：本次命中触发的 CardUse，其造成的伤害+1。 */
+  zhujunBoundDamageCardId?: { cardId: CardId; turnNumber: number }
+  /** 陶谦【纵乱】：这次虚拟杀实际造成伤害的角色集合，供发动方统计 X。 */
+  taoqianZongluanDamaged?: { ownerId: PlayerId; players: PlayerId[] }
+  /** 陶谦【招祸】：本回合已经因首次受伤触发过的角色集合。 */
+  taoqianZhaohuoDamaged?: { turnNumber: number; players: PlayerId[] }
+  /** 陶谦【招祸】：因此获得、本回合不能使用/打出且不计入手牌上限的 Card ID。 */
+  taoqianZhaohuoLocked?: Record<PlayerId, { cardIds: CardId[]; turnNumber: number }>
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
