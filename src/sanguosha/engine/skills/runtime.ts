@@ -621,6 +621,14 @@ export interface SkillRuntime {
    */
   slashUndodgeable?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean
   /**
+   * 无实体牌的"视为打出一张闪"（鲁芝【卫境】）。只读判定，供求闪的合法
+   * 动作列表拼接一条 `virtual-dodge:<skillId>` 使用；真正命中后引擎调
+   * `consumeVirtualDodge` 让技能自己记账（多次判定之间不能有副作用）。
+   */
+  virtualDodge?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null): boolean
+  /** 与 `virtualDodge` 配对：确认真正使用后由技能自己更新用量记录。 */
+  consumeVirtualDodge?(host: SkillHost, ownerId: PlayerId): void
+  /**
    * 锁定技：拥有者对某个目标使用的**锦囊**，那个目标完全不能响应
    * （神孙策【覆海】）。
    *

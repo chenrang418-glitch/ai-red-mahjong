@@ -816,6 +816,10 @@ function askDodge(host: CardEngineHost, responderId: PlayerId, prompt: string, a
   // 郭图【诿解】：弃邻居一张牌顶替闪，走和蛊惑一样的集中认领入口
   if (canWeijieRespond(host.state, responderId, '闪', skillIdsOf)) actionIds.push(WEIJIE_ACTION)
   if (canMultiCardViewAs(host.state, responderId, '闪')) actionIds.push(MULTI_VIEWAS_ACTION)
+  // 鲁芝【卫境】：无实体牌视为打出一张闪，每人每轮只可能有一个技能提供
+  for (const runtime of skillsOf(host.state, responderId, skillIdsOf)) {
+    if (runtime.virtualDodge?.(host.state, responderId, slashSourceId)) { actionIds.push(`virtual-dodge:${runtime.id}`); break }
+  }
   /*
    * 无亮【忍耐】：本来能响应才给这个入口。
    *
@@ -1132,6 +1136,22 @@ export function resolveCardResponse(host: CardEngineHost, request: RespondCardRe
   const validationError = validateResponse(request, response)
   if (validationError) throw new Error(validationError)
   const actionId = (response.payload as { actionId: string }).actionId
+
+  // 鲁芝【卫境】：无实体牌，直接等价于打出了一张闪
+  if (actionId.startsWith('virtual-dodge:')) {
+    const skillId = actionId.slice('virtual-dodge:'.length)
+    const runtime = getSkillRuntime(skillId)
+    if (resolution.kind !== 'slash' || !runtime?.virtualDodge?.(host.state, response.playerId, resolution.sourceId)) {
+      throw new Error('当前不能视为打出【闪】')
+    }
+    removeResponseRequest(host.state, request.id)
+    resolution.requestId = null
+    recordResponse(host, request, response)
+    host.dispatch('CardResponded', { asking: false, playerId: response.playerId, cardId: null, cardName: '闪', virtual: true }, { sourceId: response.playerId, targetId: resolution.sourceId })
+    runtime.consumeVirtualDodge?.(host, response.playerId)
+    finishDodgedSlash(host, resolution)
+    return
+  }
 
   // 八卦阵：判定红色就当作打出了一张【闪】，黑色则视为没有响应
   if (actionId === BAGUA_ACTION_ID) {

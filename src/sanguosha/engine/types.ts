@@ -1318,6 +1318,20 @@ export interface SanguoshaState {
   ruanjiShown?: { turnNumber: number; ownerId: PlayerId; cardIds: CardId[] }
   /** 阮籍【昭文】：本回合已经使用过的转化牌名。 */
   ruanjiUsedNames?: { turnNumber: number; names: string[] }
+  /** 刘虞【宗祚】：游戏开始时快照的现存势力集合，用于判定势力消亡。 */
+  zongzuoLivingKingdoms?: string[]
+  /** 黄皓【贿生】：本局已经被永久封锁的来源（按拥有者分别记账）。 */
+  huanghaoBlocked?: Array<{ ownerId: PlayerId; sourceId: PlayerId }>
+  /** 吴苋【福绵】：上一次选择的选项；【怠宴】：上一次（自己回合）发动的目标。 */
+  wuxianLastChoice?: 'draw' | 'target'
+  wuxianDaiyanLastTarget?: PlayerId
+  /** 张让【滔乱】：本局已经使用过的声明牌名；待处理的类型（用于选目标后比较）。 */
+  zhangrangUsedNames?: Array<{ ownerId: PlayerId; name: string }>
+  zhangrangPendingType?: { ownerId: PlayerId; category: string | null }
+  /** 薛综【复难】：等待在 AfterCardUse 之后统一处理的一次响应记录。 */
+  xuezongPending?: { ownerId: PlayerId; mainCardId: CardId; responderId: PlayerId; responseCardId: CardId }
+  /** 陈到【往烈】：当前被"强命"标记为不可响应的具体 Card ID。 */
+  chendaoArmedCardId?: CardId
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
