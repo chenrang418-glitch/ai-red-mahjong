@@ -1194,6 +1194,24 @@ export interface SanguoshaState {
    * 记录时还没有任何伤害相关状态被改动，续接时原样重新走 `resolveDamage`。
    */
   pendingSourceDamage?: { options: Record<string, unknown> }
+  /** 张宝【咒缚】：本 TurnInstance 内失去过"咒"的角色，TurnEnd 各扣1点体力。 */
+  zhangbaoLostCurseTurn?: { turnNumber: number; playerIds: PlayerId[] }
+  /** 张宝【影兵】：按"咒"的 Card ID 记录已经触发过几次摸牌。 */
+  zhangbaoYingbingCount?: Record<CardId, number>
+  /** 管亥【诱阙】：本回合出牌阶段是否已经因没有黑桃"饵"而失效。 */
+  guanhaiYouqueDisabled?: { turnNumber: number; ownerId: PlayerId }
+  /** 管亥【诱阙】：等待结算的"没赢者视为使用杀"是否造成过伤害。 */
+  guanhaiPendingSlashDamage?: { turnNumber: number; sourceId: PlayerId; targetId: PlayerId }
+  /** 武安国【历勇】：本回合已经使用过的牌张花色集合。 */
+  wuanguoUsedSuitsTurn?: Record<PlayerId, { turnNumber: number; suits: Suit[] }>
+  /** 马休马铁【垦伤】：正在结算的多子牌虚拟杀，记录目标数量与绑定 Card ID。 */
+  maxiuKenshangPending?: { turnNumber: number; n: number; cardId: CardId }
+  /** 华歆【草诏】：本局已经声明过的牌名，按角色分别记录。 */
+  huaxinDeclaredNames?: Record<PlayerId, string[]>
+  /** 华歆【息兵】：本回合内某角色不能使用牌指定某个被保护角色为目标。 */
+  huaxinXibingBlocked?: Record<PlayerId, { turnNumber: number; protectedId: PlayerId }>
+  /** 马日磾【秉节】：本回合内是否处于生效状态。 */
+  maridiBingjieActive?: { turnNumber: number; ownerId: PlayerId }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

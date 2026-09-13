@@ -2,7 +2,7 @@ import { closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivat
 import { pindianRankOverrideOf, prohibitsBeingPindianTargetOf } from './skills/runtime'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import type { CardId, PhysicalCard, PindianState, PlayerId, SanguoshaState } from './types'
-import { moveCard } from './zones'
+import { locateOwnedCard, moveCard } from './zones'
 
 /**
  * 公共拼点。
@@ -98,6 +98,12 @@ export interface PindianOptions {
   continuationTag: string
   data?: Record<string, unknown>
   timeoutMs?: number
+  /**
+   * 发起方直接指定用于拼点的实体牌（管亥【诱阙】：必须用饵堆里点数最小的
+   * 那张，不是从手牌里选）。给出时跳过选牌询问，从这张牌当前所在区直接
+   * 收进私有区；不给出就是原来的「从手牌里选」。
+   */
+  initiatorForcedCardId?: CardId
 }
 
 /**
@@ -110,7 +116,11 @@ export interface PindianOptions {
 export function startPindian(host: PindianHost, options: PindianOptions): void {
   if (!continuations.has(options.continuationTag)) throw new Error(`拼点续接未注册：${options.continuationTag}`)
   if (host.state.pindian || host.state.pindianSettlement) throw new Error('上一次拼点还没结束')
-  if (!canPindian(host.state, options.initiatorId) || !canPindian(host.state, options.opponentId)) {
+  // 发起方指定了实体牌（管亥【诱阙】用饵）时，这一侧不必再要求有手牌
+  if (!options.initiatorForcedCardId && !canPindian(host.state, options.initiatorId)) {
+    throw new Error('拼点双方都必须有手牌')
+  }
+  if (!canPindian(host.state, options.opponentId)) {
     throw new Error('拼点双方都必须有手牌')
   }
   /*
@@ -140,9 +150,19 @@ export function startPindian(host: PindianHost, options: PindianOptions): void {
     logText: `${initiator.nickname}与${opponent.nickname}拼点`,
   }, { sourceId: options.initiatorId, targetId: options.opponentId })
 
-  for (const playerId of [options.initiatorId, options.opponentId]) {
-    askPindianCard(host, playerId, options.timeoutMs ?? 30_000)
+  if (options.initiatorForcedCardId) {
+    const cardId = options.initiatorForcedCardId
+    const from = locateOwnedCard(host.state, options.initiatorId, cardId, { includeCharacterPiles: true })
+    if (!from) throw new Error('指定的拼点牌不属于发起方')
+    const zoneId = zoneIdFor(pindian.id, options.initiatorId)
+    openPrivateZone(host.state, zoneId, options.initiatorId, 'pindian')
+    moveIntoPrivateZone(host.state, cardId, from, zoneId)
+    pindian.initiatorCardId = cardId
+  } else {
+    askPindianCard(host, options.initiatorId, options.timeoutMs ?? 30_000)
   }
+  askPindianCard(host, options.opponentId, options.timeoutMs ?? 30_000)
+  if (pindian.initiatorCardId && pindian.opponentCardId) revealPindian(host)
 }
 
 function askPindianCard(host: PindianHost, playerId: PlayerId, timeoutMs: number): void {

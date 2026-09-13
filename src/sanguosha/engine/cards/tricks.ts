@@ -409,6 +409,28 @@ function enterTrickTarget(host: CardEngineHost): void {
     advanceToNextTarget(host)
     return
   }
+  /*
+   * 使用者自己的插入点（孙邵【佚典】），排在目标方的 `interceptTarget` 之前，
+   * 和【杀】那边 `askSlashInterceptors` 的顺序一致。只在处理第一个目标时
+   * 问一次——这是「使用这张牌」层面的插入点，不是每个目标各问一遍。
+   */
+  if (resolution.targetIndex === 0) {
+    for (const runtime of skillsOf(host.state, resolution.sourceId, skillIdsOf)) {
+      if (!runtime.interceptSourceTarget) continue
+      const sourceInterceptId = `source-skill:${runtime.id}`
+      if (resolution.interceptsDone.includes(sourceInterceptId)) continue
+      resolution.interceptsDone.push(sourceInterceptId)
+      if (!runtime.interceptSourceTarget(host, resolution.sourceId, {
+        sourceId: resolution.sourceId,
+        targetId,
+        cardId: resolution.cardId,
+        cardName: resolution.cardName,
+        category: card.category,
+      })) continue
+      resolution.stage = 'awaiting-intercept'
+      return
+    }
+  }
   for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
     if (!runtime.interceptTarget) continue
     const interceptId = `skill:${runtime.id}`

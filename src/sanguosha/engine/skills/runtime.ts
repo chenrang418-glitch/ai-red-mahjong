@@ -520,6 +520,13 @@ export interface SkillRuntime {
    * 返回 null/undefined 就是默认行为。
    */
   retrialDecidedBy?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): PlayerId | null
+  /**
+   * 强制判定牌（张宝【咒缚】）：这名角色本次判定**直接使用**这张实体牌，
+   * 不翻牌堆顶。技能自己负责把这张牌移进处理区并返回它的 Card ID；
+   * 返回 null 表示这条不生效，走正常翻牌。判定引擎按玩家顺序问一圈，
+   * 第一个给出非 null 结果的就采用——目前只有单一来源的场景会用到它。
+   */
+  forcedJudgmentCard?(host: SkillHost, ownerId: PlayerId, judgingPlayerId: PlayerId): CardId | null
   /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
   cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
   /**

@@ -91,7 +91,7 @@ export function performJudgment(
   if (!continuations.has(continuation.tag)) throw new Error(`判定续接未注册：${continuation.tag}`)
   if (host.state.retrial) throw new Error('上一次判定的改判窗口还没结束')
   host.dispatch('JudgeStart', { playerId, reason }, { targetId: playerId })
-  const judgeCardId = takeJudgmentCard(host)
+  const judgeCardId = forcedJudgmentCard(host, playerId) ?? takeJudgmentCard(host)
   host.state.retrial = {
     playerId,
     reason,
@@ -112,6 +112,18 @@ function retrialCandidates(state: SanguoshaState, responderId: PlayerId, judging
   if (!responder?.alive) return []
   return skillsOf(state, responderId, skillIdsOf)
     .flatMap((runtime) => runtime.retrial?.(state, responderId, judgingPlayerId) ?? [])
+}
+
+/** 有没有人强制指定了这次判定牌（张宝【咒缚】）。第一个给出结果的生效。 */
+function forcedJudgmentCard(host: JudgmentEngineHost, judgingPlayerId: PlayerId): CardId | null {
+  for (const owner of host.state.players) {
+    if (!owner.alive) continue
+    for (const runtime of skillsOf(host.state, owner.id, skillIdsOf)) {
+      const cardId = runtime.forcedJudgmentCard?.(host, owner.id, judgingPlayerId)
+      if (cardId) return cardId
+    }
+  }
+  return null
 }
 
 /**

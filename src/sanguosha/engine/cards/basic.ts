@@ -121,17 +121,32 @@ export function legalPlayActions(state: SanguoshaState, playerId: PlayerId): Leg
      */
     const forced = forcedIdentityFor(state, playerId, cardId)
     if (forced) {
-      if (forced.asCardName !== '杀') continue
-      const forcedUnlimited = hasUnlimitedSlash(state, playerId) || forced.unlimitedUses
-      // 次数用光了也可能还有定向豁免的目标（高顺【陷阵】），所以这里不能直接跳过
-      if (!canUseSlash(state, playerId, forcedUnlimited) && !hasSlashUsesBypass(state, playerId)) continue
-      for (const combo of slashTargetCombos(state, playerId, cardId, forced.nature)) {
-        if (!canUseSlashAtTargets(state, playerId, forcedUnlimited, combo)) continue
-        const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
-        actions.push({
-          ...useAction(cardId, playerId, '杀', combo, `将【${card.name}】当作${natureLabel(forced.nature)}【杀】对${names}使用`),
-          id: combo.length > 1 ? `play:${cardId}:${combo.join(',')}` : `play:${cardId}:${combo[0]}`,
-        })
+      if (forced.asCardName === '杀') {
+        const forcedUnlimited = hasUnlimitedSlash(state, playerId) || forced.unlimitedUses
+        // 次数用光了也可能还有定向豁免的目标（高顺【陷阵】），所以这里不能直接跳过
+        if (!canUseSlash(state, playerId, forcedUnlimited) && !hasSlashUsesBypass(state, playerId)) continue
+        for (const combo of slashTargetCombos(state, playerId, cardId, forced.nature)) {
+          if (!canUseSlashAtTargets(state, playerId, forcedUnlimited, combo)) continue
+          const names = combo.map((id) => state.players.find((candidate) => candidate.id === id)!.nickname).join('、')
+          actions.push({
+            ...useAction(cardId, playerId, '杀', combo, `将【${card.name}】当作${natureLabel(forced.nature)}【杀】对${names}使用`),
+            id: combo.length > 1 ? `play:${cardId}:${combo.join(',')}` : `play:${cardId}:${combo[0]}`,
+          })
+        }
+        continue
+      }
+      /*
+       * 单张具体 Card ID 的声明身份（华歆【草诏】）还可能是【桃】/【酒】或
+       * 一张普通锦囊——那几类原本各自的合法性判断照抄一遍即可，不新增机制。
+       */
+      if (forced.scope === 'card') {
+        if (forced.asCardName === '桃' && source.hp < source.maxHp) {
+          actions.push(useAction(cardId, playerId, '桃', [playerId], `将【${card.name}】当作【桃】使用`))
+        } else if (forced.asCardName === '酒' && state.turnUsage.wineUses < 1) {
+          actions.push(useAction(cardId, playerId, '酒', [playerId], `将【${card.name}】当作【酒】使用`))
+        } else if (INSTANT_TRICKS.has(forced.asCardName)) {
+          actions.push(...instantTrickActions(state, playerId, cardId, forced.asCardName))
+        }
       }
       continue
     }

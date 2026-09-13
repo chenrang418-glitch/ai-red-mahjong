@@ -21,11 +21,16 @@ import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
  */
 
 /** 哪一类手牌被改写。谓词写死成有限的几种，状态才能序列化。 */
-export type ForcedIdentityScope = 'red' | 'trick'
+export type ForcedIdentityScope = 'red' | 'trick' | 'card'
 
 export interface ForcedCardIdentity {
   ownerId: PlayerId
   scope: ForcedIdentityScope
+  /**
+   * `scope === 'card'` 专用：只改写这一张具体实体牌，不看它现在在谁手上
+   * （华歆【草诏】：牌被交给别人之后，声明的身份仍然跟着这张牌走）。
+   */
+  cardId?: CardId
   /** 改写成哪张牌。 */
   asCardName: string
   /** 改写后的伤害属性（龙怒阳是火、阴是雷）。 */
@@ -35,19 +40,20 @@ export interface ForcedCardIdentity {
   /** 这些改写出来的【杀】是否不受出杀次数限制。 */
   unlimitedUses: boolean
   skillId: string
-  /** 目前只有「本回合结束时失效」一种。 */
-  expiry: 'turn-end'
+  /** 「本回合结束时失效」或「技能自己手动清除，不随回合结束」。 */
+  expiry: 'turn-end' | 'manual'
 }
 
 function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return state.players.find((candidate) => candidate.id === playerId)
 }
 
-function matchesScope(state: SanguoshaState, cardId: CardId, scope: ForcedIdentityScope): boolean {
+function matchesScope(state: SanguoshaState, cardId: CardId, scope: ForcedIdentityScope, entryCardId?: CardId): boolean {
   const card = state.cards[cardId]
   if (!card) return false
   if (scope === 'red') return card.color === 'red'
   if (scope === 'trick') return card.category === 'trick'
+  if (scope === 'card') return entryCardId === cardId
   return false
 }
 
@@ -65,8 +71,12 @@ export function forcedIdentityFor(
   const owner = playerOf(state, playerId)
   if (!owner?.alive || !owner.zones.hand.includes(cardId)) return null
   for (const entry of state.forcedIdentities ?? []) {
-    if (entry.ownerId !== playerId) continue
-    if (matchesScope(state, cardId, entry.scope)) return entry
+    /*
+     * `scope === 'card'` 按具体 Card ID 匹配，不认持有人：这张牌被交给
+     * 别人之后（华歆【草诏】），改写要跟着牌走，不能卡在原来的 ownerId。
+     */
+    if (entry.scope !== 'card' && entry.ownerId !== playerId) continue
+    if (matchesScope(state, cardId, entry.scope, entry.cardId)) return entry
   }
   /*
    * 技能自己声明的改写（高顺【禁酒】：他的【酒】均视为【杀】）。
@@ -123,10 +133,15 @@ export function canUseCardAs(
 
 export function applyForcedIdentity(state: SanguoshaState, entry: ForcedCardIdentity): void {
   state.forcedIdentities ??= []
-  // 同一个技能同一个人不叠加，重复施加就是刷新
-  state.forcedIdentities = state.forcedIdentities.filter((candidate) => (
-    !(candidate.ownerId === entry.ownerId && candidate.skillId === entry.skillId)
-  ))
+  /*
+   * 同一个技能同一个人不叠加，重复施加就是刷新——但 `scope === 'card'`
+   * 是按具体 Card ID 各自独立的（华歆【草诏】：这局给张三声明过的那张牌
+   * 还没被使用/交还，不能被下一次声明另一张牌顶掉）。
+   */
+  state.forcedIdentities = state.forcedIdentities.filter((candidate) => {
+    if (candidate.scope === 'card' || entry.scope === 'card') return candidate.cardId !== entry.cardId
+    return !(candidate.ownerId === entry.ownerId && candidate.skillId === entry.skillId)
+  })
   state.forcedIdentities.push(entry)
 }
 
