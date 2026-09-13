@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -131,10 +131,13 @@ describe('纸上三国声音映射', () => {
         expectedFiles.push(`${character.id}/${skill.id}-01.mp3`, `${character.id}/${skill.id}-02.mp3`)
       }
     }
-    const actualFiles = readdirSync(directory, { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.mp3'))
-      .map((entry) => `${entry.parentPath.slice(directory.length + 1).replaceAll('\\', '/')}/${entry.name}`)
-      .sort()
+    // 台词整批删除待重新生成时，目录本身也会被清掉；空目录和不存在的目录等价于零文件
+    const actualFiles = existsSync(directory)
+      ? readdirSync(directory, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.mp3'))
+        .map((entry) => `${entry.parentPath.slice(directory.length + 1).replaceAll('\\', '/')}/${entry.name}`)
+        .sort()
+      : []
     /*
      * 先分别报缺了什么、多了什么，再整体比对。
      *
@@ -188,7 +191,10 @@ describe('纸上三国声音映射', () => {
     }
   })
 
-  it('同名技能按人物区分，自定义人物不接入台词', () => {
+  // 台词已整批删除，等待重新生成再接入（用户明确要求）；机制本身仍由上面
+  // 「还没录台词的武将不会报错」覆盖，下面三条依赖具体已接入人物的用例
+  // 暂时跳过，补齐新台词时改回 `it` 并核对人物 id 是否还适用。
+  it.skip('同名技能按人物区分，自定义人物不接入台词', () => {
     expect(characterSkillVoiceUrls('machao', 'mashu')).toHaveLength(2)
     expect(characterSkillVoiceUrls('pangde', 'mashu')).toHaveLength(2)
     expect(characterSkillVoiceUrls('machao', 'mashu')).not.toEqual(characterSkillVoiceUrls('pangde', 'mashu'))
@@ -197,7 +203,7 @@ describe('纸上三国声音映射', () => {
     }
   })
 
-  it('只有携带人物和技能标识的技能事件会命中台词', () => {
+  it.skip('只有携带人物和技能标识的技能事件会命中台词', () => {
     const skill: PresentationEvent = {
       id: 'voice-machao-tieji', seq: 1, kind: 'skill', sourceId: 'p0',
       sourceCharacterId: 'machao', skillId: 'tieji', skillName: '铁骑', text: '马超发动【铁骑】',
@@ -207,7 +213,7 @@ describe('纸上三国声音映射', () => {
     expect(voiceUrlsForPresentation({ ...skill, sourceCharacterId: 'naiwa' })).toHaveLength(0)
   })
 
-  it('引擎表现事件会携带发动者的人物和技能标识', () => {
+  it.skip('引擎表现事件会携带发动者的人物和技能标识', () => {
     const game = new SanguoshaGame({
       seed: 'voice-presentation',
       setup: {
