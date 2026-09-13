@@ -1061,6 +1061,56 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供（GPT 生成）·袁谭袁尚',
   },
+  guansuo: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·关索',
+  },
+  zhaoxiang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·赵襄',
+  },
+  baosanniang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·鲍三娘',
+  },
+  huaman: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·花鬘',
+  },
+  zhugeguo: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·诸葛果',
+  },
+  liyan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·李严',
+  },
+  mengda: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·孟达',
+  },
+  pengyang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·彭羕',
+  },
+  xuyou: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·许攸',
+  },
+  yanyan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供（GPT 生成）·严颜',
+  },
 }
 
 /**
@@ -1087,9 +1137,6 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // SP 独立历史人物第八批：立绘待上传
   'zhanglu', 'liubian', 'miheng', 'zhangqiying', 'chenggongying',
   'hanfu', 'xinxianying', 'chendeng', 'yanpu', 'wangrong',
-  // SP 独立历史人物第九批：立绘待上传
-  'guansuo', 'zhaoxiang', 'baosanniang', 'huaman', 'zhugeguo',
-  'liyan', 'mengda', 'pengyang', 'xuyou', 'yanyan',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })
