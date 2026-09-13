@@ -79,8 +79,9 @@ function activeCharacter(state: SanguoshaState, playerId: PlayerId): HuashenChar
 export function effectiveKingdomOf(state: SanguoshaState, playerId: PlayerId): Kingdom | undefined {
   const active = activeCharacter(state, playerId)
   if (active) return active.kingdom
-  const characterId = state.players.find((candidate) => candidate.id === playerId)?.characterId
-  return characterId ? byId.get(characterId)?.kingdom : undefined
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (player?.kingdomOverride) return player.kingdomOverride
+  return player?.characterId ? byId.get(player.characterId)?.kingdom : undefined
 }
 
 export function effectiveGenderOf(state: SanguoshaState, playerId: PlayerId): 'male' | 'female' | undefined {

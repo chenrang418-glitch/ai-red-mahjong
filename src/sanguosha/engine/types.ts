@@ -150,6 +150,8 @@ export interface PlayerState {
   distanceFromOthers: number
   distanceToOthers: number
   attackRangeBonus: number
+  /** 孟达【苟得】：永久变更后的势力，覆盖武将牌本身的势力。不改身份牌。 */
+  kingdomOverride?: Kingdom
 }
 
 export interface GameZones {
@@ -1153,6 +1155,42 @@ export interface SanguoshaState {
   yanpuSkipDraw?: { targetId: PlayerId; turnNumber: number }
   /** 阎圃【避祸】：当前生效的距离加成，轮开始时按记录的量收回。 */
   yanpuBihuoActive?: { playerId: PlayerId; amount: number; roundNumber: number }
+  /** 鲍三娘【武娘】：当前视为杀正在结算的 (使用者,目标) 标记，用于不可响应判定。 */
+  baosanniangWuniangActive?: { ownerId: PlayerId; targetId: PlayerId; turnNumber: number }
+  /** 鲍三娘【镇南】：正在结算的自定义目标南蛮入侵。 */
+  baosanniangZhennanPending?: { cardId: CardId; targetIds: PlayerId[]; turnNumber: number }
+  /** 鲍三娘【镇南】：这次南蛮入侵结算过程中已记录受到伤害的目标。 */
+  baosanniangZhennanDamaged?: PlayerId[]
+  /** 鲍三娘【镇南】：未受伤目标本回合被她使用杀无次数限制。 */
+  baosanniangZhennanUnlimited?: Record<PlayerId, { ownerId: PlayerId; turnNumber: number }>
+  /** 花鬘【薮影】：(source->target) 本 TurnInstance 内的使用次数记账。 */
+  huamanSouyingUseCount?: Record<string, { turnNumber: number; count: number }>
+  /** 花鬘【薮影】：待生效的"这次使用对花鬘无效"标记。 */
+  huamanSouyingInvalidPending?: { sourceId: PlayerId; cardName: string; turnNumber: number }
+  /** 系力：本 TurnInstance 是否已经发动过。 */
+  xiliUsedTurn?: { turnNumber: number }
+  /** 诸葛果【祈禳】：绑定这张具体 Card ID 的额外目标 buff。 */
+  zhugeguoExtraTargetCardId?: CardId
+  /** 孟达【苟得】：本 TurnInstance 内已经出现过的四项标记。 */
+  mengdaGoudeSeen?: { turnNumber: number; items: number[] }
+  /** 李严【督粮】：下个摸牌阶段多摸1张的目标集合。 */
+  liyanNextDrawBonus?: Record<PlayerId, boolean>
+  /** 李严【腹鳞】：本回合内各角色实际获得过的 Card ID。 */
+  liyanGainedThisTurn?: Record<PlayerId, { turnNumber: number; cardIds: CardId[] }>
+  /** 彭羕【嚣翻】：本回合已经使用过的牌张类型集合。 */
+  pengyangUsedTypesTurn?: Record<PlayerId, { turnNumber: number; types: CardCategory[] }>
+  /** 彭羕【侻失】：嚣翻因3次伤害牌未命中而失效至本回合结束。 */
+  pengyangXiaofanDisabled?: { turnNumber: number; ownerId: PlayerId }
+  /** 彭羕【侻失】：下一次对手牌数更少角色使用牌无距离/次数限制的待消费 buff。 */
+  pengyangTuoshiBuffPending?: { ownerId: PlayerId; turnNumber: number }
+  /** 彭羕【侻失】：本回合内使用伤害类牌但未造成伤害的次数。 */
+  pengyangFailedDamageTurn?: { turnNumber: number; count: number }
+  /** 许攸【成略】：本回合内因弃牌花色获得的无距离/次数限制的花色集合。 */
+  xuyouChengueSuits?: { turnNumber: number; ownerId: PlayerId; suits: Suit[] }
+  /** 严颜【拒战】阳：本回合内某角色不能对严颜使用牌。 */
+  yanyanBlockedByOthers?: Record<PlayerId, { turnNumber: number; blockedSourceId: PlayerId }>
+  /** 严颜【拒战】阴：本回合内严颜不能对某角色使用牌。 */
+  yanyanSelfBlocked?: Record<PlayerId, { turnNumber: number; blockedTargetId: PlayerId }>
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**

@@ -402,6 +402,17 @@ export interface SkillRuntime {
    */
   maxCardsBonus?(state: SanguoshaState, ownerId: PlayerId): number
   /**
+   * 弃牌阶段手牌数是否计入「张数」：返回 true 表示这张牌**不计入**手牌上限判定
+   * （诸葛果【羽化】的锦囊/装备牌、李严【腹鳞】本回合获得的牌）。
+   * 只影响弃牌数量的计算，不影响这张牌能否被选中弃置。
+   */
+  handLimitExempt?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
+  /**
+   * 锁定技：拥有者的摸牌一律改为从牌堆底摸（许攸/彭羕【寸目】）。
+   * 只改摸牌的来源位置，不改摸牌数量、不改摸牌事件本身。
+   */
+  drawsFromBottom?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /**
    * 锁定技：拥有者的连环状态不能被解除（神刘备【结营】）。
    * 属性伤害传导时的统一解除不受此限制，那是规则本身。
    */
@@ -936,6 +947,25 @@ export function maxCardsBonusOf(
     bonus += Math.trunc(runtime.maxCardsBonus?.(state, playerId) ?? 0)
   }
   return bonus
+}
+
+/** 这张牌在弃牌阶段是否不计入拥有者的手牌上限判定。 */
+export function isHandLimitExempt(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  cardId: CardId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.handLimitExempt?.(state, playerId, cardId))
+}
+
+/** 拥有者的摸牌是否一律改从牌堆底摸。 */
+export function drawsFromBottomFor(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.drawsFromBottom?.(state, playerId))
 }
 
 /** 统一计算技能给出的固定手牌上限；没有固定效果时返回 null。 */

@@ -3,6 +3,7 @@ import type { GameEventName } from './events'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { reshuffleDrawPile } from './deck'
+import { drawsFromBottomFor } from './skills/runtime'
 
 export type EmitDrawEvent = (name: GameEventName, payload: Record<string, unknown>) => void
 
@@ -18,11 +19,12 @@ export function drawCards(
   if (!target) throw new Error(`玩家不存在：${playerId}`)
   if (!Number.isInteger(count) || count < 0) throw new Error('摸牌数量必须是非负整数')
 
+  const fromBottom = drawsFromBottomFor(state, playerId)
   const drawn: string[] = []
   for (let index = 0; index < count; index += 1) {
     // 牌堆空了走公共重洗：它会留下「这个回合洗过牌」的痕迹
     if (state.zones.drawPile.length === 0 && reshuffleDrawPile(state, rng, emit) === 0) break
-    const cardId = state.zones.drawPile[0]
+    const cardId = fromBottom ? state.zones.drawPile[state.zones.drawPile.length - 1] : state.zones.drawPile[0]
     moveCard(state, cardId, { kind: 'drawPile' }, { kind: 'hand', playerId })
     drawn.push(cardId)
   }

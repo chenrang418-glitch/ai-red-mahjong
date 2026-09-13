@@ -5,7 +5,7 @@ import { advancePhase, resumeTurnTransition } from './turn'
 import type { PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
-import { fixedMaxCardsOf, globalMaxCardsBonusOf, maxCardsBonusOf, skillsOf } from './skills/runtime'
+import { fixedMaxCardsOf, globalMaxCardsBonusOf, isHandLimitExempt, maxCardsBonusOf, skillsOf } from './skills/runtime'
 import { cardPlayableByCategory, isCardIdLocked } from './card-play-lock'
 import { skillIdsOf } from '../data/characters/standard'
 
@@ -107,7 +107,8 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       if (host.state.status !== 'playing') return
       // 克己等技能可以在阶段入口生成自己的 Request 并接管默认弃牌。
       if (context.cancelled || host.state.pendingRequests.length > 0) return
-      const count = current.zones.hand.length - maxCards(host.state, playerId)
+      const exemptCount = current.zones.hand.filter((cardId) => isHandLimitExempt(host.state, playerId, cardId)).length
+      const count = (current.zones.hand.length - exemptCount) - maxCards(host.state, playerId)
       if (count <= 0) return
       /*
        * 类别禁令（杨修【鸡肋】）挡住的牌不能出现在弃牌阶段的候选里。

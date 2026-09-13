@@ -79,6 +79,16 @@ import { LIUQI } from './sp-liuqi'
 import { SIMAHUI } from './sp-simahui'
 import { LUKAI } from './sp-lukai'
 import { CAOXING } from './sp-caoxing'
+import { GUANSUO } from './sp-guansuo'
+import { ZHAOXIANG } from './sp-zhaoxiang'
+import { BAOSANNIANG } from './sp-baosanniang'
+import { HUAMAN } from './sp-huaman'
+import { ZHUGEGUO } from './sp-zhugeguo'
+import { LIYAN } from './sp-liyan'
+import { MENGDA } from './sp-mengda'
+import { PENGYANG } from './sp-pengyang'
+import { XUYOU } from './sp-xuyou'
+import { YANYAN } from './sp-yanyan'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -93,6 +103,7 @@ import { CAOXING } from './sp-caoxing'
  * 第六批 10 / 10：陆抗、徐荣、樊稠、卑弥呼、麹义、淳于琼、刘琦、司马徽、陆凯、曹性。
  * 第七批 10 / 10：孙皓、吴景、牵招、鲍信、杨阜、袁涣、杜袭、蒋琬、朱儁、陶谦。
  * 第八批 10 / 10：张鲁、刘辩、祢衡、张琪瑛、成公英、韩馥、辛宪英、陈登、阎圃、王荣。
+ * 第九批 10 / 10：关索、赵襄、鲍三娘、花鬘、诸葛果、李严、孟达、彭羕、许攸、严颜。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -175,4 +186,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   CHENDENG,
   YANPU,
   WANGRONG,
+  GUANSUO,
+  ZHAOXIANG,
+  BAOSANNIANG,
+  HUAMAN,
+  ZHUGEGUO,
+  LIYAN,
+  MENGDA,
+  PENGYANG,
+  XUYOU,
+  YANYAN,
 ] as const
