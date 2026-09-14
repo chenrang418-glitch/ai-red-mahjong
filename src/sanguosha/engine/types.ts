@@ -1298,6 +1298,29 @@ export interface SanguoshaState {
   tongxieHpLossTurn?: Record<PlayerId, number>
   /** 曹节【守玺】：本局已经声明过的牌名集合。 */
   shouxiDeclared?: string[]
+  /** 晋势力专项第一批：各角色的隐匿兼容/一次性触发记录、跨阶段状态。 */
+  taoyinUsed?: PlayerId[]
+  yimiePending?: { ownerId: PlayerId; targetId: PlayerId; x: number }
+  tairanPending?: Array<{ ownerId: PlayerId; recovered: number; cardIds: CardId[] }>
+  tuishiUsed?: PlayerId[]
+  choufaCardIds?: Record<PlayerId, CardId[]>
+  /** 昭然/其它"整手牌公开"效果：当前公开着手牌的角色集合。 */
+  revealedHands?: PlayerId[]
+  zhaoranEmptySuits?: { turnNumber: number; suits: Suit[] }
+  shirenUsed?: PlayerId[]
+  yanxiExempt?: Record<PlayerId, CardId[]>
+  sanchenExcluded?: PlayerId[]
+  pozhuDisabledTurn?: number
+  huirongUsed?: PlayerId[]
+  caiyuanDecreased?: PlayerId[]
+  naxiangEmpowered?: PlayerId[]
+  xiongshuGuess?: { ownerId: PlayerId; targetId: PlayerId; cardId: CardId; cardName: string; guess: boolean; usedName: boolean }
+  xiongshuRound?: { round: number; count: number }
+  jiachongLastDamager?: PlayerId
+  jianheUsedTargets?: PlayerId[]
+  shanduanAlloc?: { turnNumber: number; draw: number; range: number; slash: number; maxCards: number }
+  yilieUsedNames?: { round: number; names: string[] }
+  bingxinUsedNames?: { turnNumber: number; names: string[] }
   /** 吕玲绮【绮武】：本回合通过绮武获得的闪，不计入手牌上限。 */
   lvlingqiQiwuDodge?: Record<PlayerId, { turnNumber: number; cardIds: CardId[] }>
   /** 吕玲绮【绮武】：待结算虚拟杀是否不可响应。 */
