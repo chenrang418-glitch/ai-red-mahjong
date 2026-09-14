@@ -8,6 +8,7 @@ import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from './req
 import { validateResponse } from './requests'
 import type { GameRng } from './rng'
 import { retainJudgmentCard, shouldRetainJudgment } from './judgment-retention'
+import { movePickedCard } from './card-pick'
 import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 import { effectiveCardName, moveCard } from './zones'
@@ -218,12 +219,15 @@ export function resolveRetrialResponse(host: JudgmentEngineHost, request: Choose
 
   const replacementId = cardIds[0]
   const sourceId = retrial.sourceId ?? response.playerId
-  const source = player(host.state, sourceId)
-  if (!source.zones.hand.includes(replacementId)) throw new Error('改判用的牌不在手牌里')
+  /*
+   * 大多数改判技能（鬼才）只报手牌做候选，这里仍然优先走手牌；
+   * 少数技能（神品）候选可以来自装备区，统一交给 movePickedCard 定位，
+   * 顺带处理装备离场——具体能选哪些区域由各技能自己的 retrial() 候选决定。
+   */
   // 旧判定牌进弃牌堆，新牌顶上。两张牌都在处理区停留过，牌张守恒不会破
   // 被改判换下来的那一张同样是「因判定进入弃牌堆」
   moveCard(host.state, retrial.judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' }, { discardReason: 'judgment' })
-  moveCard(host.state, replacementId, { kind: 'hand', playerId: sourceId }, { kind: 'processingArea' })
+  if (!movePickedCard(host, sourceId, replacementId, { kind: 'processingArea' })) throw new Error('改判用的牌不在合法区域里')
   retrial.judgeCardId = replacementId
   host.dispatch('CardResponded', { playerId: sourceId, cardId: replacementId, cardName: host.state.cards[replacementId].name, reason: '改判' }, { sourceId, targetId: retrial.playerId, cardIds: [replacementId] })
   // 换了牌就重新从头问一遍：别人（以及他自己）可以对新的判定牌再改一次

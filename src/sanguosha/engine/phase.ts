@@ -7,6 +7,7 @@ import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
 import { fixedMaxCardsOf, globalMaxCardsBonusOf, isHandLimitExempt, maxCardsBonusOf, skillsOf } from './skills/runtime'
 import { cardPlayableByCategory, isCardIdLocked } from './card-play-lock'
+import { cardDiscardableBySuit } from './card-suit-lock'
 import { skillIdsOf } from '../data/characters/standard'
 
 /**
@@ -117,7 +118,7 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
        * 极端情况下被挡的牌太多、可弃数量不够 `count` 张时，退而求其次地
        * 按实际能弃的张数走——弃牌阶段的强制弃置不能因为凑不够数就直接崩掉。
        */
-      const eligible = current.zones.hand.filter((cardId) => cardPlayableByCategory(host.state, playerId, cardId) && !isCardIdLocked(host.state, playerId, cardId))
+      const eligible = current.zones.hand.filter((cardId) => cardPlayableByCategory(host.state, playerId, cardId) && !isCardIdLocked(host.state, playerId, cardId) && cardDiscardableBySuit(host.state, playerId, cardId))
       const actualCount = Math.min(count, eligible.length)
       if (actualCount <= 0) return
       const request: ChooseCardsRequest = {

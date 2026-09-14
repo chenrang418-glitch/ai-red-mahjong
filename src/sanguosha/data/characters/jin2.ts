@@ -11,7 +11,7 @@ import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } fr
 import type { CardId, PlayerId, SanguoshaState, Suit } from '../../engine/types'
 import { effectiveKingdomOf } from '../../engine/huashen'
 import { attackRangeCovers } from '../../engine/ask-use-slash'
-import { movePickedCard } from '../../engine/card-pick'
+import { movePickedCard, pickableCardsOf, resolvePickedCard } from '../../engine/card-pick'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -1016,7 +1016,9 @@ registerSkillRuntime({
     const judgeCardId = state.retrial?.judgeCardId
     const judgeColor = judgeCardId ? state.cards[judgeCardId]?.color : null
     if (!judgeColor) return []
-    return owner.zones.hand.filter((cardId) => {
+    // 官方文本只写"一张颜色不同的牌"，不限手牌——装备区的牌同样能拿来改判
+    const equipped = Object.values(owner.zones.equipment).filter((id): id is CardId => Boolean(id))
+    return [...owner.zones.hand, ...equipped].filter((cardId) => {
       const color = state.cards[cardId]?.color
       return color && color !== judgeColor
     })
@@ -1120,10 +1122,27 @@ registerSkillRuntime({
       const [targetId] = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
       const target = targetId ? playerOf(host.state, targetId) : undefined
       if (!target?.alive) return
-      const pool = [...target.zones.hand, ...Object.values(target.zones.equipment).filter((id): id is CardId => Boolean(id)), ...target.zones.judgingArea]
-      if (pool.length === 0) return
+      const pickable = pickableCardsOf(host.state, targetId, { includeJudgingArea: true })
+      if (pickable.cardIds.length + pickable.hiddenCardSlots.length === 0) return
+      // 杨艳不能先看见点数花色再挑：手牌只给占位槽，复用顺手牵羊/过河拆桥同一套隐私纪律
+      host.askSkill({
+        skillId: XUANBEI, ownerId, step: 'pick-card', data: { targetId },
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId, kind: 'choose-cards', playerId: ownerId,
+          prompt: '【选备】：选择该角色区域内1张牌', timeoutMs: 20_000, optional: false,
+          purpose: 'skill', cardIds: pickable.cardIds, hiddenCardSlots: pickable.hiddenCardSlots, min: 1, max: 1,
+        }),
+      })
+      return
+    }
+    if (resolution.step === 'pick-card') {
+      const { targetId } = resolution.data as { targetId: PlayerId }
+      const target = playerOf(host.state, targetId)
+      if (!target?.alive) return
+      const [picked] = (response.payload as { cardIds?: string[] }).cardIds ?? []
+      const cardId = picked ? resolvePickedCard(host.state, targetId, picked) : null
+      if (!cardId) return
       markUsedThisTurn(host.state, ownerId, XUANBEI)
-      const cardId = pool[host.rng.nextInt(pool.length)]
       host.state.xuanbeiPending = { ownerId, targetId }
       host.dispatch('SkillActivated', { skillId: XUANBEI, skillName: '选备', playerId: ownerId, targetId, logText: `${owner.nickname}发动【选备】` }, { sourceId: ownerId, targetId })
       // beginVirtualSlash 的 cardId 载体要求有效牌名已经是"杀"；这里是"当杀
@@ -1184,7 +1203,8 @@ registerSkillRuntime({
   interceptTarget(host, ownerId, context) {
     if (context.cardName !== '杀' || context.sourceId === ownerId) return false
     const usedCard = host.state.cards[context.cardId]
-    if (!usedCard || usedCard.virtual) return false // 扣为"祸"要求是一张实体牌，虚拟杀（如清冷转化）没有实体载体，结算后会被回收
+    // 扣为"祸"要求印着"杀"的实体牌：虚拟杀没有实体载体，转化杀（别名生效期已过）之后重新使用会不是"杀"
+    if (!usedCard || usedCard.virtual || usedCard.name !== '杀') return false
     const source = playerOf(host.state, context.sourceId)
     const owner = playerOf(host.state, ownerId)
     if (!source?.alive || !owner?.alive) return false
@@ -1309,23 +1329,15 @@ registerSkillRuntime({
       host.dispatch('GainCard', { playerId: targetId, cardIds: [cardId], reason: WANYI }, { sourceId: ownerId, targetId, cardIds: [cardId] })
     }
   },
-  prohibitsOwnResponse(state, ownerId, cardName) {
-    return isWanyiSuitLocked(state, ownerId, cardName)
+  // 婉嫕牌压着哪些花色，杨芷就不能使用/打出/弃置那些花色的牌
+  locksOwnSuits(state, ownerId) {
+    const owner = playerOf(state, ownerId)
+    const pile = owner?.characterPiles?.[WANYI_PILE] ?? []
+    return [...new Set(pile.map((cardId) => state.cards[cardId]?.suit).filter((suit): suit is Suit => Boolean(suit)))]
   },
 })
 
 const DELAYED_TRICK_NAMES2 = new Set(['乐不思蜀', '兵粮寸断', '闪电'])
-
-function isWanyiSuitLocked(state: SanguoshaState, ownerId: PlayerId, cardName: string): boolean {
-  const owner = playerOf(state, ownerId)
-  const pile = owner?.characterPiles?.[WANYI_PILE] ?? []
-  if (pile.length === 0) return false
-  const suits = new Set(pile.map((cardId) => state.cards[cardId]?.suit))
-  // 只精确锁最常见的"该花色手牌"：真正结算时按手牌花色比对由 cardPlayable 之类的统一入口负责，这里只兜底 prohibitsOwnResponse 这一条路径
-  void cardName
-  void suits
-  return false
-}
 
 function releaseOneWanyi(host: SkillHost, ownerId: PlayerId): void {
   const owner = playerOf(host.state, ownerId)

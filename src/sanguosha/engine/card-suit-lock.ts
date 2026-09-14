@@ -19,12 +19,15 @@ import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
  * 使用路径在生成合法动作时查一次——两边都不各写一遍「这张牌能不能用」。
  */
 
-/** 这名角色现在被禁用的花色。 */
+/** 技能自己声明的花色禁令（杨芷【婉嫕】：武将牌上还压着哪些花色的婉嫕牌）。 */
+function skillLockedSuitsOf(state: SanguoshaState, playerId: PlayerId): Suit[] {
+  return skillsOf(state, playerId, skillIdsOf).flatMap((runtime) => runtime.locksOwnSuits?.(state, playerId) ?? [])
+}
+
+/** 这名角色现在被禁用的花色（使用/打出这一路径，含气海的红桃禁令）。 */
 function lockedSuitsOf(state: SanguoshaState, playerId: PlayerId): Suit[] {
   const fromQihai: Suit[] = hasTargetState(state, playerId, QIHAI_STATE) ? ['heart'] : []
-  // 杨芷【婉嫕】：武将牌上还压着哪些花色的婉嫕牌，就不能使用/打出那些花色的牌
-  const fromSkills = skillsOf(state, playerId, skillIdsOf).flatMap((runtime) => runtime.locksOwnSuits?.(state, playerId) ?? [])
-  return [...new Set([...fromQihai, ...fromSkills])]
+  return [...new Set([...fromQihai, ...skillLockedSuitsOf(state, playerId)])]
 }
 
 /**
@@ -44,4 +47,18 @@ export function cardPlayableBySuit(state: SanguoshaState, playerId: PlayerId, ca
 /** 这名角色现在有没有花色禁令，用于界面提示。 */
 export function hasSuitLock(state: SanguoshaState, playerId: PlayerId): boolean {
   return lockedSuitsOf(state, playerId).length > 0
+}
+
+/**
+ * 这张实体牌现在能不能被这名角色**弃置**。
+ *
+ * 只查技能自己声明的花色禁令，不含气海——气海明确不禁弃置（规则边界 1），
+ * 婉嫕则连弃置一起禁，两者共用同一个候选集合但出口不同。
+ */
+export function cardDiscardableBySuit(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
+  const card = state.cards[cardId]
+  if (!card || card.virtual) return true
+  const locked = skillLockedSuitsOf(state, playerId)
+  if (locked.length === 0) return true
+  return !locked.includes(card.suit)
 }
