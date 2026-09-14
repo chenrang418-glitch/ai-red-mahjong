@@ -16,7 +16,7 @@ export type Kingdom = Faction
 export type Suit = 'spade' | 'heart' | 'club' | 'diamond'
 export type Rank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13
 export type CardColor = 'red' | 'black'
-export type DamageNature = 'normal' | 'fire' | 'thunder'
+export type DamageNature = 'normal' | 'fire' | 'thunder' | 'ice'
 export type CardCategory = 'basic' | 'trick' | 'equipment'
 /**
  * 装备栏。
@@ -1298,6 +1298,29 @@ export interface SanguoshaState {
   tongxieHpLossTurn?: Record<PlayerId, number>
   /** 曹节【守玺】：本局已经声明过的牌名集合。 */
   shouxiDeclared?: string[]
+  /** 晋系专项第二批：各角色的隐匿兼容/跨阶段状态。 */
+  buchenUsed?: PlayerId[]
+  quanbianUsed?: { turnNumber: number; suits: Suit[] }
+  zhuoshengBonus?: { ownerId: PlayerId; cardId: CardId }
+  zhuoshengObtained?: { round: number; ids: CardId[] }
+  qinglengTargets?: PlayerId[]
+  xuanmuUsed?: PlayerId[]
+  xuanmuShielded?: { ownerId: PlayerId; turnNumber: number }
+  /** 羊祜【怀远】：初始"绥"牌集合、各目标获得的持久加成来源记账。 */
+  suiCardIds?: CardId[]
+  huaiyuanSource?: Record<PlayerId, { maxCards?: number; range?: number }>
+  weishuDrawGuard?: boolean
+  /** 文鸯：仇决/背水/清剿的觉醒与状态记账。 */
+  choujueAwakened?: boolean
+  beishuiActive?: PlayerId
+  qingjiaoActiveTurn?: number
+  xuanbeiPending?: { ownerId: PlayerId; targetId: PlayerId }
+  /** 王濬【长驱】：传播中的战舰链、下一次属性伤害加成。 */
+  changquChain?: { ownerId: PlayerId; order: PlayerId[]; index: number; option1Count: number }
+  changquElementalBonus?: { targetId: PlayerId; amount: number }
+  /** 王濬【统业】：当前动态加成、下个摸牌阶段的额外摸牌标记。 */
+  tongyeState?: { ownerId: PlayerId; maxCards: number; range: number; slash: number }
+  tongyeDrawBonus?: { ownerId: PlayerId; turnNumber: number }
   /** 晋势力专项第一批：各角色的隐匿兼容/一次性触发记录、跨阶段状态。 */
   taoyinUsed?: PlayerId[]
   yimiePending?: { ownerId: PlayerId; targetId: PlayerId; x: number }

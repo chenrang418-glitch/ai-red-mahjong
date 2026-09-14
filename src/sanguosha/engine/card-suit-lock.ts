@@ -1,4 +1,6 @@
 import { QIHAI_STATE, hasTargetState } from './target-state'
+import { skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 
 /**
@@ -19,8 +21,10 @@ import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
 
 /** 这名角色现在被禁用的花色。 */
 function lockedSuitsOf(state: SanguoshaState, playerId: PlayerId): Suit[] {
-  // 目前只有气海一种来源；以后有别的花色禁令时在这里汇总
-  return hasTargetState(state, playerId, QIHAI_STATE) ? ['heart'] : []
+  const fromQihai: Suit[] = hasTargetState(state, playerId, QIHAI_STATE) ? ['heart'] : []
+  // 杨芷【婉嫕】：武将牌上还压着哪些花色的婉嫕牌，就不能使用/打出那些花色的牌
+  const fromSkills = skillsOf(state, playerId, skillIdsOf).flatMap((runtime) => runtime.locksOwnSuits?.(state, playerId) ?? [])
+  return [...new Set([...fromQihai, ...fromSkills])]
 }
 
 /**

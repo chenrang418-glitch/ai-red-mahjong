@@ -27,7 +27,7 @@ import type { GameRng } from './rng'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 
 /** 战报里怎么称呼一种伤害属性。 */
-const DAMAGE_NATURE_NAMES: Record<DamageNature, string> = { normal: '', fire: '火焰', thunder: '雷电' }
+const DAMAGE_NATURE_NAMES: Record<DamageNature, string> = { normal: '', fire: '火焰', thunder: '雷电', ice: '冰' }
 import { moveCard } from './zones'
 import { setChained } from './character-state'
 import { deathCardClaimantOf, holdDeathCards, releaseDeathCards } from './death-claim'

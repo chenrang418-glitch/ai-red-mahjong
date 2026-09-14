@@ -272,6 +272,10 @@ export interface SkillRuntime {
   ignoresTrickDistance?: boolean | ((state: SanguoshaState, ownerId: PlayerId) => boolean)
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
   trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
+  /** 拥有者持续可见牌堆顶几张牌（晋司马懿【鹰视】），0 表示不提供。 */
+  drawPileTopVisibleCount?(state: SanguoshaState, ownerId: PlayerId): number
+  /** 拥有者当前不能使用/打出哪些花色的（实体）手牌（杨芷【婉嫕】）。 */
+  locksOwnSuits?(state: SanguoshaState, ownerId: PlayerId): Suit[]
   /**
    * 锁定技：指定牌对拥有者无效。和「不能成为目标」是两个不同规则——
    * 无效的角色**仍然是这张牌的合法目标**，只是这张牌对他不产生效果。
@@ -1151,6 +1155,18 @@ export function effectiveCardColor(
   if (override !== undefined) return override
   const suit = effectiveCardSuit(state, ownerId, cardId, skillIdsOf)
   return suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
+}
+
+/**
+ * 拥有者能持续看到牌堆顶几张牌（晋司马懿【鹰视】）。返回 0 表示不提供。
+ * 只在 `view.ts` 里按 `viewerId === ownerId` 使用，绝不广播给其他客户端。
+ */
+export function drawPileTopVisibleCountOf(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  return Math.max(0, ...skillsOf(state, ownerId, skillIdsOf).map((runtime) => Math.trunc(runtime.drawPileTopVisibleCount?.(state, ownerId) ?? 0)))
 }
 
 /** 统一计算某张有距离限制的锦囊可增加多少使用距离。 */
