@@ -159,6 +159,16 @@ import { ZHAOTONG_ZHAOGUANG } from './sp-zhaotong_zhaoguang'
 import { ZHANGXUN } from './sp-zhangxun'
 import { SUNYI } from './sp-sunyi'
 import { ZHUJIANPING } from './sp-zhujianping'
+import { DUFUREN } from './sp-dufuren'
+import { CAOSONG } from './sp-caosong'
+import { BIANFUREN } from './sp-bianfuren'
+import { GUOZHAO } from './sp-guozhao'
+import { CAOXIAN_CAOHUA } from './sp-caoxian_caohua'
+import { HUANSHUJUN } from './sp-huanshujun'
+import { PANSHU } from './sp-panshu'
+import { DUJI } from './sp-duji'
+import { ZHAOYAN } from './sp-zhaoyan'
+import { CAOJIE } from './sp-caojie'
 
 /**
  * SP：项目此前未出现过的独立历史人物，采用三国杀 OL 经典/成熟身份技能版本。
@@ -181,6 +191,7 @@ import { ZHUJIANPING } from './sp-zhujianping'
  * 第十四批 10 / 10：贺齐、陈武董袭、吕范、刘巴、邓芝、孙登、孙茹、程秉、阮籍、周妃。
  * 第十五批 10 / 10：刘虞、黄皓、岑昏、张让、吴苋、薛综、蔡邕、鲁芝、陈到、张梁。
  * 第十六批 10 / 10：夏侯霸、张翼、罗宪、傅肜、马承、霍峻、赵统赵广、张勋、孙翊、朱建平。
+ * 第十七批 10 / 10：杜夫人、曹嵩、卞夫人、郭照、曹宪曹华、环淑君、潘淑、杜畿、赵俨、曹节。
  */
 export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   YUANSHU,
@@ -343,4 +354,14 @@ export const SP_CHARACTERS: readonly CharacterDefinition[] = [
   ZHANGXUN,
   SUNYI,
   ZHUJIANPING,
+  DUFUREN,
+  CAOSONG,
+  BIANFUREN,
+  GUOZHAO,
+  CAOXIAN_CAOHUA,
+  HUANSHUJUN,
+  PANSHU,
+  DUJI,
+  ZHAOYAN,
+  CAOJIE,
 ] as const

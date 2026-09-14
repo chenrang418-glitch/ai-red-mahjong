@@ -402,6 +402,13 @@ export interface SkillRuntime {
    */
   maxCardsBonus?(state: SanguoshaState, ownerId: PlayerId): number
   /**
+   * 拥有者即将回复的体力值加成（曹嵩【翊正】：目标下一次回复+1）。
+   *
+   * 在 `recover()` 夹住上限之前叠加到 amount 上，多个来源相加。
+   * 返回 0 表示不加。
+   */
+  recoverAmountBonus?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null): number
+  /**
    * 弃牌阶段手牌数是否计入「张数」：返回 true 表示这张牌**不计入**手牌上限判定
    * （诸葛果【羽化】的锦囊/装备牌、李严【腹鳞】本回合获得的牌）。
    * 只影响弃牌数量的计算，不影响这张牌能否被选中弃置。
@@ -711,6 +718,15 @@ export interface SkillRuntime {
    * `resumeSourceDamagePrevention` 续接。目前只支持来源侧（source）。
    */
   offersSourceDamagePreventionAsk?(host: SkillHost, ownerId: PlayerId, context: DamagePreventionContext): boolean
+  /**
+   * 目标侧版本（杜畿【安东】"来源可以选择防止此伤害"）：技能挂在**目标**身上，
+   * 但由**来源**来做选择。返回 true 表示已经挂起，`resolveDamage` 会记下
+   * 这次伤害的完整现场（`pendingTargetDamage`），技能的 `resume` 用
+   * `resumeTargetDamagePrevention` 续接。构造 Request 时把 `playerId` 设成
+   * 来源（`context.sourceId`），`ownerId` 仍是目标——两者不必相同，
+   * 张济【掠命】的询问已经是这个先例。
+   */
+  offersTargetDamagePreventionAsk?(host: SkillHost, ownerId: PlayerId, context: DamagePreventionContext): boolean
   startQueued?(host: SkillHost, ownerId: PlayerId, prompt: QueuedSkillPrompt): void
   /**
    * 这个技能的发问可以问一名**已阵亡**的角色。
@@ -962,6 +978,23 @@ export function globalSlashUsesOf(
   return bonus
 }
 
+/** 场上所有角色的技能给这名角色提供的"即将回复体力值"加成之和。 */
+export function recoverAmountBonusOf(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  sourceId: PlayerId | null,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  let bonus = 0
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      bonus += Math.trunc(runtime.recoverAmountBonus?.(state, targetId, sourceId) ?? 0)
+    }
+  }
+  return bonus
+}
+
 export function maxCardsBonusOf(
   state: SanguoshaState,
   playerId: PlayerId,
@@ -1167,6 +1200,16 @@ export function offerSourceDamagePreventionAsk(
 ): boolean {
   if (!sourceId) return false
   return skillsOf(host.state, sourceId, skillIdsOf).some((runtime) => runtime.offersSourceDamagePreventionAsk?.(host, sourceId, context) ?? false)
+}
+
+/** 目标侧的等价版本（杜畿【安东】），见 `offersTargetDamagePreventionAsk` 字段说明。 */
+export function offerTargetDamagePreventionAsk(
+  host: SkillHost,
+  targetId: PlayerId,
+  context: DamagePreventionContext,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(host.state, targetId, skillIdsOf).some((runtime) => runtime.offersTargetDamagePreventionAsk?.(host, targetId, context) ?? false)
 }
 
 /** 返回让牌对目标无效的第一个技能；顺序固定为武将技能登记顺序。 */

@@ -1204,6 +1204,8 @@ export interface SanguoshaState {
    * 记录时还没有任何伤害相关状态被改动，续接时原样重新走 `resolveDamage`。
    */
   pendingSourceDamage?: { options: Record<string, unknown> }
+  /** 同上，目标侧版本（杜畿【安东】）。 */
+  pendingTargetDamage?: { options: Record<string, unknown> }
   /** 张宝【咒缚】：本 TurnInstance 内失去过"咒"的角色，TurnEnd 各扣1点体力。 */
   zhangbaoLostCurseTurn?: { turnNumber: number; playerIds: PlayerId[] }
   /** 张宝【影兵】：按"咒"的 Card ID 记录已经触发过几次摸牌。 */
@@ -1264,6 +1266,38 @@ export interface SanguoshaState {
   dingyuanFirstDamageSeen?: number
   /** 轲比能【平端】：等待"使用的基本牌/杀完全结算完毕"再继续下一项。 */
   kebinengPingduanPending?: { ownerId: PlayerId; targetId: PlayerId }
+  /** SP 独立历史人物第十八批：曹嵩【翊正】当前绑定的目标。 */
+  yizhengBound?: { ownerId: PlayerId; targetId: PlayerId }
+  /** 郭照【椒遇】：上一次锁定技触发时的轮次、判定进度、暂存判定牌、声明颜色、额外阶段安排。 */
+  jiaoyuLastRound?: number
+  jiaoyuJudging?: { ownerId: PlayerId; remaining: number }
+  jiaoyuRetained?: { cardIds: CardId[]; suits: Array<'red' | 'black'> }
+  jiaoyuColor?: Record<PlayerId, 'red' | 'black'>
+  jiaoyuArmed?: { ownerId: PlayerId; turnNumber: number }
+  jiaoyuExtraActive?: PlayerId
+  /** 郭照【内训】：本回合内通过内训获得、暂不计入手牌上限的牌。 */
+  neixunExempt?: Record<PlayerId, CardId[]>
+  /** 曹宪曹华【化木】：待确认是否置入武将牌上的判定牌。 */
+  huamuPending?: { ownerId: PlayerId; cardId: CardId; color: 'red' | 'black' }
+  /** 曹宪曹华【羁肆】：本局曾实际发动过的可授予技能记录。 */
+  caoxianActivated?: Record<PlayerId, string[]>
+  /** 曹宪曹华【良缘】：本轮两个分支各自的使用记录。 */
+  liangyuanRound?: Record<PlayerId, { round: number; wineUsed: boolean; peachUsed: boolean }>
+  /** 环淑君【环佩】：上一次发动的轮次。 */
+  huanpeiRound?: number
+  /** 环淑君【温宜】：剩余可发动次数。 */
+  wenyiRemaining?: number
+  /** 潘淑【威仪】：本局已经消耗掉该效果的目标集合。 */
+  weiyiUsed?: PlayerId[]
+  /** 潘淑【锦织】：本轮已发动次数。 */
+  jinzhiRound?: { round: number; count: number }
+  /** 杜畿【安东】：选择"防止"后，该角色本回合弃牌阶段红桃手牌免入上限。 */
+  andongExempt?: { playerId: PlayerId; turnNumber: number }
+  /** 赵俨【同协】：当前同协角色组、各角色本回合是否已失去过体力。 */
+  tongxieGroup?: { members: PlayerId[]; ownerId: PlayerId; formedTurn: number }
+  tongxieHpLossTurn?: Record<PlayerId, number>
+  /** 曹节【守玺】：本局已经声明过的牌名集合。 */
+  shouxiDeclared?: string[]
   /** 吕玲绮【绮武】：本回合通过绮武获得的闪，不计入手牌上限。 */
   lvlingqiQiwuDodge?: Record<PlayerId, { turnNumber: number; cardIds: CardId[] }>
   /** 吕玲绮【绮武】：待结算虚拟杀是否不可响应。 */

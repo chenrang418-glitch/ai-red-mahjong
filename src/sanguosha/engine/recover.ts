@@ -1,4 +1,6 @@
 import type { EventContext, GameEvent, GameEventName } from './events'
+import { recoverAmountBonusOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import type { PlayerId, SanguoshaState } from './types'
 
 export interface RecoverEngineHost {
@@ -14,6 +16,7 @@ export function recover(host: RecoverEngineHost, targetId: PlayerId, amount = 1,
   const target = host.state.players.find((player) => player.id === targetId)
   if (!target?.alive) throw new Error('不能回复不存在或死亡的角色')
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('回复值必须是正整数')
+  amount += recoverAmountBonusOf(host.state, targetId, sourceId ?? null, skillIdsOf)
   const recovered = Math.min(amount, target.maxHp - target.hp)
   if (recovered <= 0) return 0
   target.hp += recovered

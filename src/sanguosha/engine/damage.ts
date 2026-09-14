@@ -15,7 +15,7 @@ import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, offerSourceDamagePreventionAsk, skillsOf, type SkillHost } from './skills/runtime'
+import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, offerSourceDamagePreventionAsk, offerTargetDamagePreventionAsk, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { WEIJIE_ACTION, canWeijieRespond } from './weijie-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
@@ -55,6 +55,8 @@ export interface DamageOptions {
    * 技能自己不要传这个字段。
    */
   skipSourcePreventionAsk?: boolean
+  /** 同上，目标侧版本（杜畿【安东】），只由 `resumeTargetDamagePrevention` 续接时设置。 */
+  skipTargetPreventionAsk?: boolean
 }
 
 interface InternalDamageOptions extends DamageOptions {
@@ -511,6 +513,21 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   }
 
   /*
+   * 交互式的目标侧伤害防止询问（杜畿【安东】"来源可以选择防止此伤害"）。
+   *
+   * 走到这里还没有任何状态被改动，挂起是安全的：技能自己调 `host.askSkill`
+   * 发问（问的是来源，不是目标本人），答完后用 `resumeTargetDamagePrevention`
+   * 续接，要么就此终止（防止），要么原样重新调用一次 `resolveDamage`。
+   */
+  if (!options.skipTargetPreventionAsk
+    && offerTargetDamagePreventionAsk(host as unknown as SkillHost, target.id, { ...preventionContext, amount, nature })) {
+    host.state.pendingTargetDamage = {
+      options: { ...options, sourceId, amount, nature, cardId: options.cardId ?? null, cardName: options.cardName ?? null },
+    }
+    return
+  }
+
+  /*
    * 受伤者把这次伤害整个挡下来（【驭雳】防雷伤并摸牌）。
    *
    * 放在扣血和全部伤害时机之前：伤害被防止就是**没有发生**，
@@ -716,7 +733,14 @@ export function killPlayer(host: DamageEngineHost, playerId: PlayerId, sourceId:
 
 export function resolveDamage(host: DamageEngineHost, options: DamageOptions): void {
   resolveSingleDamage(host, options)
-  if (!host.state.dying) resumeDamageChain(host)
+  /*
+   * 来源侧/目标侧的交互式伤害防止询问都会在这次调用里提前 `return`（现场
+   * 存进 `pendingSourceDamage`/`pendingTargetDamage`，答完之后才会真的判定
+   * 这次伤害有没有发生）。这时候链式传导还没有真正走完，不能提前续接——
+   * 提前续到下一个目标会让还在等回答的这一个目标之后再收到一次错位的
+   * 结算，续接改由各自的 `resumeSourceDamagePrevention` / `resumeTargetDamagePrevention` 负责。
+   */
+  if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage) resumeDamageChain(host)
 }
 
 /**
@@ -739,9 +763,36 @@ export function resumeSourceDamagePrevention(
     if (preventedBySkillId) {
       announceDamagePrevented(host, preventedBySkillId, options.sourceId ?? null, options.targetId, options.nature ?? 'normal')
     }
+    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage) resumeDamageChain(host)
     return
   }
   resolveDamage(host, { ...options, skipSourcePreventionAsk: true })
+}
+
+/**
+ * 续接一次挂起中的"目标侧是否防止"发问（杜畿【安东】）。
+ *
+ * `prevented=true`：就此终止，只播报防止（若给了 `preventedBySkillId`）；
+ * `prevented=false`：原样重新调用一次 `resolveDamage`，带上
+ * `skipTargetPreventionAsk` 避免同一次伤害被再问一遍。
+ */
+export function resumeTargetDamagePrevention(
+  host: DamageEngineHost,
+  prevented: boolean,
+  preventedBySkillId?: string,
+): void {
+  const pending = host.state.pendingTargetDamage
+  if (!pending) return
+  host.state.pendingTargetDamage = undefined
+  const options = pending.options as unknown as DamageOptions
+  if (prevented) {
+    if (preventedBySkillId) {
+      announceDamagePrevented(host, preventedBySkillId, options.sourceId ?? null, options.targetId, options.nature ?? 'normal')
+    }
+    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage) resumeDamageChain(host)
+    return
+  }
+  resolveDamage(host, { ...options, skipTargetPreventionAsk: true })
 }
 
 /** 濒死流程结束后继续同一批属性传导；每名目标仍独立经过伤害时机。 */
@@ -809,7 +860,20 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
 
   const cardId = actionId.slice('rescue-card:'.length)
   const responder = player(host.state, response.playerId)
-  if (!responder.zones.hand.includes(cardId) || !request.actionIds.includes(actionId)) throw new Error('救援牌不属于响应玩家')
+  if (!request.actionIds.includes(actionId)) throw new Error('救援牌不属于响应玩家')
+  /*
+   * 这张牌不在响应者手上了：不是响应非法，是这次 Request 的候选列表在
+   * 构建之后、真正被回答之前，被另一个排队发问（`queueSkill`，例如杜畿
+   * 【安东】问来源"是否防止伤害"）抢先落地并拿走了这张牌——两条独立
+   * 流程各自校验时都是合法的，只是撞上了时间差。按弃权处理，而不是让
+   * 整局崩掉；这条判断只影响"选中的这张牌恰好没了"这一种情况，
+   * 不放宽其它任何校验。
+   */
+  if (!responder.zones.hand.includes(cardId)) {
+    dying.responderIndex += 1
+    requestCurrentRescuer(host)
+    return
+  }
   const card = host.state.cards[cardId]
   const asPeach = guhuoGrantedAs(host.state, responder.id, cardId) === '桃'
     || multiCardGrantedAs(host.state, responder.id, cardId) === '桃'
