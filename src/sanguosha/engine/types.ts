@@ -1332,6 +1332,19 @@ export interface SanguoshaState {
   xuezongPending?: { ownerId: PlayerId; mainCardId: CardId; responderId: PlayerId; responseCardId: CardId }
   /** 陈到【往烈】：当前被"强命"标记为不可响应的具体 Card ID。 */
   chendaoArmedCardId?: CardId
+  /** 罗宪【带砺】：本局展示过、且判定"仍在手牌中"的具体 Card ID 集合。 */
+  luoxianRevealed?: CardId[]
+  /** 马承【骋烈】：当前这张杀的暗置流程状态。 */
+  machengPending?: { ownerId: PlayerId; targetIds: PlayerId[]; revealed: CardId[]; responded: PlayerId[] }
+  /** 张勋【随征】：当前被绑定的目标 -> 施加者；本回合已造成过伤害的对象集合。 */
+  suizhengBound?: Record<PlayerId, PlayerId>
+  suizhengDamaged?: Record<PlayerId, PlayerId[]>
+  /** 朱建平【相面】：每名角色本局是否已被相面过；当前生效的诅咒。 */
+  xiangmianUsed?: PlayerId[]
+  xiangmianCurse?: Record<PlayerId, { ownerId: PlayerId; suit: Suit; rank: number }>
+  xiangmianPendingLoss?: { ownerId: PlayerId; sourceId: PlayerId }
+  /** 傅肜【效死】：出杀之后要等它完全结算完毕才能继续问下一张。 */
+  xiaosiPendingNext?: { ownerId: PlayerId; remaining: CardId[] }
   skillResolution: SkillResolutionState | null
   skillQueue: QueuedSkillPrompt[]
   /**
