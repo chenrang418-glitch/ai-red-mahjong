@@ -15,7 +15,7 @@ import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-
 import { WEIJIE_ACTION, canWeijieRespond } from '../weijie-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
 import { usedThisTurn } from '../turn-usage'
-import type { CardId, PlayerId, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
+import type { CardId, PlayerId, PlayerState, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
@@ -107,6 +107,41 @@ function hasAnyStealable(state: SanguoshaState, targetId: PlayerId): boolean {
  * `asName` 用于转化技（甘宁【奇袭】把黑牌当【过河拆桥】）：
  * 目标合法性要按转化后的牌名算，不是按牌面上印的名字。
  */
+/**
+ * 石苞【擢升】：普通锦囊目标数 ±1。
+ *
+ * 在动作生成这一层直接给出更长/更短的 `targetIds`——单/双目标即时锦囊共用
+ * 同一套按目标逐个结算的循环，生成时定好目标数，后面无懈、效果结算不用改。
+ * 本轮已经因擢升获得的牌（装备分支摸到的那张）不能再触发擢升。
+ */
+function canZhuoshengModifyTargets(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
+  const eligible = skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.modifiesTrickTargetCount?.(state, playerId))
+  if (!eligible) return false
+  const obtained = state.zhuoshengObtained?.round === state.roundNumber ? state.zhuoshengObtained.ids : []
+  return !obtained.includes(cardId)
+}
+
+/** 给单目标即时锦囊追加"多指定一个目标"的动作变体（决斗/过河拆桥/顺手牵羊/借刀杀人/火攻）。 */
+function pushZhuoshengExtraTargetActions(
+  actions: LegalAction[],
+  cardId: CardId,
+  playerId: PlayerId,
+  cardName: string,
+  legalTargets: PlayerState[],
+): void {
+  for (let i = 0; i < legalTargets.length; i += 1) {
+    for (let j = 0; j < legalTargets.length; j += 1) {
+      if (i === j) continue
+      const first = legalTargets[i]
+      const second = legalTargets[j]
+      actions.push(useAction(
+        cardId, playerId, cardName, [first.id, second.id],
+        `对${first.nickname}和${second.nickname}使用【${cardName}】（擢升：额外一个目标）`,
+      ))
+    }
+  }
+}
+
 export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, cardId: CardId, asName?: string): LegalAction[] {
   const physical = state.cards[cardId]
   if (!physical) return []
@@ -114,6 +149,7 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
   const others = state.players.filter((candidate) => candidate.alive && candidate.id !== playerId)
   const actions: LegalAction[] = []
   const allowed = (targetId: PlayerId) => !isTargetProhibited(state, playerId, targetId, card.name, skillIdsOf, cardId)
+  const zhuoshengEligible = canZhuoshengModifyTargets(state, playerId, cardId)
 
   switch (card.name) {
     case '无中生有':
@@ -122,17 +158,32 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       // 目标是所有存活角色（含自己），已满体力的人也算目标，只是回复无效
       return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter(allowed), '使用【桃园结义】，全场回复一点体力', 'fixed')]
     case '南蛮入侵':
+    case '万箭齐发': {
       if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter((id) => id !== playerId).filter(allowed), '使用【南蛮入侵】', 'fixed')]
-    case '万箭齐发':
-      if (others.length === 0) return []
-      return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter((id) => id !== playerId).filter(allowed), '使用【万箭齐发】', 'fixed')]
-    case '决斗':
-      for (const target of others) {
-        if (!allowed(target.id)) continue
-        actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【决斗】`))
+      const allTargets = aliveOrderFrom(state, playerId).filter((id) => id !== playerId).filter(allowed)
+      actions.push(useAction(cardId, playerId, card.name, allTargets, `使用【${card.name}】`, 'fixed'))
+      // 擢升的"-1"：少打一个人，全场覆盖至少要剩1个目标才有意义
+      if (zhuoshengEligible && allTargets.length > 1) {
+        for (const skippedId of allTargets) {
+          const trimmed = allTargets.filter((id) => id !== skippedId)
+          actions.push(useAction(
+            cardId, playerId, card.name, trimmed,
+            `使用【${card.name}】，跳过${playerOf(state, skippedId).nickname}（擢升：少一个目标）`, 'fixed',
+          ))
+        }
       }
       return actions
+    }
+    case '决斗': {
+      const legalTargets: PlayerState[] = []
+      for (const target of others) {
+        if (!allowed(target.id)) continue
+        legalTargets.push(target)
+        actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【决斗】`))
+      }
+      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      return actions
+    }
     case '奇正相生':
       // 「对一名其他角色使用」——单目标，不含自己，没有距离限制
       for (const target of others) {
@@ -140,14 +191,19 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【奇正相生】`))
       }
       return actions
-    case '过河拆桥':
+    case '过河拆桥': {
+      const legalTargets: PlayerState[] = []
       for (const target of others) {
         if (!allowed(target.id)) continue
         if (!hasAnyStealable(state, target.id)) continue
+        legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【过河拆桥】`))
       }
+      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
       return actions
-    case '顺手牵羊':
+    }
+    case '顺手牵羊': {
+      const legalTargets: PlayerState[] = []
       for (const target of others) {
         if (!allowed(target.id)) continue
         // 顺手牵羊受距离限制，拆桥不受；奇才无视这个限制
@@ -155,22 +211,30 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
           && !ignoresDistanceTo(state, playerId, target.id, cardId)
           && getDistance(state, playerId, target.id) > 1) continue
         if (!hasAnyStealable(state, target.id)) continue
+        legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【顺手牵羊】`))
       }
+      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
       return actions
+    }
     case '五谷丰登':
       // 目标是所有存活角色，亮出等量的牌轮流挑
       // 结算次序从使用者开始：使用者先挑牌，然后按座次顺时针轮下去
       return [useAction(cardId, playerId, card.name, aliveOrderFrom(state, playerId).filter(allowed), '使用【五谷丰登】', 'fixed')]
-    case '火攻':
+    case '火攻': {
+      const legalTargets: PlayerState[] = []
       for (const target of others) {
         if (!allowed(target.id)) continue
         // 目标必须有手牌才能展示
         if (playerOf(state, target.id).zones.hand.length === 0) continue
+        legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【火攻】`))
       }
+      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
       return actions
-    case '借刀杀人':
+    }
+    case '借刀杀人': {
+      const legalTargets: PlayerState[] = []
       for (const target of others) {
         if (!allowed(target.id)) continue
         // 目标必须装备着武器，而且这把武器够得到至少一个别人
@@ -181,9 +245,12 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
           && !isTargetProhibited(state, target.id, victim.id, '杀', skillIdsOf)
         ))
         if (!hasVictim) continue
+        legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【借刀杀人】`))
       }
+      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
       return actions
+    }
     case '铁索连环': {
       // 重铸：不当锦囊用，直接弃掉换一张新牌。这是【铁索连环】独有的用法，
       // 不受目标限制，也不算「使用」，所以没有无懈窗口。

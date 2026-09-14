@@ -270,6 +270,14 @@ export interface SkillRuntime {
    * 写死成布尔就只能是「一直有」或「一直没有」。
    */
   ignoresTrickDistance?: boolean | ((state: SanguoshaState, ownerId: PlayerId) => boolean)
+  /**
+   * 使用普通锦囊（非延时、非全体固定目标）时可以额外指定/减少一个目标（石苞【擢升】）。
+   *
+   * 目标增减在**动作生成**这一层解决，不是「用牌后再问」：单/双目标即时锦囊
+   * 共用同一套按 `targetIds` 逐个结算的循环（见 tricks.ts 顶部注释），只要
+   * 生成动作时给出更长/更短的 `targetIds`，后续无懈、效果结算不需要改一行。
+   */
+  modifiesTrickTargetCount?(state: SanguoshaState, ownerId: PlayerId): boolean
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
   trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
   /** 拥有者持续可见牌堆顶几张牌（晋司马懿【鹰视】），0 表示不提供。 */

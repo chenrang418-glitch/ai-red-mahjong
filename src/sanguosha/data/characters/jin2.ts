@@ -647,6 +647,8 @@ registerSkillRuntime({
 // ============================== 石苞 ==============================
 
 const ZHUOSHENG = 'zhuosheng'
+const ZHUOSHENG_SINGLE_TARGET_TRICKS = new Set(['决斗', '过河拆桥', '顺手牵羊', '火攻', '借刀杀人'])
+const ZHUOSHENG_FIXED_TARGET_TRICKS = new Set(['南蛮入侵', '万箭齐发'])
 
 registerSkillRuntime({
   id: ZHUOSHENG,
@@ -656,7 +658,7 @@ registerSkillRuntime({
       if (context.event.sourceId !== ownerId || host.state.phase !== 'play') return
       const owner = playerOf(host.state, ownerId)
       if (!owner?.alive) return
-      const payload = context.event.payload as { cardId?: CardId; virtual?: boolean }
+      const payload = context.event.payload as { cardId?: CardId; virtual?: boolean; targetIds?: PlayerId[] }
       if (payload.virtual || !payload.cardId) return
       if ((host.state.zhuoshengObtained?.round === host.state.roundNumber ? host.state.zhuoshengObtained.ids : []).includes(payload.cardId)) return
       const card = host.state.cards[payload.cardId]
@@ -669,10 +671,19 @@ registerSkillRuntime({
         drawCards(host.state, host.rng, ownerId, 1, (n, p) => { host.dispatch(n, p) })
         const gained = host.state.zones.drawPile[0]
         if (gained) host.state.zhuoshengObtained = { round: host.state.roundNumber, ids: [...(host.state.zhuoshengObtained?.round === host.state.roundNumber ? host.state.zhuoshengObtained.ids : []), gained] }
+      } else if (card.category === 'trick') {
+        // 普通锦囊的目标数±1已经在动作生成阶段（instantTrickActions）定好，这里只按目标数判断石苞是否真的选了修改过的那一档并补报"发动"
+        const count = payload.targetIds?.length ?? 0
+        const modified = ZHUOSHENG_SINGLE_TARGET_TRICKS.has(card.name)
+          ? count > 1
+          : ZHUOSHENG_FIXED_TARGET_TRICKS.has(card.name) && count < host.state.players.filter((p) => p.alive && p.id !== ownerId).length
+        if (modified) host.dispatch('SkillActivated', { skillId: ZHUOSHENG, skillName: '擢升', playerId: ownerId, logText: `${owner.nickname}发动【擢升】` }, { sourceId: ownerId })
       }
-      // 普通锦囊的目标数+1/-1：最小实现为记账供距离/合法性放行使用；实际目标增减依赖既有的额外目标合法性判断，超出本批最小范围的场景按已知简化处理
     },
   }],
+  modifiesTrickTargetCount() {
+    return true
+  },
   ignoresDistanceTo(state, ownerId, targetId) {
     void targetId
     return state.zhuoshengBonus?.ownerId === ownerId
