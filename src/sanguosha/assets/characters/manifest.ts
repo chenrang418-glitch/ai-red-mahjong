@@ -1167,6 +1167,9 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // 晋系专项第二批：未在素材目录/项目 portraits 目录找到对应文件，走 fallback
   'jin_simayi', 'jin_zhangchunhua', 'yanghu', 'shibao', 'wenyang',
   'weiguan', 'yangyan', 'yangzhi', 'wangjun', 'simafu',
+  // 魏晋—汉末独立人物补完批：未在素材目录/项目 portraits 目录找到对应文件，走 fallback
+  'zhongyan', 'jikang', 'xuangongzhu', 'qinghegongzhu', 'caoyu',
+  'xuelingyun', 'xiahoulingnv', 'liuhong', 'tangji', 'wangyun',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

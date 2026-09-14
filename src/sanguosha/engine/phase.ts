@@ -260,7 +260,10 @@ export function resolveDiscardPhaseResponse(host: PhaseEngineHost, request: Choo
   const owner = host.state.players.find((player) => player.id === request.playerId)!
   if (selected.some((cardId) => !owner.zones.hand.includes(cardId))) throw new Error('弃置牌不属于当前玩家')
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
-  for (const cardId of selected) moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'discardPile' })
+  for (const cardId of selected) {
+    const redirectToBottom = skillsOf(host.state, owner.id, skillIdsOf).some((runtime) => runtime.redirectsOwnDiscardToBottom?.(host.state, owner.id, cardId))
+    moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, redirectToBottom ? { kind: 'drawPile' } : { kind: 'discardPile' })
+  }
   const ledger = host.state.discardPhaseLedger
   if (ledger?.ownerPlayerId === owner.id) {
     host.dispatch('CardMove', {

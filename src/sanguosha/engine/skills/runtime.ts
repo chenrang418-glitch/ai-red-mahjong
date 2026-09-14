@@ -278,6 +278,24 @@ export interface SkillRuntime {
    * 生成动作时给出更长/更短的 `targetIds`，后续无懈、效果结算不需要改一行。
    */
   modifiesTrickTargetCount?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /**
+   * 可以被钟琰【博览】这类"动态随机技能池"临时授予（源自钟琰当前批次）。
+   *
+   * 这是一份**显式白名单**，不是对整个技能表做安全性扫描——现有几百个技能
+   * 各自依赖各自武将的初始化/专属状态，逐一审计不在本批范围内。只标记
+   * 本项目里已确认"出牌阶段限一次、完全自包含、随便哪个角色拿到都能正常
+   * 运作"的技能，候选池天然会小，"候选不足3个"在博览自己的规则文字里
+   * 就是被允许的结果。
+   */
+  bolanEligible?: boolean
+  /**
+   * 薛灵芸【思泣】：自己的红色实体牌因正常流程准备进入弃牌堆时，改为置入牌堆底。
+   *
+   * 只接入了弃牌阶段这一条路径（`phase.ts` 的 `resolveDiscardPhaseResponse`）——
+   * 那是"红牌准备进弃牌堆"最主要也最常见的入口；其余技能各自的弃置成本
+   * 分散在几十个调用点，逐一接管超出这批的合理范围，按已知简化处理。
+   */
+  redirectsOwnDiscardToBottom?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
   trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
   /** 拥有者持续可见牌堆顶几张牌（晋司马懿【鹰视】），0 表示不提供。 */
@@ -835,6 +853,11 @@ export function registerSkillRuntime(runtime: SkillRuntime): void {
 
 export function getSkillRuntime(skillId: string): SkillRuntime | undefined {
   return registry.get(skillId)
+}
+
+/** 枚举当前已注册的全部技能运行时（钟琰【博览】按 metadata 动态过滤要用）。 */
+export function allSkillRuntimes(): SkillRuntime[] {
+  return [...registry.values()]
 }
 
 /** 仅供测试使用：清空注册表。 */

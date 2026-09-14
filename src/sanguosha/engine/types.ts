@@ -1447,6 +1447,38 @@ export interface SanguoshaState {
   cardNatures: Record<CardId, DamageNature>
   decisions: GameDecision[]
   result: GameResult | null
+  /** 魏晋—汉末独立人物补完批：各角色的跨阶段/隐匿兼容/记账状态。 */
+  bolanTurnUsed?: PlayerId[]
+  yifaTurnMods?: Array<{ targetId: PlayerId; turnNumber: number; delta: number }>
+  gaolingUsed?: PlayerId[]
+  qimeiLink?: { ownerId: PlayerId; targetId: PlayerId; expiresTurn: number }
+  qimeiHandUsed?: number
+  qimeiHpUsed?: number
+  zhuijiDebt?: Array<{ ownerId: PlayerId; kind: 'discard2' | 'losehp1'; turnNumber: number }>
+  qinggouEverGranted?: PlayerId[]
+  changjiDamageDealt?: { turnNumber: number; ids: PlayerId[] }
+  changjiDamageTaken?: { turnNumber: number; ids: PlayerId[] }
+  gongjieRoundTurn?: number
+  gongjieHistory?: Record<PlayerId, PlayerId[]>
+  xiangxuPending?: { ownerId: PlayerId; turnNumber: number }
+  xiangzuUsed?: boolean
+  siqiLockedSuit?: { ownerId: PlayerId; turnNumber: number; targetId: PlayerId }
+  qiaozhiLockedCardId?: Record<PlayerId, CardId>
+  fupingNames?: string[]
+  fupingTurnUsed?: { turnNumber: number; names: string[] }
+  everAbolishedSlots?: Record<PlayerId, string[]>
+  weilieCharges?: number
+  yujueTurnUsed?: PlayerId[]
+  zhihuGrant?: { sourceId: PlayerId; targetId: PlayerId }
+  tuxingAllSlotsTriggered?: PlayerId[]
+  permanentDamageBonus?: Record<PlayerId, number>
+  kanggeTarget?: PlayerId
+  kanggeDrawCount?: { turnNumber: number; count: number }
+  kanggeRoundRescue?: number
+  lianjiTurnUsed?: PlayerId[]
+  lianjiDamageDealt?: boolean
+  lianjiSlashCardIds?: CardId[]
+  moucheng?: boolean
 }
 
 export function emptyEquipment(): EquipmentZone {

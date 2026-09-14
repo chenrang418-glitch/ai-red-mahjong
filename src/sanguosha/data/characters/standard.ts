@@ -29,6 +29,7 @@ import { YJCM2015_CHARACTERS } from './yjcm2015'
 import { SP_CHARACTERS } from './sp'
 import { JIN_CHARACTERS } from './jin'
 import { JIN2_CHARACTERS } from './jin2'
+import { WEI_JIN_HISTORICAL_CHARACTERS } from './wei-jin-historical'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -388,6 +389,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...SP_CHARACTERS,
   ...JIN_CHARACTERS,
   ...JIN2_CHARACTERS,
+  ...WEI_JIN_HISTORICAL_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 
