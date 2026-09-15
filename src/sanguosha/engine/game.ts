@@ -10,6 +10,7 @@ import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAc
 import { resolveBorrowedKnifeTarget, resolveQizhengMode } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
+import { isGroupCardDecisionRequest, resolveGroupCardDecisionResponse } from './group-card-decision'
 import { isPindianRequest, resolvePindianResponse } from './pindian'
 import { MULTI_VIEWAS_ACTION, beginMultiCardViewAs } from './multi-card-viewas'
 import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
@@ -450,6 +451,12 @@ export class SanguoshaGame {
     // 多人同时决定的一环：每个人各有一个请求，收齐之后统一处理
     if (isGroupDecisionRequest(this.state, request.id)) {
       resolveGroupDecisionResponse(this, request.id, response)
+      return
+    }
+
+    // 多人同时秘密选牌的一环（庞会【异勇】）：和上面同一个思路，换成 choose-cards
+    if (isGroupCardDecisionRequest(this.state, request.id)) {
+      resolveGroupCardDecisionResponse(this, request.id, response)
       return
     }
 

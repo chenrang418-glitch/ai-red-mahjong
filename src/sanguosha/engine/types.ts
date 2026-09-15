@@ -209,6 +209,17 @@ export interface GroupDecisionState {
   data: Record<string, unknown>
 }
 
+/** 多人同时秘密选牌（庞会【异勇】：双方同时秘密弃任意张牌）。见 group-card-decision.ts。 */
+export interface GroupCardDecisionState {
+  id: string
+  tag: string
+  playerIds: PlayerId[]
+  /** 已经交上来的选择（可以是空数组，代表交了0张）。没交的人这里没有键。 */
+  responses: Record<PlayerId, CardId[] | undefined>
+  requestIds: Record<PlayerId, string>
+  data: Record<string, unknown>
+}
+
 /**
  * 于吉【蛊惑】的「打出」模式。
  *
@@ -914,6 +925,8 @@ export interface SanguoshaState {
   privateZones: PrivateCardZone[]
   /** 进行中的多人同时决定；同一时刻最多一个。 */
   groupDecision: GroupDecisionState | null
+  /** 进行中的多人同时秘密选牌；同一时刻最多一个。见 GroupCardDecisionState。 */
+  groupCardDecision?: GroupCardDecisionState | null
   /** 进行中的拼点；同一时刻最多一次。 */
   pindian: PindianState | null
   /** 已揭示、等待消费者决定实体牌去向的拼点结算。 */
@@ -1481,9 +1494,8 @@ export interface SanguoshaState {
   /** 独立历史人物第十九批：各角色的跨阶段/记账状态。 */
   turnDiscardCount?: { turnNumber: number; count: number }
   juetaoRestrict?: { ownerId: PlayerId; targetId: PlayerId }
+  juetaoLoop?: { ownerId: PlayerId; targetId: PlayerId; cardId: CardId; guard: number }
   zhushiTurnUsed?: number
-  yiyongPending?: { ownerId: PlayerId; targetId: PlayerId; amount: number; ownerCards?: CardId[]; targetCards?: CardId[] }
-  yiyongDamageBonus?: { ownerId: PlayerId; targetId: PlayerId }
   suchouNoResponse?: { ownerId: PlayerId; turnNumber: number }
   huiyunRoundOptions?: { round: number; used: number[] }
   huiyunPendingSubcard?: { ownerId: PlayerId; cardId: CardId; targetId: PlayerId }

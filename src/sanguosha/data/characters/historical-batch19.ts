@@ -2,7 +2,7 @@ import { moveCard, setCardAlias } from '../../engine/zones'
 import { drawCards } from '../../engine/draw'
 import { recover } from '../../engine/recover'
 import { loseHp, loseMaxHp } from '../../engine/hp'
-import { resolveDamage } from '../../engine/damage'
+import { resolveDamage, resumeSourceDamagePrevention } from '../../engine/damage'
 import { canUseSlash } from '../../engine/slash-rules'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { registerSkillRuntime, replaceTemporarySkill, type SkillHost } from '../../engine/skills/runtime'
@@ -14,6 +14,7 @@ import { cardDamageDealt } from '../../engine/card-damage-ledger'
 import { getDistance } from '../../engine/distance'
 import { effectiveKingdomOf } from '../../engine/huashen'
 import { handleEquipmentLost } from '../../engine/equipment'
+import { registerGroupCardDecision, startGroupCardDecision } from '../../engine/group-card-decision'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
@@ -296,25 +297,42 @@ registerSkillRuntime({
 
 registerSkillRuntime({
   id: JUETAO,
-  triggers: [{
-    event: 'PhaseStart',
-    handle(host, ownerId, context) {
-      const payload = context.event.payload as { phase?: string; playerId?: PlayerId }
-      if (payload.phase !== 'play' || payload.playerId !== ownerId) return
-      const owner = playerOf(host.state, ownerId)
-      if (!owner?.alive || owner.hp !== 1 || usedThisTurn(host.state, ownerId, `${JUETAO}-limit`)) return
-      const candidateIds = host.state.players.filter((candidate) => candidate.alive && candidate.id !== ownerId).map((candidate) => candidate.id)
-      if (candidateIds.length === 0) return
-      host.askSkill({
-        skillId: JUETAO, ownerId, step: 'pick-target', data: {},
-        build: (requestId): ChooseTargetsRequest => ({
-          id: requestId, kind: 'choose-targets', playerId: ownerId,
-          prompt: '【决讨】：选择一名角色', timeoutMs: 20_000, optional: true,
-          candidateIds, min: 0, max: 1,
-        }),
-      })
+  triggers: [
+    {
+      event: 'PhaseStart',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { phase?: string; playerId?: PlayerId }
+        if (payload.phase !== 'play' || payload.playerId !== ownerId) return
+        const owner = playerOf(host.state, ownerId)
+        if (!owner?.alive || owner.hp !== 1 || usedThisTurn(host.state, ownerId, `${JUETAO}-limit`)) return
+        const candidateIds = host.state.players.filter((candidate) => candidate.alive && candidate.id !== ownerId).map((candidate) => candidate.id)
+        if (candidateIds.length === 0) return
+        host.askSkill({
+          skillId: JUETAO, ownerId, step: 'pick-target', data: {},
+          build: (requestId): ChooseTargetsRequest => ({
+            id: requestId, kind: 'choose-targets', playerId: ownerId,
+            prompt: '【决讨】：选择一名角色', timeoutMs: 20_000, optional: true,
+            candidateIds, min: 0, max: 1,
+          }),
+        })
+      },
     },
-  }],
+    {
+      // 杀的结算是异步的（求闪、伤害、可能的濒死都要走完才能确定结果），不能
+      // 在调用 beginVirtualSlash 后立刻同步继续下一张。改为监听这张牌自己的
+      // AfterCardUse（结算彻底收束之后才发），届时濒死流程必然已经结束，
+      // 这时候再把下一次循环排进队列才是安全的续接点。
+      event: 'AfterCardUse',
+      handle(host, ownerId, context) {
+        const pending = host.state.juetaoLoop
+        if (!pending || pending.ownerId !== ownerId) return
+        const payload = context.event.payload as { cardId?: CardId }
+        if (payload.cardId !== pending.cardId) return
+        host.state.juetaoLoop = undefined
+        host.queueSkill({ skillId: JUETAO, ownerId, step: 'loop', data: { targetId: pending.targetId, guard: pending.guard + 1 } })
+      },
+    },
+  ],
   resume(host, ownerId, resolution, response) {
     if (resolution.step !== 'pick-target') return
     const [targetId] = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
@@ -329,7 +347,7 @@ registerSkillRuntime({
     if (prompt.step !== 'loop') return
     const { targetId, guard } = prompt.data as { targetId: PlayerId; guard: number }
     const owner = playerOf(host.state, ownerId)
-    if (!owner?.alive || guard >= 30) { host.state.juetaoRestrict = undefined; return }
+    if (!owner?.alive || guard >= 200) { host.state.juetaoRestrict = undefined; return }
     if (host.state.zones.drawPile.length === 0) { host.state.juetaoRestrict = undefined; return }
     const cardId = host.state.zones.drawPile[host.state.zones.drawPile.length - 1]
     const card = host.state.cards[cardId]
@@ -347,10 +365,11 @@ registerSkillRuntime({
       host.state.juetaoRestrict = undefined
       return
     }
-    // 杀的结算是异步的（可能求闪、进入濒死），不能在它完全结算之前就继续下一张——
-    // 那会在濒死流程仍未结束时又发起一次伤害结算，触发引擎自己的不变量拦截。
-    // 只有【桃】这类纯同步效果才安全继续循环；出杀之后老实停下来。
-    if (outcome === 'slash') { host.state.juetaoRestrict = undefined; return }
+    if (outcome === 'slash') {
+      // 等这张杀自己的 AfterCardUse 落地（见上面的触发器）再继续下一张
+      host.state.juetaoLoop = { ownerId, targetId, cardId, guard }
+      return
+    }
     host.queueSkill({ skillId: JUETAO, ownerId, step: 'loop', data: { targetId, guard: guard + 1 } })
   },
 })
@@ -419,89 +438,91 @@ registerSkillRuntime({
 const YIYONG = 'yiyong'
 const SUCHOU = 'suchou'
 
+const YIYONG_TAG = 'yiyong-simultaneous'
+
 registerSkillRuntime({
   id: YIYONG,
-  triggers: [{
-    event: 'BeforeDamage',
-    handle(host, ownerId, context) {
-      if (context.event.sourceId !== ownerId) return
-      const targetId = context.event.targetId
-      if (!targetId || targetId === ownerId) return
-      const owner = playerOf(host.state, ownerId)
-      const target = playerOf(host.state, targetId)
-      if (!owner?.alive || !target?.alive) return
-      host.state.yiyongPending = { ownerId, targetId, amount: (context.event.payload as { amount?: number }).amount ?? 1 }
-      host.queueSkill({ skillId: YIYONG, ownerId, step: 'submit', data: { targetId } })
-    },
-  }],
+  /*
+   * 走"来源侧是否防止"这同一个挂起/续接机制（关索【制蛮】的先例），不是因为
+   * 异勇要防止伤害——是因为只有这条路径会让 resolveDamage 真正挂起等待
+   * （写入 pendingSourceDamage，`resumeSourceDamagePrevention` 收尾时原样
+   * 带着 options 重新调用一次 resolveDamage）。异勇本身不防止伤害，
+   * "不小于"分支就是在续接里把 amount+1 后原样放行。
+   *
+   * 发问本身走 queueSkill 延后到引擎自己的安全点再问（杜畿【安东】/
+   * 马谡【制蛮】/唐姬【节烈】同一个先例）：`offersSourceDamagePreventionAsk`
+   * 这一刻往往还在别的结算链中间（南蛮入侵/万箭齐发逐目标问无懈、属性链
+   * 传导都不等这次挂起收尾就先把 cardResolution/damageChain 推到下一环），
+   * 这时候直接开秘密选牌会撞上"当前濒死流程尚未结束"这类交叉时序。
+   * 延后到 `startQueued`（要求场上没有濒死、没有牌在结算、技能队列本身
+   * 又清空）才真正发起，双方各自的私有请求这时候才不会被别的流程抢线。
+   */
+  offersSourceDamagePreventionAsk(host, ownerId, context) {
+    if (!context.targetId || context.targetId === ownerId) return false
+    const owner = playerOf(host.state, ownerId)
+    const target = playerOf(host.state, context.targetId)
+    if (!owner?.alive || !target?.alive) return false
+    host.queueSkill({ skillId: YIYONG, ownerId, step: 'ask', data: { targetId: context.targetId } })
+    return true
+  },
   startQueued(host, ownerId, prompt) {
-    if (prompt.step !== 'submit') return
+    if (prompt.step !== 'ask') return
     const { targetId } = prompt.data as { targetId: PlayerId }
     const owner = playerOf(host.state, ownerId)
     const target = playerOf(host.state, targetId)
-    if (!owner?.alive || !target?.alive || !host.state.yiyongPending) return
-    // 引擎当前的 skillResolution 是单槽位的，同一时刻只能挂起一个技能询问，做不到
-    // 真正的"双方同时秘密提交"；退而求其次改为顺序发问（先问目标），并未做到
-    // 完全杜绝先手信息优势，属于已知简化
-    host.askSkill({
-      skillId: YIYONG, ownerId, step: 'submit-target', data: { targetId },
-      build: (requestId): ChooseCardsRequest => ({
-        id: requestId, kind: 'choose-cards', playerId: targetId,
-        prompt: '【异勇】：秘密选择任意张牌弃置（可选0张）', timeoutMs: 20_000, optional: true,
-        cardIds: [...target.zones.hand], hiddenCardSlots: [], min: 0, max: target.zones.hand.length, purpose: 'skill',
-      }),
-    })
-  },
-  resume(host, ownerId, resolution, response) {
-    const pending = host.state.yiyongPending
-    if (!pending) return
-    if (resolution.step === 'submit-target') {
-      pending.targetCards = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
-      const owner = playerOf(host.state, ownerId)
-      if (!owner?.alive) { host.state.yiyongPending = undefined; return }
-      host.askSkill({
-        skillId: YIYONG, ownerId, step: 'submit-owner', data: {},
-        build: (requestId): ChooseCardsRequest => ({
-          id: requestId, kind: 'choose-cards', playerId: ownerId,
-          prompt: '【异勇】：选择任意张牌弃置（可选0张）', timeoutMs: 20_000, optional: true,
-          cardIds: [...owner.zones.hand], hiddenCardSlots: [], min: 0, max: owner.zones.hand.length, purpose: 'skill',
-        }),
-      })
+    if (!owner?.alive || !target?.alive || !host.state.pendingSourceDamage) {
+      resumeSourceDamagePrevention(host as never, false)
       return
     }
-    if (resolution.step === 'submit-owner') pending.ownerCards = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
-    if (pending.ownerCards === undefined || pending.targetCards === undefined) return
-    const owner = playerOf(host.state, ownerId)
-    const target = playerOf(host.state, pending.targetId)
-    if (!owner?.alive || !target?.alive) { host.state.yiyongPending = undefined; return }
-    const ownerCards = pending.ownerCards.filter((id) => owner.zones.hand.includes(id))
-    const targetCards = pending.targetCards.filter((id) => target.zones.hand.includes(id))
-    const rank = (cardId: CardId) => host.state.cards[cardId]?.rank ?? 0
-    const p = ownerCards.reduce((sum, id) => sum + rank(id), 0)
-    const t = targetCards.reduce((sum, id) => sum + rank(id), 0)
-    if (ownerCards.length > 0) {
-      moveCard(host.state, ownerCards[0], { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
-      for (const id of ownerCards.slice(1)) moveCard(host.state, id, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
-      host.dispatch('LoseCard', { playerId: ownerId, cardIds: ownerCards, reason: YIYONG }, { sourceId: ownerId, cardIds: ownerCards })
-    }
-    if (targetCards.length > 0) {
-      for (const id of targetCards) moveCard(host.state, id, { kind: 'hand', playerId: pending.targetId }, { kind: 'discardPile' })
-      host.dispatch('LoseCard', { playerId: pending.targetId, cardIds: targetCards, reason: YIYONG }, { sourceId: pending.targetId, cardIds: targetCards })
-    }
-    host.dispatch('SkillActivated', { skillId: YIYONG, skillName: '异勇', playerId: ownerId, targetId: pending.targetId, logText: `${owner.nickname}发动【异勇】` }, { sourceId: ownerId, targetId: pending.targetId })
-    if (p <= t) drawCards(host.state, host.rng, ownerId, targetCards.length + 1, (n, pl) => { host.dispatch(n, pl) })
-    if (p >= t) host.state.yiyongDamageBonus = { ownerId, targetId: pending.targetId }
-    host.state.yiyongPending = undefined
+    // 双方真正同时秘密提交：两个人各拿到一个私有的 choose-cards Request，
+    // 谁也看不到对方的请求或已交的答案，全部交齐后续接才统一揭示、结算
+    startGroupCardDecision(host, {
+      id: `yiyong-${host.state.seq}`,
+      tag: YIYONG_TAG,
+      skillId: YIYONG,
+      playerIds: [ownerId, targetId],
+      prompt: '【异勇】：秘密选择任意张牌弃置（可选0张）',
+      cardIdsFor: (playerId) => playerOf(host.state, playerId)?.zones.hand ?? [],
+      timeoutMs: 20_000,
+      data: { ownerId, targetId },
+    })
   },
+})
+
+registerGroupCardDecision(YIYONG_TAG, (host, decision) => {
+  const skillHost = host as unknown as SkillHost
+  const ownerId = String(decision.data.ownerId ?? '')
+  const targetId = String(decision.data.targetId ?? '')
+  const owner = playerOf(host.state, ownerId)
+  const target = playerOf(host.state, targetId)
+  if (!owner?.alive || !target?.alive) return
+  const ownerCards = (decision.responses[ownerId] ?? []).filter((id) => owner.zones.hand.includes(id))
+  const targetCards = (decision.responses[targetId] ?? []).filter((id) => target.zones.hand.includes(id))
+  const rank = (cardId: CardId) => host.state.cards[cardId]?.rank ?? 0
+  const p = ownerCards.reduce((sum, id) => sum + rank(id), 0)
+  const t = targetCards.reduce((sum, id) => sum + rank(id), 0)
+  if (ownerCards.length > 0) {
+    for (const id of ownerCards) moveCard(host.state, id, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
+    skillHost.dispatch('LoseCard', { playerId: ownerId, cardIds: ownerCards, reason: YIYONG }, { sourceId: ownerId, cardIds: ownerCards })
+  }
+  if (targetCards.length > 0) {
+    for (const id of targetCards) moveCard(host.state, id, { kind: 'hand', playerId: targetId }, { kind: 'discardPile' })
+    skillHost.dispatch('LoseCard', { playerId: targetId, cardIds: targetCards, reason: YIYONG }, { sourceId: targetId, cardIds: targetCards })
+  }
+  skillHost.dispatch('SkillActivated', { skillId: YIYONG, skillName: '异勇', playerId: ownerId, targetId, logText: `${owner.nickname}发动【异勇】` }, { sourceId: ownerId, targetId })
+  if (p <= t) drawCards(host.state, skillHost.rng, ownerId, targetCards.length + 1, (n, pl) => { skillHost.dispatch(n, pl) })
+  if (p >= t && host.state.pendingSourceDamage) {
+    const options = host.state.pendingSourceDamage.options as { amount?: number }
+    options.amount = (options.amount ?? 1) + 1
+  }
+  // 异勇本身从不防止伤害：即便"不小于"分支已经在上面把 amount 改大，
+  // 这里都要以 prevented=false 收尾，原样带着（可能已改大的）options 放行；
+  // 多目标锦囊被挂起晾住的续接由 resumeSourceDamagePrevention 自己接回去
+  resumeSourceDamagePrevention(skillHost as never, false)
 })
 
 registerSkillRuntime({
   id: SUCHOU,
-  outgoingDamage(state, ownerId, context) {
-    const bonus = state.yiyongDamageBonus
-    if (!bonus || bonus.ownerId !== ownerId || bonus.targetId !== context.targetId) return null
-    return { amount: context.amount + 1 }
-  },
   triggers: [{
     event: 'PhaseStart',
     handle(host, ownerId, context) {
@@ -1264,8 +1285,12 @@ registerSkillRuntime({
         }
         if (cardIds.length > 0) host.dispatch('LoseCard', { playerId: bId, cardIds, reason: CUIRUI }, { sourceId: ownerId, targetId: bId, cardIds })
       } else if (optionId === 'hand') {
+        // 官方文本只写"展示共计两张手牌"，没有"由其选择"这类字样——按同类无点名
+        // 展示技能的通行约定，选哪两张由服务端随机决定，不是B自己挑、也不是固定取前几张
         const count = Math.min(2, b.zones.hand.length)
-        const shown = [...b.zones.hand].slice(0, count)
+        const pool = [...b.zones.hand]
+        const shown: CardId[] = []
+        for (let i = 0; i < count; i += 1) shown.push(...pool.splice(host.rng.nextInt(pool.length), 1))
         host.dispatch('CardMove', { cardIds: shown, reason: 'cuirui-reveal' }, { sourceId: ownerId, targetId: bId, cardIds: shown })
         const gained = shown.filter((id) => host.state.cards[id]?.color === color)
         if (gained.length > 0) {
