@@ -706,7 +706,11 @@ registerSkillRuntime({
     if (!targetId || targetId === 'none') return
     const owner = playerOf(host.state, ownerId)
     const target = playerOf(host.state, targetId)
-    if (!owner?.alive || !target?.alive) return
+    // 请求构建时筛过"有手牌"，但发问到应答之间牌局可能已经往前走了一段
+    // （本回合更早的出牌、连锁触发都可能清空某一方的手牌），这里必须
+    // 重新确认前提还成立，不成立就安静放弃，不能直接把空手牌一方送进
+    // startPindian（会抛"拼点双方都必须有手牌"）。
+    if (!owner?.alive || !target?.alive || owner.zones.hand.length === 0 || target.zones.hand.length === 0) return
     markUsedThisTurn(host.state, ownerId, FENGLUE)
     startPindian(host as never, {
       id: `fenglue-${host.state.seq}`, initiatorId: ownerId, opponentId: targetId,
