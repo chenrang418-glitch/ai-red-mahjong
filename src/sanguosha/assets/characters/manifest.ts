@@ -1934,7 +1934,11 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
  * 全部移出这份名单、进了上面的 FRAMING。名单暂时清空，新武将上线且立绘
  * 还没到位时再往这里加。
  */
-export const PENDING_PORTRAIT_IDS: readonly string[] = []
+export const PENDING_PORTRAIT_IDS: readonly string[] = [
+  // 东吴独立历史人物补完批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
+  'lvkai', 'shiyi', 'lvdai', 'fengxi', 'lvju',
+  'sunyu', 'tengyin', 'tenggongzhu', 'sunchen', 'tengfanglan',
+]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })
 /**

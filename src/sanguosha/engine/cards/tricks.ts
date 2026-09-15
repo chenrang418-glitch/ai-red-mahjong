@@ -19,7 +19,7 @@ import type { CardId, PlayerId, PlayerState, SanguoshaState, TrickEffectState, T
 import { moveCard } from '../zones'
 import type { CardEngineHost } from './host'
 import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
-import { effectiveCardSuit, isCardResponseProhibited, isTargetProhibited, skillsOf } from '../skills/runtime'
+import { effectiveCardSuit, isCardProtectedFromDiscard, isCardResponseProhibited, isTargetProhibited, skillsOf } from '../skills/runtime'
 import { skillIdsOf } from '../../data/characters/standard'
 import { setChained } from '../character-state'
 
@@ -831,7 +831,9 @@ function duelSlashCount(state: SanguoshaState, opponentId: PlayerId): number {
 }
 
 function askPickCard(host: CardEngineHost, resolution: TrickResolutionState, targetId: PlayerId, mode: 'discard' | 'steal'): void {
-  const { visible, hidden } = stealableSlots(host.state, targetId)
+  const { visible: rawVisible, hidden } = stealableSlots(host.state, targetId)
+  // 滕胤【皙秀】：装备区最后一张牌不能被弃置分支选中，拿走（顺手牵羊）不受影响
+  const visible = mode === 'discard' ? rawVisible.filter((cardId) => !isCardProtectedFromDiscard(host.state, targetId, cardId)) : rawVisible
   // 生成动作时目标身上是有牌的，但问无懈那一轮里他可能把最后一张牌当【无懈可击】打了出去。
   // 这时效果自然落空，不能发一个「从零张牌里选一张」的请求——那是个必然非法的 Request。
   if (visible.length + hidden.length === 0) {

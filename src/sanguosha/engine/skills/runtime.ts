@@ -590,6 +590,12 @@ export interface SkillRuntime {
    */
   prohibitsTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardName: string, cardId?: CardId): boolean
   /**
+   * 拥有者装备区的这张牌不能被过河拆桥/顺手牵羊的「弃置」分支选中（滕胤
+   * 【皙秀】：不能弃置装备区最后一张牌）。只挡弃置，拿走（顺手牵羊）不挡，
+   * 由调用方按 `mode` 区分是否查询这个钩子。
+   */
+  protectsCardFromDiscard?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
+  /**
    * 禁止**别人**在当前情境下使用某张牌（贾诩【完杀】）。
    *
    * 和 `prohibitsTarget` 的方向相反：这里的拥有者是施加限制的那个人，
@@ -1083,6 +1089,16 @@ export function fixedMaxCardsOf(
 }
 
 /** 服务端生成合法操作时统一检查目标限制，客户端不自行推断。 */
+/** 过河拆桥/顺手牵羊的「弃置」分支挑牌前过一遍：拥有者的哪些牌不能被这样弃掉。 */
+export function isCardProtectedFromDiscard(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardId: CardId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return skillsOf(state, ownerId, skillIdsOf).some((runtime) => runtime.protectsCardFromDiscard?.(state, ownerId, cardId) ?? false)
+}
+
 export function isTargetProhibited(
   state: SanguoshaState,
   sourceId: PlayerId,

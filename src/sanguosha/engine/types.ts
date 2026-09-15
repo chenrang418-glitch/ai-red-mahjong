@@ -1538,6 +1538,21 @@ export interface SanguoshaState {
   xiangchenGrantSources?: Record<PlayerId, Array<{ targetId: PlayerId }>>
   zhangyuXiangchenHistory?: Record<PlayerId, string[]>
   zhangyuDamagePreventionUntilTurn?: number
+  /** 东吴独立历史人物补完批：各角色的跨阶段/记账状态。 */
+  bijingCardId?: Record<PlayerId, CardId>
+  bijingPenalty?: Record<PlayerId, boolean>
+  boyanLockedUntilTurnEnd?: Record<PlayerId, PlayerId>
+  boyanLockedTurnNumber?: Record<PlayerId, number>
+  quanshouCounterTarget?: Record<PlayerId, PlayerId>
+  shexueHistory?: Record<PlayerId, { turnNumber: number; names: string[] }>
+  shexuePrevTurnOwners?: Record<number, PlayerId>
+  shexueOffer?: { fromTurn: number; names: string[] }
+  chenjianRevealed?: { ownerId: PlayerId; cardIds: CardId[]; op1: boolean; op2: boolean }
+  xingchongRevealed?: Record<PlayerId, CardId[]>
+  liunianPending?: Record<PlayerId, number[]>
+  zuoweiNoResponse?: Record<CardId, boolean>
+  luochongState?: { ownerId: PlayerId; remaining: number; perTarget: Record<PlayerId, number> }
+  aichenSelfDiscardedThisRound?: boolean
 }
 
 export function emptyEquipment(): EquipmentZone {
