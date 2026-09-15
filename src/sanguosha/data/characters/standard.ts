@@ -34,6 +34,7 @@ import { HISTORICAL_BATCH19_CHARACTERS } from './historical-batch19'
 import { HISTORICAL_BATCH20_CHARACTERS } from './historical-batch20'
 import { HISTORICAL_BATCH21_CHARACTERS } from './historical-batch21'
 import { HISTORICAL_BATCH22_CHARACTERS } from './historical-batch22'
+import { HISTORICAL_BATCH23_CHARACTERS } from './historical-batch23'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -398,6 +399,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...HISTORICAL_BATCH20_CHARACTERS,
   ...HISTORICAL_BATCH21_CHARACTERS,
   ...HISTORICAL_BATCH22_CHARACTERS,
+  ...HISTORICAL_BATCH23_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 

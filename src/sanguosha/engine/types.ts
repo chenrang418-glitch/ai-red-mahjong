@@ -1565,6 +1565,24 @@ export interface SanguoshaState {
   turnDiscardSuits?: Suit[]
   /** 乐綝【破锐】：一次破锐结算内还剩几张待续的虚拟杀。 */
   poeruiPending?: { ownerId: PlayerId; targetId: PlayerId; remaining: number; giveX: number }
+  /** 胡金定【轻缘】：本局已选定的轻缘目标（按顺序，最多两个）。 */
+  qingyuanTargets?: Record<PlayerId, PlayerId[]>
+  /** 胡金定【重身】：本 Round 内真正获得过、且仍持有的红色 Card ID。 */
+  zhongshenRedCardIds?: Record<PlayerId, CardId[]>
+  /** 葛玄【炼化】：当前持有的丹血颜色序列，下个准备阶段清空。 */
+  danxueMarks?: Record<PlayerId, Array<'red' | 'black'>>
+  /** 葛玄【札符】：待触发下一个真实弃牌阶段的目标与技能拥有者。 */
+  zhafuPendingTarget?: PlayerId
+  zhafuOwnerId?: PlayerId
+  /** 赵直【统观】：已分配过属性的角色、各角色被分配到的属性、每种属性的分配次数。 */
+  tongguanAssigned?: PlayerId[]
+  tongguanAttributeOf?: Record<PlayerId, string>
+  tongguanCounts?: Record<string, number>
+  /** 刘晔【画策】：上一轮/本轮已经使用过的普通锦囊牌名。 */
+  previousRoundUsedTrickNames?: string[]
+  currentRoundUsedTrickNames?: string[]
+  /** 赵昂【忠节】：当前处于濒死的角色里，哪些是因失去体力（而非受到伤害）进入的。 */
+  zhongjieLoseHpDying?: Record<PlayerId, boolean>
 }
 
 export function emptyEquipment(): EquipmentZone {

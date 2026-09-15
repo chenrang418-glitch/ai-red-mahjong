@@ -1,7 +1,7 @@
 import { isForcedInAttackRange } from './attack-range-override'
 import { distanceOverrideFor } from './distance-override'
 import { weaponCardsOf } from './equipment-slots'
-import { skillsOf } from './skills/runtime'
+import { attackRangeOverrideOf, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 
@@ -70,6 +70,9 @@ export function getDistance(state: SanguoshaState, sourceId: PlayerId, targetId:
 
 export function getAttackRange(state: SanguoshaState, playerId: PlayerId): number {
   const source = player(state, playerId)
+  // 定值覆盖优先（史阿【砺刃】"攻击范围始终为2"）：不管装备什么都不参与普通公式
+  const overridden = attackRangeOverrideOf(state, playerId)
+  if (overridden !== null) return overridden
   /*
    * 武器栏被废除时武器不存在（神张辽【夺锐】）；有第二武器栏时可能同时装着两把
    * （神典韦【捐甲】）。**两把武器的攻击范围取较大的那个，不是相加**——

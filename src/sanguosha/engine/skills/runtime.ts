@@ -239,6 +239,16 @@ export interface SkillRuntime {
   extraPhaseAtTurnStart?(state: SanguoshaState, ownerId: PlayerId): TurnPhase | null
 
   /**
+   * 攻击范围**定值覆盖**（史阿【砺刃】"攻击范围始终为2"）。
+   *
+   * 和武器/坐骑/distanceModifier 的加减法不同：这是"不管装备什么、
+   * 不管别的加成，最终结果就是这个数"，所以放在 `getAttackRange` 计算
+   * 完普通公式之前单独短路返回，不参与 `attackRangeBonus` 累加。
+   * 多个技能都声明覆盖时取第一个命中的（当前没有武将会撞车）。
+   */
+  overridesAttackRange?(state: SanguoshaState, ownerId: PlayerId): number | null
+
+  /**
    * 按【杀】的**属性**多指定几个目标（程普【疠火】的火【杀】+1）。
    *
    * 和 `slash-rules.ts` 里那个回合级的 `extraTargets` 分开：那一个是
@@ -1355,6 +1365,19 @@ export function modifiedDamageSource(
       const sourceId = runtime.modifyDamageSource?.(state, owner.id, context)
       if (sourceId !== undefined && sourceId !== context.sourceId) return { sourceId, ownerId: owner.id, skillId: runtime.id }
     }
+  }
+  return null
+}
+
+/** 拥有者自己声明的攻击范围定值覆盖；没有就返回 null（走普通公式）。 */
+export function attackRangeOverrideOf(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number | null {
+  for (const runtime of skillsOf(state, ownerId, skillIdsOf)) {
+    const overridden = runtime.overridesAttackRange?.(state, ownerId)
+    if (overridden !== undefined && overridden !== null) return overridden
   }
   return null
 }

@@ -1941,6 +1941,9 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // 魏吴群独立历史人物补完批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
   'yuejin', 'lidian', 'caohong', 'caofang', 'sunluyu',
   'xunchen', 'zongyu', 'zhangfen', 'sunzi_liufang', 'yuechen',
+  // 历史人物第二十三批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
+  'hujinding', 'caoanmin', 'zhaoang', 'xiahoujie', 'shia',
+  'gexuan', 'tongyuan', 'zhaozhi', 'liuye', 'chengui',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })
