@@ -30,6 +30,7 @@ import { SP_CHARACTERS } from './sp'
 import { JIN_CHARACTERS } from './jin'
 import { JIN2_CHARACTERS } from './jin2'
 import { WEI_JIN_HISTORICAL_CHARACTERS } from './wei-jin-historical'
+import { HISTORICAL_BATCH19_CHARACTERS } from './historical-batch19'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -390,6 +391,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...JIN_CHARACTERS,
   ...JIN2_CHARACTERS,
   ...WEI_JIN_HISTORICAL_CHARACTERS,
+  ...HISTORICAL_BATCH19_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 

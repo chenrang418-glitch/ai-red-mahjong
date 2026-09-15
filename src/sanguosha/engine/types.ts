@@ -1478,6 +1478,30 @@ export interface SanguoshaState {
   lianjiTurnUsed?: PlayerId[]
   lianjiDamageDealt?: boolean
   lianjiSlashCardIds?: CardId[]
+  /** 独立历史人物第十九批：各角色的跨阶段/记账状态。 */
+  turnDiscardCount?: { turnNumber: number; count: number }
+  juetaoRestrict?: { ownerId: PlayerId; targetId: PlayerId }
+  zhushiTurnUsed?: number
+  yiyongPending?: { ownerId: PlayerId; targetId: PlayerId; amount: number; ownerCards?: CardId[]; targetCards?: CardId[] }
+  yiyongDamageBonus?: { ownerId: PlayerId; targetId: PlayerId }
+  suchouNoResponse?: { ownerId: PlayerId; turnNumber: number }
+  huiyunRoundOptions?: { round: number; used: number[] }
+  huiyunPendingSubcard?: { ownerId: PlayerId; cardId: CardId; targetId: PlayerId }
+  sanguPending?: { ownerId: PlayerId; targetId: PlayerId; names: string[] }
+  sanguArmed?: { ownerId: PlayerId; targetId: PlayerId; names: string[]; index: number; usedNames: string[] }
+  sanguProtect?: { ownerId: PlayerId; cardNames: string[] }
+  sanguSelfUsedNames?: { turnNumber: number; names: string[] }
+  xiCardIds?: CardId[]
+  zhuningTurnUsed?: PlayerId[]
+  zhuningLimit?: { ownerId: PlayerId; turnNumber: number; limit: number }
+  fengxiangUniqueHolder?: PlayerId | null
+  kuijiTurnUsed?: PlayerId[]
+  cuiruiTurnUsed?: PlayerId[]
+  luPile?: Record<PlayerId, { cardId: CardId; cardType: CardCategory }>
+  ranMarks?: Record<PlayerId, number>
+  kuijiPending?: { ownerId: PlayerId; targetId: PlayerId }
+  zhuningPendingCardId?: CardId | 'slash'
+  pendingLuCard?: CardId
   moucheng?: boolean
 }
 

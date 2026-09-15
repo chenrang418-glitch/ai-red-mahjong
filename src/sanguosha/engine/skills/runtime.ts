@@ -296,6 +296,14 @@ export interface SkillRuntime {
    * 分散在几十个调用点，逐一接管超出这批的合理范围，按已知简化处理。
    */
   redirectsOwnDiscardToBottom?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
+  /**
+   * 张陵【授符】的"箓"：拥有者不能使用/打出手牌中与箓同类别的牌。
+   *
+   * 和 `cardCategoryLocks`（杨修【鸡肋】）判据一样但生命周期不同——箓要跨回合
+   * 持续到技能自己声明的条件（受到伤害/弃牌阶段同类别弃≥2张）才清除，
+   * 不能套用鸡肋"回合结束自动清"那条路径，所以走独立的技能钩子。
+   */
+  locksOwnCategories?(state: SanguoshaState, ownerId: PlayerId): CardCategory[]
   /** 指定锦囊的额外使用距离；断粮只给【兵粮寸断】增加 1。 */
   trickDistanceBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): number
   /** 拥有者持续可见牌堆顶几张牌（晋司马懿【鹰视】），0 表示不提供。 */

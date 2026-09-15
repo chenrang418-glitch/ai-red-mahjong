@@ -1,5 +1,6 @@
 import { cardPlayableBySuit } from './card-suit-lock'
-import { effectiveCardColor } from './skills/runtime'
+import { effectiveCardColor, skillsOf } from './skills/runtime'
+import { skillIdsOf } from '../data/characters/standard'
 import type { CardColorValue } from './card-color'
 import type { CardCategory, CardId, PlayerId, SanguoshaState } from './types'
 
@@ -124,11 +125,19 @@ export function lockCardCategory(
   state.cardCategoryLocks.push({ ...entry, turnNumber: state.turnNumber })
 }
 
-/** 这名角色现在被禁用的牌类别。 */
+/**
+ * 这名角色现在被禁用的牌类别。
+ *
+ * 两种来源：`cardCategoryLocks`（杨修【鸡肋】，回合结束自动清）和
+ * `locksOwnCategories` 技能钩子（张陵【授符】的"箓"，跨回合持续到技能自己
+ * 声明的条件清除——不能套用鸡肋那套按回合清理的生命周期）。
+ */
 export function lockedCategoriesOf(state: SanguoshaState, playerId: PlayerId): CardCategory[] {
-  return (state.cardCategoryLocks ?? [])
+  const fromLocks = (state.cardCategoryLocks ?? [])
     .filter((entry) => entry.targetId === playerId)
     .map((entry) => entry.category)
+  const fromSkills = skillsOf(state, playerId, skillIdsOf).flatMap((runtime) => runtime.locksOwnCategories?.(state, playerId) ?? [])
+  return [...new Set([...fromLocks, ...fromSkills])]
 }
 
 /** 类别禁令这一条：这张实体牌能不能被这名角色使用或打出。 */

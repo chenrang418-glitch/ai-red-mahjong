@@ -486,6 +486,7 @@ function handleSuiLeave(host: SkillHost, ownerId: PlayerId, cardIds: CardId[]): 
 
 registerSkillRuntime({
   id: CHONGXIN,
+  bolanEligible: true,
   triggers: [{
     event: 'PhaseStart',
     handle(host, ownerId, context) {
