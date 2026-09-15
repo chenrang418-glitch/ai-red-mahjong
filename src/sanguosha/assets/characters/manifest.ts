@@ -1911,6 +1911,106 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供·卞夫人',
   },
+  lvkai: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·吕凯',
+  },
+  shiyi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·是仪',
+  },
+  lvdai: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·吕岱',
+  },
+  fengxi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·冯熙',
+  },
+  lvju: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·吕据',
+  },
+  sunyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙瑜',
+  },
+  tengyin: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·滕胤',
+  },
+  tenggongzhu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·滕公主',
+  },
+  sunchen: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙綝',
+  },
+  tengfanglan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·滕芳兰',
+  },
+  yuejin: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·乐进',
+  },
+  lidian: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·李典',
+  },
+  caohong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹洪',
+  },
+  caofang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹芳',
+  },
+  sunluyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙鲁育',
+  },
+  xunchen: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·荀谌',
+  },
+  zongyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·宗预',
+  },
+  zhangfen: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张奋',
+  },
+  sunzi_liufang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙资刘放',
+  },
+  yuechen: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·乐綝',
+  },
 }
 
 /**
@@ -1935,12 +2035,6 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
  * 还没到位时再往这里加。
  */
 export const PENDING_PORTRAIT_IDS: readonly string[] = [
-  // 东吴独立历史人物补完批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
-  'lvkai', 'shiyi', 'lvdai', 'fengxi', 'lvju',
-  'sunyu', 'tengyin', 'tenggongzhu', 'sunchen', 'tengfanglan',
-  // 魏吴群独立历史人物补完批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
-  'yuejin', 'lidian', 'caohong', 'caofang', 'sunluyu',
-  'xunchen', 'zongyu', 'zhangfen', 'sunzi_liufang', 'yuechen',
   // 历史人物第二十三批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
   'hujinding', 'caoanmin', 'zhaoang', 'xiahoujie', 'shia',
   'gexuan', 'tongyuan', 'zhaozhi', 'liuye', 'chengui',
