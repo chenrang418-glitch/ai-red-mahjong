@@ -1461,6 +1461,456 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
     mobile: { position: '50% 17%', scale: 1.15 },
     credit: '用户提供·朱灵',
   },
+  caiyong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·蔡邕',
+  },
+  caobao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹豹',
+  },
+  caojie: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹节',
+  },
+  caomao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹髦',
+  },
+  caosong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹嵩',
+  },
+  caoxiancaohua: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹宪曹华',
+  },
+  caoyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·曹宇',
+  },
+  cenhun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·岑昏',
+  },
+  chendao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·陈到',
+  },
+  chengbing: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·程秉',
+  },
+  chenwudongxi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·陈武董袭',
+  },
+  dengzhi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·邓芝',
+  },
+  dufuren: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·杜夫人',
+  },
+  duji: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·杜畿',
+  },
+  duyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·杜预',
+  },
+  furong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·傅肜',
+  },
+  guozhao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·郭照',
+  },
+  heqi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·贺齐',
+  },
+  huanghao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·黄皓',
+  },
+  huanshujun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·环淑君',
+  },
+  huban: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·胡班',
+  },
+  huojun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·霍峻',
+  },
+  jiachong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·贾充',
+  },
+  jikang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·嵇康',
+  },
+  jin_simayi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·晋司马懿',
+  },
+  jin_zhangchunhua: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·晋张春华',
+  },
+  leitong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·雷铜',
+  },
+  liuba: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·刘巴',
+  },
+  liuhong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·刘宏',
+  },
+  liuxuan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·刘璿',
+  },
+  liuyong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·刘永',
+  },
+  liuyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·刘虞',
+  },
+  luotong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·骆统',
+  },
+  luoxian: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·罗宪',
+  },
+  luzhi_sp: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·鲁芝',
+  },
+  lvfan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·吕范',
+  },
+  macheng: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·马承',
+  },
+  mamiao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·马邈',
+  },
+  mayuanyi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·马元义',
+  },
+  panghui: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·庞会',
+  },
+  panshu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·潘淑',
+  },
+  puyuan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·蒲元',
+  },
+  qinghegongzhu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·清河公主',
+  },
+  ruanji: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·阮籍',
+  },
+  shibao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·石苞',
+  },
+  simafu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·司马孚',
+  },
+  simashi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·司马师',
+  },
+  simazhao: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·司马昭',
+  },
+  simazhou: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·司马伷',
+  },
+  sundeng: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙登',
+  },
+  sunru: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙茹',
+  },
+  sunyi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·孙翊',
+  },
+  tangji: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·唐姬',
+  },
+  wangchang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·王昶',
+  },
+  wangjun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·王濬',
+  },
+  wangxiang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·王祥',
+  },
+  wangyuanji: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·王元姬',
+  },
+  wangyun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·王允',
+  },
+  weiguan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·卫瓘',
+  },
+  wenyang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·文鸯',
+  },
+  wulan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·吴兰',
+  },
+  wutugu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·兀突骨',
+  },
+  wuxian: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·吴苋',
+  },
+  xiahouba: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·夏侯霸',
+  },
+  xiahoulingnv: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·夏侯令女',
+  },
+  xianglang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·向朗',
+  },
+  xuangongzhu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·宣公主',
+  },
+  xuelingyun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·薛灵芸',
+  },
+  xuezong: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·薛综',
+  },
+  xunxu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·荀勖',
+  },
+  yanghu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·羊祜',
+  },
+  yanghuiyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·羊徽瑜',
+  },
+  yangyan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·杨艳',
+  },
+  yangzhi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·杨芷',
+  },
+  zhanghua: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张华',
+  },
+  zhangliang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张梁',
+  },
+  zhangling: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张陵',
+  },
+  zhangrang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张让',
+  },
+  zhangxun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张勋',
+  },
+  zhangyi: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张翼',
+  },
+  zhangyu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·张裕',
+  },
+  zhaotongzhaoguang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·赵统赵广',
+  },
+  zhaoyan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·赵俨',
+  },
+  zhongyan: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·钟琰',
+  },
+  zhouchu: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·周处',
+  },
+  zhoufei: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·周妃',
+  },
+  zhouqun: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·周群',
+  },
+  zhugeshang: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·诸葛尚',
+  },
+  zhujianping: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·朱建平',
+  },
+  bianfuren: {
+    desktop: { position: '50% 19%', scale: 1.0 },
+    mobile: { position: '50% 17%', scale: 1.15 },
+    credit: '用户提供·卞夫人',
+  },
 }
 
 /**
@@ -1478,34 +1928,13 @@ const FRAMING: Readonly<Record<string, Omit<CharacterPortrait, 'src' | 'fullSrc'
  * 座位卡安静地回退到文字底纹。
  */
 /*
- * 2026-09-15：批量接入了一大批此前"素材目录/项目 portraits 目录找不到"的
- * 立绘（D:\cr\sanguoshalihui 已经补齐源图），脚本按角色名生成 480x640 座位图
- * 和高清图，成功的都从这里移出、进了上面的 FRAMING。
- *
- * 下面这批不是没有源图，是源图分辨率为 1024x1536（2:3），和流水线要求的
- * 3:4 竖图比例对不上，prepare-sanguosha-portraits.ps1 的比例校验直接拒绝。
- * 用户已确认按现状跳过、等重新出图后再补，这里先照旧走 fallback。
+ * 2026-09-15：批量接入了此前"素材目录/项目 portraits 目录找不到"以及
+ * "源图比例是 2:3、和流水线要求的 3:4 对不上"的全部立绘（D:\cr\sanguoshalihui
+ * 已经补齐/重新生成源图），脚本按角色名生成 480x640 座位图和高清图，
+ * 全部移出这份名单、进了上面的 FRAMING。名单暂时清空，新武将上线且立绘
+ * 还没到位时再往这里加。
  */
-export const PENDING_PORTRAIT_IDS: readonly string[] = [
-  'caiyong', 'caobao', 'caojie', 'caomao', 'caosong',
-  'caoxiancaohua', 'caoyu', 'cenhun', 'chendao', 'chengbing',
-  'chenwudongxi', 'dengzhi', 'dufuren', 'duji', 'duyu',
-  'furong', 'guozhao', 'heqi', 'huanghao', 'huanshujun',
-  'huban', 'huojun', 'jiachong', 'jikang', 'jin_simayi',
-  'jin_zhangchunhua', 'leitong', 'liuba', 'liuhong', 'liuxuan',
-  'liuyong', 'liuyu', 'luotong', 'luoxian', 'luzhi_sp',
-  'lvfan', 'macheng', 'mamiao', 'mayuanyi', 'panghui',
-  'panshu', 'puyuan', 'qinghegongzhu', 'ruanji', 'shibao',
-  'simafu', 'simashi', 'simazhao', 'simazhou', 'sundeng',
-  'sunru', 'sunyi', 'tangji', 'wangchang', 'wangjun',
-  'wangxiang', 'wangyuanji', 'wangyun', 'weiguan', 'wenyang',
-  'wulan', 'wutugu', 'wuxian', 'xiahouba', 'xiahoulingnv',
-  'xianglang', 'xuangongzhu', 'xuelingyun', 'xuezong', 'xunxu',
-  'yanghu', 'yanghuiyu', 'yangyan', 'yangzhi', 'zhanghua',
-  'zhangliang', 'zhangling', 'zhangrang', 'zhangxun', 'zhangyi',
-  'zhangyu', 'zhaotongzhaoguang', 'zhaoyan', 'zhongyan', 'zhouchu',
-  'zhoufei', 'zhouqun', 'zhugeshang', 'zhujianping', 'bianfuren',
-]
+export const PENDING_PORTRAIT_IDS: readonly string[] = []
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })
 /**
