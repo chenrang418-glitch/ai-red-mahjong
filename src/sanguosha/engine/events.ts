@@ -5,6 +5,13 @@ export type GameEventName =
   | 'JudgePhase' | 'DrawPhase' | 'PlayPhase' | 'DiscardPhase'
   | 'BeforeCardUse' | 'CardUsed' | 'TargetSpecified' | 'TargetConfirmed' | 'CardResolved' | 'AfterCardUse'
   | 'CardResponded' | 'BeforeDamage' | 'DamageCaused' | 'DamageInflicted' | 'Damaged' | 'AfterDamage'
+  /**
+   * 一次伤害结算彻底走完（无论是正常扣血、被完全防止还是减到 0）。
+   * 携带 requestedAmount/finalAmount，供「伤害被减少/防止后」这类
+   * 旁观判定使用（骆统【仁政】）——不看某一个具体修正时机，而是看
+   * 这一整笔伤害请求最终真正扣掉了多少体力。
+   */
+  | 'DamageSettled'
   | 'SkillActivated'
   | 'CharacterFlip' | 'CharacterChained'
   /**

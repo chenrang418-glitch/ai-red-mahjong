@@ -1173,6 +1173,9 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // 独立历史人物第十九批：未在素材目录/项目 portraits 目录找到对应文件，走 fallback
   'wangchang', 'caomao', 'panghui', 'huban', 'zhugeshang',
   'liuyong', 'leitong', 'wulan', 'zhangling', 'wutugu',
+  // 独立历史人物第二十批：未在素材目录/项目 portraits 目录找到对应文件，走 fallback
+  'zhouqun', 'puyuan', 'mayuanyi', 'luotong', 'xianglang',
+  'liuxuan', 'xunxu', 'mamiao', 'caobao', 'zhangyu',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

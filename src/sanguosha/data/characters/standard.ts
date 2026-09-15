@@ -31,6 +31,7 @@ import { JIN_CHARACTERS } from './jin'
 import { JIN2_CHARACTERS } from './jin2'
 import { WEI_JIN_HISTORICAL_CHARACTERS } from './wei-jin-historical'
 import { HISTORICAL_BATCH19_CHARACTERS } from './historical-batch19'
+import { HISTORICAL_BATCH20_CHARACTERS } from './historical-batch20'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -392,6 +393,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...JIN2_CHARACTERS,
   ...WEI_JIN_HISTORICAL_CHARACTERS,
   ...HISTORICAL_BATCH19_CHARACTERS,
+  ...HISTORICAL_BATCH20_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 
@@ -406,6 +408,7 @@ provideRandomSkillPool(ALL_CHARACTERS.flatMap((character) => character.skills
     characterId: character.id,
     characterName: character.name,
     kingdom: character.kingdom,
+    maxHp: character.maxHp,
   }))))
 // 随机抽武将牌（神典韦【挈挟】）用的池子，和化身共用同一份武将表
 provideCharacterPool(ALL_CHARACTERS.map(({ id, name, pack, maxHp }) => ({ id, name, pack, maxHp })))

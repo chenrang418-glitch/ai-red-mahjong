@@ -1515,6 +1515,29 @@ export interface SanguoshaState {
   zhuningPendingCardId?: CardId | 'slash'
   pendingLuCard?: CardId
   moucheng?: boolean
+  /** 独立历史人物第二十批：各角色的跨阶段/记账状态。 */
+  tianhouTop?: CardId[]
+  zhouqunWeatherTargetId?: PlayerId
+  shengongCardIds?: CardId[]
+  jibingSkippedDraw?: Record<PlayerId, boolean>
+  mayuanyiBingUsedThisTurn?: Record<PlayerId, number>
+  /**
+   * 马元义"兵"：引擎的 viewAs 转化机制只认手牌（响应校验按 hand 成员判断），
+   * 武将牌单独一个 characterPile 会在"当杀/闪打出"时校验失败。折中为
+   * 物理上仍进手牌，只用这份列表记「哪些手牌 id 算兵」，别的语义（数量到场
+   * 势力数即止、集兵计次）都读这份列表，不再单独维护一个 characterPile。
+   */
+  mayuanyiBingCardIds?: Record<PlayerId, CardId[]>
+  xianglangSkipDiscard?: Record<PlayerId, boolean>
+  qianzhengWatch?: Record<CardId, PlayerId>
+  boqiaUsedNames?: Record<PlayerId, string[]>
+  congfengNoRecurse?: boolean
+  caobaoJiuCardIds?: Record<PlayerId, CardId[]>
+  poyinChallenger?: PlayerId
+  zhangyuXiangchenLastTargetId?: PlayerId
+  xiangchenGrantSources?: Record<PlayerId, Array<{ targetId: PlayerId }>>
+  zhangyuXiangchenHistory?: Record<PlayerId, string[]>
+  zhangyuDamagePreventionUntilTurn?: number
 }
 
 export function emptyEquipment(): EquipmentZone {

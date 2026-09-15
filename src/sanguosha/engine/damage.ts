@@ -345,7 +345,30 @@ function announceDamagePrevented(
   }, { targetId, damageNature: nature })
 }
 
+/**
+ * `resolveSingleDamage` 的薄包装：只负责在这次伤害请求彻底走完之后
+ * 播报「原本请求了多少、最终真的扣了多少」（骆统【仁政】要的就是这个
+ * 差值，不看具体是哪个时机把它压下去的）。
+ *
+ * 中途被交互式防止询问挂起（`pendingSourceDamage`/`pendingTargetDamage`
+ * 新建立）不算"走完"——这次调用不播报，真正的结果由续接那次
+ * （`resumeSourceDamagePrevention`/`resumeTargetDamagePrevention` 里
+ * 重新调用的 `resolveDamage`）自己的包装播报。
+ */
 function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOptions): void {
+  const target = host.state.players.find((candidate) => candidate.id === options.targetId)
+  const hpBefore = target?.hp ?? 0
+  const requestedAmount = options.amount ?? 1
+  const pendingBefore = Boolean(host.state.pendingSourceDamage) || Boolean(host.state.pendingTargetDamage)
+  resolveSingleDamageInner(host, options)
+  const pendingAfter = Boolean(host.state.pendingSourceDamage) || Boolean(host.state.pendingTargetDamage)
+  if (pendingAfter && !pendingBefore) return
+  const targetAfter = host.state.players.find((candidate) => candidate.id === options.targetId)
+  const finalAmount = targetAfter ? Math.max(0, hpBefore - targetAfter.hp) : 0
+  host.dispatch('DamageSettled', { requestedAmount, finalAmount }, { targetId: options.targetId })
+}
+
+function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamageOptions): void {
   if (host.state.status !== 'playing') throw new Error('只有进行中的牌局可以造成伤害')
   if (host.state.dying) throw new Error('当前濒死流程尚未结束')
   if (host.state.damageChain && !options.chainTransfer) throw new Error('属性伤害传导尚未结束')

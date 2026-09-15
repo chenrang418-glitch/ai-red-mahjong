@@ -16,6 +16,8 @@ export interface PoolSkill {
   characterId: CharacterId
   characterName: string
   kingdom: Kingdom
+  /** 该技能所属武将的体力上限。张裕【相谶】按目标势力+体力上限筛选要用到。 */
+  maxHp: number
 }
 
 let catalog: readonly PoolSkill[] = []
@@ -47,6 +49,11 @@ export function skillIsRandomlyGrantable(skillId: string, granted?: boolean): bo
 /** 某个势力现在能提供哪些可随机获得的技能。 */
 export function randomSkillPoolOf(kingdom: Kingdom): PoolSkill[] {
   return catalog.filter((skill) => skill.kingdom === kingdom)
+}
+
+/** 张裕【相谶】要的是「同势力 + 体力上限相同」这一层更窄的筛选，复用同一份 catalog。 */
+export function skillPoolByKingdomAndMaxHp(kingdom: Kingdom, maxHp: number): PoolSkill[] {
+  return catalog.filter((skill) => skill.kingdom === kingdom && skill.maxHp === maxHp)
 }
 
 /**
