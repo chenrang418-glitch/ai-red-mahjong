@@ -33,6 +33,7 @@ import { WEI_JIN_HISTORICAL_CHARACTERS } from './wei-jin-historical'
 import { HISTORICAL_BATCH19_CHARACTERS } from './historical-batch19'
 import { HISTORICAL_BATCH20_CHARACTERS } from './historical-batch20'
 import { HISTORICAL_BATCH21_CHARACTERS } from './historical-batch21'
+import { HISTORICAL_BATCH22_CHARACTERS } from './historical-batch22'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -396,6 +397,7 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...HISTORICAL_BATCH19_CHARACTERS,
   ...HISTORICAL_BATCH20_CHARACTERS,
   ...HISTORICAL_BATCH21_CHARACTERS,
+  ...HISTORICAL_BATCH22_CHARACTERS,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 

@@ -1553,6 +1553,18 @@ export interface SanguoshaState {
   zuoweiNoResponse?: Record<CardId, boolean>
   luochongState?: { ownerId: PlayerId; remaining: number; perTarget: Record<PlayerId, number> }
   aichenSelfDiscardedThisRound?: boolean
+  /** 曹芳【置民】：回合外获得、标记为"民"的牌 id。 */
+  caofangMinCardIds?: Record<PlayerId, CardId[]>
+  /** 曹芳【拒谏】：本轮内对某个使用者的普通锦囊无效保护。 */
+  caofangJujianProtect?: Record<PlayerId, { sourceId: PlayerId; roundNumber: number }>
+  /** 孙鲁育【魅步】：本回合被观察的"止息"弃牌来源与花色。 */
+  meibuWatch?: Record<PlayerId, { ownerId: PlayerId; suit: Suit; turnNumber: number }>
+  /** 张奋【大攻车】基础效果命中后待结算的弃牌数。 */
+  dagongcheDiscardPending?: Record<PlayerId, number>
+  /** 孙资刘放【勤慎】【伪谠】：本回合已经进入过弃牌堆的花色集合。 */
+  turnDiscardSuits?: Suit[]
+  /** 乐綝【破锐】：一次破锐结算内还剩几张待续的虚拟杀。 */
+  poeruiPending?: { ownerId: PlayerId; targetId: PlayerId; remaining: number; giveX: number }
 }
 
 export function emptyEquipment(): EquipmentZone {
