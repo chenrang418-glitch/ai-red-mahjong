@@ -13,7 +13,7 @@ import type { CharacterDefinition } from './types'
  *
  * - **琴音**：弃牌阶段结束时，若你于此阶段内弃置过你的至少两张手牌，
  *   你可以选择一项：令所有角色各回复 1 点体力；或令所有角色各失去 1 点体力。
- * - **业炎**：限定技，出牌阶段，你可以对至多三名角色造成共计 3 点火焰伤害
+ * - **业炎**：限定技，出牌阶段，你可以对至多三名角色造成共计至多 3 点火焰伤害
  *   （由你分配）。若你对任意一名角色分配了至少 2 点伤害，
  *   你须先弃置四张花色各不相同的手牌并失去 3 点体力。
  */
@@ -172,19 +172,15 @@ function pickFourDifferentSuits(state: SanguoshaState, ownerId: PlayerId): CardI
 /**
  * 业炎能选几个目标。
  *
- * 3 点伤害要分完，而「对任意一人分到 ≥2 点」就必须付代价，
- * 所以**付不起代价时唯一的合法分配是三人各 1 点**——
- * 选 1 个人（只能 3 点）或 2 个人（必有一人 2 点）都要付代价。
- * 付不起又凑不满三名敌人时，这个技能这一刻根本发不出来，返回 null。
+ * 总量至多 3 点。对任意一人分配至少 2 点才需要额外代价；
+ * 付不起代价时仍可对一至三名角色各分配 1 点。
  */
 function yeyanTargetRange(state: SanguoshaState, ownerId: PlayerId): { candidateIds: PlayerId[]; min: number; max: number } | null {
   const candidateIds = state.players
     .filter((player) => player.alive && player.id !== ownerId)
     .map((player) => player.id)
   if (candidateIds.length === 0) return null
-  if (canPayBigYeyan(state, ownerId)) return { candidateIds, min: 1, max: Math.min(3, candidateIds.length) }
-  if (candidateIds.length < 3) return null
-  return { candidateIds, min: 3, max: 3 }
+  return { candidateIds, min: 1, max: Math.min(3, candidateIds.length) }
 }
 
 registerSkillRuntime({
@@ -204,7 +200,7 @@ registerSkillRuntime({
     if (!owner?.alive || owner.usedLimitedSkills.includes(YEYAN)) return []
     // 一个合法分配都凑不出来时就别把按钮放出来
     if (yeyanTargetRange(state, ownerId) === null) return []
-    return [{ id: YEYAN_ACTION, label: '业炎：对至多三名角色造成共计 3 点火焰伤害' }]
+    return [{ id: YEYAN_ACTION, label: '业炎：对至多三名角色造成共计至多 3 点火焰伤害' }]
   },
 
   invokeActive(host, ownerId, actionId) {
@@ -215,9 +211,7 @@ registerSkillRuntime({
       skillId: YEYAN, ownerId, step: 'targets',
       build: (requestId): ChooseTargetsRequest => ({
         id: requestId, kind: 'choose-targets', playerId: ownerId,
-        prompt: range.min === 3
-          ? '【业炎】：选择三名角色（各 1 点火焰伤害；你付不起大业炎的代价）'
-          : '【业炎】：选择至多三名角色',
+        prompt: '【业炎】：选择至多三名角色',
         timeoutMs: 30_000,
         // 取消不消耗限定技
         optional: true,
@@ -302,15 +296,15 @@ registerSkillRuntime({
 /**
  * 伤害分配的选项。
  *
- * 3 点分给至多 3 个人的组合很少，直接把合法组合列成选项，
+ * 至多 3 点分给至多 3 个人的组合很少，直接把合法组合列成选项，
  * 比让玩家逐个填数字好点也好测。
  */
 function splitOptions(targetIds: PlayerId[]): Array<{ id: string; label: string; split: Array<{ targetId: PlayerId; amount: number }> }> {
   const results: Array<{ id: string; label: string; split: Array<{ targetId: PlayerId; amount: number }> }> = []
   const walk = (index: number, remaining: number, current: Array<{ targetId: PlayerId; amount: number }>): void => {
     if (index === targetIds.length) {
-      // 每个选中的目标都必须分到伤害，且总量正好 3 点
-      if (remaining === 0 && current.every((entry) => entry.amount > 0)) {
+      // 每个选中的目标都分到至少 1 点；总量可以少于 3 点
+      if (remaining >= 0 && current.every((entry) => entry.amount > 0)) {
         const id = current.map((entry) => `${entry.targetId}:${entry.amount}`).join('|')
         results.push({ id, label: current.map((entry) => `${entry.targetId} ${entry.amount} 点`).join('，'), split: [...current] })
       }
@@ -339,7 +333,7 @@ function askYeyanSplit(host: SkillHost, ownerId: PlayerId, targetIds: PlayerId[]
     skillId: YEYAN, ownerId, step: 'split', data: { targetIds },
     build: (requestId): ChooseOptionRequest => ({
       id: requestId, kind: 'choose-option', playerId: ownerId,
-      prompt: '【业炎】：分配这 3 点火焰伤害（对任意一人分到 2 点及以上时，需先弃四张不同花色手牌并失去 3 点体力）',
+      prompt: '【业炎】：分配至多 3 点火焰伤害（对任意一人分到 2 点及以上时，需先弃四张不同花色手牌并失去 3 点体力）',
       timeoutMs: 30_000, optional: false,
       options: legal.map((option) => ({
         id: option.id,
@@ -400,7 +394,7 @@ export const SHENZHOUYU: CharacterDefinition = {
     {
       id: YEYAN,
       name: '业炎',
-      description: '限定技。出牌阶段，你可以对至多三名角色造成共计3点火焰伤害（由你分配）。若你对任意一名角色分配了至少2点伤害，你须先弃置四张花色各不相同的手牌并失去3点体力。',
+      description: '限定技。出牌阶段，你可以对至多三名角色造成共计至多3点火焰伤害（由你分配）。若你对任意一名角色分配了至少2点伤害，你须先弃置四张花色各不相同的手牌并失去3点体力。',
     },
   ],
 }

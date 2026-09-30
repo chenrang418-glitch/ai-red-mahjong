@@ -9,7 +9,7 @@ import { buildPresentationEvent, type PresentationEvent } from '../src/sanguosha
 import type { GameRequest, GameResponse } from '../src/sanguosha/engine/requests'
 import { timeoutDefaultResponse } from '../src/sanguosha/engine/timeout-default'
 import type { PlayerId, SanguoshaState } from '../src/sanguosha/engine/types'
-import type { PlayerView } from '../src/sanguosha/engine/view'
+import { buildSpectatorView, type PlayerView } from '../src/sanguosha/engine/view'
 import { AI_PACE_MS, AI_PICK_GENERAL_MS, AI_TRIVIAL_STEP_MS, playActionDelay } from '../src/sanguosha/shared/timing'
 import type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView, SgsSeatTimer, SgsTimerKind } from '../src/sanguosha/online/protocol'
 export type { SgsChatMessage, SgsRoomCommand, SgsRoomSettings, SgsRoomView } from '../src/sanguosha/online/protocol'
@@ -87,6 +87,12 @@ interface SgsSeat {
    * 人在、连接好好的，就是不动。只能靠连续多少次没在窗口内做决定来识别。
    */
   timeoutStreak?: number
+}
+
+interface SgsSpectator {
+  userId: string
+  nickname: string
+  connected: boolean
 }
 
 type SgsJobKind = 'ai-step' | 'turn-timeout' | 'disconnect-trustee' | 'next-round-timeout' | 'all-trustee-dissolve' | 'health-watchdog'
@@ -172,6 +178,8 @@ export interface StoredSgsRoomState {
   hostUserId: string
   settings: SgsRoomSettings
   seats: SgsSeat[]
+  /** 旁观者不占座位、不参与计时，也不能发送牌局指令。旧存档允许缺省。 */
+  spectators?: SgsSpectator[]
   game: SanguoshaState | null
   version: number
   chat: SgsChatMessage[]
@@ -347,6 +355,7 @@ export class SanguoshaRoomCoordinator {
       this.state.presentationEvents = Object.values(legacy as Record<string, PresentationEvent[]>)[0] ?? []
     }
     this.state.processedActionIds ??= []
+    this.state.spectators ??= []
   }
 
   static create(code: string, host: SgsRoomUser, settings: SgsRoomSettings, now = Date.now(), timing: SgsRoomTiming = PRODUCTION_SGS_ROOM_TIMING): SanguoshaRoomCoordinator {
@@ -359,6 +368,7 @@ export class SanguoshaRoomCoordinator {
       hostUserId: host.userId,
       settings,
       seats,
+      spectators: [],
       game: null,
       version: 1,
       chat: [],
@@ -420,10 +430,24 @@ export class SanguoshaRoomCoordinator {
     return free.seatId
   }
 
-  connect(user: SgsRoomUser, now = Date.now()): number {
+  connect(user: SgsRoomUser, now = Date.now(), asSpectator = false): number | null {
+    const seated = this.state.seats.find((seat) => seat.userId === user.userId)
+    // 已经拥有座位的人永远优先重连原座位，不能借旁观参数逃掉座位责任。
+    if (asSpectator && !seated) {
+      const existing = this.state.spectators!.find((spectator) => spectator.userId === user.userId)
+      if (existing) {
+        existing.nickname = user.nickname
+        existing.connected = true
+      } else {
+        this.state.spectators!.push({ userId: user.userId, nickname: user.nickname, connected: true })
+      }
+      this.touch(now)
+      return null
+    }
     if (this.state.game && !this.state.seats.some((seat) => seat.userId === user.userId)) {
       throw new InvalidSgsCommandError('牌局已经开始，无法加入')
     }
+    this.state.spectators = this.state.spectators!.filter((spectator) => spectator.userId !== user.userId)
     const seatId = this.seatUser(user, now)
     // 重连回来就取消托管和掉线定时
     this.state.jobs = this.state.jobs.filter((job) => !(job.kind === 'disconnect-trustee' && job.seatId === seatId))
@@ -435,6 +459,12 @@ export class SanguoshaRoomCoordinator {
   }
 
   disconnect(userId: string, now = Date.now()): void {
+    const spectator = this.state.spectators!.find((candidate) => candidate.userId === userId)
+    if (spectator) {
+      this.state.spectators = this.state.spectators!.filter((candidate) => candidate.userId !== userId)
+      this.touch(now)
+      return
+    }
     const seat = this.state.seats.find((candidate) => candidate.userId === userId)
     if (!seat || !seat.connected) return
     seat.connected = false
@@ -453,6 +483,11 @@ export class SanguoshaRoomCoordinator {
   }
 
   leave(userId: string, now = Date.now()): void {
+    if (this.state.spectators!.some((candidate) => candidate.userId === userId)) {
+      this.state.spectators = this.state.spectators!.filter((candidate) => candidate.userId !== userId)
+      this.touch(now)
+      return
+    }
     const seat = this.state.seats.find((candidate) => candidate.userId === userId)
     if (!seat) return
     seat.leftRoom = true
@@ -525,7 +560,15 @@ export class SanguoshaRoomCoordinator {
 
   private handleCommand(userId: string, command: SgsRoomCommand, now: number): SgsChatMessage | null {
     const seat = this.state.seats.find((candidate) => candidate.userId === userId)
-    if (!seat) throw new InvalidSgsCommandError('你不在这个房间里')
+    if (!seat) {
+      const spectator = this.state.spectators!.some((candidate) => candidate.userId === userId)
+      if (spectator && command.type === 'leave-room') {
+        this.leave(userId, now)
+        return null
+      }
+      if (spectator) throw new InvalidSgsCommandError('旁观者只能观看，不能操作牌局或发送聊天')
+      throw new InvalidSgsCommandError('你不在这个房间里')
+    }
 
     switch (command.type) {
       case 'chat': {
@@ -963,6 +1006,7 @@ export class SanguoshaRoomCoordinator {
   private nominalWindowMs(request: GameRequest | undefined): number {
     const setting = this.state.settings.turnSeconds * 1000
     if (request?.kind === 'choose-general') return PICK_GENERAL_WINDOW_MS
+    if (request?.kind === 'choose-option' && request.interaction?.kind === 'waterwheel') return request.timeoutMs
     if (request?.kind === 'respond-card' && request.requiredCardName === '无懈可击') {
       return Math.min(setting, request.timeoutMs)
     }
@@ -1438,6 +1482,7 @@ export class SanguoshaRoomCoordinator {
 
   view(userId: string): SgsRoomView {
     const seat = this.state.seats.find((candidate) => candidate.userId === userId)
+    const spectator = this.state.spectators!.find((candidate) => candidate.userId === userId)
     const state = this.state.game
     const phase: SgsRoomView['phase'] = !state ? 'lobby' : state.status === 'game-over' ? 'finished' : 'playing'
     const actorSeatId = this.currentActorSeatId()
@@ -1448,6 +1493,8 @@ export class SanguoshaRoomCoordinator {
     if (state && seat && seat.kind === 'human') {
       // 每个连接只拿自己的视图，完整 GameState 不出这个文件
       playerView = this.game().viewFor(playerIdOf(seat.seatId))
+    } else if (state && spectator) {
+      playerView = buildSpectatorView(this.game().state)
     }
 
     return {
@@ -1455,12 +1502,14 @@ export class SanguoshaRoomCoordinator {
       version: this.state.version,
       phase,
       hostUserId: this.state.hostUserId,
+      isSpectator: Boolean(spectator),
+      spectatorCount: this.state.spectators!.filter((candidate) => candidate.connected).length,
       settings: this.state.settings,
       seats: this.state.seats.map(({ userId: seatUserId, ...rest }) => ({ ...rest, isSelf: seatUserId === userId })),
       playerView,
-      chat: this.state.chat,
+      chat: spectator ? [] : this.state.chat,
       log: seat ? (this.state.log[playerIdOf(seat.seatId)] ?? []) : [],
-      presentationEvents: seat ? (this.state.presentationEvents ?? []) : [],
+      presentationEvents: seat || spectator ? (this.state.presentationEvents ?? []) : [],
       deadlineAt: waitingJob ? waitingJob.dueAt : null,
       timers: this.seatTimers(seat?.seatId ?? null),
       serverNow: Date.now(),

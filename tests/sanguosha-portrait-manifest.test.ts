@@ -66,7 +66,7 @@ describe('登记项的形状', () => {
       expect(CHARACTER_PORTRAITS[id], `${id} 已经有立绘了，该把它从待接入名单里删掉`).toBeUndefined()
     }
     for (const [id, portrait] of Object.entries(CHARACTER_PORTRAITS)) {
-      expect(portrait.fullSrc, `${id} 的艺术集不能回退到座位小图`).not.toBe(portrait.src)
+      expect(portrait.fullSrc, `${id} 的武将册不能回退到座位小图`).not.toBe(portrait.src)
     }
   })
 

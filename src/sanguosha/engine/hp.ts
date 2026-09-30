@@ -1,5 +1,6 @@
 import type { EventContext, GameEvent, GameEventName } from './events'
 import type { PlayerId, SanguoshaState } from './types'
+import { dispatchHealthColorChange } from './health-color'
 
 /**
  * 失去体力的统一入口。
@@ -22,14 +23,53 @@ export interface HpEngineHost {
   enterDying(playerId: PlayerId): void
 }
 
+/** Set current HP verbatim for skill text that says “adjust current HP to N”. */
+export function setCurrentHp(host: HpEngineHost, playerId: PlayerId, value: number, reason: string): void {
+  const target = host.state.players.find((player) => player.id === playerId)
+  if (!target?.alive) return
+  if (!Number.isInteger(value) || value < 0) throw new Error('设置体力值必须是非负整数')
+  const previousHp = target.hp
+  const previousMaxHp = target.maxHp
+  target.hp = value
+  if (value > target.maxHp) target.hpCeilingOverride = value
+  else delete target.hpCeilingOverride
+  host.dispatch('HpSet', { playerId, previousHp, hp: value, reason }, { targetId: playerId })
+  dispatchHealthColorChange(host, playerId, previousHp, previousMaxHp, reason)
+  if (value <= 0 && host.state.dying?.playerId !== playerId) host.enterDying(playerId)
+}
+
 export function loseHp(host: HpEngineHost, playerId: PlayerId, amount: number, reason: string): void {
   const target = host.state.players.find((player) => player.id === playerId)
   if (!target?.alive) return
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('失去体力值必须是正整数')
+  const previousHp = target.hp
+  const previousMaxHp = target.maxHp
   target.hp -= amount
+  if (target.hp <= target.maxHp) delete target.hpCeilingOverride
   host.dispatch('LoseHp', { playerId, amount, reason, hp: target.hp }, { targetId: playerId })
+  dispatchHealthColorChange(host, playerId, previousHp, previousMaxHp, reason)
   // 体力归零交给统一的濒死入口，技能不自己判死
-  if (target.hp <= 0) host.enterDying(playerId)
+  // 濒死中的觉醒（如减上限后立即回复）本来就在同一条濒死栈上，不得递归新建濒死流程。
+  if (target.hp <= 0 && host.state.dying?.playerId !== playerId) host.enterDying(playerId)
+}
+
+/** Exchange current HP values without ever violating either character's max-HP ceiling. */
+export function exchangeHp(host: HpEngineHost, leftId: PlayerId, rightId: PlayerId, reason: string): void {
+  const left = host.state.players.find((player) => player.id === leftId)
+  const right = host.state.players.find((player) => player.id === rightId)
+  if (!left?.alive || !right?.alive || leftId === rightId) return
+  const leftBefore = left.hp
+  const rightBefore = right.hp
+  const leftMaxBefore = left.maxHp
+  const rightMaxBefore = right.maxHp
+  left.hp = Math.min(rightBefore, left.maxHp)
+  right.hp = Math.min(leftBefore, right.maxHp)
+  host.dispatch('HpExchanged', { leftId, rightId, leftBefore, rightBefore,
+    leftAfter: left.hp, rightAfter: right.hp, reason }, { sourceId: leftId, targetId: rightId })
+  dispatchHealthColorChange(host, leftId, leftBefore, leftMaxBefore, reason)
+  dispatchHealthColorChange(host, rightId, rightBefore, rightMaxBefore, reason)
+  if (left.hp <= 0 && host.state.dying?.playerId !== leftId) host.enterDying(leftId)
+  if (right.hp <= 0 && host.state.dying?.playerId !== rightId) host.enterDying(rightId)
 }
 
 /**
@@ -54,12 +94,16 @@ export function loseMaxHp(host: HpEngineHost, playerId: PlayerId, amount: number
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('减体力上限必须是正整数')
   const nextMax = Math.max(0, target.maxHp - amount)
   if (nextMax === target.maxHp) return
+  const previousHp = target.hp
+  const previousMaxHp = target.maxHp
   target.maxHp = nextMax
   // 体力不能高于上限：超出的部分直接被裁掉，这不是「失去体力」
   const clamped = Math.min(target.hp, nextMax)
   const trimmed = target.hp - clamped
   target.hp = clamped
+  delete target.hpCeilingOverride
   host.dispatch('MaxHpChange', { playerId, maxHp: nextMax, hp: target.hp, amount: -amount, trimmed, reason }, { targetId: playerId })
+  dispatchHealthColorChange(host, playerId, previousHp, previousMaxHp, reason)
   // 上限被削到 0（或体力被裁到 0）时和失去体力一样进濒死，不在这里自己判死
   if (target.hp <= 0) host.enterDying(playerId)
 }
@@ -83,6 +127,9 @@ export function gainMaxHp(host: HpEngineHost, playerId: PlayerId, amount: number
   const nextMax = Math.min(ceiling, target.maxHp + amount)
   if (nextMax <= target.maxHp) return
   const gained = nextMax - target.maxHp
+  const previousHp = target.hp
+  const previousMaxHp = target.maxHp
   target.maxHp = nextMax
   host.dispatch('MaxHpChange', { playerId, maxHp: nextMax, hp: target.hp, amount: gained, trimmed: 0, reason }, { targetId: playerId })
+  dispatchHealthColorChange(host, playerId, previousHp, previousMaxHp, reason)
 }

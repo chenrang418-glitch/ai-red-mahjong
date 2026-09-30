@@ -14,7 +14,7 @@ import { runSoakGame } from '@/sanguosha/ai/soak'
 const ALL_THIRTEEN = [
   'caifuren', 'jushou',
   'caorui', 'caoxiu', 'zhongyao', 'liuchen', 'xiahoushi', 'zhangni',
-  'sunxiu', 'zhuzhi', 'quanzong', 'gongsunyuan', 'guotu_fengji',
+  'sunxiu', 'zhuzhi', 'quanzong', 'gongsunyuan', 'guotufengji',
 ]
 
 function rotate(offset: number, size: number): string[] {
@@ -40,6 +40,11 @@ const total = (results: ReturnType<typeof runBatch>, key: string): number =>
   results.reduce((sum, result) => sum + (result.counters[key] ?? 0), 0)
 
 describe('一将成名 2014 收官 + 2015 全 13 人合并压测', () => {
+  it('曹叡【兴衰】的惩罚伤害等待先前濒死与伤害链完全结束', () => {
+    const [result] = runBatch(1, 8, 'yjcm15final-r53-8', rotate(53, 8))
+    expect(result.finished || result.stalemate, `seed=${result.seed} 没有正常结束`).toBe(true)
+  }, 60_000)
+
   it('八人局 80 局全部正常结束（每局轮转取八人）', () => {
     for (let index = 0; index < 80; index += 1) {
       const [result] = runBatch(1, 8, `yjcm15final-r${index}`, rotate(index, 8))

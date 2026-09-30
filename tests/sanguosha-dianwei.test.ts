@@ -121,6 +121,8 @@ describe('强袭的限制', () => {
     expect(qiangxiAction(game), '第一次应当可用').toBeTruthy()
     useQiangxi(game, null, 'p1')
     expect(qiangxiAction(game), '同一回合不能再发动').toBeFalsy()
+    game.state.extraPhase = { phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1 }
+    expect(qiangxiAction(game), '另一个出牌阶段可重新发动').toBeTruthy()
     assertGameInvariants(game.state)
   })
 

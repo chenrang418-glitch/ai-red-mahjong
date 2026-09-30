@@ -55,11 +55,11 @@ onMounted(() => closeButton.value?.focus())
   flex: none;
   padding-right: 34px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--ink-line);
+  border-bottom: 1px solid rgba(255,255,255,.2);
 }
 .full-disclaimer__header h2 {
   margin: 0;
-  color: #f3d67c;
+  color: rgba(255,255,255,.98);
   font-size: 18px;
   font-weight: 800;
 }
@@ -68,19 +68,42 @@ onMounted(() => closeButton.value?.focus())
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.46) transparent;
   padding-top: 14px;
   padding-right: 4px;
+}
+.full-disclaimer__body::-webkit-scrollbar {
+  width: 9px;
+}
+.full-disclaimer__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.full-disclaimer__body::-webkit-scrollbar-thumb {
+  min-height: 42px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.32)) padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), 0 2px 10px rgba(0,0,0,.12);
+}
+.full-disclaimer__body::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.42)) padding-box;
+}
+.full-disclaimer__body::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .full-disclaimer__body section + section { margin-top: 18px; }
 .full-disclaimer__body h3 {
   margin: 0 0 8px;
-  color: #e8c96e;
+  color: rgba(255,255,255,.92);
   font-size: 14px;
   font-weight: 700;
 }
 .full-disclaimer__body p {
   margin: 0 0 10px;
-  color: var(--ink-text-soft);
+  color: rgba(255,255,255,.78);
   font-size: 13px;
   line-height: 1.75;
 }
@@ -95,14 +118,14 @@ onMounted(() => closeButton.value?.focus())
 .full-disclaimer__close-btn {
   min-height: 40px;
   padding: 0 20px;
-  border: 1px solid #3a574d;
+  border: 1px solid rgba(255,255,255,.28);
   border-radius: 10px;
-  background: #142e26;
-  color: #d5e0da;
+  background: rgba(255,255,255,.12);
+  color: rgba(255,255,255,.94);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
-.full-disclaimer__close-btn:hover { border-color: #4d6f62; }
-.full-disclaimer__close-btn:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.full-disclaimer__close-btn:hover { border-color: rgba(255,255,255,.58); background: rgba(255,255,255,.18); }
+.full-disclaimer__close-btn:focus-visible { outline: 2px solid rgba(255,255,255,.9); outline-offset: 2px; }
 </style>

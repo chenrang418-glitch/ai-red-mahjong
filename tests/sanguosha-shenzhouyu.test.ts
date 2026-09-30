@@ -200,22 +200,60 @@ describe('业炎：限定技与代价', () => {
     return game.legalActions('p0').find((action) => action.kind === 'invoke-skill' && action.skillId === 'yeyan')
   }
 
-  it('付不起代价时只能选三个人（三人各 1 点是唯一合法分配）', () => {
+  it('付不起代价时仍可选两个人并各造成 1 点伤害', () => {
     const game = gameWith(FIVE)
     clearHand(game, 'p0')
     // 手上只有两种花色，凑不出四张不同花色
     const spades = Object.values(game.state.cards).filter((card) => card.suit === 'spade').slice(0, 2).map((card) => card.id)
     giveHand(game, 'p0', spades)
+    playerOf(game, 'p3').alive = false
+    playerOf(game, 'p4').alive = false
     enterPlay(game, 'p0')
 
     game.act('p0', yeyanAction(game)!.id)
     const request = pending(game)
-    expect(String(request.prompt)).toContain('付不起大业炎的代价')
-    game.respond({ requestId: request.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2', 'p3'] } })
+    expect(request.candidateIds).toEqual(['p1', 'p2'])
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
 
     const split = pending(game)
     expect(split.kind).toBe('choose-option')
-    expect(split.options, '只剩「三人各 1 点」这一种').toHaveLength(1)
+    expect(split.options, '只有对两人各分配 1 点合法').toHaveLength(1)
+    expect(split.options[0].label).toContain('p1 1 点')
+    expect(split.options[0].label).toContain('p2 1 点')
+    const p1Hp = playerOf(game, 'p1').hp
+    const p2Hp = playerOf(game, 'p2').hp
+    game.respond({ requestId: split.id, playerId: 'p0', payload: { optionId: split.options[0].id } })
+    expect(playerOf(game, 'p1').hp).toBe(p1Hp - 1)
+    expect(playerOf(game, 'p2').hp).toBe(p2Hp - 1)
+  })
+
+  it('可以只分配 1 点而不支付大业炎代价', () => {
+    const game = gameWith(FIVE)
+    clearHand(game, 'p0')
+    const cost = fourSuits(game)
+    giveHand(game, 'p0', cost)
+    const beforeHp = playerOf(game, 'p1').hp
+    enterPlay(game, 'p0')
+
+    game.act('p0', yeyanAction(game)!.id)
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+    const split = pending(game)
+    const oneDamage = split.options.find((option: { label: string }) => option.label === 'p1 1 点')!
+    expect(oneDamage).toBeTruthy()
+    game.respond({ requestId: split.id, playerId: 'p0', payload: { optionId: oneDamage.id } })
+
+    let guard = 0
+    while (pending(game) && guard < 12) {
+      const request = pending(game)
+      const payload = request.kind === 'rescue' || request.kind === 'respond-card'
+        ? { actionId: request.actionIds[request.actionIds.length - 1] }
+        : { optionId: 'no', cardIds: [], targetIds: [] }
+      game.respond({ requestId: request.id, playerId: request.playerId, payload })
+      guard += 1
+    }
+    expect(playerOf(game, 'p1').hp).toBe(beforeHp - 1)
+    expect(playerOf(game, 'p0').zones.hand).toEqual(cost)
+    expect(playerOf(game, 'p0').hp).toBe(4)
   })
 
   it('三人各 1 点：不付代价，三人各掉 1 点火焰伤害', () => {
@@ -376,7 +414,8 @@ describe('业炎：代价这一步不能变成死循环', () => {
     game.act('p0', yeyanActionOf(game)!.id)
     game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1'] } })
     const split = pending(game)
-    game.respond({ requestId: split.id, playerId: 'p0', payload: { optionId: split.options[0].id } })
+    const costlySplit = split.options.find((option: { label: string }) => option.label.includes('p1 3 点'))!
+    game.respond({ requestId: split.id, playerId: 'p0', payload: { optionId: costlySplit.id } })
 
     const cost = pending(game)
     expect(String(cost.prompt)).toContain('弃置四张')

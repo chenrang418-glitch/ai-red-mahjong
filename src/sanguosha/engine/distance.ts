@@ -1,7 +1,8 @@
 import { isForcedInAttackRange } from './attack-range-override'
 import { distanceOverrideFor } from './distance-override'
 import { weaponCardsOf } from './equipment-slots'
-import { attackRangeOverrideOf, skillsOf } from './skills/runtime'
+import { effectiveCardName, effectiveEquipmentName } from './zones'
+import { attackRangeOverrideOf, equipmentEffectsSuppressed, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 
@@ -60,12 +61,15 @@ export function getDistance(state: SanguoshaState, sourceId: PlayerId, targetId:
   if (overridden !== null) return overridden
   const source = player(state, sourceId)
   const target = player(state, targetId)
-  const sourceHorse = source.zones.equipment.offensiveHorse ? 1 : 0
-  const targetHorse = target.zones.equipment.defensiveHorse ? 1 : 0
+  const sourceHorse = !equipmentEffectsSuppressed(state, sourceId) && source.zones.equipment.offensiveHorse ? 1 : 0
+  const targetHorse = !equipmentEffectsSuppressed(state, targetId) && target.zones.equipment.defensiveHorse ? 1 : 0
   // 技能的距离修正（马术等）和坐骑走同一条公式，技能自己不重算距离
   const skill = skillDistanceModifier(state, sourceId, targetId)
+  const globalSkill = state.players.filter((owner) => owner.alive).reduce((total, owner) => total
+    + skillsOf(state, owner.id, skillIdsOf).reduce((bonus, runtime) => bonus
+      + Math.trunc(runtime.globalDistanceModifier?.(state, owner.id, sourceId, targetId) ?? 0), 0), 0)
   return Math.max(1, getSeatDistance(state, sourceId, targetId) - sourceHorse + targetHorse
-    + source.distanceToOthers + target.distanceFromOthers + skill)
+    + source.distanceToOthers + target.distanceFromOthers + skill + globalSkill)
 }
 
 export function getAttackRange(state: SanguoshaState, playerId: PlayerId): number {
@@ -78,9 +82,17 @@ export function getAttackRange(state: SanguoshaState, playerId: PlayerId): numbe
    * （神典韦【捐甲】）。**两把武器的攻击范围取较大的那个，不是相加**——
    * 攻击范围是「你能打多远」，多带一把兵器不会让手变长两倍。
    */
-  const ranges = weaponCardsOf(state, playerId)
-    .map((cardId) => state.cards[cardId]?.attackRange ?? 1)
-  return Math.max(1, ...ranges) + source.attackRangeBonus
+  const ranges = (equipmentEffectsSuppressed(state, playerId) ? [] : weaponCardsOf(state, playerId))
+    .map((cardId) => effectiveEquipmentName(state, cardId) === '元戎精械弩' ? 3 : state.cards[cardId]?.attackRange ?? 1)
+  if (ranges.length === 0 && skillsOf(state, playerId, skillIdsOf)
+    .some((runtime) => runtime.virtualWeapon?.(state, playerId) === '贯石斧')) ranges.push(3)
+  const skillBonus = skillsOf(state, playerId, skillIdsOf)
+    .reduce((total, runtime) => total + Math.trunc(runtime.attackRangeBonus?.(state, playerId) ?? 0), 0)
+  const globalBonus = state.players.filter((owner) => owner.alive)
+    .flatMap((owner) => skillsOf(state, owner.id, skillIdsOf)
+      .map((runtime) => runtime.globalAttackRangeBonus?.(state, owner.id, playerId) ?? 0))
+    .reduce((total, value) => total + Math.trunc(value), 0)
+  return Math.max(1, ...ranges) + source.attackRangeBonus + skillBonus + globalBonus
 }
 
 /**
@@ -91,14 +103,27 @@ export function getAttackRange(state: SanguoshaState, playerId: PlayerId): numbe
  */
 export function ignoresDistanceTo(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean {
   return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresDistanceTo?.(state, sourceId, targetId, cardId))
+    || Boolean(cardId && state.players.some((owner) => owner.alive && owner.id !== sourceId
+      && skillsOf(state, owner.id, skillIdsOf).some((runtime) => runtime.globalIgnoresDistanceToCard?.(state, owner.id, sourceId, targetId, cardId))))
 }
 
 /** 场上有没有第三方技能让 `attackerId` 对 `targetId` 无视距离（孙休【诏缚】）。 */
-export function globalIgnoresDistanceTo(state: SanguoshaState, attackerId: PlayerId, targetId: PlayerId): boolean {
+export function globalIgnoresDistanceTo(state: SanguoshaState, attackerId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean {
   for (const owner of state.players) {
     if (!owner.alive || !owner.characterId) continue
     for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
-      if (runtime.globalIgnoresDistanceTo?.(state, owner.id, attackerId, targetId)) return true
+      if (runtime.globalIgnoresDistanceTo?.(state, owner.id, attackerId, targetId, cardId)) return true
+    }
+  }
+  return false
+}
+
+function globalSlashIgnoresDistanceTo(state: SanguoshaState, attackerId: PlayerId, targetId: PlayerId, cardId: CardId): boolean {
+  if (effectiveCardName(state, cardId) !== '杀') return false
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      if (runtime.globalSlashIgnoresDistanceTo?.(state, owner.id, attackerId, targetId)) return true
     }
   }
   return false
@@ -110,6 +135,20 @@ export function canTarget(state: SanguoshaState, sourceId: PlayerId, targetId: P
   if (ignoresDistanceTo(state, sourceId, targetId, cardId)) return true
   // 定向的「视为在攻击范围内」（神太史慈【破围】）：只对这一对角色成立
   if (isForcedInAttackRange(state, sourceId, targetId)) return true
-  if (globalIgnoresDistanceTo(state, sourceId, targetId)) return true
-  return getDistance(state, sourceId, targetId) <= range
+  if (cardId && globalSlashIgnoresDistanceTo(state, sourceId, targetId, cardId)) return true
+  if (globalIgnoresDistanceTo(state, sourceId, targetId, cardId)) return true
+  let effectiveRange = range
+  if (cardId) {
+    for (const runtime of skillsOf(state, sourceId, skillIdsOf)) {
+      const cardRange = runtime.attackRangeForCard?.(state, sourceId, cardId)
+      if (cardRange !== null && cardRange !== undefined) effectiveRange = Math.max(1, Math.trunc(cardRange))
+    }
+  }
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      effectiveRange += Math.trunc(runtime.directedAttackRangeModifier?.(state, owner.id, sourceId, targetId) ?? 0)
+    }
+  }
+  return getDistance(state, sourceId, targetId) <= effectiveRange
 }

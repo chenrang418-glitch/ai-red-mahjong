@@ -16,7 +16,7 @@ import type { PlayerId } from './types'
  * 原来这里不查禁令，于是一行【离迹】封住某人的用牌之后，
  * 曹植【酒诗】照样把【酒】用了出来——按钮出现、酒生效，规则上是错的。
  */
-export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillId: string): boolean {
+export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillId: string, beneficiaryId = playerId): boolean {
   /*
    * 查的是**这个「视为使用」的人**，不是技能拥有者。
    * 程普【醇醪】给的是「视为**该濒死角色**使用一张【酒】」，
@@ -24,6 +24,7 @@ export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillI
    */
   if (isCardUseProhibited(host.state, playerId, '酒', { dyingPlayerId: host.state.dying?.playerId ?? null })) return false
   const cardId = `virtual:${sourceSkillId}:${host.state.seq + 1}:${host.state.decisions.length}`
+  if (!host.state.players.some((player) => player.id === beneficiaryId && player.alive)) return false
   host.state.cards[cardId] = {
     id: cardId,
     ruleset: host.state.rulesetVersion,
@@ -38,11 +39,11 @@ export function useVirtualWine(host: SkillHost, playerId: PlayerId, sourceSkillI
     sourceSkillId,
   }
   host.state.zones.processingArea.push(cardId)
-  host.dispatch('CardUsed', { cardId, cardName: '酒', targetIds: [playerId] }, {
-    sourceId: playerId, targetId: playerId, cardIds: [cardId],
+  host.dispatch('CardUsed', { cardId, cardName: '酒', targetIds: [beneficiaryId] }, {
+    sourceId: playerId, targetId: beneficiaryId, cardIds: [cardId],
   })
-  host.dispatch('AfterCardUse', { cardId, cardName: '酒', targetIds: [playerId], cancelled: false, virtual: true }, {
-    sourceId: playerId, targetId: playerId, cardIds: [cardId],
+  host.dispatch('AfterCardUse', { cardId, cardName: '酒', targetIds: [beneficiaryId], cancelled: false, virtual: true }, {
+    sourceId: playerId, targetId: beneficiaryId, cardIds: [cardId],
   })
   // 用完就销毁：留着它，牌张守恒会认为场上凭空多了一张酒
   host.state.zones.processingArea = host.state.zones.processingArea.filter((id) => id !== cardId)

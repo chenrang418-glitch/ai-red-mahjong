@@ -164,6 +164,7 @@ function slashWithPojun(
   if (!action) throw new Error('没有可用的【杀】动作')
   game.act('p0', action.id)
   settle(game, (request) => {
+    if (request.kind === 'choose-option' && request.prompt?.includes('枭姬')) return { optionId: 'yes' }
     if (request.kind === 'choose-cards' && request.prompt?.includes('破军')) {
       seen.request = request
       const pick = request as unknown as { cardIds: string[]; hiddenCardSlots: string[]; max: number }
@@ -353,7 +354,7 @@ describe('徐盛：破军的扣置', () => {
     const handBefore = playerOf(game, 'p1').zones.hand.length
     const hpBefore = playerOf(game, 'p1').hp
     slashWithPojun(game, 'p1', { preferEquipment: true, picks: 1 })
-    expect(playerOf(game, 'p1').zones.hand.length, '枭姬摸了两张').toBeGreaterThan(handBefore)
+    expect(playerOf(game, 'p1').zones.hand.length, '选择发动枭姬后摸了两张').toBe(handBefore + 2)
     expect(playerOf(game, 'p1').hp, '白银狮子离场回一点（随后又挨了这一刀）')
       .toBeGreaterThanOrEqual(hpBefore - 1)
     assertCardConservation(game.state)

@@ -24,6 +24,9 @@ import type { CharacterDefinition } from './types'
  */
 
 export const QIAOBIAN = 'qiaobian'
+const JIE_ZHANGHE_ID = 'jie-zhanghe-b64'
+const BIAN_MARK = '变'
+const QIAOBIAN_HISTORY = 'jieQiaobianEndHands'
 
 /**
  * 巧变能跳过的阶段。
@@ -92,18 +95,41 @@ function askSteal(host: SkillHost, ownerId: PlayerId, remaining: PlayerId[]): bo
 registerSkillRuntime({
   id: QIAOBIAN,
 
+  onGameStart(host, ownerId) {
+    if (playerOf(host.state, ownerId)?.characterId === JIE_ZHANGHE_ID) {
+      playerOf(host.state, ownerId)!.marks[BIAN_MARK] = 2
+    }
+  },
+
+  triggers: [{ event: 'PhaseEnd', handle(host, ownerId, context) {
+    if (playerOf(host.state, ownerId)?.characterId !== JIE_ZHANGHE_ID) return
+    const phase = context.event.payload as { playerId?: PlayerId; phase?: string }
+    if (phase.playerId !== ownerId || phase.phase !== 'finish') return
+    const owner = playerOf(host.state, ownerId)
+    if (!owner?.alive) return
+    const state = host.state as SanguoshaState & { [QIAOBIAN_HISTORY]?: Record<PlayerId, number[]> }
+    const previous = state[QIAOBIAN_HISTORY] ?? (state[QIAOBIAN_HISTORY] = {})
+    const counts = previous[ownerId] ?? (previous[ownerId] = [])
+    if (!counts.includes(owner.zones.hand.length)) owner.marks[BIAN_MARK] = (owner.marks[BIAN_MARK] ?? 0) + 1
+    counts.push(owner.zones.hand.length)
+  } }],
+
   offerPhaseSkip(host, ownerId, phase) {
     if (!SKIPPABLE.includes(phase)) return false
     const owner = playerOf(host.state, ownerId)
     // 没有手牌就付不起代价：直接正常进入该阶段，**不弹一个只能拒绝的窗口**
-    if (!owner?.alive || owner.zones.hand.length === 0) return false
+    const isJie = owner?.characterId === JIE_ZHANGHE_ID
+    const hasMark = isJie && (owner?.marks[BIAN_MARK] ?? 0) > 0
+    if (!owner?.alive || (owner.zones.hand.length === 0 && !hasMark)) return false
     host.askSkill({
       skillId: QIAOBIAN, ownerId, step: 'ask', data: { phase },
       build: (requestId): ChooseOptionRequest => ({
         id: requestId, kind: 'choose-option', playerId: ownerId,
-        prompt: `发动【巧变】？弃置一张手牌，跳过${PHASE_LABEL[phase] ?? phase}`,
+        prompt: isJie
+          ? `发动【巧变】？弃置一张手牌或移去一枚“变”，跳过${PHASE_LABEL[phase] ?? phase}`
+          : `发动【巧变】？弃置一张手牌，跳过${PHASE_LABEL[phase] ?? phase}`,
         timeoutMs: 20_000, optional: true,
-        options: [{ id: 'yes', label: `弃一张手牌跳过${PHASE_LABEL[phase] ?? phase}` }, { id: 'no', label: '放弃' }],
+        options: [{ id: 'yes', label: isJie ? `弃牌或移去“变”跳过${PHASE_LABEL[phase] ?? phase}` : `弃一张手牌跳过${PHASE_LABEL[phase] ?? phase}` }, { id: 'no', label: '放弃' }],
       }),
     })
     return true
@@ -119,8 +145,21 @@ registerSkillRuntime({
         return
       }
       const owner = playerOf(host.state, ownerId)
-      if (!owner?.alive || owner.zones.hand.length === 0 || !phase) {
+      if (!owner?.alive || !phase || (owner.zones.hand.length === 0 && !(owner.characterId === JIE_ZHANGHE_ID && (owner.marks[BIAN_MARK] ?? 0) > 0))) {
         host.resumePhaseEntry()
+        return
+      }
+      if (owner.characterId === JIE_ZHANGHE_ID && owner.zones.hand.length > 0 && (owner.marks[BIAN_MARK] ?? 0) > 0) {
+        host.askSkill({ skillId: QIAOBIAN, ownerId, step: 'cost-method', data: { phase }, build: (requestId) => ({
+          id: requestId, kind: 'choose-option', playerId: ownerId,
+          prompt: `【巧变】：选择跳过${PHASE_LABEL[phase] ?? phase}的代价`, timeoutMs: 20_000, optional: false,
+          options: [{ id: 'discard', label: '弃置一张手牌' }, { id: 'mark', label: `移去一枚“变”（剩余${owner.marks[BIAN_MARK]}）` }],
+        }) })
+        return
+      }
+      if (owner.characterId === JIE_ZHANGHE_ID && (owner.marks[BIAN_MARK] ?? 0) > 0) {
+        owner.marks[BIAN_MARK] = (owner.marks[BIAN_MARK] ?? 0) - 1
+        finishQiaobianSkip(host, ownerId, phase)
         return
       }
       host.askSkill({
@@ -137,6 +176,28 @@ registerSkillRuntime({
       return
     }
 
+    if (resolution.step === 'cost-method') {
+      const owner = playerOf(host.state, ownerId)
+      const method = (response.payload as { optionId?: string }).optionId
+      if (!owner?.alive || !phase) { host.resumePhaseEntry(); return }
+      if (method === 'mark' && (owner.marks[BIAN_MARK] ?? 0) > 0) {
+        owner.marks[BIAN_MARK] = (owner.marks[BIAN_MARK] ?? 0) - 1
+        finishQiaobianSkip(host, ownerId, phase)
+        return
+      }
+      if (method !== 'discard' || owner.zones.hand.length === 0) { host.resumePhaseEntry(); return }
+      host.askSkill({
+        skillId: QIAOBIAN, ownerId, step: 'cost', data: { phase },
+        build: (requestId): ChooseCardsRequest => ({
+          id: requestId, kind: 'choose-cards', playerId: ownerId,
+          prompt: `【巧变】：弃置一张手牌以跳过${PHASE_LABEL[phase] ?? phase}`,
+          timeoutMs: 20_000, optional: false, purpose: 'skill',
+          cardIds: [...owner.zones.hand], hiddenCardSlots: [], min: 1, max: 1,
+        }),
+      })
+      return
+    }
+
     if (resolution.step === 'cost') {
       const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
       const owner = playerOf(host.state, ownerId)
@@ -146,50 +207,7 @@ registerSkillRuntime({
       }
       moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
       host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: QIAOBIAN }, { sourceId: ownerId, cardIds: [cardId] })
-      // **真正的跳过**：走公共 skippedPhases，不是「摸 0 张」「手牌上限设无穷」
-      skipPhase(host.state, phase)
-
-      if (phase === 'draw') {
-        const candidateIds = stealCandidates(host.state, ownerId)
-        if (candidateIds.length === 0) {
-          host.resumePhaseEntry()
-          return
-        }
-        host.askSkill({
-          skillId: QIAOBIAN, ownerId, step: 'steal-targets',
-          build: (requestId): ChooseTargetsRequest => ({
-            id: requestId, kind: 'choose-targets', playerId: ownerId,
-            prompt: '【巧变】：获得至多两名其他角色各一张手牌',
-            timeoutMs: 20_000, optional: true,
-            // 至多两名，可以一个都不选；同一人只能被选一次，所以拿不到「同一人两张」
-            candidateIds, min: 0, max: 2,
-          }),
-        })
-        return
-      }
-
-      if (phase === 'play') {
-        const movable = movableFieldCards(host.state)
-        if (movable.length === 0) {
-          host.resumePhaseEntry()
-          return
-        }
-        host.askSkill({
-          skillId: QIAOBIAN, ownerId, step: 'move-card',
-          build: (requestId): ChooseCardsRequest => ({
-            id: requestId, kind: 'choose-cards', playerId: ownerId,
-            prompt: '【巧变】：将场上的一张牌移动到另一个合法位置',
-            timeoutMs: 20_000, optional: true, purpose: 'skill',
-            // 装备区和判定区都是公开牌，直接列出来，不需要占位槽
-            cardIds: movable, hiddenCardSlots: [],
-            min: 0, max: 1,
-          }),
-        })
-        return
-      }
-
-      // 判定阶段 / 弃牌阶段：跳过就是全部效果，没有后续
-      host.resumePhaseEntry()
+      finishQiaobianSkip(host, ownerId, phase)
       return
     }
 
@@ -210,7 +228,6 @@ registerSkillRuntime({
         host.dispatch('LoseCard', { playerId: targetId, cardIds: [cardId], reason: QIAOBIAN }, { targetId, cardIds: [cardId] })
         host.dispatch('GainCard', { playerId: ownerId, cardIds: [cardId], reason: QIAOBIAN }, { targetId: ownerId, cardIds: [cardId] })
       }
-      // 剩下的目标继续，一个不剩就把控制权交回阶段窗口
       if (!askSteal(host, ownerId, [...remaining])) host.resumePhaseEntry()
       return
     }
@@ -218,33 +235,50 @@ registerSkillRuntime({
     if (resolution.step === 'move-card') {
       const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds ?? []
       const destinations = cardId ? fieldMoveDestinations(host.state, cardId) : []
-      if (!cardId || destinations.length === 0) {
-        host.resumePhaseEntry()
-        return
-      }
-      host.askSkill({
-        skillId: QIAOBIAN, ownerId, step: 'move-dest', data: { cardId },
-        build: (requestId): ChooseTargetsRequest => ({
-          id: requestId, kind: 'choose-targets', playerId: ownerId,
-          prompt: `【巧变】：将${host.state.cards[cardId]?.name ?? '这张牌'}移动给谁`,
-          timeoutMs: 20_000, optional: false,
-          candidateIds: destinations, min: 1, max: 1,
-        }),
-      })
+      if (destinations.length === 0) { host.resumePhaseEntry(); return }
+      host.askSkill({ skillId: QIAOBIAN, ownerId, step: 'move-dest', data: { cardId }, build: (requestId): ChooseTargetsRequest => ({
+        id: requestId, kind: 'choose-targets', playerId: ownerId,
+        prompt: `【巧变】：将${host.state.cards[cardId]?.name ?? '这张牌'}移动给谁`, timeoutMs: 20_000, optional: false,
+        candidateIds: destinations, min: 1, max: 1,
+      }) })
       return
     }
 
     if (resolution.step === 'move-dest') {
       const cardId = resolution.data.cardId as CardId
       const [toPlayerId] = (response.payload as { targetIds: PlayerId[] }).targetIds ?? []
-      // 发问期间状态可能变了（目标死了、槽被占了），落地前重新验一次
-      if (toPlayerId && fieldMoveDestinations(host.state, cardId).includes(toPlayerId)) {
-        moveFieldCard(host as never, cardId, toPlayerId)
-      }
+      if (toPlayerId && fieldMoveDestinations(host.state, cardId).includes(toPlayerId)) moveFieldCard(host as never, cardId, toPlayerId)
       host.resumePhaseEntry()
     }
   },
 })
+
+function finishQiaobianSkip(host: SkillHost, ownerId: PlayerId, phase: TurnPhase): void {
+  skipPhase(host.state, phase)
+  if (phase === 'draw') {
+    const candidateIds = stealCandidates(host.state, ownerId)
+    if (candidateIds.length === 0) { host.resumePhaseEntry(); return }
+    host.askSkill({
+      skillId: QIAOBIAN, ownerId, step: 'steal-targets',
+      build: (requestId): ChooseTargetsRequest => ({
+        id: requestId, kind: 'choose-targets', playerId: ownerId,
+        prompt: '【巧变】：获得至多两名其他角色各一张手牌',
+        timeoutMs: 20_000, optional: true, candidateIds, min: 0, max: 2,
+      }),
+    })
+    return
+  }
+  if (phase === 'play') {
+    const movable = movableFieldCards(host.state)
+    if (!movable.length) { host.resumePhaseEntry(); return }
+    host.askSkill({ skillId: QIAOBIAN, ownerId, step: 'move-card', build: (requestId): ChooseCardsRequest => ({
+      id: requestId, kind: 'choose-cards', playerId: ownerId, prompt: '【巧变】：将场上的一张牌移动到另一个合法位置',
+      timeoutMs: 20_000, optional: true, purpose: 'skill', cardIds: movable, hiddenCardSlots: [], min: 0, max: 1,
+    }) })
+    return
+  }
+  host.resumePhaseEntry()
+}
 
 export const ZHANGHE: CharacterDefinition = {
   id: 'zhanghe',
@@ -256,6 +290,6 @@ export const ZHANGHE: CharacterDefinition = {
   skills: [{
     id: QIAOBIAN,
     name: '巧变',
-    description: '你可以弃置一张手牌，跳过一个阶段（准备阶段和结束阶段除外）。若你以此法跳过了摸牌阶段，你可以获得至多两名其他角色各一张手牌；若你以此法跳过了出牌阶段，你可以将场上的一张牌移动到另一个合法位置。',
+    description: '你可以弃置一张手牌并跳过一个阶段（准备阶段和结束阶段除外）。若以此法跳过摸牌阶段，你可以获得至多两名其他角色各一张手牌；若以此法跳过出牌阶段，你可以将一名角色场上的一张牌置入另一名角色区域里的相应位置。',
   }],
 }

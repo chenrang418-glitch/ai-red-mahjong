@@ -45,6 +45,14 @@ export function markUsedThisPhase(state: SanguoshaState, playerId: PlayerId, ski
   if (!player.turnUsedSkills.includes(mark)) player.turnUsedSkills.push(mark)
 }
 
+/** 技能明确令一次阶段限次技视为未发动时，撤销当前阶段唯一键。 */
+export function clearUsedThisPhase(state: SanguoshaState, playerId: PlayerId, skillId: string): void {
+  const player = state.players.find((candidate) => candidate.id === playerId)
+  if (!player?.turnUsedSkills) return
+  const mark = markFor(state, skillId)
+  player.turnUsedSkills = player.turnUsedSkills.filter((entry) => entry !== mark)
+}
+
 /**
  * 「这个出牌阶段里已经问过、而且被放弃了」。
  *

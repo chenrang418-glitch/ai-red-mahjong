@@ -1,5 +1,6 @@
 import { takeOverDrawPhase } from '../../engine/draw-phase-takeover'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { drawCards } from '../../engine/draw'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest, GameResponse } from '../../engine/requests'
@@ -22,16 +23,9 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return found
 }
 
-function draw(host: SkillHost, playerId: PlayerId, count: number, reason: string): void {
-  const owner = playerOf(host.state, playerId)
-  const drawn: CardId[] = []
-  for (let index = 0; index < count; index += 1) {
-    const cardId = host.state.zones.drawPile.shift()
-    if (!cardId) break
-    owner.zones.hand.push(cardId)
-    drawn.push(cardId)
-  }
-  if (drawn.length > 0) host.dispatch('GainCard', { playerId, cardIds: drawn, reason }, { targetId: playerId, cardIds: drawn })
+function draw(host: SkillHost, playerId: PlayerId, count: number): void {
+  drawCards(host.state, host.rng, playerId, count, (name, payload) => host.dispatch(name, payload,
+    name === 'GainCard' ? { targetId: playerId, cardIds: payload.cardIds as CardId[] } : undefined))
 }
 
 function yesNo(requestId: string, playerId: PlayerId, prompt: string): ChooseOptionRequest {
@@ -121,7 +115,7 @@ registerSkillRuntime({
   resume(host, ownerId, _resolution, response) {
     const invoked = chose(response, 'yes')
     if (invoked) playerOf(host.state, ownerId).marks.luoyi = 1
-    draw(host, ownerId, invoked ? 1 : 2, invoked ? '裸衣' : 'draw')
+    draw(host, ownerId, invoked ? 1 : 2)
   },
 })
 
@@ -146,7 +140,7 @@ registerSkillRuntime({
   resume(host, ownerId, resolution, response) {
     if (resolution.step === 'ask') {
       if (!chose(response, 'yes')) {
-        draw(host, ownerId, 2, 'draw')
+        draw(host, ownerId, 2)
         return
       }
       const candidateIds = tuxiCandidates(host.state, ownerId)
@@ -197,7 +191,7 @@ registerSkillRuntime({
     const owner = playerOf(state, ownerId)
     if (!owner.alive || owner.zones.hand.length === 0) return []
     // 出牌阶段限一次，用过就不再出现在合法动作里
-    if (usedThisTurn(state, ownerId, 'qingnang')) return []
+    if (usedThisPhase(state, ownerId, 'qingnang')) return []
     // 场上没人受伤时发动没有意义，也不该给出这个按钮
     if (!state.players.some((player) => player.alive && player.hp < player.maxHp)) return []
     return [{ id: 'skill:qingnang', label: '发动【青囊】：弃一张手牌，令一名已受伤角色回复一点体力' }]
@@ -231,7 +225,7 @@ registerSkillRuntime({
       if (!owner.zones.hand.includes(cardId)) throw new Error('青囊弃置的牌不在手上')
       moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
       host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '青囊' }, { sourceId: ownerId, cardIds: [cardId] })
-      markUsedThisTurn(host.state, ownerId, 'qingnang')
+      markUsedThisPhase(host.state, ownerId, 'qingnang')
       const candidateIds = host.state.players.filter((player) => player.alive && player.hp < player.maxHp).map((player) => player.id)
       // 弃牌之后场上一定还有受伤角色：弃牌本身不会让谁回满
       host.askSkill({
@@ -267,8 +261,8 @@ export const WEI_CHARACTERS: readonly CharacterDefinition[] = [
     maxHp: 3,
     pack: 'standard',
     skills: [
-      { id: 'qingguo', name: '倾国', description: '你可以将一张黑色手牌当【闪】打出。' },
-      { id: 'luoshen', name: '洛神', description: '回合开始阶段，你可以进行判定：若判定结果为黑色，你获得此牌，并可以再次发动【洛神】。' },
+      { id: 'qingguo', name: '倾国', description: '你可以将一张黑色手牌当【闪】使用或打出。' },
+      { id: 'luoshen', name: '洛神', description: '准备阶段，你可以进行判定，当黑色判定牌生效后，你获得之。若结果为黑色，你可以重复此流程。' },
     ],
   },
   {

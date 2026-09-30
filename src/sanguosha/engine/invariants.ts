@@ -45,8 +45,13 @@ export function assertGameInvariants(state: SanguoshaState): void {
      * 这时候体力也是 0、角色进濒死然后阵亡——这是一个合法的终局状态，
      * 不是坏数据。**负数**才是真的错。
      */
-    if (!Number.isInteger(candidate.hp) || !Number.isInteger(candidate.maxHp) || candidate.maxHp < 0 || candidate.hp > candidate.maxHp) {
+    const hpCeiling = Math.max(candidate.maxHp, candidate.hpCeilingOverride ?? candidate.maxHp)
+    if (!Number.isInteger(candidate.hp) || !Number.isInteger(candidate.maxHp) || candidate.maxHp < 0
+      || !Number.isInteger(hpCeiling) || candidate.hp > hpCeiling) {
       throw new Error(`玩家体力非法：${candidate.id}`)
+    }
+    if (candidate.armorPoints !== undefined && (!Number.isInteger(candidate.armorPoints) || candidate.armorPoints < 0 || candidate.armorPoints > 5)) {
+      throw new Error(`玩家护甲非法：${candidate.id}`)
     }
     if (!candidate.alive && !candidate.identityRevealed) throw new Error(`死亡角色身份未公开：${candidate.id}`)
     // 「存活 + 非正体力 + 不在濒死」正常情况下是坏状态，唯一的例外是
@@ -210,6 +215,7 @@ export function assertGameInvariants(state: SanguoshaState): void {
     if (state.phase !== state.extraPhase.phase) throw new Error('额外阶段与当前阶段不一致')
   }
   if (!state.extraPhase && (state.pendingExtraPhases?.length ?? 0) > 0) throw new Error('没有额外阶段在跑却排着后续额外阶段')
+  if (state.extraPhasesAfterCurrent?.some((phase) => phase.playerId !== state.currentPlayerId)) throw new Error('待插入的额外阶段不属于当前回合角色')
   if (state.cardResolution) {
     if (!state.zones.processingArea.includes(state.cardResolution.cardId)) throw new Error('结算中的实体牌不在处理区')
     const stage = state.cardResolution.stage
@@ -232,7 +238,8 @@ export function assertGameInvariants(state: SanguoshaState): void {
     } else if (stage === 'awaiting-intercept') {
       if (!state.skillResolution) throw new Error('成为目标阶段缺少技能等待状态')
     } else if (stage === 'awaiting-dodge' || stage === 'awaiting-nullification') {
-      if (!state.cardResolution.requestId || !state.pendingRequests.some((request) => request.id === state.cardResolution!.requestId && request.kind === 'respond-card')) {
+      if (!state.cardResolution.requestId || !state.pendingRequests.some((request) => request.id === state.cardResolution!.requestId
+        && (request.kind === 'respond-card' || (request.kind === 'choose-cards' && Boolean(request.responsePayment))))) {
         throw new Error('卡牌结算缺少响应 Request')
       }
     } else if (stage === 'awaiting-dying' && state.cardResolution.requestId) {

@@ -48,8 +48,8 @@ const waitingText = computed(() => {
       :class="[`sgs-action-stage__event--${event.kind}`, displayedStage ? `sgs-action-stage__event--skin-${displayedStage.skin}` : 'sgs-action-stage__event--sticky', `sgs-action-stage__event--${weight}`]"
     >
       <span v-if="displayedStage && displayedStage.chainDepth > 1" class="sgs-action-stage__chain">连环第 {{ displayedStage.chainDepth }} 张</span>
-      <button v-if="event.cardName" type="button" @click="glossary?.open(cardGlossary(event.cardName))">{{ event.cardName }}</button>
-      <button v-else-if="event.skillName" type="button" @click="glossary?.open(skillGlossary(event.skillName))">{{ event.skillName }}</button>
+      <button v-if="event.cardName" type="button" :aria-label="`查看词条：${event.cardName}`" @click="glossary?.open(cardGlossary(event.cardName))">{{ event.cardName }}</button>
+      <button v-else-if="event.skillName" type="button" :aria-label="`查看词条：${event.skillName}`" @click="glossary?.open(skillGlossary(event.skillName))">{{ event.skillName }}</button>
       <p>{{ event.text }}</p>
     </div>
     <p v-else class="sgs-action-stage__empty">{{ busy ? '牌局正在推进' : '等待行动' }}</p>
@@ -66,6 +66,16 @@ const waitingText = computed(() => {
 .sgs-action-stage__event--light { padding: 6px 10px; opacity: .82; }
 .sgs-action-stage__event--light p { font-size: 11px; }
 .sgs-action-stage__event--sticky { animation: none; }
+
+@media (max-width: 820px), (orientation: landscape) and (max-height: 500px) {
+  .sgs-action-stage__phase,
+  .sgs-action-stage__event p,
+  .sgs-action-stage__waiting,
+  .sgs-action-stage__empty,
+  .sgs-action-stage__chain { font-size: 10px; }
+  .sgs-action-stage__event button { position: relative; }
+  .sgs-action-stage__event button::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+}
 
 /* 皮肤 */
 .sgs-action-stage__event--skin-strike { border-color: rgba(233,88,70,.7); background: linear-gradient(150deg, rgba(62,32,28,.95), rgba(22,13,11,.95)); }

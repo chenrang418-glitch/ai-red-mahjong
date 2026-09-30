@@ -80,7 +80,7 @@ registerSkillRuntime({
 })
 
 export const ZHUGE_DAN: CharacterDefinition = {
-  id: 'zhuge_dan',
+  id: 'zhugedan',
   name: '诸葛诞',
   kingdom: 'wei',
   gender: 'male',

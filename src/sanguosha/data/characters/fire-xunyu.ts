@@ -4,7 +4,7 @@ import { drawCards } from '../../engine/draw'
 import { registerPindianContinuation, canPindian, startPindian } from '../../engine/pindian'
 import type { ChooseTargetsRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import type { PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 import { queueOnDamaged } from './wei-damage'
@@ -61,7 +61,7 @@ registerSkillRuntime({
 
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
-    if (!owner?.alive || usedThisTurn(state, ownerId, QUHU)) return []
+    if (!owner?.alive || usedThisPhase(state, ownerId, QUHU)) return []
     // 自己没手牌就拼不了点：在合法性阶段就挡掉，不要发动完再弹空选择框
     if (!canPindian(state, ownerId)) return []
     if (quhuTargets(state, ownerId).length === 0) return []
@@ -97,7 +97,7 @@ registerSkillRuntime({
       if (!targetId) return
       if (!quhuTargets(host.state, ownerId).includes(targetId)) return
       // 真正进入拼点才记次数：选目标阶段取消不算发动过
-      markUsedThisTurn(host.state, ownerId, QUHU)
+      markUsedThisPhase(host.state, ownerId, QUHU)
       startPindian(host, {
         id: `quhu-${host.state.seq}`,
         initiatorId: ownerId,

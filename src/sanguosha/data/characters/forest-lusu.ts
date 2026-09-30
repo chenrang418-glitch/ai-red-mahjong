@@ -3,7 +3,7 @@ import { handleEquipmentLost } from '../../engine/equipment'
 import { giveCards, swapHands } from '../../engine/hand-transfer'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { locateOwnedCard, moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
@@ -182,7 +182,7 @@ function performDimeng(host: SkillHost, ownerId: PlayerId, leftId: PlayerId, rig
   const left = playerOf(host.state, leftId)
   const right = playerOf(host.state, rightId)
   if (!left?.alive || !right?.alive) return
-  markUsedThisTurn(host.state, ownerId, DIMENG)
+  markUsedThisPhase(host.state, ownerId, DIMENG)
   host.dispatch('SkillActivated', {
     skillId: DIMENG, skillName: '缔盟', playerId: ownerId, targetIds: [leftId, rightId], result: 'swap',
     logText: `${playerOf(host.state, ownerId)?.nickname}发动【缔盟】，${left.nickname}与${right.nickname}交换手牌`,
@@ -196,7 +196,7 @@ registerSkillRuntime({
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
     if (!owner?.alive) return []
-    if (usedThisTurn(state, ownerId, DIMENG)) return []
+    if (usedThisPhase(state, ownerId, DIMENG)) return []
     if (otherAlive(state, ownerId).length < 2) return []
     return [{ id: `skill:${DIMENG}`, label: '发动【缔盟】：令两名其他角色交换手牌' }]
   },

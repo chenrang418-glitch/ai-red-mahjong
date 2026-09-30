@@ -35,6 +35,12 @@ export interface IncomingDamageContext {
   chainTransfer: boolean
 }
 
+/** 牌在多目标结算过程中，第三方技能对指定目标的统一防止入口。 */
+export interface CardDamageTargetContext extends IncomingDamageContext {
+  targetId: PlayerId
+  sourceId: PlayerId | null
+}
+
 export interface DamageAdjustment {
   amount: number
   nature: DamageNature
@@ -118,6 +124,28 @@ export function adjustIncomingDamage(
   return { amount: Math.max(0, Math.trunc(amount)), nature, appliedSkillIds }
 }
 
+/** Apply third-party effects that adjust a particular player's incoming damage. */
+export function adjustGlobalIncomingDamage(
+  state: SanguoshaState,
+  targetId: PlayerId,
+  context: OutgoingDamageContext & { sourceId: PlayerId | null },
+): DamageAdjustment & { appliedOwners: Array<{ ownerId: PlayerId; skillId: string }> } {
+  let amount = context.amount
+  let nature = context.nature
+  const appliedOwners: Array<{ ownerId: PlayerId; skillId: string }> = []
+  for (const owner of state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const skillId of ownedSkillIds(state, owner.id)) {
+      const change = getSkillRuntime(skillId)?.globalIncomingDamage?.(state, owner.id, targetId, { ...context, amount, nature })
+      if (!change) continue
+      if (change.nature && change.nature !== nature) nature = change.nature
+      if (typeof change.amount === 'number') amount = change.amount
+      appliedOwners.push({ ownerId: owner.id, skillId })
+    }
+  }
+  return { amount: Math.max(0, Math.trunc(amount)), nature, appliedSkillIds: appliedOwners.map(({ skillId }) => skillId), appliedOwners }
+}
+
 /**
  * 伤害来源的技能有没有把这次伤害**整个换成失去体力**（张春华【绝情】）。
  *
@@ -149,6 +177,34 @@ export function interceptIncomingDamage(
   for (const runtime of runtimesOf(host.state, targetId)) {
     if (!runtime.interceptIncomingDamage) continue
     if (runtime.interceptIncomingDamage(host, targetId, context)) return runtime.id
+  }
+  return null
+}
+
+/** Run third-party damage-prevention decisions in stable seat / skill order. */
+export function interceptGlobalIncomingDamage(
+  host: SkillHost,
+  targetId: PlayerId,
+  context: IncomingDamageContext,
+  skipSkillIds: readonly string[] = [],
+): string | null {
+  const skipped = new Set(skipSkillIds)
+  for (const owner of host.state.players) {
+    if (!owner.alive) continue
+    for (const runtime of runtimesOf(host.state, owner.id)) {
+      if (skipped.has(runtime.id) || !runtime.interceptGlobalIncomingDamage) continue
+      if (runtime.interceptGlobalIncomingDamage(host, owner.id, targetId, context)) return runtime.id
+    }
+  }
+  return null
+}
+
+export function interceptCardDamageTarget(host: SkillHost, context: CardDamageTargetContext): { skillId: string; ownerId: PlayerId } | null {
+  for (const owner of host.state.players) {
+    for (const runtime of runtimesOf(host.state, owner.id)) {
+      if (!runtime.interceptCardDamageTarget) continue
+      if (runtime.interceptCardDamageTarget(host, owner.id, context)) return { skillId: runtime.id, ownerId: owner.id }
+    }
   }
   return null
 }

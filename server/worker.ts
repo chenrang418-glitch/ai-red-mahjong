@@ -671,6 +671,7 @@ async function listSgsRooms(request: Request, env: Env): Promise<Response> {
       settings,
       rejoinable,
       joinable: rejoinable || (row.phase === 'lobby' && row.occupied_seats < row.player_count),
+      spectatable: !rejoinable,
       updatedAt: row.updated_at,
     }
   })
@@ -750,6 +751,7 @@ async function sgsRoomSocket(request: Request, env: Env, code: string): Promise<
   const headers = new Headers(request.headers)
   headers.set('x-user-id', user.userId)
   headers.set('x-user-nickname', encodeURIComponent(user.nickname))
+  headers.set('x-sgs-spectator', new URL(request.url).searchParams.get('spectator') === '1' ? '1' : '0')
   const stub = env.SGS_ROOMS.get(env.SGS_ROOMS.idFromName(code))
   return stub.fetch('https://sgs-room.internal/socket', { headers })
 }
@@ -1381,7 +1383,8 @@ export class SanguoshaRoom {
       const userId = request.headers.get('x-user-id') ?? ''
       const encodedNickname = request.headers.get('x-user-nickname') ?? ''
       const user: RoomUser = { userId, nickname: normalizeNickname(decodeURIComponent(encodedNickname)) }
-      const rejection = !this.coordinator ? '房间不存在或已经关闭' : this.tryConnect(user)
+      const asSpectator = request.headers.get('x-sgs-spectator') === '1'
+      const rejection = !this.coordinator ? '房间不存在或已经关闭' : this.tryConnect(user, asSpectator)
       if (rejection) return rejectSocket(rejection)
       const pair = new WebSocketPair()
       const [client, server] = Object.values(pair)
@@ -1580,9 +1583,9 @@ export class SanguoshaRoom {
     }
   }
 
-  private tryConnect(user: RoomUser): string | null {
+  private tryConnect(user: RoomUser, asSpectator = false): string | null {
     try {
-      this.coordinator!.connect(user)
+      this.coordinator!.connect(user, Date.now(), asSpectator)
       return null
     } catch (cause) {
       return cause instanceof Error ? cause.message : String(cause)

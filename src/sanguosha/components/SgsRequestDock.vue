@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import SgsCard from './SgsCard.vue'
 import SgsFactionBadge from './SgsFactionBadge.vue'
 import { getCharacter } from '../data/characters/standard'
@@ -21,19 +21,82 @@ const props = withDefaults(defineProps<{ request: GameRequest; view: PlayerView;
 const emit = defineEmits<{ submit: [response: GameResponse] }>()
 
 const selectedCards = ref<string[]>([])
+const zhengxuanSliceActive = ref(false)
+let zhengxuanPointerClickPending = false
 const selectedTargets = ref<string[]>([])
 const selectedGeneral = ref<string | null>(null)
 const topCards = ref<string[]>([])
 const bottomCards = ref<string[]>([])
+const waterwheelNow = ref(Date.now())
+const waterwheelRequestStartedAt = ref(Date.now())
+const pingcaiScratched = ref<number[]>([])
+const pingcaiIsDragging = ref(false)
+const spiritDirection = ref<string | null>(null)
+const waterwheelTicker = typeof window === 'undefined' ? null : window.setInterval(() => { waterwheelNow.value = Date.now() }, 100)
+onBeforeUnmount(() => { if (waterwheelTicker !== null && typeof window !== 'undefined') window.clearInterval(waterwheelTicker) })
+const waterwheelSeconds = computed(() => props.request.kind === 'choose-option' && props.request.interaction?.kind === 'waterwheel'
+  ? Math.max(0, (props.request.timeoutMs - (waterwheelNow.value - waterwheelRequestStartedAt.value)) / 1000) : 0)
 
 // 换了一个请求就把上一次的选择清掉，避免把旧选择提交给新请求
 watch(() => props.request.id, () => {
+  waterwheelRequestStartedAt.value = Date.now()
+  pingcaiScratched.value = []
+  pingcaiIsDragging.value = false
+  zhengxuanSliceActive.value = false
+  zhengxuanPointerClickPending = false
   selectedCards.value = []
   selectedTargets.value = []
   selectedGeneral.value = null
   topCards.value = []
   bottomCards.value = props.request.kind === 'arrange-cards' ? [...props.request.cardIds] : []
+  if (props.request.kind !== 'choose-option' || !['spirit-gathering', 'nanhua-flight'].includes(props.request.interaction?.kind ?? '')) {
+    spiritDirection.value = null
+  } else if (spiritDirection.value && props.request.options.some(option => option.id === spiritDirection.value)) {
+    submit({ optionId: spiritDirection.value })
+  }
 }, { immediate: true })
+
+function beginSpiritHold(direction: string): void {
+  if (props.request.kind !== 'choose-option' || props.request.interaction?.kind !== 'spirit-gathering'
+    || !props.request.options.some(option => option.id === direction)) return
+  spiritDirection.value = direction
+  submit({ optionId: direction })
+}
+
+function releaseSpiritHold(): void { spiritDirection.value = null }
+
+function handleSpiritKeyDown(event: KeyboardEvent): void {
+  const direction = event.key === 'ArrowLeft' ? 'left' : event.key === 'ArrowRight' ? 'right' : event.key === 'ArrowDown' ? 'stay' : null
+  if (!direction || event.repeat || spiritDirection.value) return
+  if (props.request.kind !== 'choose-option' || props.request.interaction?.kind !== 'spirit-gathering') return
+  event.preventDefault()
+  beginSpiritHold(direction)
+}
+
+function handleSpiritKeyUp(event: KeyboardEvent): void {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowDown'].includes(event.key)) releaseSpiritHold()
+}
+
+function releaseSpiritOnBlur(): void { releaseSpiritHold() }
+
+onMounted(() => {
+  window.addEventListener('keydown', handleSpiritKeyDown)
+  window.addEventListener('keyup', handleSpiritKeyUp)
+  window.addEventListener('pointerup', releaseSpiritOnBlur)
+  window.addEventListener('blur', releaseSpiritOnBlur)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleSpiritKeyDown)
+  window.removeEventListener('keyup', handleSpiritKeyUp)
+  window.removeEventListener('pointerup', releaseSpiritOnBlur)
+  window.removeEventListener('blur', releaseSpiritOnBlur)
+})
+
+function scratchPingcaiCell(index: number): void {
+  if (props.request.kind !== 'choose-option' || props.request.interaction?.kind !== 'pingcai-scratch') return
+  if (pingcaiScratched.value.includes(index)) return
+  pingcaiScratched.value = [...pingcaiScratched.value, index]
+}
 
 const me = computed(() => props.view.players.find((player) => player.id === props.view.viewerId))
 
@@ -59,6 +122,20 @@ function toggleIn(list: string[], value: string, max: number): string[] {
 }
 
 function toggleCard(value: string, max: number): void { selectedCards.value = toggleIn(selectedCards.value, value, max) }
+function sliceZhengxuanCard(cardId: string): void {
+  if (!cardRequest.value || cardRequest.value.interaction?.kind !== 'zhengxuan-slice') return
+  if (!selectedCards.value.includes(cardId)) selectedCards.value = [...selectedCards.value, cardId]
+}
+function toggleZhengxuanCard(cardId: string): void {
+  if (!cardRequest.value || cardRequest.value.interaction?.kind !== 'zhengxuan-slice') return
+  selectedCards.value = selectedCards.value.includes(cardId)
+    ? selectedCards.value.filter((id) => id !== cardId)
+    : [...selectedCards.value, cardId]
+}
+function handleZhengxuanCardClick(cardId: string): void {
+  if (zhengxuanPointerClickPending) { zhengxuanPointerClickPending = false; return }
+  toggleZhengxuanCard(cardId)
+}
 function toggleTarget(value: string, max: number): void { selectedTargets.value = toggleIn(selectedTargets.value, value, max) }
 
 const cardRequest = computed(() => (props.request.kind === 'choose-cards' ? props.request : null))
@@ -304,6 +381,24 @@ function withCharacterNames(text: string): string {
 
     <!-- 选牌：暗槽只显示牌背，绝不泄露牌面 -->
     <template v-else-if="request.kind === 'choose-cards'">
+      <template v-if="request.interaction?.kind === 'zhengxuan-slice'">
+        <p class="sgs-dock__hint">【整经】划取你要整理出的牌；未划取的牌由郑玄获得。可连续划过多张牌。</p>
+        <div class="zhengxuan-slice" role="group" aria-label="整经划牌区" @pointerup="zhengxuanSliceActive = false" @pointercancel="zhengxuanSliceActive = false; zhengxuanPointerClickPending = false" @pointerleave="zhengxuanSliceActive = false">
+          <div
+            v-for="cardId in request.cardIds"
+            :key="cardId"
+            class="zhengxuan-slice__card"
+            :class="{ 'is-sliced': selectedCards.includes(cardId) }"
+            @pointerdown.prevent="zhengxuanPointerClickPending = true; zhengxuanSliceActive = true; toggleZhengxuanCard(cardId)"
+            @pointerenter="zhengxuanSliceActive && sliceZhengxuanCard(cardId)"
+          ><SgsCard :card="cardOf(cardId)" :selected="selectedCards.includes(cardId)" @click="handleZhengxuanCardClick(cardId)" /></div>
+        </div>
+        <div class="sgs-dock__actions">
+          <span class="sgs-dock__count">已整理 {{ selectedCards.length }} / {{ request.cardIds.length }} 张；可一张不选</span>
+          <button type="button" class="primary" @click="submit({ cardIds: [...selectedCards] })">完成整理</button>
+        </div>
+      </template>
+      <template v-else>
       <!-- 只看不可选的那部分：观看手牌类技能靠它把整副牌摆出来 -->
       <template v-if="viewOnlyCards.length > 0">
         <p class="sgs-dock__hint">以下是对方的其余手牌，只能看，不能选</p>
@@ -326,6 +421,7 @@ function withCharacterNames(text: string): string {
         <button v-if="cardRequest && cardRequest.min === 0" type="button" class="ghost" @click="submit({ cardIds: [] })">跳过</button>
         <button type="button" class="primary" :disabled="!cardCountOk" @click="submit({ cardIds: [...selectedCards] })">确定</button>
       </div>
+      </template>
     </template>
 
     <!-- 选目标 -->
@@ -347,7 +443,80 @@ function withCharacterNames(text: string): string {
 
     <!-- 选项 -->
     <template v-else-if="request.kind === 'choose-option'">
-      <div class="sgs-dock__actions">
+      <template v-if="request.interaction?.kind === 'waterwheel'">
+        <p class="sgs-dock__hint">剩余 {{ waterwheelSeconds.toFixed(1) }} 秒 · 已点亮 {{ request.interaction.active.length }} / 3</p>
+        <div class="ma-jun-waterwheel" role="group" aria-label="水转百戏图水阀">
+          <button
+            v-for="(option, index) in request.options.filter(item => item.id.startsWith('valve:'))"
+            :key="option.id"
+            type="button"
+            class="ma-jun-waterwheel__valve"
+            :class="{ active: request.interaction.active.includes(index) }"
+            :disabled="request.interaction.active.includes(index) || waterwheelSeconds <= 0"
+            :aria-label="option.label"
+            @click="submit({ optionId: option.id })"
+          >
+            <span class="ma-jun-waterwheel__name">{{ ['王','商','工','农','士','将'][index] }}</span>
+            <span class="ma-jun-waterwheel__meter"><i :style="{ width: `${Math.min(100, request.interaction.progress[index] / [3,2,1,1,2,3][index] * 100)}%` }" /></span>
+            <small>{{ request.interaction.progress[index] }} / {{ [3,2,1,1,2,3][index] }}</small>
+          </button>
+        </div>
+      </template>
+      <template v-else-if="request.interaction?.kind === 'pingcai-scratch'">
+        <p class="sgs-dock__hint">【评才】擦拭「{{ { wolong: '卧龙', fengchu: '凤雏', shuijing: '水镜', xuanjian: '玄剑' }[request.interaction.treasure] }}」：按住并拖动擦去灰尘（{{ pingcaiScratched.length }} / {{ request.interaction.cellCount }}）</p>
+        <div class="pang-degong-scratch" role="group" aria-label="评才宝物擦拭区" @pointerup="pingcaiIsDragging = false" @pointercancel="pingcaiIsDragging = false" @pointerleave="pingcaiIsDragging = false">
+          <button
+            v-for="index in request.interaction.cellCount"
+            :key="index - 1"
+            type="button"
+            class="pang-degong-scratch__cell"
+            :class="{ 'is-scratched': pingcaiScratched.includes(index - 1) }"
+            :aria-label="pingcaiScratched.includes(index - 1) ? `灰尘格 ${index} 已擦净` : `擦拭灰尘格 ${index}`"
+            :disabled="pingcaiScratched.includes(index - 1)"
+            @pointerdown.prevent="pingcaiIsDragging = true; scratchPingcaiCell(index - 1)"
+            @pointerenter="pingcaiIsDragging && scratchPingcaiCell(index - 1)"
+            @click="scratchPingcaiCell(index - 1)"
+          >{{ pingcaiScratched.includes(index - 1) ? '✦' : '灰' }}</button>
+        </div>
+        <p v-if="pingcaiScratched.length === request.interaction.cellCount" class="sgs-dock__hint" role="status">
+          {{ request.interaction.success ? '擦拭成功！' : '未能擦拭成功。' }}
+        </p>
+        <div class="sgs-dock__actions">
+          <button type="button" class="primary" :disabled="pingcaiScratched.length !== request.interaction.cellCount" @click="submit({ optionId: 'scratch-complete', scratchedCells: [...pingcaiScratched] })">确认结果</button>
+          <button type="button" @click="submit({ optionId: 'scratch-stop', scratchedCells: [...pingcaiScratched] })">停止擦拭</button>
+        </div>
+      </template>
+      <template v-else-if="request.interaction?.kind === 'spirit-gathering'">
+        <p class="sgs-dock__hint">【集灵】左右移动接莲花、躲避电球 · 当前 {{ request.interaction.score }} / 5 分</p>
+        <p class="sgs-dock__hint">按住左右方向按钮或键盘 ← / → 移动；按住 ↓ 保持当前位置。</p>
+        <div class="sun-hanhua-spirit" role="group" aria-label="集灵挑战控制面板">
+          <div class="sun-hanhua-spirit__field" role="img" aria-label="集灵场地；可按住左右方向键或方向按钮移动">
+            <span v-for="lane in 3" :key="lane" class="sun-hanhua-spirit__lane" :class="{ occupied: lane - 1 === request.interaction.lane }">
+              {{ lane - 1 === request.interaction.lane ? '🧺' : '·' }}
+            </span>
+            <span class="sun-hanhua-spirit__falling" :class="request.interaction.falling" :style="{ '--falling-lane': request.interaction.fallingLane, top: `${8 + Math.min(1, request.interaction.index / Math.max(1, request.interaction.cellCount - 1)) * 68}%` }" aria-hidden="true">
+              {{ request.interaction.falling === 'thunder' ? '⚡' : request.interaction.falling === 'lotus-red' ? '🌺' : '🪷' }}
+            </span>
+          </div>
+          <div class="sun-hanhua-spirit__controls">
+            <button v-for="option in request.options" :key="option.id" type="button" :aria-label="option.label" @pointerdown.prevent="beginSpiritHold(option.id)" @click="$event.detail === 0 && submit({ optionId: option.id })">{{ option.label }}</button>
+          </div>
+        </div>
+      </template>
+      <template v-else-if="request.interaction?.kind === 'nanhua-flight'">
+        <p class="sgs-dock__hint">【御风】第 {{ request.interaction.frame }} / {{ request.interaction.courseLength }} 拍 · 星数 {{ request.interaction.score }} / {{ request.interaction.maxScore }}</p>
+        <div class="nanhua-flight" role="group" aria-label="御风飞行小游戏">
+          <div class="nanhua-flight__sky" role="img" :aria-label="`飞行高度 ${request.interaction.altitude}，前方山岩缺口在高度 ${request.interaction.gapRow}，星星在高度 ${request.interaction.starRow}`">
+            <span v-if="request.interaction.nextStarFrame" class="nanhua-flight__star" :style="{ top: `${request.interaction.starRow * 18 + 5}%` }" aria-hidden="true">✦</span>
+            <span class="nanhua-flight__rock" :style="{ top: `${request.interaction.gapRow * 18 + 3}%` }" aria-hidden="true">▥</span>
+            <span class="nanhua-flight__bird" :style="{ top: `${request.interaction.altitude * 18 + 4}%` }" aria-hidden="true">🕊️</span>
+          </div>
+          <div class="nanhua-flight__controls">
+            <button v-for="option in request.options" :key="option.id" type="button" class="primary" @click="submit({ optionId: option.id })">{{ option.label }}</button>
+          </div>
+        </div>
+      </template>
+      <div v-else class="sgs-dock__actions">
         <button
           v-for="option in request.options"
           :key="option.id"
@@ -360,6 +529,12 @@ function withCharacterNames(text: string): string {
 
     <!-- 选花色 -->
     <template v-else-if="request.kind === 'choose-suit'">
+      <template v-if="request.viewOnlyCardIds?.length">
+        <p class="sgs-dock__hint">查看目标手牌后选择花色</p>
+        <div class="sgs-dock__cards sgs-dock__cards--readonly">
+          <SgsCard v-for="cardId in request.viewOnlyCardIds" :key="cardId" :card="cardOf(cardId)" :back-index="null" />
+        </div>
+      </template>
       <div class="sgs-dock__actions">
         <button
           v-for="suit in request.suits"
@@ -538,6 +713,9 @@ function withCharacterNames(text: string): string {
 
 .sgs-dock__prompt { margin: 0; color: #e9d9a6; font-size: 13px; font-weight: 700; }
 .sgs-dock__hint { margin: 0; color: #93a49b; font-size: 11px; line-height: 1.5; }
+.zhengxuan-slice { display: flex; justify-content: center; gap: 8px; overflow-x: auto; padding: 8px 2px; touch-action: none; }
+.zhengxuan-slice__card { appearance: none; border: 0; padding: 0; background: transparent; cursor: crosshair; transition: transform .16s ease, filter .16s ease; }
+.zhengxuan-slice__card.is-sliced { transform: translateY(-8px) rotate(-4deg); filter: drop-shadow(0 0 8px #d9bd68); }
 /* 已定顺序：横排、自动编号，一眼看完整条排列 */
 .sgs-dock__order {
   display: flex; flex-wrap: wrap; gap: 6px;
@@ -663,6 +841,36 @@ button { min-height: 40px; padding: 0 14px; border-radius: 9px; cursor: pointer;
   background: #16241e; color: #cbd6cd; font-size: 11px;
 }
 .sgs-dock__missing { margin: 0; color: #e9948a; font-size: 12px; }
+
+.ma-jun-waterwheel { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ma-jun-waterwheel__valve {
+  display: grid; justify-items: center; gap: 5px; min-width: 0; padding: 9px 6px;
+  border: 1px solid #52604e; border-radius: 10px; color: #d9dfca; background: linear-gradient(180deg, #273b32, #17251f);
+}
+.ma-jun-waterwheel__valve.active { border-color: #dfba5d; color: #ffe9a7; box-shadow: inset 0 0 14px #c89b3c3d; }
+.ma-jun-waterwheel__valve:disabled:not(.active) { opacity: .55; }
+.ma-jun-waterwheel__name { font-size: 18px; font-weight: 800; }
+.ma-jun-waterwheel__meter { width: 100%; height: 5px; overflow: hidden; border-radius: 5px; background: #101713; }
+.ma-jun-waterwheel__meter i { display: block; height: 100%; background: linear-gradient(90deg, #87b6a0, #edca69); transition: width .15s ease; }
+.ma-jun-waterwheel__valve small { color: #aab8a7; font-size: 10px; }
+.pang-degong-scratch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; max-width: 260px; margin: 0 auto 12px; }
+.pang-degong-scratch__cell { min-height: 44px; border: 1px solid #a78b51; border-radius: 8px; color: #d6c293; background: linear-gradient(145deg, #77694e, #494234); font-weight: 800; touch-action: none; user-select: none; cursor: crosshair; }
+.pang-degong-scratch__cell.is-scratched { color: #e8dba9; background: linear-gradient(145deg, #263d32, #1e2b26); border-color: #8ca985; }
+.sun-hanhua-spirit { display: grid; gap: 10px; }
+.sun-hanhua-spirit__field { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); min-height: 76px; overflow: hidden; border: 1px solid #c5d3c8; border-radius: 14px; background: linear-gradient(#eaf5f0, #f8f4df); }
+.sun-hanhua-spirit__lane { display: grid; place-items: end center; padding-bottom: 8px; color: #91a59a; border-right: 1px dashed #a9bcb0; font-size: 20px; }
+.sun-hanhua-spirit__lane:last-of-type { border-right: 0; }
+.sun-hanhua-spirit__lane.occupied { color: #34724c; }
+.sun-hanhua-spirit__falling { position: absolute; left: calc((var(--falling-lane, 1) + .5) * 33.333%); transform: translate(-50%, -50%); transition: top .3s linear; font-size: 22px; }
+.sun-hanhua-spirit__controls { display: flex; justify-content: center; gap: 8px; }
+.sun-hanhua-spirit__controls button { min-width: 72px; }
+.nanhua-flight { display: grid; gap: 10px; }
+.nanhua-flight__sky { position: relative; height: 128px; overflow: hidden; border: 1px solid #8a9fa8; border-radius: 14px; background: linear-gradient(#b7d9eb, #edf3d8 72%, #8ca47e); }
+.nanhua-flight__sky::before { content: ''; position: absolute; inset: 0 0 0 68%; border-left: 2px dashed #708779; background: linear-gradient(90deg, transparent, #667c7180); }
+.nanhua-flight__bird, .nanhua-flight__star, .nanhua-flight__rock { position: absolute; z-index: 1; left: 28%; transform: translate(-50%, -50%); transition: top .12s linear; font-size: 21px; }
+.nanhua-flight__star { left: 57%; color: #f6c74d; text-shadow: 0 1px 4px #775c1a; }
+.nanhua-flight__rock { left: 82%; color: #53635b; font-size: 25px; }
+.nanhua-flight__controls { display: flex; justify-content: center; gap: 8px; }
 
 @media (orientation: landscape) and (max-height: 500px) {
   .sgs-dock { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); gap: 5px; }

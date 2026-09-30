@@ -1,4 +1,4 @@
-import type { PlayerId, SanguoshaState } from './types'
+import type { CardId, PlayerId, SanguoshaState } from './types'
 
 /**
  * 「某名角色的防具技能对某个来源无效」的公共机制。
@@ -22,11 +22,13 @@ export interface ArmorSuppression {
   /** 哪些角色的防具被压制。 */
   targetIds: PlayerId[]
   /** 目前只有「本回合结束时解除」一种。 */
-  expiry: 'turn-end'
+  expiry: 'turn-end' | 'card-use-end'
   /** 施加时的回合序号，用于回合结束时判断该不该清。 */
   appliedTurn: number
   /** 施加它的技能，用于战报和调试。 */
   skillId?: string
+  /** 仅在该实体牌的整次使用结算期间生效。 */
+  cardId?: CardId
 }
 
 /** 目标的防具技能对这个来源是否已被压制。 */
@@ -34,10 +36,12 @@ export function isArmorSuppressed(
   state: SanguoshaState,
   targetId: PlayerId,
   sourceId: PlayerId | null | undefined,
+  cardId?: CardId,
 ): boolean {
   if (!sourceId) return false
   return (state.armorSuppressions ?? []).some((entry) => (
     entry.sourceId === sourceId && entry.targetIds.includes(targetId)
+      && (entry.expiry !== 'card-use-end' || Boolean(cardId && entry.cardId === cardId))
   ))
 }
 
@@ -54,7 +58,7 @@ export function suppressArmor(
   skillId?: string,
 ): void {
   state.armorSuppressions ??= []
-  const existing = state.armorSuppressions.find((entry) => entry.sourceId === sourceId)
+  const existing = state.armorSuppressions.find((entry) => entry.sourceId === sourceId && entry.expiry === 'turn-end' && !entry.cardId)
   if (existing) {
     if (!existing.targetIds.includes(targetId)) existing.targetIds.push(targetId)
     existing.appliedTurn = state.turnNumber
@@ -67,6 +71,21 @@ export function suppressArmor(
     appliedTurn: state.turnNumber,
     ...(skillId ? { skillId } : {}),
   })
+}
+
+/** 把防具失效精确绑定到一张正在结算的牌，防止效果泄漏至后续出牌。 */
+export function suppressArmorForCard(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId, cardId: CardId, skillId: string): void {
+  state.armorSuppressions ??= []
+  const existing = state.armorSuppressions.find((entry) => entry.sourceId === sourceId && entry.cardId === cardId && entry.skillId === skillId)
+  if (existing) {
+    if (!existing.targetIds.includes(targetId)) existing.targetIds.push(targetId)
+    return
+  }
+  state.armorSuppressions.push({ sourceId, targetIds: [targetId], expiry: 'card-use-end', appliedTurn: state.turnNumber, skillId, cardId })
+}
+
+export function clearArmorSuppressionForCard(state: SanguoshaState, sourceId: PlayerId, cardId: CardId): void {
+  state.armorSuppressions = (state.armorSuppressions ?? []).filter((entry) => !(entry.sourceId === sourceId && entry.cardId === cardId && entry.expiry === 'card-use-end'))
 }
 
 /**

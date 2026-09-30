@@ -113,8 +113,8 @@ registerSkillRuntime({
   triggers: [{
     event: 'GainCard',
     handle(host, ownerId, context) {
-      const payload = context.event.payload as { reason?: string }
-      if (payload.reason === 'draw') return
+      const payload = context.event.payload as { reason?: string; isDraw?: boolean }
+      if (payload.isDraw || payload.reason === 'draw') return
       const owner = playerOf(host.state, ownerId)
       if (!owner?.alive) return
       const armedTurn = owner.marks[BIRI + '-armed']

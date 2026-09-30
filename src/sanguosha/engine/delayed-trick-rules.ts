@@ -1,4 +1,4 @@
-import type { Suit } from './types'
+import type { PlayerId, SanguoshaState, Suit } from './types'
 
 /**
  * 延时锦囊的判定是否「命中」——也就是这张牌是否真的产生了效果。
@@ -15,4 +15,17 @@ export function delayedTrickHits(name: string, suit: Suit, rank: number): boolea
   if (name === '兵粮寸断') return suit !== 'club'
   if (name === '闪电') return suit === 'spade' && rank >= 2 && rank <= 9
   return false
+}
+
+/**
+ * 某些技能会在本局为特定角色扩展延时锦囊的判定命中组合。
+ * 这份角色限定修正规则同时供真实结算与公开结果提示调用。
+ */
+export function delayedTrickHitsForPlayer(state: SanguoshaState, playerId: PlayerId, name: string, suit: Suit, rank: number): boolean {
+  if (delayedTrickHits(name, suit, rank)) return true
+  const rules = state as SanguoshaState & {
+    additionalDelayedTrickHitFaces?: Partial<Record<PlayerId, Partial<Record<string, Array<{ suit: Suit; rank: number }>>>>>
+  }
+  return rules.additionalDelayedTrickHitFaces?.[playerId]?.[name]
+    ?.some((face) => face.suit === suit && face.rank === rank) ?? false
 }

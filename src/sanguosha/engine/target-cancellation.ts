@@ -1,5 +1,7 @@
 import type { SkillHost } from './skills/runtime'
 import type { PlayerId } from './types'
+import type { SanguoshaState } from './types'
+import { cardUseTargetsOf } from './card-use-targets'
 
 /**
  * 「此牌对**我**无效」——成为目标之后，只取消自己这一个目标。
@@ -42,4 +44,23 @@ export function currentCardUserIsOther(host: SkillHost, ownerId: PlayerId): bool
   const resolution = host.state.cardResolution
   if (!resolution) return false
   return resolution.sourceId !== ownerId
+}
+
+/** 将当前正在处理的单一目标替换为另一名角色，并同步本次用牌目标账本。 */
+export function redirectCurrentCardTarget(state: SanguoshaState, fromId: PlayerId, toId: PlayerId): boolean {
+  const resolution = state.cardResolution
+  if (!resolution || fromId === toId) return false
+  if (resolution.kind === 'slash') {
+    if (resolution.targetId !== fromId || resolution.stage !== 'awaiting-intercept') return false
+    resolution.targetId = toId
+    resolution.interceptsDone = []
+  } else if (resolution.kind === 'trick') {
+    if (resolution.targetIds.length !== 1 || resolution.targetIds[resolution.targetIndex] !== fromId
+      || resolution.stage !== 'awaiting-intercept') return false
+    resolution.targetIds[resolution.targetIndex] = toId
+    resolution.interceptsDone = []
+  } else return false
+  const entry = cardUseTargetsOf(state, resolution.cardId)
+  if (entry?.targetIds.length === 1 && entry.targetIds[0] === fromId) entry.targetIds[0] = toId
+  return true
 }

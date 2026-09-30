@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCharacter } from '../data/characters/standard'
 import { huashenEligibleSkills } from '../engine/huashen'
-import { cardGlossary, characterGlossary, identityGlossary, ruleGlossary, skillGlossary } from '../glossary'
+import { cardGlossary, characterGlossary, identityGlossary, ruleGlossary, skillGlossary, type GlossaryEntry } from '../glossary'
 import { useSgsGlossary } from '../composables/useSgsGlossary'
 import type { PlayerPublicView } from '../engine/view'
 import { characterPortrait } from '../assets/characters/manifest'
@@ -31,8 +31,38 @@ const IDENTITY_TEXT: Record<string, string> = { lord: '主公', loyalist: '忠�
 const SLOT_TEXT: Record<string, string> = { weapon: '武器', armor: '防具', offensiveHorse: '-1马', defensiveHorse: '+1马' }
 const GENDER_TEXT: Record<string, string> = { male: '男', female: '女' }
 const huashenPanelOpen = ref(false)
+const detailsPanelOpen = ref(false)
+const compactMode = ref(false)
+let compactMedia: MediaQueryList | null = null
 
-const character = computed(() => (props.player.characterId ? getCharacter(props.player.characterId) : undefined))
+function syncCompactMode(): void {
+  compactMode.value = compactMedia?.matches ?? false
+}
+onMounted(() => {
+  compactMedia = window.matchMedia('(max-width: 820px), (orientation: landscape) and (max-height: 500px)')
+  syncCompactMode()
+  compactMedia.addEventListener('change', syncCompactMode)
+})
+onBeforeUnmount(() => compactMedia?.removeEventListener('change', syncCompactMode))
+
+function openFromDetails(entry: GlossaryEntry | null): void {
+  detailsPanelOpen.value = false
+  glossary?.open(entry)
+}
+
+function playerSkillGlossary(skillId: string): GlossaryEntry | null {
+  const entry = skillGlossary(skillId)
+  const description = props.player.skills.find((skill) => skill.id === skillId)?.description
+  return entry && description ? { ...entry, description } : entry
+}
+
+const generalSlots = computed(() => props.player.generalSlots ?? (props.player.characterId
+  ? [{ slot: 'primary' as const, characterId: props.player.characterId, revealed: true }]
+  : []))
+const visibleGeneralCharacterId = computed(() => props.player.characterId
+  ?? generalSlots.value.find((slot) => slot.characterId)?.characterId
+  ?? null)
+const character = computed(() => (visibleGeneralCharacterId.value ? getCharacter(visibleGeneralCharacterId.value) : undefined))
 /**
  * 判定区的一字标记。延时锦囊只有这三种，首字不会混淆。
  * 全名走 aria-label / title / 词条面板，信息没有丢。
@@ -47,7 +77,10 @@ function judgeMark(cardName: string): string {
  * **白名单，不是把 marks 全倒出来**：marks 里还躺着一堆内部记账
  * （耍剑的本回合禁令、奶蛙的出牌计数、妈妈的重放标记），那些不是给玩家看的。
  */
-const VISIBLE_MARKS: Record<string, string> = { debt: '债', rennai: '忍', ting: '霆', huang: '黄' }
+const VISIBLE_MARKS: Record<string, string> = {
+  debt: '债', rennai: '忍', ting: '霆', huang: '黄',
+  b51PangtongModeYin: '寅谋·阴', b51PangtongModeYang: '寅谋·阳',
+}
 const marks = computed(() => (props.player.alive
   ? Object.entries(props.player.marks ?? {})
     .filter(([key, value]) => VISIBLE_MARKS[key] && value > 0)
@@ -82,7 +115,7 @@ const identityText = computed(() => (props.player.identity ? IDENTITY_TEXT[props
  */
 const hpHearts = computed(() => Array.from({ length: props.player.maxHp }, (_, index) => index < props.player.hp))
 const initials = computed(() => character.value?.name.slice(-1) ?? props.player.nickname.slice(0, 1))
-const portrait = computed(() => characterPortrait(props.player.characterId))
+const portrait = computed(() => characterPortrait(visibleGeneralCharacterId.value))
 const activeHuashen = computed(() => {
   const state = props.player.huashen
   if (!state?.activeCharacterId) return null
@@ -127,6 +160,7 @@ const factionVars = computed(() => {
       'sgs-seat--active': active, 'sgs-seat--targeting': targeting, 'sgs-seat--selected': selected, 'sgs-seat--selectable': selectable,
       'sgs-seat--dead': !player.alive, 'sgs-seat--chained': player.chained, 'sgs-seat--threatened': threatened,
       'sgs-seat--has-art': !!portrait,
+      'sgs-seat--compact': compactMode,
       [`sgs-seat--effect-${effect}`]: !!effect,
     }"
     :data-seat-id="player.id"
@@ -147,28 +181,41 @@ const factionVars = computed(() => {
       <span v-if="active" class="sgs-seat__turn">行动中</span>
     </div>
     <header class="sgs-seat__header">
-      <button type="button" class="sgs-seat__identity" :class="`sgs-seat__identity--${player.identity ?? 'hidden'}`" @click.stop="glossary?.open(identityGlossary(player.identity))">{{ identityText }}</button>
+      <button type="button" class="sgs-seat__identity" :class="`sgs-seat__identity--${player.identity ?? 'hidden'}`" :disabled="compactMode" :aria-label="player.identity ? `查看词条：${identityText}` : '身份未公开'" @click.stop="glossary?.open(identityGlossary(player.identity))">{{ identityText }}</button>
       <strong>{{ player.nickname }}</strong>
     </header>
     <div class="sgs-seat__body">
-      <button v-if="character" type="button" class="sgs-seat__general" @click.stop="glossary?.open(characterGlossary(player.characterId!))">{{ displayName || character.name }}</button>
+      <div v-if="generalSlots.length" class="sgs-seat__generals">
+        <template v-for="slot in generalSlots" :key="slot.slot">
+          <button v-if="slot.characterId" type="button" class="sgs-seat__general" :disabled="compactMode" :aria-label="`查看${slot.slot === 'primary' ? '主将' : '副将'}词条：${getCharacter(slot.characterId)?.name ?? '未知'}`" @click.stop="glossary?.open(characterGlossary(slot.characterId))">{{ slot.slot === 'primary' && slot.characterId === player.characterId ? displayName || character?.name : getCharacter(slot.characterId)?.name }}<small>{{ slot.slot === 'primary' ? '主将' : '副将' }}{{ slot.revealed ? '' : '·暗置' }}</small></button>
+          <span v-else class="sgs-seat__general">{{ slot.slot === 'primary' ? '主将' : '副将' }}·暗置</span>
+        </template>
+      </div>
       <span v-else class="sgs-seat__general">未选将</span>
       <div class="sgs-seat__hp" :aria-label="`体力 ${player.hp} / ${player.maxHp}`"><span v-for="(filled, index) in hpHearts" :key="index" :class="{ empty: !filled }">{{ filled ? '♥' : '♡' }}</span><small>{{ player.hp }}/{{ player.maxHp }}</small></div>
+      <span v-if="player.armorPoints > 0" :aria-label="`护甲 ${player.armorPoints} 点`">护甲 {{ player.armorPoints }}</span>
       <div class="sgs-seat__meta">
         <span>手牌 {{ player.handCount }}</span>
-        <button v-if="player.id === viewerId" type="button" @click.stop="glossary?.open(ruleGlossary('range'))">范围 {{ player.attackRange }}</button>
-        <button v-else-if="player.distanceFromViewer !== null" type="button" @click.stop="glossary?.open(ruleGlossary('distance'))">距 {{ player.distanceFromViewer }}</button>
+        <button v-if="player.id === viewerId" type="button" :disabled="compactMode" aria-label="查看词条：攻击范围" @click.stop="glossary?.open(ruleGlossary('range'))">范围 {{ player.attackRange }}</button>
+        <button v-else-if="player.distanceFromViewer !== null" type="button" :disabled="compactMode" aria-label="查看词条：距离" @click.stop="glossary?.open(ruleGlossary('distance'))">距 {{ player.distanceFromViewer }}</button>
       </div>
     </div>
+    <div v-if="player.faceUpHand.length" class="sgs-seat__face-up-hand" :aria-label="`${player.nickname}的明置手牌`">
+      <span>明置</span>
+      <button v-for="card in player.faceUpHand" :key="card.id" type="button" :disabled="compactMode"
+        :aria-label="`明置手牌：${card.name}，${card.suit}，${card.rank}`" @click.stop="glossary?.open(cardGlossary(card.name))">
+        {{ card.name }}
+      </button>
+    </div>
     <div v-if="player.equipment.length" class="sgs-seat__equipment">
-      <button v-for="card in player.equipment" :key="card.id" type="button" @click.stop="glossary?.open(cardGlossary(card.name))"><small>{{ SLOT_TEXT[card.equipmentSlot ?? ''] ?? '装备' }}</small><span>{{ card.name }}</span></button>
+      <button v-for="card in player.equipment" :key="card.id" type="button" :disabled="compactMode" :aria-label="`查看词条：${card.name}`" @click.stop="glossary?.open(cardGlossary(card.name))"><small>{{ SLOT_TEXT[card.equipmentSlot ?? ''] ?? '装备' }}</small><span>{{ card.name }}</span></button>
     </div>
     <!--
       武将专属牌堆（周泰的「创」）。手机上一张一张横排会把座位撑爆，
       所以只显示「不屈 ×3」，点开走词条面板看具体牌面。
     -->
     <div v-if="characterPiles.length" class="sgs-seat__piles">
-      <button v-for="entry in characterPiles" :key="entry.pile" type="button" @click.stop="glossary?.open(skillGlossary(entry.pile))">
+      <button v-for="entry in characterPiles" :key="entry.pile" type="button" :disabled="compactMode" :aria-label="`查看词条：${entry.label}`" @click.stop="glossary?.open(skillGlossary(entry.pile))">
         {{ entry.label }} ×{{ entry.count }}
       </button>
     </div>
@@ -183,8 +230,9 @@ const factionVars = computed(() => {
         v-for="card in player.judgingArea"
         :key="card.id"
         type="button"
+        :disabled="compactMode"
         class="sgs-seat__judge-chip"
-        :aria-label="`判定区：${card.name}`"
+        :aria-label="`判定区：${card.name}，查看词条`"
         :title="card.name"
         @click.stop="glossary?.open(cardGlossary(card.name))"
       >{{ judgeMark(card.name) }}</button>
@@ -199,11 +247,28 @@ const factionVars = computed(() => {
         class="sgs-seat__mama-chip"
         :aria-label="`${mamaOwners.join('、')}的麻麻`"
         :title="`${mamaOwners.join('、')}的麻麻`"
-      >麻麻</span><span v-if="activeHuashen" class="sgs-seat__huashen-chip" :title="`当前化身：${activeHuashen.characterName}；当前技能：${activeHuashen.skillName}；势力：${activeHuashen.kingdom}；性别：${activeHuashen.gender}`">化身 {{ activeHuashen.characterName }}·{{ activeHuashen.skillName }}·{{ activeHuashen.kingdom }}·{{ activeHuashen.gender }}</span><button v-if="player.id === viewerId && ownedHuashen.length" type="button" class="sgs-seat__huashen-library" @click.stop="huashenPanelOpen = true">化身库</button><span v-if="player.characterSkillsDisabled">技能失效</span><button v-if="player.chained" type="button" @click.stop="glossary?.open(ruleGlossary('chained'))">横置</button><span v-if="player.faceDown">翻面</span><span v-if="!player.alive">阵亡</span><span v-if="status === 'offline'">离线</span><span v-if="status === 'trustee'">托管</span><span v-if="status === 'connecting'">连接中</span>
+      >麻麻</span><span v-if="activeHuashen" class="sgs-seat__huashen-chip" :title="`当前化身：${activeHuashen.characterName}；当前技能：${activeHuashen.skillName}；势力：${activeHuashen.kingdom}；性别：${activeHuashen.gender}`">化身 {{ activeHuashen.characterName }}·{{ activeHuashen.skillName }}·{{ activeHuashen.kingdom }}·{{ activeHuashen.gender }}</span><button v-if="player.id === viewerId && ownedHuashen.length" type="button" class="sgs-seat__huashen-library" :disabled="compactMode" @click.stop="huashenPanelOpen = true">化身库</button><span v-if="player.characterSkillsDisabled">技能失效</span><button v-if="player.chained" type="button" :disabled="compactMode" aria-label="查看词条：横置" @click.stop="glossary?.open(ruleGlossary('chained'))">横置</button><span v-if="player.faceDown">翻面</span><span v-if="!player.alive">阵亡</span><span v-if="status === 'offline'">离线</span><span v-if="status === 'trustee'">托管</span><span v-if="status === 'connecting'">连接中</span>
     </div>
-    <div v-if="(player.skills ?? []).length" class="sgs-seat__skills"><button v-for="skill in (player.skills ?? [])" :key="skill.id" type="button" @click.stop="glossary?.open(skillGlossary(skill.id))">{{ skill.name }}</button></div>
+    <div v-if="(player.skills ?? []).length" class="sgs-seat__skills"><button v-for="skill in (player.skills ?? [])" :key="skill.id" type="button" :disabled="compactMode" :aria-label="`查看词条：${skill.name}`" @click.stop="glossary?.open(playerSkillGlossary(skill.id))">{{ skill.name }}</button></div>
+    <button v-if="compactMode" type="button" class="sgs-seat__details-button" :aria-label="`查看${displayName || character?.name || player.nickname}全部公开信息`" @click.stop="detailsPanelOpen = true">详</button>
     <p v-if="hint" class="sgs-seat__hint">{{ hint }}</p><span v-if="selected" class="sgs-seat__target-mark">目标</span>
     <Teleport to="body">
+      <div v-if="detailsPanelOpen" class="sgs-seat-details__backdrop" @click.self="detailsPanelOpen = false">
+        <section class="sgs-seat-details" role="dialog" aria-modal="true" :aria-label="`${displayName || character?.name || player.nickname}公开信息`">
+          <header><div><strong>{{ displayName || character?.name || player.nickname }}</strong><small>{{ player.nickname }} · 体力 {{ player.hp }}/{{ player.maxHp }}</small></div><button type="button" aria-label="关闭角色详情" @click="detailsPanelOpen = false">×</button></header>
+          <div class="sgs-seat-details__list">
+            <button type="button" @click="openFromDetails(identityGlossary(player.identity))">身份：{{ identityText }}</button>
+            <button v-if="character" type="button" @click="openFromDetails(characterGlossary(player.characterId!))">武将：{{ displayName || character.name }}</button>
+            <button type="button" @click="openFromDetails(ruleGlossary(player.id === viewerId ? 'range' : 'distance'))">{{ player.id === viewerId ? `攻击范围：${player.attackRange}` : `与你距离：${player.distanceFromViewer ?? '未知'}` }}</button>
+            <button v-for="card in player.equipment" :key="`detail-${card.id}`" type="button" @click="openFromDetails(cardGlossary(card.name))">{{ SLOT_TEXT[card.equipmentSlot ?? ''] ?? '装备' }}：{{ card.name }}</button>
+            <button v-for="entry in characterPiles" :key="`detail-${entry.pile}`" type="button" @click="openFromDetails(skillGlossary(entry.pile))">{{ entry.label }}：{{ entry.count }} 张</button>
+            <button v-for="card in player.judgingArea" :key="`detail-${card.id}`" type="button" @click="openFromDetails(cardGlossary(card.name))">判定区：{{ card.name }}</button>
+            <button v-if="player.chained" type="button" @click="openFromDetails(ruleGlossary('chained'))">状态：横置</button>
+            <button v-for="skill in (player.skills ?? [])" :key="`detail-${skill.id}`" type="button" @click="openFromDetails(playerSkillGlossary(skill.id))">技能：{{ skill.name }}</button>
+            <button v-if="player.id === viewerId && ownedHuashen.length" type="button" @click="detailsPanelOpen = false; huashenPanelOpen = true">打开化身库</button>
+          </div>
+        </section>
+      </div>
       <div v-if="huashenPanelOpen && player.id === viewerId" class="sgs-huashen-panel__backdrop" @click.self="huashenPanelOpen = false">
         <section class="sgs-huashen-panel" role="dialog" aria-modal="true" aria-label="化身库">
           <header><div><strong>化身库</strong><small>仅你可见</small></div><button type="button" aria-label="关闭化身库" @click="huashenPanelOpen = false">×</button></header>
@@ -275,6 +340,35 @@ const factionVars = computed(() => {
   .sgs-seat__meta, .sgs-seat__states, .sgs-seat__skills { font-size: 7px; }
   .sgs-seat__equipment button, .sgs-seat__skills button { font-size: 7px; }
 }
+
+/*
+ * 移动端保留芯片的紧凑外观，但用透明伪元素把真实触控热区扩到 44×44。
+ * 字号不再低于 10px；武将名和体力是主要战场信息，保持 12px。
+ */
+@media (max-width: 820px), (orientation: landscape) and (max-height: 500px) {
+  .sgs-seat button:disabled { opacity: 1; color: inherit; cursor: default; }
+  .sgs-seat--compact .sgs-seat__equipment,
+  .sgs-seat--compact .sgs-seat__piles,
+  .sgs-seat--compact .sgs-seat__states { display: none; }
+  .sgs-seat__identity,
+  .sgs-seat__turn,
+  .sgs-seat__meta,
+  .sgs-seat__equipment button,
+  .sgs-seat__piles button,
+  .sgs-seat__states,
+  .sgs-seat__skills,
+  .sgs-seat__skills button,
+  .sgs-seat__hint,
+  .sgs-seat__target-mark,
+  .sgs-seat__hp small,
+  .sgs-seat__header strong { font-size: 10px; }
+  .sgs-seat__general,
+  .sgs-seat__hp { font-size: 12px; }
+}
+.sgs-seat__details-button { position: absolute!important; z-index: 9!important; right: 2px; bottom: 2px; width: 44px; height: 44px; display: grid; place-items: end; padding: 0 5px 4px 0; border: 0; background: transparent; color: #f1d47e; font-size: 10px; font-weight: 900; cursor: pointer; text-shadow: 0 1px 3px #000; }
+.sgs-seat-details__backdrop{position:fixed!important;inset:0;z-index:125!important;display:grid;place-items:end center;padding:10px;background:rgba(2,7,5,.88)}
+.sgs-seat-details{width:min(520px,100%);max-height:78dvh;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid #806c42;border-radius:16px 16px 8px 8px;background:#101913;color:#eee6d2;box-shadow:0 24px 80px #000}
+.sgs-seat-details>header{min-height:56px;display:flex;align-items:center;justify-content:space-between;padding:6px 12px;border-bottom:1px solid #3d4b42}.sgs-seat-details>header div{display:grid}.sgs-seat-details>header small{color:#9aa79f}.sgs-seat-details>header button{width:44px;height:44px;border:0;background:transparent;color:#ddd4c0;font-size:28px}.sgs-seat-details__list{min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:10px}.sgs-seat-details__list button{min-height:44px;padding:6px 10px;border:1px solid #465049;border-radius:8px;background:#17231d;color:#e6d9b8;text-align:left;font:inherit;font-size:12px}
 /*
  * 立绘层。
  *
@@ -395,6 +489,9 @@ const factionVars = computed(() => {
   background-image: radial-gradient(circle at 60% 30%, rgba(181,148,79,.22), transparent 45%), linear-gradient(145deg, transparent, #14231d 88%);
 }
 .sgs-seat__target-mark { top: 42px; }
+.sgs-seat__face-up-hand { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; max-height: 34px; overflow: hidden; }
+.sgs-seat__face-up-hand > span { color: #ffe7a8; font-size: 9px; font-weight: 800; }
+.sgs-seat__face-up-hand button { min-width: 0; padding: 2px 4px; border: 1px solid rgba(244, 214, 143, .55); border-radius: 4px; background: rgba(78, 54, 22, .88); color: #fff1cc; font-size: 9px; }
 @media (max-width: 820px), (orientation: landscape) and (max-height: 500px) {
   .sgs-seat .sgs-seat__corner { top: 4px; right: 4px; }
   .sgs-seat__header { padding-right: 23px; }

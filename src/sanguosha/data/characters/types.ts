@@ -66,6 +66,13 @@ export interface CharacterDefinition {
    * 身份局主公的 +1 加成对上限和体力同时生效，所以神甘宁当主公是 7 / 4。
    */
   initialHp?: number
+  /** 开局护甲点数，默认为0（供具有开局护甲的官方武将使用）。 */
+  initialArmor?: number
   pack: CharacterPack
+  /** 宗族武将的共用家族标识；同 clan 的宗族技彼此识别。 */
+  clan?: string
   skills: CharacterSkillInfo[]
+  /** Optional Huashen configuration for variants sharing the common engine. */
+  huashenInitialCount?: number
+  huashenRerollUnusedCount?: number
 }

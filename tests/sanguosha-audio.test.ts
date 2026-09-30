@@ -25,7 +25,7 @@ function judgeEvent(judgeReason: string, judgeHit: boolean): PresentationEvent {
 /** 延时锦囊的音效由判定事件负责，牌本身不出声，所以不参加「每张牌都有音效」那条。 */
 const DELAYED = ['乐不思蜀', '兵粮寸断', '闪电']
 
-describe('纸上三国声音映射', () => {
+describe('吴魏契约声音映射', () => {
   it('音乐和动作音效默认均为 100%', () => {
     expect(SGS_AUDIO_DEFAULTS.musicVolume).toBe(1)
     expect(SGS_AUDIO_DEFAULTS.effectsVolume).toBe(1)

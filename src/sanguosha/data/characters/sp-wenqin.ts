@@ -112,6 +112,10 @@ registerSkillRuntime({
       }
     }
   },
+})
+
+registerSkillRuntime({
+  id: HUIQI,
   awakening: {
     phase: 'prepare',
     ready(state, ownerId) {

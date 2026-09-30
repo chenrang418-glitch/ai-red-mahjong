@@ -18,7 +18,7 @@ function webpSize(path: string): { width: number; height: number } {
 }
 
 describe('立绘清晰度硬规格', () => {
-  it('全部可玩武将都有 480×640 座位图和原始分辨率艺术集图', () => {
+  it('全部可玩武将都有 480×640 座位图和原始分辨率武将册图', () => {
     // 等素材的武将不在这条里；名单本身由 manifest 那条用例守着
     const pending = new Set(PENDING_PORTRAIT_IDS)
     const ids = [...allCharacterIds()].filter((id) => !pending.has(id)).sort()
@@ -30,8 +30,8 @@ describe('立绘清晰度硬规格', () => {
     for (const id of ids) {
       expect(webpSize(resolve(smallRoot, `${id}.webp`)), `${id} 座位图`).toEqual({ width: 480, height: 640 })
       const full = webpSize(resolve(fullRoot, `${id}.webp`))
-      expect(full.width, `${id} 艺术集宽度不足`).toBeGreaterThanOrEqual(1000)
-      expect(full.height, `${id} 艺术集高度不足`).toBeGreaterThanOrEqual(1300)
+      expect(full.width, `${id} 武将册宽度不足`).toBeGreaterThanOrEqual(1000)
+      expect(full.height, `${id} 武将册高度不足`).toBeGreaterThanOrEqual(1300)
     }
   })
 

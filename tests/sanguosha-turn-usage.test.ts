@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
-import { usedThisTurn } from '@/sanguosha/engine/turn-usage'
+import { usedThisPhase } from '@/sanguosha/engine/phase-usage'
 import type { GameSetup, Identity } from '@/sanguosha/engine/types'
 
 /**
@@ -58,14 +58,20 @@ describe('每回合限一次会在回合结束被清掉', () => {
     const first = game.legalActions('p0').filter((action) => action.id.startsWith('skill:qingnang'))
     expect(first.length, '第一次应当能发动青囊').toBeGreaterThan(0)
 
-    // 直接标记为已用，然后走完一个回合
-    game.state.players[0].turnUsedSkills.push('qingnang')
-    expect(usedThisTurn(game.state, 'p0', 'qingnang')).toBe(true)
-    expect(game.legalActions('p0').filter((action) => action.id.startsWith('skill:qingnang')).length, '同回合内不能再用').toBe(0)
+    // 通过真实发动产生阶段限次记录，避免手写回合级旧键冒充技能行为。
+    game.act('p0', first[0]!.id)
+    const cost = game.state.pendingRequests[0]!
+    game.respond({ requestId: cost.id, playerId: cost.playerId,
+      payload: { cardIds: [game.state.players[0].zones.hand[0]!] } })
+    const target = game.state.pendingRequests[0]!
+    game.respond({ requestId: target.id, playerId: target.playerId, payload: { targetIds: ['p1'] } })
+    expect(usedThisPhase(game.state, 'p0', 'qingnang')).toBe(true)
+    expect(game.legalActions('p0').filter((action) => action.id.startsWith('skill:qingnang')).length, '同阶段内不能再用').toBe(0)
 
     passTurn(game)
 
-    expect(usedThisTurn(game.state, 'p0', 'qingnang'), '回合结束后记录应当被清掉').toBe(false)
+    expect(game.state.players[0].turnUsedSkills, '回合结束后阶段限次记录应当被清掉').toEqual([])
+    expect(usedThisPhase(game.state, 'p0', 'qingnang')).toBe(false)
   })
 
   it('限定技和每回合限次是两个不同的列表，不会互相清掉', () => {

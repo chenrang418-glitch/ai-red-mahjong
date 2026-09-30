@@ -1,7 +1,8 @@
 export type SgsSeatSlot = 'self' | 'right-bottom' | 'right-top' | 'top-right' | 'top-center' | 'top-left' | 'left-top' | 'left-bottom'
 
 const OPPONENT_SLOTS: Record<number, SgsSeatSlot[]> = {
-  4: ['right-bottom', 'right-top', 'top-left', 'left-bottom'],
+  // 五人局：除自己外，四名对手在左右两侧各两名，保持镜像对称。
+  4: ['right-bottom', 'right-top', 'left-top', 'left-bottom'],
   5: ['right-bottom', 'right-top', 'top-center', 'left-top', 'left-bottom'],
   6: ['right-bottom', 'right-top', 'top-right', 'top-left', 'left-top', 'left-bottom'],
   7: ['right-bottom', 'right-top', 'top-right', 'top-center', 'top-left', 'left-top', 'left-bottom'],

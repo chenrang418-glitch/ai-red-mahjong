@@ -271,7 +271,7 @@ registerSkillRuntime({
 })
 
 export const CAOXIAN_CAOHUA: CharacterDefinition = {
-  id: 'caoxian_caohua',
+  id: 'caoxiancaohua',
   name: '曹宪曹华',
   kingdom: 'wei',
   gender: 'female',

@@ -2,6 +2,7 @@ import { handleEquipmentLost, type EquipmentHost } from './equipment'
 import { dispatchEquipmentZoneLoss } from './equipment-zone-loss'
 import { moveCard } from './zones'
 import type { CardId, EquipmentSlot, PlayerId } from './types'
+import type { DiscardReason } from './discard-provenance'
 
 /**
  * 「弃置一名角色的所有牌」的公共入口。
@@ -60,4 +61,69 @@ export function discardAllCards(
   if (discarded.length === 0) return []
   host.dispatch('LoseCard', { playerId, cardIds: discarded, reason }, { targetId: playerId, cardIds: discarded })
   return discarded
+}
+
+/** 批量弃置指定区域中的卡牌，保留装备离场与失牌事件的统一结算。 */
+export function discardCardsByIds(host: EquipmentHost, playerId: PlayerId, cardIds: readonly CardId[], reason: string, discardReason: DiscardReason = 'discard'): CardId[] {
+  const owner = host.state.players.find((candidate) => candidate.id === playerId)
+  if (!owner) return []
+  const discarded: CardId[] = []
+  const equipmentLost: CardId[] = []
+  for (const cardId of [...new Set(cardIds)]) {
+    const fromHand = owner.zones.hand.includes(cardId)
+    if (fromHand) {
+      moveCard(host.state, cardId, { kind: 'hand', playerId }, { kind: 'discardPile' }, { discardReason })
+      discarded.push(cardId)
+      continue
+    }
+    const slot = Object.entries(owner.zones.equipment).find(([, equippedId]) => equippedId === cardId)?.[0] as EquipmentSlot | undefined
+    if (!slot) continue
+    moveCard(host.state, cardId, { kind: 'equipment', playerId, slot }, { kind: 'discardPile' }, { discardReason })
+    equipmentLost.push(cardId)
+    discarded.push(cardId)
+  }
+  for (const cardId of equipmentLost) handleEquipmentLost(host, playerId, cardId, { batched: true })
+  dispatchEquipmentZoneLoss(host, playerId, equipmentLost)
+  if (discarded.length) host.dispatch('LoseCard', { playerId, cardIds: discarded, reason }, { targetId: playerId, cardIds: discarded })
+  return discarded
+}
+
+/** Atomically discard a fixed set of cards owned by multiple players. */
+export function discardCardsByOwners(
+  host: EquipmentHost,
+  entries: readonly { playerId: PlayerId; cardId: CardId }[],
+  reason: string,
+  discardReason: DiscardReason = 'discard',
+): Array<{ playerId: PlayerId; cardId: CardId }> {
+  const moved: Array<{ playerId: PlayerId; cardId: CardId }> = []
+  const equipmentByOwner = new Map<PlayerId, CardId[]>()
+  const uniqueEntries = [...new Map(entries.map((item) => [`${item.playerId}:${item.cardId}`, item])).values()]
+  if (uniqueEntries.some((entry) => {
+    const owner = host.state.players.find((candidate) => candidate.id === entry.playerId)
+    return !owner || (!owner.zones.hand.includes(entry.cardId)
+      && !Object.values(owner.zones.equipment).includes(entry.cardId))
+  })) return []
+  for (const entry of uniqueEntries) {
+    const owner = host.state.players.find((candidate) => candidate.id === entry.playerId)
+    if (!owner) continue
+    if (owner.zones.hand.includes(entry.cardId)) {
+      moveCard(host.state, entry.cardId, { kind: 'hand', playerId: entry.playerId }, { kind: 'discardPile' }, { discardReason })
+      moved.push(entry)
+      continue
+    }
+    const slot = Object.entries(owner.zones.equipment).find(([, equippedId]) => equippedId === entry.cardId)?.[0] as EquipmentSlot | undefined
+    if (!slot) continue
+    moveCard(host.state, entry.cardId, { kind: 'equipment', playerId: entry.playerId, slot }, { kind: 'discardPile' }, { discardReason })
+    moved.push(entry)
+    equipmentByOwner.set(entry.playerId, [...(equipmentByOwner.get(entry.playerId) ?? []), entry.cardId])
+  }
+  for (const [playerId, cardIds] of equipmentByOwner) {
+    for (const cardId of cardIds) handleEquipmentLost(host, playerId, cardId, { batched: true })
+    dispatchEquipmentZoneLoss(host, playerId, cardIds)
+  }
+  const cardsByOwner = new Map<PlayerId, CardId[]>()
+  for (const entry of moved) cardsByOwner.set(entry.playerId, [...(cardsByOwner.get(entry.playerId) ?? []), entry.cardId])
+  for (const [playerId, cardIds] of cardsByOwner)
+    host.dispatch('LoseCard', { playerId, cardIds, reason }, { targetId: playerId, cardIds })
+  return moved
 }

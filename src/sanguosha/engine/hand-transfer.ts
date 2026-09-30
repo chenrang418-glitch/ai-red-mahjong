@@ -1,6 +1,8 @@
 import type { EventContext, GameEvent, GameEventName } from './events'
 import type { CardId, PlayerId, SanguoshaState } from './types'
-import { moveCard } from './zones'
+import { moveCard, notifyHandCardLeft } from './zones'
+import { handleEquipmentLost } from './equipment'
+import { locateOwnedCard } from './zones'
 
 /**
  * 手牌在角色之间的转移。
@@ -60,6 +62,33 @@ export function giveCards(
 
   host.dispatch('LoseCard', { playerId: fromId, cardIds: given, reason }, { sourceId: fromId, cardIds: given })
   host.dispatch('GainCard', { playerId: toId, cardIds: given, reason }, { targetId: toId, cardIds: given })
+  host.dispatch('CardGiven', { fromId, toId, cardIds: given, reason }, { sourceId: fromId, targetId: toId, cardIds: given })
+  return given
+}
+
+/** 将手牌或装备区的牌交给另一角色；装备移动会完整触发失装规则。 */
+export function giveOwnedCards(
+  host: HandTransferHost,
+  fromId: PlayerId,
+  toId: PlayerId,
+  cardIds: readonly CardId[],
+  reason: string,
+): CardId[] {
+  const from = playerOf(host.state, fromId)
+  const to = playerOf(host.state, toId)
+  if (!from || !to?.alive || fromId === toId) return []
+  const given: CardId[] = []
+  for (const cardId of [...new Set(cardIds)]) {
+    const zone = locateOwnedCard(host.state, fromId, cardId)
+    if (!zone || (zone.kind !== 'hand' && zone.kind !== 'equipment')) continue
+    moveCard(host.state, cardId, zone, { kind: 'hand', playerId: toId })
+    if (zone.kind === 'equipment') handleEquipmentLost(host, fromId, cardId)
+    given.push(cardId)
+  }
+  if (!given.length) return []
+  host.dispatch('LoseCard', { playerId: fromId, cardIds: given, reason }, { sourceId: fromId, cardIds: given })
+  host.dispatch('GainCard', { playerId: toId, cardIds: given, reason }, { targetId: toId, cardIds: given })
+  host.dispatch('CardGiven', { fromId, toId, cardIds: given, reason }, { sourceId: fromId, targetId: toId, cardIds: given })
   return given
 }
 
@@ -89,6 +118,8 @@ export function swapHands(
   // 直接换数组：牌没有离开过「某个人的手牌区」，中间不存在任何一张牌无主的瞬间
   left.zones.hand = rightCards
   right.zones.hand = leftCards
+  for (const cardId of leftCards) notifyHandCardLeft(host.state, { cardId, playerId: leftId, destination: { kind: 'hand', playerId: rightId } })
+  for (const cardId of rightCards) notifyHandCardLeft(host.state, { cardId, playerId: rightId, destination: { kind: 'hand', playerId: leftId } })
   // moveCard 进手牌时会顺手清掉「当作什么用」，这里绕开了它，所以要自己补上——
   // 留着别名的话，这张牌到了新主人手上还顶着上一次的身份
   for (const cardId of [...leftCards, ...rightCards]) delete host.state.cardAliases[cardId]
@@ -98,4 +129,28 @@ export function swapHands(
     leftCount: right.zones.hand.length,
     rightCount: left.zones.hand.length,
   }, { sourceId: leftId, targetId: rightId })
+}
+
+/** Exchange exactly one selected hand card from each player without firing give/discard triggers. */
+export function swapSelectedHandCards(
+  host: HandTransferHost,
+  leftId: PlayerId,
+  rightId: PlayerId,
+  leftCardId: CardId,
+  rightCardId: CardId,
+  reason: string,
+): boolean {
+  const left = playerOf(host.state, leftId)
+  const right = playerOf(host.state, rightId)
+  if (!left?.alive || !right?.alive || leftId === rightId
+    || !left.zones.hand.includes(leftCardId) || !right.zones.hand.includes(rightCardId)) return false
+  left.zones.hand = left.zones.hand.map((cardId) => cardId === leftCardId ? rightCardId : cardId)
+  right.zones.hand = right.zones.hand.map((cardId) => cardId === rightCardId ? leftCardId : cardId)
+  notifyHandCardLeft(host.state, { cardId: leftCardId, playerId: leftId, destination: { kind: 'hand', playerId: rightId } })
+  notifyHandCardLeft(host.state, { cardId: rightCardId, playerId: rightId, destination: { kind: 'hand', playerId: leftId } })
+  delete host.state.cardAliases[leftCardId]
+  delete host.state.cardAliases[rightCardId]
+  host.dispatch('HandSwap', { leftId, rightId, reason, leftCount: left.zones.hand.length, rightCount: right.zones.hand.length },
+    { sourceId: leftId, targetId: rightId })
+  return true
 }

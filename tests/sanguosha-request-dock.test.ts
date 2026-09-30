@@ -91,6 +91,69 @@ describe('请求界面能渲染出可操作的控件', () => {
     expect(html).toContain('disabled')
   })
 
+  it('马钧水转百戏图显示六个独立水阀、进度和倒计时', async () => {
+    const request: GameRequest = {
+      ...common('choose-option', '操作水转百戏图'), skillId: 'qiaosi-b35', skillStep: 'waterwheel',
+      options: Array.from({ length: 6 }, (_, index) => ({ id: `valve:${index}`, label: `水阀${index + 1}` })),
+      interaction: { kind: 'waterwheel', progress: [0, 1, 0, 1, 0, 0], active: [3] },
+    }
+    const html = await render(request, view)
+    expect(html).toContain('水转百戏图水阀')
+    expect(html).toContain('剩余')
+    expect(html).toContain('已点亮 1 / 3')
+    expect((html.match(/class="ma-jun-waterwheel__name/g) ?? []).length).toBe(6)
+    expect(html).toContain('active')
+    expect(html).toContain('水阀1')
+    expect(html).toContain('0 / 3')
+    expect(html).toContain('disabled')
+  })
+
+  it('庞德公评才擦拭界面显示可逐格操作的宝物面板', async () => {
+    const request: GameRequest = {
+      ...common('choose-option', '擦拭宝物'), skillId: 'pingcai-b35', skillStep: 'scratch',
+      options: [{ id: 'scratch-complete', label: '擦拭完成' }, { id: 'scratch-stop', label: '停止（未成功）' }],
+      interaction: { kind: 'pingcai-scratch', treasure: 'fengchu', cellCount: 16, success: true },
+    }
+    const html = await render(request, view)
+    expect(html).toContain('评才宝物擦拭区')
+    expect(html).toContain('擦拭「凤雏」')
+    expect((html.match(/class="pang-degong-scratch__cell/g) ?? []).length).toBe(16)
+    expect(html).toContain('确认结果</button>')
+    expect(html).not.toContain('擦拭成功！')
+    expect(html).toContain('停止擦拭</button>')
+    expect(html).toContain('disabled')
+  })
+
+  it('孙寒华冲虚显示独立集灵场地、分数与方向操作', async () => {
+    const request: GameRequest = {
+      ...common('choose-option', '接取莲花或躲避天雷'), skillId: 'chongxu-b36', skillStep: 'collect',
+      options: [{ id: 'left', label: '左移' }, { id: 'stay', label: '保持位置' }, { id: 'right', label: '右移' }],
+      interaction: { kind: 'spirit-gathering', index: 2, score: 1, cellCount: 15, lane: 1, fallingLane: 2, falling: 'lotus-white' },
+    }
+    const html = await render(request, view)
+    expect(html).toContain('集灵挑战控制面板')
+    expect(html).toContain('当前 1 / 5 分')
+    expect(html).toContain('键盘 ← / → 移动')
+    expect(html).toContain('🪷')
+    expect(html).toContain('左移')
+    expect(html).toContain('保持位置')
+    expect(html).toContain('右移')
+  })
+
+  it('郑玄整经显示可连续划取多张牌的专属整理面板', async () => {
+    const cards = myCards.slice(0, 5)
+    const request: GameRequest = {
+      ...common('choose-cards', '从展示牌中选择任意张作为“经”'), skillId: 'zhengxuan-b46', skillStep: 'select',
+      cardIds: cards, hiddenCardSlots: [], min: 0, max: cards.length, purpose: 'skill', interaction: { kind: 'zhengxuan-slice' },
+    }
+    const html = await render(request, view)
+    expect(html).toContain('整经划牌区')
+    expect(html).toContain('可连续划过多张牌')
+    expect((html.match(/class="zhengxuan-slice__card/g) ?? []).length).toBe(cards.length)
+    expect(html).toContain('完成整理</button>')
+    expect(html).not.toContain('sgs-dock__missing')
+  })
+
   it('别人的手牌牌名不会出现在请求界面里', async () => {
     // 反馈那类请求用暗槽表示别人的手牌，牌面绝不能渲染出来
     const opponent = view.players.find((player) => player.id !== view.viewerId)!

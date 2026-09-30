@@ -138,7 +138,7 @@ registerSkillRuntime({
 // ─────────────────────────────── 血裔 ───────────────────────────────
 
 /**
- * 其他**存活**的群势力角色数。
+ * 其他**存活**的群势力角色数的两倍。
  *
  * 每次算手牌上限时现算，不在开局缓存：群雄角色阵亡之后袁绍的上限要立刻跟着降。
  * 死人不算，袁绍自己不算。
@@ -147,10 +147,11 @@ export function xueyiBonus(state: SanguoshaState, ownerId: PlayerId): number {
   const owner = playerOf(state, ownerId)
   // 主公技：只有坐主公位才生效
   if (!owner?.alive || owner.identity !== 'lord') return 0
-  return state.players.filter((player) => {
+  const otherQunCount = state.players.filter((player) => {
     if (!player.alive || player.id === ownerId || !player.characterId) return false
     return effectiveKingdomOf(state, player.id) === 'qun'
   }).length
+  return otherQunCount * 2
 }
 
 registerSkillRuntime({
@@ -178,7 +179,7 @@ export const YUANSHAO: CharacterDefinition = {
     {
       id: XUEYI,
       name: '血裔',
-      description: '主公技，锁定技，你的手牌上限+X（X为其他存活群势力角色的数量）。',
+      description: '主公技，锁定技，你的手牌上限+X（X为其他群势力角色数的两倍）。',
     },
   ],
 }

@@ -56,6 +56,7 @@ describe('黄盖【苦肉】', () => {
     const game = gameWith(['huanggai', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'])
     const owner = game.state.players[0]
     owner.hp = 1
+    const handBefore = owner.zones.hand.length
 
     const action = game.legalActions('p0').find((candidate) => candidate.id === 'skill:kurou')
     game.act('p0', action!.id)
@@ -64,6 +65,35 @@ describe('黄盖【苦肉】', () => {
     // 要么正在被救（有濒死状态或求桃请求），要么已经死了——绝不能是「0 血还活着且无事发生」
     const rescuing = game.state.dying !== null || game.state.pendingRequests.some((request) => request.kind === 'rescue')
     expect(rescuing || !owner.alive, '0 血必须进入濒死或死亡').toBe(true)
+    expect(owner.zones.hand.length).not.toBe(handBefore + 2)
+    assertGameInvariants(game.state)
+  })
+
+  it('苦肉濒死被其他角色救起后，才续接摸两张牌', () => {
+    const game = gameWith(['huanggai', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'])
+    const owner = game.state.players[0]
+    const rescuer = game.state.players[1]
+    owner.hp = 1
+    const peach = Object.values(game.state.cards).find((card) => card.name === '桃' && game.state.zones.drawPile.includes(card.id))!
+    game.state.zones.drawPile.splice(game.state.zones.drawPile.indexOf(peach.id), 1)
+    rescuer.zones.hand.push(peach.id)
+    const handBefore = owner.zones.hand.length
+
+    game.act('p0', 'skill:kurou')
+    expect(owner.zones.hand).toHaveLength(handBefore)
+    while (game.state.dying) {
+      const request = game.state.pendingRequests[0]
+      expect(request.kind).toBe('rescue')
+      if (request.playerId === rescuer.id && request.kind === 'rescue') {
+        expect(request.actionIds).toContain(`rescue-card:${peach.id}`)
+        game.respond({ requestId: request.id, playerId: rescuer.id, payload: { actionId: `rescue-card:${peach.id}` } })
+      } else {
+        game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'rescue-pass' } })
+      }
+    }
+    expect(owner.alive).toBe(true)
+    expect(owner.hp).toBe(1)
+    expect(owner.zones.hand).toHaveLength(handBefore + 2)
     assertGameInvariants(game.state)
   })
 })

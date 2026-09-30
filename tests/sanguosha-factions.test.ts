@@ -7,12 +7,12 @@ import SgsFactionBadge from '@/sanguosha/components/SgsFactionBadge.vue'
 import { ALL_CHARACTERS } from '@/sanguosha/data/characters/standard'
 import { FACTION_CONFIG, FACTION_ORDER, type Faction } from '@/sanguosha/shared/factions'
 
-describe('纸上三国六势力基础数据', () => {
-  it('固定使用魏蜀吴群晋神顺序和唯一颜色配置', () => {
-    expect(FACTION_ORDER).toEqual(['wei', 'shu', 'wu', 'qun', 'jin', 'shen'])
-    expect(FACTION_ORDER.map((id) => FACTION_CONFIG[id].name)).toEqual(['魏', '蜀', '吴', '群', '晋', '神'])
+describe('吴魏契约七势力基础数据', () => {
+  it('固定使用魏蜀吴群晋神乐顺序和唯一颜色配置', () => {
+    expect(FACTION_ORDER).toEqual(['wei', 'shu', 'wu', 'qun', 'jin', 'shen', 'le'])
+    expect(FACTION_ORDER.map((id) => FACTION_CONFIG[id].name)).toEqual(['魏', '蜀', '吴', '群', '晋', '神', '乐'])
     expect(Object.fromEntries(FACTION_ORDER.map((id) => [id, FACTION_CONFIG[id].color]))).toEqual({
-      wei: '#315A8C', shu: '#3F7D4A', wu: '#A94442', qun: '#666A70', jin: '#75558A', shen: '#C9972F',
+      wei: '#315A8C', shu: '#3F7D4A', wu: '#A94442', qun: '#666A70', jin: '#75558A', shen: '#C9972F', le: '#B84F78',
     })
   })
 
@@ -28,6 +28,13 @@ describe('纸上三国六势力基础数据', () => {
     }
   })
 
+  it('自定义武将统一归乐势力，其他武将不混入乐势力', () => {
+    const entertainment = ALL_CHARACTERS.filter((character) => character.pack === 'entertainment')
+    expect(entertainment.length).toBeGreaterThan(0)
+    expect(entertainment.every((character) => character.kingdom === 'le')).toBe(true)
+    expect(ALL_CHARACTERS.filter((character) => character.kingdom === 'le').every((character) => character.pack === 'entertainment')).toBe(true)
+  })
+
   it.each(FACTION_ORDER)('%s 角标从统一配置读取文字和颜色', async (faction) => {
     const html = await renderToString(createSSRApp(SgsFactionBadge, { faction: faction as Faction }))
     expect(html).toContain(`>${FACTION_CONFIG[faction].name}</span>`)
@@ -41,16 +48,16 @@ describe('纸上三国六势力基础数据', () => {
   })
 })
 
-describe('规则页和艺术集的势力分类', () => {
-  it('艺术集保留六个标题和空阵营，但不在立绘卡片上叠加角标', async () => {
+describe('规则页和武将册的势力分类', () => {
+  it('武将册保留七个标题和空阵营，但不在立绘卡片上叠加角标', async () => {
     const html = await renderToString(createSSRApp(SgsArtGallery))
     const headings = [...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>/g)].map((match) => match[1])
-    expect(headings).toEqual(['魏', '蜀', '吴', '群', '晋', '神'])
-    expect(html.match(/sgs-art-gallery__group/g)).toHaveLength(6)
+    expect(headings).toEqual(['魏', '蜀', '吴', '群', '晋', '神', '乐'])
+    expect(html.match(/sgs-art-gallery__group/g)).toHaveLength(7)
     expect(html).not.toContain('sgs-faction-badge')
   })
 
-  it('规则页同样直接读取六势力配置且不隐藏空分组', () => {
+  it('规则页同样直接读取七势力配置且不隐藏空分组', () => {
     const source = readFileSync('src/sanguosha/SanguoshaApp.vue', 'utf8')
     expect(source).toContain("FACTION_CONFIG, FACTION_ORDER")
     expect(source).toContain('FACTION_ORDER.map')

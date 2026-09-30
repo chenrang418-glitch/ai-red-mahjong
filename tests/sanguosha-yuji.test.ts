@@ -502,6 +502,25 @@ function declareRespond(game: SanguoshaGame, cardId: string): void {
 }
 
 describe('打出模式：求闪', () => {
+  it('界于吉在响应中发动蛊惑，真牌质疑后由原求闪流程结算并授予缠怨', () => {
+    const game = gameWith(['zhangfei', 'jie-yuji-b38', 'zhangfei', 'zhangfei', 'zhangfei'])
+    clearHand(game, 'p1')
+    const cardId = give(game, 'p1', '闪')
+    const slashId = give(game, 'p0', '杀')
+    game.state.currentPlayerId = 'p0'
+    game.act('p0', `play:${slashId}:p1`)
+
+    expect(pending(game)?.kind === 'respond-card' && pending(game)?.actionIds).toContain('guhuo-respond')
+    declareRespond(game, cardId)
+    respondChallenges(game, ['p0'])
+
+    expect(game.state.players[0].grantedSkills).toContain('chanyuan-jie-b38')
+    expect(game.state.players[1].hp).toBe(4)
+    expect(game.state.guhuoResponse).toBeNull()
+    expect(game.state.cardResolution).toBeNull()
+    assertGameInvariants(game.state)
+  })
+
   it('求闪的请求里有蛊惑入口，无人质疑则杀被闪掉', () => {
     const game = gameWith(FILLER)
     clearHand(game, 'p0')

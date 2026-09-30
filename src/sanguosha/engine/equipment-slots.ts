@@ -29,6 +29,7 @@ export const SLOT_LABELS: Record<EquipmentSlot, string> = {
   armor: '防具栏',
   offensiveHorse: '-1 坐骑栏',
   defensiveHorse: '+1 坐骑栏',
+  treasure: '宝物栏',
 }
 
 /** 基础装备栏：每个角色开局都有这四个。 */

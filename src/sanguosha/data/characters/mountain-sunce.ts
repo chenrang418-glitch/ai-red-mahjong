@@ -150,7 +150,7 @@ registerSkillRuntime({
     // 点击授权动作即视为本出牌阶段已经发起过；主公拒绝也不能反复挑战。
     markUsedThisTurn(host.state, actorId, zhibaUsageKey(ownerId))
     const lord = playerOf(host.state, ownerId)
-    if (!lord?.awakenedSkills?.includes(HUNZI)) {
+    if (!lord?.awakenedSkills?.some((skillId) => skillId === HUNZI || skillId === 'jie-hunzi-b43')) {
       beginZhiba(host, ownerId, actorId)
       return
     }

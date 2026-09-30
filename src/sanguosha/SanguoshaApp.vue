@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import SgsTable from './components/SgsTable.vue'
+import SgsSeatTimer from './components/SgsSeatTimer.vue'
 import SgsRequestDock from './components/SgsRequestDock.vue'
 import SgsOnlineHub from './components/SgsOnlineHub.vue'
 import SgsGlossarySheet from './components/SgsGlossarySheet.vue'
@@ -17,6 +18,7 @@ import type { AIDifficulty } from './ai'
 import { AI_PACE_MS } from './shared/timing'
 import { FACTION_CONFIG, FACTION_ORDER } from './shared/factions'
 import SgsHomePortrait from './components/SgsHomePortrait.vue'
+import SgsTutorialDemo from './components/SgsTutorialDemo.vue'
 
 defineEmits<{ backToPortal: [] }>()
 
@@ -26,7 +28,9 @@ const screen = ref<Screen>(new URLSearchParams(window.location.search).has('room
 // 单机选将/对局和整个联机流程（含房间等人）都保持屏幕常亮；返回首页立即释放。
 useScreenWakeLock(computed(() => screen.value === 'playing' || screen.value === 'online'))
 const audioOpen = ref(false)
-/** 艺术集从首页和规则页都进得去，返回键要回到来时那一屏。 */
+const tutorialDemoOpen = ref(false)
+const startingMatch = ref(false)
+/** 武将册从首页和规则页都进得去，返回键要回到来时那一屏。 */
 const artBackTo = ref<Screen>('home')
 function openArt(from: Screen): void {
   artBackTo.value = from
@@ -49,6 +53,29 @@ const playerCounts = computed(() => [5, 6, 7, 8].filter((count) => count <= maxP
 const result = computed(() => game.view.value?.result ?? null)
 const choosingGeneral = computed(() => game.view.value?.status === 'choosing-general')
 const selfSelectOpen = ref(false)
+
+/*
+ * 选将这一屏不经过牌桌，自带一条计时和它自己的心跳（和联机 SgsOnlineHub 同款）。
+ * `timer.seatId` 是座位序号，按 `view.players[].seat` 找回自己的那一条。
+ */
+const pickTimer = computed(() => {
+  const view = game.view.value
+  if (!view || view.status !== 'choosing-general' || !view.pendingRequest) return null
+  const self = view.players.find((player) => player.id === view.viewerId)
+  if (!self) return null
+  return game.timers.value.find((timer) => timer.seatId === self.seat) ?? null
+})
+const pickerLocalNow = ref(Date.now())
+let pickerTimer: number | null = null
+watch(pickTimer, (timer) => {
+  pickerLocalNow.value = Date.now()
+  if (timer && pickerTimer === null) {
+    pickerTimer = window.setInterval(() => { pickerLocalNow.value = Date.now() }, 250)
+  } else if (!timer && pickerTimer !== null) {
+    window.clearInterval(pickerTimer)
+    pickerTimer = null
+  }
+}, { immediate: true })
 const characterGroups = computed(() => FACTION_ORDER.map((kingdom) => ({
   kingdom,
   ...FACTION_CONFIG[kingdom],
@@ -57,10 +84,12 @@ const characterGroups = computed(() => FACTION_ORDER.map((kingdom) => ({
 
 
 
-function startMatch(): void {
+async function startMatch(): Promise<void> {
   selfSelectOpen.value = false
-  game.start({ playerCount: config.playerCount, difficulty: config.difficulty, aiDelayMs: AI_PACE_MS[config.aiPace] })
-  screen.value = 'playing'
+  startingMatch.value = true
+  const started = await game.start({ playerCount: config.playerCount, difficulty: config.difficulty, aiDelayMs: AI_PACE_MS[config.aiPace] })
+  startingMatch.value = false
+  if (started) screen.value = 'playing'
 }
 
 function backFromGeneralPick(): void {
@@ -105,8 +134,11 @@ function handleRespond(response: GameResponse): void {
     :busy="game.busy.value"
     :log="game.log.value"
     :presentation-events="game.presentationEvents.value"
+    :timers="game.timers.value"
+    :trustee="game.trustee.value"
     @act="game.act"
     @respond="handleRespond"
+    @toggle-trustee="game.setTrustee"
     @quit="requestExit"
   />
 
@@ -116,33 +148,35 @@ function handleRespond(response: GameResponse): void {
     <section v-if="screen === 'home'" class="sgs-home">
       <header>
         <button type="button" @click="$emit('backToPortal')">← 返回游戏中心</button>
-        <span>CRPLAY · 纸上三国</span>
+        <span>CRPLAY · 吴魏契约</span>
         <div class="sgs-home__tools">
-          <button type="button" class="sgs-home__art" @click="openArt('home')">艺术集</button>
+          <button type="button" class="sgs-home__art" @click="openArt('home')">武将册</button>
+          <button type="button" class="sgs-home__guide" @click="tutorialDemoOpen = true">新手引导</button>
           <SgsAudioControl v-model:open="audioOpen" />
         </div>
       </header>
       <div class="sgs-home__hero">
         <div class="sgs-home__copy">
           <p class="sgs-home__eyebrow"><span></span> 经典身份局 · 群雄共赴</p>
-          <h1>纸上三国</h1>
+          <h1>吴魏契约</h1>
           <h2>方寸之间，风云再起。</h2>
           <small>以谋略会友，以手牌决胜。<br>选一名武将，开启属于你的三国。</small>
           <div class="sgs-home__stats"><span><b>{{ ALL_CHARACTERS.length }}</b> 名武将</span><i></i><span><b>5–8</b> 人身份局</span><i></i><span>单机 · 好友联机</span></div>
         </div>
         <SgsHomePortrait />
       </div>
-      <nav aria-label="纸上三国模式">
+      <nav aria-label="吴魏契约模式">
         <button type="button" class="sgs-home__main" @click="screen = 'setup'"><em aria-hidden="true">弈</em><b>单机游戏</b><span>与电脑对战 · 随时开局</span><i aria-hidden="true">↗</i></button>
         <button type="button" class="sgs-home__online" @click="screen = 'online'"><em aria-hidden="true">聚</em><b>联机游戏</b><span>创建或加入房间 · 与好友过招</span><i aria-hidden="true">↗</i></button>
         <button type="button" class="sgs-home__rules" @click="screen = 'rules'"><em aria-hidden="true">策</em><b>规则</b><span>玩法与武将 · 运筹帷幄</span><i aria-hidden="true">↗</i></button>
       </nav>
       <footer class="sgs-home__footer"><span>一局三国，万般可能</span><span>CRPLAY / PAPER SANGUO</span></footer>
+      <SgsTutorialDemo :open="tutorialDemoOpen" @close="tutorialDemoOpen = false" />
     </section>
 
     <section v-else-if="screen === 'setup'" class="sgs-panel sgs-panel--setup">
       <header>
-        <button type="button" aria-label="返回纸上三国首页" @click="screen = 'home'">‹</button>
+        <button type="button" aria-label="返回吴魏契约首页" @click="screen = 'home'">‹</button>
         <h1>单机设置</h1>
       </header>
       <p class="sgs-panel__intro">安排你的下一局。选择人数与电脑节奏，再挑选出战武将。</p>
@@ -185,7 +219,7 @@ function handleRespond(response: GameResponse): void {
       </div>
       <p class="sgs-panel__note">当前已实现 {{ ALL_CHARACTERS.length }} 名武将，每人随机分配候选。</p>
       <p class="sgs-panel__summary"><b>{{ config.playerCount }} 人 · {{ DIFFICULTY_LABEL[config.difficulty] }}难度 · {{ AI_PACE_LABEL[config.aiPace] }}节奏</b><span>下一步：选择武将</span></p>
-      <button type="button" class="primary sgs-panel__start" @click="startMatch">开始</button>
+      <button type="button" class="primary sgs-panel__start" :disabled="startingMatch" @click="startMatch">{{ startingMatch ? '正在载入…' : '开始' }}</button>
     </section>
 
     <section v-else-if="screen === 'playing'" class="sgs-panel sgs-panel--choose">
@@ -199,6 +233,7 @@ function handleRespond(response: GameResponse): void {
           @click="selfSelectOpen = !selfSelectOpen"
         >{{ selfSelectOpen ? '随机候选' : '自选' }}</button>
       </header>
+      <SgsSeatTimer v-if="pickTimer" class="sgs-panel__pick-timer" :timer="pickTimer" :server-now="pickerLocalNow" wide />
       <SgsRequestDock
         v-if="game.myRequest.value && game.view.value"
         :request="game.myRequest.value"
@@ -213,7 +248,7 @@ function handleRespond(response: GameResponse): void {
       <header>
         <button type="button" @click="screen = 'home'">‹</button>
         <h1>规则</h1>
-        <button type="button" class="sgs-panel__art-link" @click="openArt('rules')">艺术集</button>
+        <button type="button" class="sgs-panel__art-link" @click="openArt('rules')">武将册</button>
       </header>
       <div class="sgs-rules">
         <article>
@@ -247,7 +282,7 @@ function handleRespond(response: GameResponse): void {
     </section>
 
     <section v-else class="sgs-panel sgs-panel--art">
-      <header><button type="button" @click="screen = artBackTo">‹</button><h1>武将艺术集</h1></header>
+      <header><button type="button" @click="screen = artBackTo">‹</button><h1>武将册</h1></header>
       <div class="sgs-panel__art-scroll"><SgsArtGallery /></div>
     </section>
 
@@ -279,7 +314,7 @@ function handleRespond(response: GameResponse): void {
 <style scoped>
 .sgs-app {
   width: 100%; height: calc(100dvh - var(--app-viewport-offset, 0px)); overflow: hidden; color: var(--ink-text);
-  /* 纸上三国主色是金色，和门户上那张卡片的强调色一致；麻将那边保持红色 */
+  /* 吴魏契约主色是金色，和门户上那张卡片的强调色一致；麻将那边保持红色 */
   background: radial-gradient(circle at 75% 20%, rgba(207, 164, 86, .24), transparent 40%), linear-gradient(150deg, var(--ink-bg-top), var(--ink-bg-bottom));
 }
 .sgs-home, .sgs-panel {

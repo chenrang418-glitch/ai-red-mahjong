@@ -1,5 +1,6 @@
 import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import { loseHp } from '../../engine/hp'
+import { reshuffleDrawPile } from '../../engine/deck'
 import { hiddenHandSlot } from '../../engine/cards/host'
 import type { ChooseCardsRequest, ChooseOptionRequest, DistributeCardsRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
@@ -309,53 +310,45 @@ registerSkillRuntime({
       skillId: 'yiji',
       ownerId,
       step: 'ask',
-      build: (requestId) => yesNo(requestId, ownerId, '发动【遗计】？摸两张牌，然后分配给任意角色'),
+      build: (requestId) => yesNo(requestId, ownerId, '发动【遗计】？观看牌堆顶两张牌并交给任意角色'),
     })
   },
   resume(host, ownerId, resolution, response) {
     if (resolution.step === 'ask') {
       if (!chose(response, 'yes')) return
-      const owner = playerOf(host.state, ownerId)
-      const drawn: CardId[] = []
-      for (let index = 0; index < 2; index += 1) {
-        const cardId = host.state.zones.drawPile.shift()
-        if (!cardId) break
-        owner.zones.hand.push(cardId)
-        drawn.push(cardId)
-      }
-      if (drawn.length === 0) return
-      host.dispatch('GainCard', { playerId: ownerId, cardIds: drawn, reason: '遗计' }, { targetId: ownerId, cardIds: drawn })
+      if (host.state.zones.drawPile.length < 2 && host.state.zones.discardPile.length > 0)
+        reshuffleDrawPile(host.state, host.rng, (name, payload) => host.dispatch(name, payload))
+      const cardIds = host.state.zones.drawPile.slice(0, 2)
+      if (cardIds.length === 0) return
       const recipientIds = host.state.players.filter((player) => player.alive).map((player) => player.id)
       host.askSkill({
         skillId: 'yiji',
         ownerId,
         step: 'distribute',
-        data: { drawn },
+        data: { cardIds },
         build: (requestId): DistributeCardsRequest => ({
           id: requestId,
           kind: 'distribute-cards',
           playerId: ownerId,
-          prompt: '把这些牌分配给任意角色，留给自己就不分配',
+          prompt: '【遗计】：将观看的牌分配给任意角色',
           timeoutMs: 25_000,
-          optional: true,
-          cardIds: drawn,
+          optional: false,
+          cardIds,
           recipientIds,
-          min: 0,
-          max: drawn.length,
+          min: cardIds.length,
+          max: cardIds.length,
         }),
       })
       return
     }
 
     const assignments = (response.payload as { assignments: Array<{ cardId: CardId; recipientId: PlayerId }> }).assignments
-    const owner = playerOf(host.state, ownerId)
+    const viewed = new Set(resolution.data.cardIds as CardId[])
     for (const { cardId, recipientId } of assignments) {
-      if (recipientId === ownerId) continue
-      // 分配期间牌可能已经不在手上了（这中间没有别的操作，但仍然防一手）
-      if (!owner.zones.hand.includes(cardId)) continue
+      if (!viewed.has(cardId) || !host.state.zones.drawPile.includes(cardId)) continue
       const recipient = host.state.players.find((player) => player.id === recipientId)
       if (!recipient?.alive) continue
-      moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'hand', playerId: recipientId })
+      moveCard(host.state, cardId, { kind: 'drawPile' }, { kind: 'hand', playerId: recipientId })
       host.dispatch('GainCard', { playerId: recipientId, cardIds: [cardId], reason: '遗计' }, { targetId: recipientId, cardIds: [cardId] })
     }
   },
@@ -423,7 +416,7 @@ export const WEI_DAMAGE_CHARACTERS: readonly CharacterDefinition[] = [
     pack: 'standard',
     skills: [
       { id: 'tiandu', name: '天妒', description: '每当你的判定牌生效后，你可以获得此牌。' },
-      { id: 'yiji', name: '遗计', description: '每当你受到一点伤害后，你可以摸两张牌，然后可以将这两张牌分配给任意角色。' },
+      { id: 'yiji', name: '遗计', description: '每当你受到1点伤害后，你可以观看牌堆顶的两张牌，然后将这些牌交给任意角色。' },
     ],
   },
 ] as const

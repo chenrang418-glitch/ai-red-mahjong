@@ -28,6 +28,7 @@ import type { CharacterDefinition } from './types'
  */
 
 export const YAOWU = 'yaowu'
+const MOU_YANGWEI_MARK = 'yangwei-b48:mark'
 const RECOVER = 'yaowu-recover'
 const DRAW = 'yaowu-draw'
 
@@ -57,6 +58,15 @@ export function isRedSlashDamage(state: SanguoshaState, cardId: CardId | null | 
 
 registerSkillRuntime({
   id: YAOWU,
+  globalSlashUses(state, _ownerId, targetId) {
+    return state.phase === 'play' && (playerOf(state, targetId)?.marks[MOU_YANGWEI_MARK] ?? 0) > 0 ? 1 : 0
+  },
+  slashIgnoresDistance(state, ownerId) {
+    return state.phase === 'play' && (playerOf(state, ownerId)?.marks[MOU_YANGWEI_MARK] ?? 0) > 0
+  },
+  ignoresArmorFor(state, ownerId) {
+    return state.phase === 'play' && (playerOf(state, ownerId)?.marks[MOU_YANGWEI_MARK] ?? 0) > 0
+  },
 
   triggers: [{
     /*
@@ -84,6 +94,14 @@ registerSkillRuntime({
       if (!sourceId || sourceId === ownerId) return
       if (!playerOf(host.state, sourceId)?.alive) return
       host.queueSkill({ skillId: YAOWU, ownerId, step: 'choose', data: { sourceId } })
+    },
+  }, {
+    event: 'PhaseEnd',
+    handle(host, ownerId, context) {
+      const phase = context.event.payload as { playerId?: PlayerId; phase?: string }
+      if (phase.playerId !== ownerId || phase.phase !== 'play') return
+      const owner = playerOf(host.state, ownerId)
+      if (owner) delete owner.marks[MOU_YANGWEI_MARK]
     },
   }],
 

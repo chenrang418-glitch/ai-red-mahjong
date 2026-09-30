@@ -1,7 +1,7 @@
 import { drawCards } from '../../engine/draw'
 import { effectiveCardColor, registerSkillRuntime } from '../../engine/skills/runtime'
 import { grantTurnSlashBonus } from '../../engine/slash-rules'
-import { moveCard } from '../../engine/zones'
+import { locateOwnedCard, moveCard } from '../../engine/zones'
 import type { ChooseCardsRequest } from '../../engine/requests'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
@@ -33,7 +33,7 @@ registerSkillRuntime({
   triggers: [{
     event: 'AfterCardUse',
     handle(host, ownerId, context) {
-      const payload = context.event.payload as { cardId?: CardId; cardName?: string }
+      const payload = context.event.payload as { cardId?: CardId; cardName?: string; virtual?: boolean }
       if (payload.cardName !== '杀') return
       if (host.state.phase !== 'play') return
       const userId = context.event.sourceId as PlayerId | undefined
@@ -42,7 +42,7 @@ registerSkillRuntime({
       if (!user?.alive) return
       const owner = playerOf(host.state, ownerId)
       if (!owner?.alive || owner.zones.hand.length === 0) return
-      host.queueSkill({ skillId: LONGYIN, ownerId, step: 'ask', data: { userId, cardId: payload.cardId ?? null } })
+      host.queueSkill({ skillId: LONGYIN, ownerId, step: 'ask', data: { userId, cardId: payload.cardId ?? null, virtual: payload.virtual === true } })
     },
   }],
 
@@ -56,7 +56,10 @@ registerSkillRuntime({
         id: requestId, kind: 'choose-cards', playerId: ownerId,
         prompt: '【龙吟】：弃置一张牌，令这张【杀】不计入使用次数？',
         timeoutMs: 20_000, optional: true, purpose: 'skill',
-        cardIds: [...owner.zones.hand], hiddenCardSlots: [],
+        cardIds: [
+          ...owner.zones.hand,
+          ...Object.values(owner.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId)),
+        ], hiddenCardSlots: [],
         min: 0, max: 1,
       }),
     })
@@ -68,11 +71,12 @@ registerSkillRuntime({
     const userId = resolution.data.userId as PlayerId
     const slashCardId = resolution.data.cardId as CardId | null
     const [cardId] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
-    if (!cardId || !owner?.alive || !owner.zones.hand.includes(cardId)) return
+    const costSource = cardId && owner?.alive ? locateOwnedCard(host.state, ownerId, cardId) : null
+    if (!cardId || !owner?.alive || !costSource) return
     const user = playerOf(host.state, userId)
     if (!user?.alive) return
 
-    moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
+    moveCard(host.state, cardId, costSource, { kind: 'discardPile' })
     host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: LONGYIN }, { targetId: ownerId, cardIds: [cardId] })
     grantTurnSlashBonus(host.state, userId, { extraUses: 1 })
     host.dispatch('SkillActivated', {
@@ -80,7 +84,8 @@ registerSkillRuntime({
       logText: `${owner.nickname}发动【龙吟】，${user.nickname}的这张【杀】不计入使用次数`,
     }, { sourceId: ownerId, targetId: userId })
 
-    if (slashCardId && effectiveCardColor(host.state, userId, slashCardId) === 'red') {
+    const virtual = resolution.data.virtual === true
+    if (!virtual && slashCardId && host.state.cards[slashCardId] && effectiveCardColor(host.state, userId, slashCardId) === 'red') {
       drawCards(host.state, host.rng, ownerId, 1, (name, payload) => { host.dispatch(name, payload) })
     }
   },

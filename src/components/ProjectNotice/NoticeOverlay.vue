@@ -74,12 +74,12 @@ function onKeydown(event: KeyboardEvent): void {
 .notice-overlay {
   position: fixed;
   inset: 0;
-  z-index: 300;
+  z-index: 1000;
   display: grid;
   place-items: center;
   padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
-  background: rgba(0, 0, 0, .6);
-  backdrop-filter: blur(4px);
+  background: rgba(7, 14, 18, .18);
+  backdrop-filter: blur(14px) saturate(1.12);
   animation: notice-veil-in .18s ease-out;
 }
 
@@ -90,11 +90,13 @@ function onKeydown(event: KeyboardEvent): void {
   display: flex;
   flex-direction: column;
   padding: 26px 26px 22px;
-  border: 1px solid rgba(226, 191, 98, .34);
+  border: 1px solid rgba(255, 255, 255, .34);
   border-radius: 20px;
-  background: linear-gradient(160deg, #14332a, #0b2119);
-  box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
-  color: var(--ink-text);
+  background: linear-gradient(145deg, rgba(255,255,255,.24), rgba(228,240,235,.10));
+  -webkit-backdrop-filter: blur(26px) saturate(1.18);
+  backdrop-filter: blur(26px) saturate(1.18);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255,255,255,.28);
+  color: rgba(255,255,255,.94);
   animation: notice-rise-in .2s cubic-bezier(.2, .82, .24, 1);
 }
 
@@ -107,16 +109,16 @@ function onKeydown(event: KeyboardEvent): void {
   flex: none;
   display: grid;
   place-items: center;
-  border: 1px solid #3a574d;
+  border: 1px solid rgba(255,255,255,.3);
   border-radius: 50%;
-  color: var(--ink-text-soft);
-  background: rgba(255, 255, 255, .04);
+  color: rgba(255,255,255,.92);
+  background: rgba(255,255,255,.12);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
-.notice-overlay__close:hover { border-color: #4d6f62; color: var(--ink-text); }
-.notice-overlay__close:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.notice-overlay__close:hover { border-color: rgba(255,255,255,.62); color: #fff; background: rgba(255,255,255,.18); }
+.notice-overlay__close:focus-visible { outline: 2px solid rgba(255,255,255,.9); outline-offset: 2px; }
 
 @keyframes notice-veil-in { from { opacity: 0; } }
 @keyframes notice-rise-in { from { opacity: 0; transform: translateY(10px) scale(.97); } }

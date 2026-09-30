@@ -165,33 +165,63 @@ describe('受到伤害后触发的技能', () => {
     assertGameInvariants(game.state)
   })
 
-  it('遗计：受到两点伤害就问两次，牌可以分给别人', () => {
+  it('遗计：受到两点伤害就问两次，观看的两张牌都必须选择收牌角色', () => {
     const game = gameWith([null, 'guojia'])
     const guojia = game.state.players[1]
     guojia.maxHp = 5
     guojia.hp = 5
+    const drawAttempts: string[] = []
+    game.events.on('DrawAttempt', (context) => {
+      const playerId = (context.event.payload as { playerId?: string }).playerId
+      if (playerId === guojia.id) drawAttempts.push(playerId)
+    })
 
     damageThenSettle(game, { sourceId: 'p0', targetId: 'p1', amount: 2, cardName: '决斗' })
     // 每一点伤害各排一次
     expect(game.state.skillQueue.length + 1).toBe(2)
 
-    const handBefore = guojia.zones.hand.length
     answer(game, { optionId: 'yes' })
-    expect(guojia.zones.hand.length).toBe(handBefore + 2)
 
     const distribute = pending(game)
     expect(distribute.kind).toBe('distribute-cards')
-    const [first] = (distribute as { cardIds: string[] }).cardIds
+    const viewed = (distribute as { cardIds: string[] }).cardIds
+    expect(viewed).toHaveLength(2)
+    expect(distribute).toMatchObject({ optional: false, min: 2, max: 2 })
+    expect(game.state.zones.drawPile.slice(0, 2)).toEqual(viewed)
+    expect(guojia.zones.hand).not.toEqual(expect.arrayContaining(viewed))
+    expect(drawAttempts).toEqual([])
     const receiverBefore = game.state.players[2].zones.hand.length
-    answer(game, { assignments: [{ cardId: first, recipientId: 'p2' }] })
+    const otherReceiverBefore = game.state.players[3].zones.hand.length
+    answer(game, { assignments: [{ cardId: viewed[0], recipientId: 'p2' }, { cardId: viewed[1], recipientId: 'p3' }] })
 
     expect(game.state.players[2].zones.hand.length).toBe(receiverBefore + 1)
-    expect(guojia.zones.hand).not.toContain(first)
+    expect(game.state.players[3].zones.hand.length).toBe(otherReceiverBefore + 1)
+    expect(game.state.zones.drawPile).not.toEqual(expect.arrayContaining(viewed))
 
     // 第二点伤害的那一次紧接着问出来
     expect(pending(game).prompt).toContain('遗计')
     answer(game, { optionId: 'no' })
     expect(game.state.pendingRequests).toHaveLength(0)
+    assertGameInvariants(game.state)
+  })
+
+  it('遗计观看时牌堆不足两张会先接续重洗，然后分配仍在牌堆顶的牌', () => {
+    const game = gameWith([null, 'guojia'])
+    const owner = game.state.players[1]
+    const remainingCard = game.state.zones.drawPile.shift()!
+    const shuffledCards = [...game.state.zones.drawPile]
+    game.state.zones.drawPile = []
+    game.state.zones.drawPile.push(remainingCard)
+    game.state.zones.discardPile.push(...shuffledCards)
+
+    damageThenSettle(game, { sourceId: 'p0', targetId: owner.id, amount: 1, cardName: '决斗' })
+    answer(game, { optionId: 'yes' })
+
+    const distribute = pending(game)
+    expect(distribute.kind).toBe('distribute-cards')
+    expect((distribute as { cardIds: string[] }).cardIds).toHaveLength(2)
+    expect(game.state.zones.drawPile.slice(0, 2)).toEqual((distribute as { cardIds: string[] }).cardIds)
+    expect(game.state.deckReshuffle?.count).toBeGreaterThan(0)
     assertGameInvariants(game.state)
   })
 

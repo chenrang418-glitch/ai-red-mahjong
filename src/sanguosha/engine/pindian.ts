@@ -1,5 +1,5 @@
 import { closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivateZone, privateZoneCards } from './private-zone'
-import { pindianRankOverrideOf, prohibitsBeingPindianTargetOf } from './skills/runtime'
+import { characterSkillIdsOf, pindianRankOverrideOf, prohibitsBeingPindianTargetOf, skillsOf } from './skills/runtime'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import type { CardId, PhysicalCard, PindianState, PlayerId, SanguoshaState } from './types'
 import { locateOwnedCard, moveCard } from './zones'
@@ -104,6 +104,8 @@ export interface PindianOptions {
    * 收进私有区；不给出就是原来的「从手牌里选」。
    */
   initiatorForcedCardId?: CardId
+  /** 对方直接指定用于拼点的手牌（界太史慈【酣战】：随机手牌）。 */
+  opponentForcedCardId?: CardId
 }
 
 /**
@@ -123,6 +125,9 @@ export function startPindian(host: PindianHost, options: PindianOptions): void {
   if (!canPindian(host.state, options.opponentId)) {
     throw new Error('拼点双方都必须有手牌')
   }
+  if (options.opponentForcedCardId && !playerOf(host.state, options.opponentId)?.zones.hand.includes(options.opponentForcedCardId)) {
+    throw new Error('指定的对方拼点牌不在其手牌中')
+  }
   /*
    * 陆抗【谦节】：不能成为其他角色发起的拼点目标。这里静默放弃而不是抛错——
    * 调用方的候选列表未必知道这条限制，抛错会把发起方的整个技能流程打断。
@@ -139,9 +144,18 @@ export function startPindian(host: PindianHost, options: PindianOptions): void {
     continuationTag: options.continuationTag,
     data: { ...(options.data ?? {}) },
     requestIds: {},
+    selectionState: {},
+    rankAdjustments: {},
     stage: 'selecting',
   }
   host.state.pindian = pindian
+
+  host.dispatch('PindianStart', {
+    pindianId: pindian.id,
+    initiatorId: pindian.initiatorId,
+    opponentId: pindian.opponentId,
+    reason: pindian.reason,
+  }, { sourceId: pindian.initiatorId, targetId: pindian.opponentId })
 
   const initiator = playerOf(host.state, options.initiatorId)!
   const opponent = playerOf(host.state, options.opponentId)!
@@ -158,10 +172,22 @@ export function startPindian(host: PindianHost, options: PindianOptions): void {
     openPrivateZone(host.state, zoneId, options.initiatorId, 'pindian')
     moveIntoPrivateZone(host.state, cardId, from, zoneId)
     pindian.initiatorCardId = cardId
-  } else {
-    askPindianCard(host, options.initiatorId, options.timeoutMs ?? 30_000)
+    pindian.selectionState[options.initiatorId] = 'done'
   }
-  askPindianCard(host, options.opponentId, options.timeoutMs ?? 30_000)
+  if (options.opponentForcedCardId) {
+    const cardId = options.opponentForcedCardId
+    const opponent = playerOf(host.state, options.opponentId)
+    if (!opponent?.zones.hand.includes(cardId)) {
+      abortPindian(host)
+      return
+    }
+    const zoneId = zoneIdFor(pindian.id, options.opponentId)
+    openPrivateZone(host.state, zoneId, options.opponentId, 'pindian')
+    moveIntoPrivateZone(host.state, cardId, { kind: 'hand', playerId: options.opponentId }, zoneId)
+    pindian.opponentCardId = cardId
+    pindian.selectionState[options.opponentId] = 'done'
+  }
+  requestPindianCardSelections(host, options.timeoutMs ?? 30_000)
   if (pindian.initiatorCardId && pindian.opponentCardId) revealPindian(host)
 }
 
@@ -184,6 +210,72 @@ function askPindianCard(host: PindianHost, playerId: PlayerId, timeoutMs: number
   }
   host.state.pendingRequests.push(request)
   pindian.requestIds[playerId] = request.id
+}
+
+function requestPindianCardSelections(host: PindianHost, timeoutMs = 30_000): void {
+  const pindian = host.state.pindian
+  if (!pindian || pindian.stage !== 'selecting' || host.state.skillResolution) return
+  const players = [pindian.initiatorId, pindian.opponentId]
+  for (const playerId of players) {
+    const hasCard = playerId === pindian.initiatorId ? Boolean(pindian.initiatorCardId) : Boolean(pindian.opponentCardId)
+    if (hasCard || pindian.selectionState[playerId] === 'done') continue
+    if (pindian.selectionState[playerId] === 'waiting-skill' || pindian.selectionState[playerId] === 'requested') return
+    if (!pindian.selectionState[playerId]) {
+      for (const runtime of skillsOf(host.state, playerId, characterSkillIdsOf)) {
+        const asks = runtime.offersPindianSelectionAsk
+        if (!asks?.(host as never, playerId, pindian.id)) continue
+        pindian.selectionState[playerId] = 'waiting-skill'
+        return
+      }
+      pindian.selectionState[playerId] = 'ready'
+    }
+  }
+  for (const playerId of players) {
+    const hasCard = playerId === pindian.initiatorId ? Boolean(pindian.initiatorCardId) : Boolean(pindian.opponentCardId)
+    if (hasCard || pindian.selectionState[playerId] === 'requested' || pindian.selectionState[playerId] === 'done') continue
+    askPindianCard(host, playerId, timeoutMs)
+    pindian.selectionState[playerId] = 'requested'
+  }
+}
+
+/** Continue simultaneous hidden card selection after an optional participant-side modifier resolves. */
+export function continuePindianCardSelection(host: PindianHost, playerId: PlayerId): void {
+  const pindian = host.state.pindian
+  if (!pindian || pindian.stage !== 'selecting' || ![pindian.initiatorId, pindian.opponentId].includes(playerId)
+    || pindian.selectionState[playerId] !== 'waiting-skill') return
+  pindian.selectionState[playerId] = 'ready'
+  requestPindianCardSelections(host)
+}
+
+/** Continue the reveal sequence after a participant's optional pre-reveal choice resolves. */
+export function continuePindianReveal(host: PindianHost, playerId: PlayerId): void {
+  const pindian = host.state.pindian
+  if (!pindian || pindian.stage !== 'selecting' || ![pindian.initiatorId, pindian.opponentId].includes(playerId)
+    || !pindian.initiatorCardId || !pindian.opponentCardId
+    || !pindian.preRevealProcessedIds?.includes(playerId)) return
+  revealPindian(host)
+}
+
+/** Swap the already committed hidden Pindian cards without exposing either card mid-resolution. */
+export function swapPindianCards(host: PindianHost, pindianId: string, participantId: PlayerId): boolean {
+  const pindian = host.state.pindian
+  if (!pindian || pindian.id !== pindianId || pindian.stage !== 'selecting'
+    || ![pindian.initiatorId, pindian.opponentId].includes(participantId)
+    || !pindian.initiatorCardId || !pindian.opponentCardId) return false
+  const initiatorCardId = pindian.initiatorCardId
+  const opponentCardId = pindian.opponentCardId
+  const initiatorZoneId = zoneIdFor(pindian.id, pindian.initiatorId)
+  const opponentZoneId = zoneIdFor(pindian.id, pindian.opponentId)
+  if (!privateZoneCards(host.state, initiatorZoneId).includes(initiatorCardId)
+    || !privateZoneCards(host.state, opponentZoneId).includes(opponentCardId)) return false
+
+  moveOutOfPrivateZone(host.state, initiatorCardId, initiatorZoneId, { kind: 'hand', playerId: pindian.initiatorId })
+  moveOutOfPrivateZone(host.state, opponentCardId, opponentZoneId, { kind: 'hand', playerId: pindian.opponentId })
+  moveIntoPrivateZone(host.state, opponentCardId, { kind: 'hand', playerId: pindian.opponentId }, initiatorZoneId)
+  moveIntoPrivateZone(host.state, initiatorCardId, { kind: 'hand', playerId: pindian.initiatorId }, opponentZoneId)
+  pindian.initiatorCardId = opponentCardId
+  pindian.opponentCardId = initiatorCardId
+  return true
 }
 
 /** 这个请求是不是某次拼点的选牌。 */
@@ -220,6 +312,7 @@ export function resolvePindianResponse(host: PindianHost, requestId: string, res
   // 交完就不能再改：请求撤掉，重复提交会因为找不到请求被拒
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== requestId)
   delete pindian.requestIds[playerId]
+  pindian.selectionState[playerId] = 'done'
   host.state.decisions.push({
     index: host.state.decisions.length,
     requestId,
@@ -238,11 +331,23 @@ export function resolvePindianResponse(host: PindianHost, requestId: string, res
  */
 function revealPindian(host: PindianHost): void {
   const pindian = host.state.pindian!
+  if (pindian.stage === 'selecting') {
+    pindian.preRevealProcessedIds ??= []
+    for (const playerId of [pindian.initiatorId, pindian.opponentId]) {
+      if (pindian.preRevealProcessedIds.includes(playerId)) continue
+      pindian.preRevealProcessedIds.push(playerId)
+      for (const runtime of skillsOf(host.state, playerId, characterSkillIdsOf)) {
+        if (runtime.offersPindianPreRevealAsk?.(host as never, playerId, pindian.id)) return
+      }
+    }
+  }
   pindian.stage = 'revealing'
   const initiatorCardId = pindian.initiatorCardId!
   const opponentCardId = pindian.opponentCardId!
   const initiatorRank = effectivePindianRank(host.state, pindian.initiatorId, host.state.cards[initiatorCardId])
+    - (pindian.rankAdjustments[pindian.initiatorId] ?? 0)
   const opponentRank = effectivePindianRank(host.state, pindian.opponentId, host.state.cards[opponentCardId])
+    - (pindian.rankAdjustments[pindian.opponentId] ?? 0)
 
   // 先一起挪到处理区亮出来，再一起进弃牌堆——不能一张留处理区一张进弃牌堆
   for (const [playerId, cardId] of [[pindian.initiatorId, initiatorCardId], [pindian.opponentId, opponentCardId]] as const) {
@@ -304,6 +409,7 @@ function revealPindian(host: PindianHost): void {
    * 已经建好，处理器里调 `claimPindianCards` 认领拼点牌是安全的。
    */
   host.dispatch('PindianEnd', {
+    pindianId: pindian.id,
     initiatorId: pindian.initiatorId, opponentId: pindian.opponentId,
     initiatorCardId, opponentCardId, initiatorRank, opponentRank, outcome,
   }, { sourceId: pindian.initiatorId, targetId: pindian.opponentId, cardIds: [initiatorCardId, opponentCardId] })

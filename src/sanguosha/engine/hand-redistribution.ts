@@ -1,5 +1,6 @@
 import type { GameRng } from './rng'
 import type { CardId, PlayerId, SanguoshaState } from './types'
+import { notifyHandCardLeft } from './zones'
 
 /**
  * 把两个人的手牌合起来洗匀，再平均分回去。
@@ -40,7 +41,9 @@ export function redistributeHands(
   if (!initiator || !target) throw new Error('重新分牌的双方必须都在场上')
   if (initiatorId === targetId) throw new Error('重新分牌需要两名不同的角色')
 
-  const pool = rng.shuffle([...initiator.zones.hand, ...target.zones.hand])
+  const originalInitiatorCards = [...initiator.zones.hand]
+  const originalTargetCards = [...target.zones.hand]
+  const pool = rng.shuffle([...originalInitiatorCards, ...originalTargetCards])
   /*
    * 奇数时发起者多拿一张：`ceil` 给发起者，`floor` 给目标。
    * 五张就是三比二，不是二比三。
@@ -50,5 +53,9 @@ export function redistributeHands(
   const targetCards = pool.slice(initiatorCount)
   initiator.zones.hand = [...initiatorCards]
   target.zones.hand = [...targetCards]
+  for (const cardId of originalInitiatorCards) if (targetCards.includes(cardId))
+    notifyHandCardLeft(state, { cardId, playerId: initiatorId, destination: { kind: 'hand', playerId: targetId } })
+  for (const cardId of originalTargetCards) if (initiatorCards.includes(cardId))
+    notifyHandCardLeft(state, { cardId, playerId: targetId, destination: { kind: 'hand', playerId: initiatorId } })
   return { initiatorCards, targetCards }
 }

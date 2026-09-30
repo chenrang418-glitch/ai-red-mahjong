@@ -491,7 +491,7 @@ registerSkillRuntime({
 export const NAIWA: CharacterDefinition = {
   id: 'naiwa',
   name: '奶蛙',
-  kingdom: 'qun',
+  kingdom: 'le',
   gender: 'male',
   maxHp: 4,
   pack: 'entertainment',

@@ -187,6 +187,28 @@ describe('延时锦囊与判定阶段', () => {
     expect(game.state.zones.discardPile).toEqual(expect.arrayContaining([delayedId, nullification.id]))
   })
 
+  it('判定无懈窗口允许神赵云用两张黑桃龙魂响应', () => {
+    const game = startedGame('judge-longhun-nullification')
+    game.state.players[1].characterId = 'shenzhaoyun'
+    const delayedId = placeDelayed(game, 'p0', '乐不思蜀')
+    const judgeId = forceTop(game, (candidate) => candidate.suit === 'spade')
+    const spades = Object.values(game.state.cards).filter((candidate) => candidate.suit === 'spade'
+      && candidate.id !== judgeId && candidate.name !== '无懈可击' && !candidate.virtual).slice(0, 2)
+    for (const spade of spades) moveCard(game.state, spade.id, locate(game.state, spade.id), { kind: 'hand', playerId: 'p1' })
+
+    game.advancePhase()
+    expect(game.state.pendingRequests[0]?.playerId).toBe('p1')
+    expect((game.state.pendingRequests[0] as { actionIds: string[] }).actionIds).toContain('multi-viewas')
+    respondCurrent(game, 'multi-viewas')
+    expect(game.state.pendingRequests[0]?.kind).toBe('choose-cards')
+    game.respond({ requestId: game.state.pendingRequests[0].id, playerId: 'p1', payload: { cardIds: spades.map((candidate) => candidate.id) } })
+    passJudgmentWindow(game)
+
+    expect(game.state.skippedPhases).not.toContain('play')
+    expect(game.state.zones.drawPile[0]).toBe(judgeId)
+    expect(game.state.zones.discardPile).toEqual(expect.arrayContaining([delayedId, ...spades.map((candidate) => candidate.id)]))
+  })
+
   it('判定前无懈再被无懈后恢复乐不思蜀判定', () => {
     const game = startedGame('judge-nullification-twice')
     placeDelayed(game, 'p0', '乐不思蜀')

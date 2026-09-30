@@ -418,7 +418,14 @@ function fireFollowSlash(host: SkillHost, ownerId: PlayerId, targetId: PlayerId,
       ? `${owner.nickname}发动【麻麻】跟上，对${target.nickname}使用【杀】`
       : `${owner.nickname}发动【麻麻】，弃置两张牌视为对${target.nickname}使用【杀】`,
   }, { sourceId: ownerId, targetId })
-  host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: MAMA, cardId: cardId ?? undefined })
+  host.beginVirtualSlash({
+    sourceId: ownerId,
+    targetId,
+    sourceSkillId: MAMA,
+    cardId: cardId ?? undefined,
+    countUsage: false,
+    ignoreDistance: true,
+  })
 }
 
 // ── 遗产 ──
@@ -633,7 +640,7 @@ registerSkillRuntime({
 export const NIULAI_CHARACTER: CharacterDefinition = {
   id: 'niulai',
   name: '牛来',
-  kingdom: 'qun',
+  kingdom: 'le',
   gender: 'male',
   maxHp: 4,
   pack: 'entertainment',

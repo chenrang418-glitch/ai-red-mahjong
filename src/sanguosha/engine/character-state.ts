@@ -2,6 +2,8 @@ import { skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import type { PlayerId, SanguoshaState } from './types'
+import { effectiveEquipmentName } from './zones'
+import { equipmentEffectsSuppressed } from './equipment-suppression'
 
 /**
  * 武将牌的翻面状态。
@@ -87,6 +89,9 @@ export function setChained(
   const target = host.state.players.find((player) => player.id === playerId)
   if (!target?.alive) return
   const next = chained ?? !target.chained
+  const armorId = target.zones.equipment.armor
+  if (next && armorId && !equipmentEffectsSuppressed(host.state, playerId)
+    && effectiveEquipmentName(host.state, armorId) === '桐油百韧甲') return
   /*
    * 连环锁（神刘备【结营】）：**解除**连环的效果对他无效。
    *

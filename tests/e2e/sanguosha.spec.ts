@@ -6,13 +6,13 @@ import { ALL_CHARACTERS } from '../../src/sanguosha/data/characters/standard'
  * 而且这个数已经被写错过一次（记成 26，实为 25）。
  */
 const CHARACTER_COUNT = ALL_CHARACTERS.length
-/** 艺术集分组的阵营顺序，和页面上的一致。 */
-const FACTION_ORDER = ['wei', 'shu', 'wu', 'qun', 'jin', 'shen'] as const
+/** 武将册分组的阵营顺序，和页面上的一致。 */
+const FACTION_ORDER = ['wei', 'shu', 'wu', 'qun', 'jin', 'shen', 'le'] as const
 /** 固定展示在「自定义武将」分区的娱乐武将名。 */
 const CUSTOM_CHARACTERS = ALL_CHARACTERS.filter((character) => character.pack === 'entertainment').map((character) => character.name)
 
 /**
- * 纸上三国单机流程的浏览器验收。
+ * 吴魏契约单机流程的浏览器验收。
  *
  * 重点不是好看，而是两件任务书反复强调的事：
  * 1. 每一步都真的点得到——服务端支持不等于前端有入口。
@@ -48,7 +48,7 @@ async function expectNoPageScroll(page: Page) {
 /** 从门户一路进到牌桌。 */
 async function enterTable(page: Page, playerCount?: number) {
   await page.goto('/?game=sanguosha')
-  await expect(page.getByRole('heading', { name: '纸上三国' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '吴魏契约' })).toBeVisible()
   await page.getByRole('button', { name: /单机游戏/ }).click()
   await expect(page.getByRole('heading', { name: '单机设置' })).toBeVisible()
   if (playerCount) await page.getByRole('button', { name: `${playerCount} 人`, exact: true }).click()
@@ -211,13 +211,34 @@ for (const viewport of [PORTRAIT, WIDE_LANDSCAPE, DESKTOP]) {
   })
 }
 
+test('一将成名 2011 与 2012 新接入的 23 张立绘均能在牌桌加载', async ({ page }) => {
+  const batches = [
+    ['caozhi', 'yujin', 'zhangchunhua', 'fazheng', 'masu'],
+    ['xushu', 'lingtong', 'wuguotai', 'xusheng', 'chengong'],
+    ['gaoshun', 'caozhang', 'zhonghui', 'xunyou', 'wangyi'],
+    ['liaohua', 'guanxingzhangbao', 'madai', 'chengpu', 'handang'],
+    ['bulianshi', 'liubiao', 'huaxiong', 'caocao', 'liubei'],
+  ]
+
+  for (const lineup of batches) {
+    await enterDevLineup(page, lineup)
+    const images = page.locator('.sgs-seat__art img')
+    await expect(images).toHaveCount(5)
+    await expect.poll(async () => images.evaluateAll((nodes) => nodes.every((node) => {
+      const image = node as HTMLImageElement
+      return image.complete && image.naturalWidth === 480 && image.naturalHeight === 640
+    }))).toBe(true)
+  }
+})
+
 test('真人左慈可在手机一屏内查看仅本人可见的化身库', async ({ page }) => {
   await page.setViewportSize(PORTRAIT)
   await enterDevLineup(page, ['zuoci', 'caocao', 'liubei', 'sunquan', 'caiwenji'])
   // 开局必须先亮出一张化身并声明一个合法技能。
   await page.locator('.sgs-dock__actions .primary').first().click()
   await page.locator('.sgs-dock__actions .primary').first().click()
-  const libraryButton = page.getByRole('button', { name: '化身库', exact: true })
+  await page.locator('.sgs-seat').filter({ hasText: '左慈' }).getByRole('button', { name: /查看左慈全部公开信息/ }).click()
+  const libraryButton = page.getByRole('button', { name: '打开化身库', exact: true })
   await expect(libraryButton).toHaveCount(1)
   await libraryButton.click()
   const panel = page.getByRole('dialog', { name: '化身库' })
@@ -284,14 +305,16 @@ test('环形座位和词条入口在手机牌桌可用', async ({ page }) => {
   expect(positions[1]!.x).toBeGreaterThan(positions[0]!.x)
   expect(positions[2]!.x).toBeLessThan(positions[0]!.x)
 
-  const info = page.getByRole('button', { name: /查看.*说明/ }).first()
+  const info = page.locator('.sgs-card__info').first()
   const cardMain = info.locator('..').locator('.sgs-card')
   await info.click()
   await expect(page.locator('.sgs-glossary-sheet')).toBeVisible()
   await page.getByRole('button', { name: '关闭说明' }).click()
   await expect(cardMain).toBeVisible()
 
-  await page.locator('.sgs-seat-layout__slot:not(.sgs-seat-layout__slot--self) .sgs-seat__identity').filter({ hasText: '？' }).first().click()
+  const hiddenSeat = page.locator('.sgs-seat-layout__slot:not(.sgs-seat-layout__slot--self) .sgs-seat').filter({ has: page.locator('.sgs-seat__identity', { hasText: '？' }) }).first()
+  await hiddenSeat.locator('.sgs-seat__details-button').click()
+  await page.getByRole('button', { name: '身份：？', exact: true }).click()
   await expect(page.locator('.sgs-glossary-sheet')).toContainText('身份尚未公开')
   await expect(page.locator('.sgs-glossary-sheet')).not.toContainText(/主公|忠臣|反贼|内奸/)
   await expectNoPageScroll(page)
@@ -303,7 +326,7 @@ test('真人最终一定拿得到可点的操作', async ({ page }) => {
   // 全局 30s 的用例超时会先一步把它掐掉，所以这条单独放宽。
   // **放宽的是等待时间，不是断言**——真卡住仍然会失败。
   test.setTimeout(180_000)
-  await page.setViewportSize(PORTRAIT)
+  await page.setViewportSize(WIDE_LANDSCAPE)
   await enterTable(page)
 
   // 不去赌「AI 恰好打我」——真正的不变量是：牌局推进下去，
@@ -311,7 +334,74 @@ test('真人最终一定拿得到可点的操作', async ({ page }) => {
   // 只能干等超时才是任务书明令禁止的情况。
   const actionable = page.locator('.sgs-dock button:not([disabled]), .sgs-table__dock .sgs-table__actions button:not([disabled])')
   await expect(actionable.first()).toBeVisible({ timeout: 150_000 })
+  const handDockGap = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('.sgs-table__hand .sgs-card-shell')].map((card) => card.getBoundingClientRect())
+    const dock = document.querySelector('.sgs-table > .sgs-table__dock, .sgs-table > .sgs-dock')!.getBoundingClientRect()
+    return dock.top - Math.max(...cards.map((card) => card.bottom))
+  })
+  expect(handDockGap, '轮到自己操作且底栏升起后，手牌下沿不能被遮挡').toBeGreaterThanOrEqual(5)
   await expectNoPageScroll(page)
+})
+
+test('单机 AI 托管只能由玩家手动开启和取消', async ({ page }) => {
+  await page.setViewportSize(WIDE_LANDSCAPE)
+  await enterDevLineup(page, ['caozhang', 'zhonghui', 'xunyou', 'wangyi', 'gaoshun'])
+
+  const enable = page.getByRole('button', { name: '托管', exact: true })
+  await expect(enable).toBeVisible()
+  await enable.click()
+  await expect(page.getByText('托管中，由 AI 代打')).toBeVisible()
+
+  await page.getByRole('button', { name: '取消托管', exact: true }).click()
+  await expect(page.getByText('托管中，由 AI 代打')).toHaveCount(0)
+  await expect(enable).toBeVisible()
+  // 超过一轮普通 UI 停顿后仍保持关闭，确认不存在空闲超时自动托管。
+  await page.waitForTimeout(2_200)
+  await expect(enable).toBeVisible()
+})
+
+test('新手引导支持聚光、上一步和局内独立入口', async ({ page }) => {
+  await page.setViewportSize(WIDE_LANDSCAPE)
+  await enterDevLineup(page, ['caozhang', 'zhonghui', 'xunyou', 'wangyi', 'gaoshun'])
+
+  const guide = page.locator('.sgs-table__tutorial')
+  await expect(guide).toContainText('你的手牌')
+  await expect(page.locator('.sgs-table__tutorial-shade')).toHaveCount(4)
+  // 引导存在时牌局控件仍然能操作，不是强制遮罩。
+  await page.getByRole('button', { name: '托管', exact: true }).click()
+  await expect(page.getByText('托管中，由 AI 代打')).toBeVisible()
+  await page.getByRole('button', { name: '取消托管', exact: true }).click()
+
+  await guide.getByRole('button', { name: '下一步', exact: true }).click()
+  await guide.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(guide).toContainText('角色详情')
+  await expect(guide).toContainText('“详”')
+  await guide.getByRole('button', { name: '上一步', exact: true }).click()
+  await expect(guide).toContainText('角色状态')
+  for (let index = 0; index < 4; index += 1) await guide.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(guide).toContainText('结束出牌')
+  await guide.getByRole('button', { name: '完成', exact: true }).click()
+  await expect(guide).toHaveCount(0)
+
+  await enterDevLineup(page, ['caozhang', 'zhonghui', 'xunyou', 'wangyi', 'gaoshun'])
+  await expect(guide).toHaveCount(0)
+  await page.getByRole('button', { name: '引导', exact: true }).click()
+  await expect(guide).toContainText('你的手牌')
+})
+
+test('局外新手引导使用模拟对局且支持上一步', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT)
+  await page.goto('/?game=sanguosha')
+  await page.getByRole('button', { name: '新手引导', exact: true }).click()
+  const demo = page.getByRole('dialog', { name: '新手引导模拟对局' })
+  await expect(demo).toBeVisible()
+  await expect(demo).toContainText('模拟对局')
+  await demo.getByRole('button', { name: '下一步', exact: true }).click()
+  await demo.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(demo).toContainText('角色详情')
+  await expect(demo.getByRole('button', { name: '详', exact: true })).toBeVisible()
+  await demo.getByRole('button', { name: '上一步', exact: true }).click()
+  await expect(demo).toContainText('角色状态')
 })
 
 test('规则页的技能说明来自武将数据', async ({ page }) => {
@@ -322,7 +412,7 @@ test('规则页的技能说明来自武将数据', async ({ page }) => {
   // 武将技能条目直接由 STANDARD_CHARACTERS 渲染
   await expect(page.locator('.sgs-rules')).toContainText('武圣')
   await expect(page.locator('.sgs-rules')).toContainText('咆哮')
-  await expect(page.locator('.sgs-rules__kingdom h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神'])
+  await expect(page.locator('.sgs-rules__kingdom h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神', '乐'])
   await expectNoPageScroll(page)
 })
 
@@ -338,7 +428,7 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   // 这里只守「池子里确实有这些自定义武将」
   const customCards = page.locator('.sgs-dock__general--custom')
   await expect(customCards).toHaveCount(CUSTOM_CHARACTERS.length)
-  await expect(customCards.locator('.sgs-faction-badge')).toHaveText(CUSTOM_CHARACTERS.map(() => '群'))
+  await expect(customCards.locator('.sgs-faction-badge')).toHaveText(CUSTOM_CHARACTERS.map(() => '乐'))
   await expect(page.locator('.sgs-dock__general .sgs-faction-badge')).toHaveCount(await page.locator('.sgs-dock__general').count())
   for (const name of CUSTOM_CHARACTERS) {
     // 技能说明可能提到另一名娱乐武将（例如善水的【醉闹】会写到平头方块），
@@ -366,13 +456,13 @@ test('选将页可返回、固定显示自定义武将并进入完整自选池',
   await expectNoPageScroll(page)
 })
 
-test('艺术集按阵营展示全部立绘并可查看原图', async ({ page }) => {
+test('武将册按阵营展示全部立绘并可查看原图', async ({ page }) => {
   await page.setViewportSize(PORTRAIT)
   await page.goto('/?game=sanguosha')
   await page.getByRole('button', { name: /规则/ }).click()
-  await page.getByRole('button', { name: '艺术集' }).click()
-  await expect(page.getByRole('heading', { name: '武将艺术集' })).toBeVisible()
-  await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神'])
+  await page.getByRole('button', { name: '武将册' }).click()
+  await expect(page.getByRole('heading', { name: '武将册' })).toBeVisible()
+  await expect(page.locator('.sgs-art-gallery__group h2')).toHaveText(['魏', '蜀', '吴', '群', '晋', '神', '乐'])
   await expect(page.locator('.sgs-art-gallery .sgs-faction-badge')).toHaveCount(0)
   // 每个阵营分组里的立绘数按数据算，不写死——神将陆续加进来时这里不该再改一次
   for (const [index, kingdom] of FACTION_ORDER.entries()) {

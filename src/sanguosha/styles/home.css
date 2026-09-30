@@ -3,7 +3,7 @@
 .sgs-home header { display: flex; justify-content: space-between; align-items: center; flex: none; padding-bottom: 18px; border-bottom: 1px solid #d8b77724; color: #a3b5af; font-size: 10px; letter-spacing: .18em; }
 .sgs-home header button, .sgs-panel header button { min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px; color: var(--ink-text-soft); background: var(--ink-panel-deep); cursor: pointer; }
 .sgs-home__tools { display: flex; align-items: center; gap: 8px; }
-.sgs-home__tools > .sgs-home__art, .sgs-home__tools :deep(.sgs-audio__trigger) { min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px; background: var(--ink-panel-deep); color: var(--ink-text-soft); font-family: inherit; font-size: 13px; font-weight: 400; line-height: normal; letter-spacing: normal; }
+.sgs-home__tools > .sgs-home__art, .sgs-home__tools > .sgs-home__guide, .sgs-home__tools :deep(.sgs-audio__trigger) { min-height: 38px; padding: 0 13px; border: 1px solid var(--ink-line); border-radius: 9px; background: var(--ink-panel-deep); color: var(--ink-text-soft); font-family: inherit; font-size: 13px; font-weight: 400; line-height: normal; letter-spacing: normal; }
 .sgs-home__hero { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 1.05fr 1fr; align-items: center; }
 .sgs-home__copy { position: relative; z-index: 1; padding-left: 22px; }
 .sgs-home__eyebrow { margin: 0 0 24px; display: flex; align-items: center; gap: 10px; color: #d8b777; font-size: 12px; letter-spacing: .22em; }

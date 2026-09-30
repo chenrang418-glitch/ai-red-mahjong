@@ -574,8 +574,8 @@ registerSkillRuntime({
     {
       event: 'GainCard',
       handle(host, ownerId, context) {
-        const payload = context.event.payload as { playerId?: PlayerId; reason?: string }
-        if (payload.playerId !== ownerId || payload.reason !== 'draw' || host.state.phase === 'draw' || host.state.weishuDrawGuard) return
+        const payload = context.event.payload as { playerId?: PlayerId; reason?: string; isDraw?: boolean }
+        if (payload.playerId !== ownerId || (!payload.isDraw && payload.reason !== 'draw') || host.state.phase === 'draw' || host.state.weishuDrawGuard) return
         const owner = playerOf(host.state, ownerId)
         const candidateIds = host.state.players.filter((candidate) => candidate.alive).map((candidate) => candidate.id)
         if (!owner?.alive || candidateIds.length === 0) return

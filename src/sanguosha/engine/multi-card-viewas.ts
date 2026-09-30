@@ -1,16 +1,16 @@
 import type { ChooseCardsRequest, GameRequest, GameResponse } from './requests'
 import type { SkillHost } from './skills/runtime'
-import { skillsOf } from './skills/runtime'
+import { isResponseCardProhibited, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import type { CardId, DamageNature, PlayerId, SanguoshaState, Suit } from './types'
 import { locateOwnedCard, moveCard, setCardAlias, setCardNature } from './zones'
+import { handleEquipmentLost } from './equipment'
 import { aggregateCardColor, setCardColorOverride } from './card-color'
 
 /**
  * 「把恰好 N 张同花色的牌当作某张牌使用或打出」的公共机制。
  *
- * 神赵云【龙魂】要的就是这个：X 张花色相同的牌，X 等于当前体力且至少为 1，
- * 红桃当【桃】、方块当【火杀】、梅花当【闪】、黑桃当【无懈可击】。
+ * 神赵云【龙魂】使用该机制；张数、花色与转化牌名由技能自己的规格声明。
  *
  * 为什么不能用现有的单牌 `viewAs`：
  *
@@ -20,25 +20,30 @@ import { aggregateCardColor, setCardColorOverride } from './card-color'
  * - 玩家必须**在选牌之前**就知道「这次需要几张、要同花色」，
  *   而不是选完一张才被告知非法。
  *
- * 所以走和于吉【蛊惑】同一条路：在各个求牌请求里多挂一条声明动作，
- * 引擎集中认领，挂起原请求 → 问玩家选哪 N 张 → 落地后把原请求重放一次。
- * 求闪、求桃、无懈、锦囊效果这四条路径因此都不用各写一遍。
+ * 在各个求牌请求里多挂一条声明动作，引擎集中认领，挂起原请求 → 问玩家选牌 → 落地后重放一次。
+ * 目前接入求闪、求桃、无懈及锦囊效果响应；主动使用路径需单独接入。
  *
  * **底牌区域**：手牌和装备区都算（经典龙魂的「牌」包含装备区）。
  * 判定区、专属牌堆、弃牌堆一律不算。
  */
 
 export const MULTI_VIEWAS_ACTION = 'multi-viewas'
+/** Rescue-only action because a dying character may convert cards as either Peach or Wine. */
+export const MULTI_VIEWAS_WINE_ACTION = 'multi-viewas:wine'
 
 /** 技能向本机制报备自己能提供什么。由技能运行时实现 `multiCardViewAs` 钩子。 */
 export interface MultiCardViewAsSpec {
   skillId: string
   /** 战报和提示里显示的技能名。不给就退回技能 id。 */
   skillName?: string
-  /** 这次要凑几张。由技能按当前状态算（龙魂是 max(1, 当前体力)）。 */
+  /** 这次至少要凑几张。由技能按当前状态声明。 */
   requiredCount: number
+  /** 可选上限；缺省与 requiredCount 相同。支持“至少 N 张”类转化。 */
+  maxCount?: number
   /** 花色 → 转化成的牌名。没列出的花色不能用。 */
   suitToCardName: Partial<Record<Suit, string>>
+  /** 底牌须为互不相同的花色；与 sameSuit=false 配合用于异花色材料牌。 */
+  distinctSuits?: boolean
   /** 转化后的伤害属性（龙魂的方块是火焰）。不给就沿用牌面自带的。 */
   natureOf?: Partial<Record<Suit, DamageNature>>
   /**
@@ -51,6 +56,10 @@ export interface MultiCardViewAsSpec {
   sameSuit?: boolean
   /** 不看花色时能凑成的牌名。只在 `sameSuit` 为 false 时有意义。 */
   anySuitCardNames?: readonly string[]
+  /** These suits may also be actively used during the Play phase. */
+  activePlaySuits?: readonly Suit[]
+  /** 动态限定异花转化所允许的材料花色。 */
+  allowedSuits?: readonly Suit[]
   /** 底牌只能是手牌吗。默认 false（龙魂的底牌包含装备区）。 */
   handOnly?: boolean
   /**
@@ -60,12 +69,15 @@ export interface MultiCardViewAsSpec {
    * 改写只活到这张牌离场（`zones.ts` 的 `moveCard` 统一清），不会留到下次。
    */
   aggregateColor?: boolean
+  /** 多牌转化落地时写入本局临时效果状态（具体效果由技能在结算时解释）。 */
+  onConvert?(state: SanguoshaState, ownerId: PlayerId, carrierId: CardId, cardIds: readonly CardId[], asCardName: string): void
 }
 
 export interface MultiCardViewAsState {
   ownerId: PlayerId
   skillId: string
   requiredCount: number
+  maxCount: number
   /** 要凑成的牌名，由响应场景决定（求闪就是【闪】）。 */
   asCardName: string
   /** 原请求原样存着，落地之后放回去重放一次。 */
@@ -128,8 +140,9 @@ export function findMultiViewAsSpec(
     // 不看花色的那一类（父魂）：够张数就行，候选池是全部底牌
     if (spec.sameSuit === false) {
       if (!spec.anySuitCardNames?.includes(requiredCardName)) continue
-      if (allBaseCardsOf(state, playerId, spec).length < spec.requiredCount) continue
-      return { spec, suits: [...ALL_SUITS] }
+      const suits = spec.allowedSuits ? ALL_SUITS.filter((suit) => spec.allowedSuits!.includes(suit)) : [...ALL_SUITS]
+      if (allBaseCardsOf(state, playerId, spec, suits).length < spec.requiredCount) continue
+      return { spec, suits }
     }
     const suits = (Object.entries(spec.suitToCardName) as Array<[Suit, string]>)
       .filter(([, cardName]) => cardName === requiredCardName)
@@ -142,9 +155,9 @@ export function findMultiViewAsSpec(
 
 const ALL_SUITS: readonly Suit[] = ['spade', 'heart', 'club', 'diamond']
 
-/** 不看花色时的候选池：这名角色所有能当底牌的牌。 */
-function allBaseCardsOf(state: SanguoshaState, playerId: PlayerId, spec: MultiCardViewAsSpec): CardId[] {
-  return ALL_SUITS.flatMap((suit) => baseCardsOf(state, playerId, suit, spec.handOnly))
+/** 不看花色时的候选池：这名角色所有能当底牌的牌（可受技能花色限制）。 */
+function allBaseCardsOf(state: SanguoshaState, playerId: PlayerId, spec: MultiCardViewAsSpec, suits: readonly Suit[] = ALL_SUITS): CardId[] {
+  return suits.flatMap((suit) => baseCardsOf(state, playerId, suit, spec.handOnly))
 }
 
 /**
@@ -158,7 +171,19 @@ export function baseCardsOf(state: SanguoshaState, playerId: PlayerId, suit: Sui
   const equipment = handOnly
     ? []
     : Object.values(owner.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId))
-  return [...owner.zones.hand, ...equipment].filter((cardId) => state.cards[cardId]?.suit === suit)
+  const responseName = responseCardNameFor(state, playerId)
+  return [...owner.zones.hand, ...equipment].filter((cardId) => state.cards[cardId]?.suit === suit
+    && (!responseName || !isResponseCardProhibited(state, playerId, cardId, responseName, skillIdsOf)))
+}
+
+function responseCardNameFor(state: SanguoshaState, playerId: PlayerId): string | null {
+  const active = state.multiCardViewAs
+  if (active?.ownerId === playerId && (active.request.kind === 'respond-card' || active.request.kind === 'rescue')) return active.asCardName
+  const request = state.pendingRequests.find((candidate) => candidate.playerId === playerId
+    && (candidate.kind === 'respond-card' || candidate.kind === 'rescue'))
+  if (request?.kind === 'rescue') return '桃'
+  if (request?.kind === 'respond-card') return request.requiredCardName
+  return null
 }
 
 /** 所有可用花色的底牌合起来，用于发问时的候选池。 */
@@ -180,6 +205,7 @@ export function beginMultiCardViewAs(host: SkillHost, request: GameRequest, requ
     ownerId,
     skillId: spec.skillId,
     requiredCount: spec.requiredCount,
+    maxCount: Math.max(spec.requiredCount, spec.maxCount ?? spec.requiredCount),
     asCardName: requiredCardName,
     request: structuredClone(request),
     suspendedDying: request.kind === 'rescue' && host.state.dying ? structuredClone(host.state.dying) : null,
@@ -189,8 +215,10 @@ export function beginMultiCardViewAs(host: SkillHost, request: GameRequest, requ
   if (request.kind === 'rescue' && host.state.dying) host.state.dying = null
 
   const pool = candidatePool(host.state, ownerId, suits, spec.handOnly)
-  const constraint = spec.sameSuit === false
-    ? (spec.handOnly ? '手牌' : '牌')
+  const constraint = spec.distinctSuits
+    ? `花色各不相同的${spec.handOnly ? '手牌' : '牌'}`
+    : spec.sameSuit === false
+      ? (spec.handOnly ? '手牌' : '牌')
     : `花色相同的${spec.handOnly ? '手牌' : '牌'}`
   host.askSkill({
     skillId: spec.skillId,
@@ -201,7 +229,7 @@ export function beginMultiCardViewAs(host: SkillHost, request: GameRequest, requ
       kind: 'choose-cards',
       playerId: ownerId,
       // 张数和花色约束写在提示里：不能让玩家选完才被告知非法
-      prompt: `【${skillNameOf(spec)}】：选择 ${spec.requiredCount} 张${constraint}，`
+      prompt: `【${skillNameOf(spec)}】：选择 ${spec.requiredCount}${spec.maxCount && spec.maxCount > spec.requiredCount ? `至${spec.maxCount}` : ''} 张${constraint}，`
         + `当作【${requiredCardName}】使用或打出`,
       timeoutMs: 30_000,
       optional: false,
@@ -209,7 +237,7 @@ export function beginMultiCardViewAs(host: SkillHost, request: GameRequest, requ
       cardIds: pool,
       hiddenCardSlots: [],
       min: spec.requiredCount,
-      max: spec.requiredCount,
+      max: Math.max(spec.requiredCount, spec.maxCount ?? spec.requiredCount),
     }),
   })
 }
@@ -234,7 +262,7 @@ export function finishMultiCardViewAs(host: SkillHost, cardIds: CardId[]): void 
   const owner = playerOf(host.state, ownerId)
 
   const spec = specsOf(host.state, ownerId).find((candidate) => candidate.skillId === pending.skillId)
-  const valid = validateSelection(host.state, ownerId, cardIds, requiredCount, spec)
+  const valid = validateSelection(host.state, ownerId, cardIds, requiredCount, spec, pending.maxCount)
   if (!owner?.alive || !valid) {
     // 选得不合法就当作放弃，不能把原请求丢掉
     replay(host, declineActionId(request))
@@ -243,6 +271,8 @@ export function finishMultiCardViewAs(host: SkillHost, cardIds: CardId[]): void 
 
   const suit = host.state.cards[valid[0]]!.suit
   const [carrierId, ...costIds] = valid
+  // 让技能读取底牌仍在原区域时的有效花色/颜色；部分牌色修正会随离区清除。
+  spec?.onConvert?.(host.state, ownerId, carrierId, valid, asCardName)
 
   // 代价牌先进弃牌堆。装备区的牌离场要走正常收尾，所以统一用 moveCard + 事件。
   for (const cardId of costIds) {
@@ -251,6 +281,7 @@ export function finishMultiCardViewAs(host: SkillHost, cardIds: CardId[]): void 
     moveCard(host.state, cardId, from, { kind: 'discardPile' })
     if (from.kind === 'equipment') {
       host.dispatch('LoseEquipment', { playerId: ownerId, cardId, reason: pending.skillId }, { targetId: ownerId, cardIds: [cardId] })
+      handleEquipmentLost(host as never, ownerId, cardId)
     }
   }
   if (costIds.length > 0) {
@@ -262,6 +293,7 @@ export function finishMultiCardViewAs(host: SkillHost, cardIds: CardId[]): void 
   if (carrierFrom?.kind === 'equipment') {
     moveCard(host.state, carrierId, carrierFrom, { kind: 'hand', playerId: ownerId })
     host.dispatch('LoseEquipment', { playerId: ownerId, cardId: carrierId, reason: pending.skillId }, { targetId: ownerId, cardIds: [carrierId] })
+    handleEquipmentLost(host as never, ownerId, carrierId)
   }
 
   pending.grantedCardId = carrierId
@@ -278,7 +310,7 @@ export function finishMultiCardViewAs(host: SkillHost, cardIds: CardId[]): void 
   host.dispatch('SkillActivated', {
     skillId: pending.skillId, skillName: skillNameOf(spec), playerId: ownerId,
     logText: `${owner.nickname}发动【${skillNameOf(spec)}】，`
-      + `将 ${requiredCount} 张${suitText}牌当作【${asCardName}】`,
+      + `将 ${valid.length} 张${suitText}牌当作【${asCardName}】`,
   }, { sourceId: ownerId })
 
   replay(host, grantedActionId(host, request, carrierId, asCardName))
@@ -295,9 +327,10 @@ function validateSelection(
   cardIds: CardId[],
   requiredCount: number,
   spec: MultiCardViewAsSpec | undefined,
+  maxCount = requiredCount,
 ): CardId[] | null {
   const unique = [...new Set(cardIds)]
-  if (unique.length !== requiredCount) return null
+  if (unique.length < requiredCount || unique.length > maxCount) return null
   const suits = new Set<Suit>()
   for (const cardId of unique) {
     const from = locateOwnedCard(state, ownerId, cardId)
@@ -306,12 +339,23 @@ function validateSelection(
     // 只收手牌的那一类（父魂）：装备区不行
     if (spec?.handOnly && from.kind !== 'hand') return null
     const suit = state.cards[cardId]?.suit
-    if (!suit) return null
+    if (!suit || (spec?.allowedSuits && !spec.allowedSuits.includes(suit))) return null
     suits.add(suit)
   }
   // **同花色**，不是同颜色：红桃配方块非法。不看花色的那一类跳过这条
   if (spec?.sameSuit !== false && suits.size !== 1) return null
+  if (spec?.distinctSuits && suits.size !== unique.length) return null
   return unique
+}
+
+/** Validate a skill's selected physical materials with the exact same rules used by response conversion. */
+export function validateMultiCardViewAsSelection(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardIds: CardId[],
+  spec: MultiCardViewAsSpec,
+): CardId[] | null {
+  return validateSelection(state, ownerId, cardIds, spec.requiredCount, spec, Math.max(spec.requiredCount, spec.maxCount ?? spec.requiredCount))
 }
 
 function replay(host: SkillHost, actionId: string): void {

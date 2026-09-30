@@ -1,6 +1,7 @@
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import { validateResponse } from './requests'
 import type { CardId, GroupCardDecisionState, PlayerId, SanguoshaState } from './types'
+import type { GameRng } from './rng'
 
 /**
  * 多人同时秘密选牌（GroupCardDecision）。
@@ -18,6 +19,8 @@ type GroupCardDecisionContinuation = (host: GroupCardDecisionHost, decision: Gro
 
 export interface GroupCardDecisionHost {
   state: SanguoshaState
+  /** 可选的宿主 RNG；需要牌堆随机操作的续接使用它，保证回放可复现。 */
+  rng?: GameRng
 }
 
 const continuations = new Map<string, GroupCardDecisionContinuation>()
@@ -36,6 +39,8 @@ export interface GroupCardDecisionOptions {
   /** 每个参与者能选的牌（各自的手牌），min 默认 0（可以交空）。 */
   cardIdsFor(playerId: PlayerId): readonly CardId[]
   min?: number
+  /** 参与者候选数不同、最低选择数也不同的场合（例如无手牌者可空选）。 */
+  minFor?(playerId: PlayerId, cardIds: readonly CardId[]): number
   max?: number
   timeoutMs: number
   data?: Record<string, unknown>
@@ -68,17 +73,22 @@ export function startGroupCardDecision(host: GroupCardDecisionHost, options: Gro
   host.state.groupCardDecision = decision
   participants.forEach((playerId, index) => {
     const cardIds = [...options.cardIdsFor(playerId)]
+    const min = options.minFor?.(playerId, cardIds) ?? options.min ?? 0
+    const max = options.max ?? cardIds.length
+    if (!Number.isInteger(min) || min < 0 || min > max) {
+      throw new Error(`多人选牌的数量范围非法：${playerId} min=${min} max=${max}`)
+    }
     const request: ChooseCardsRequest = {
       id: `${options.id}:${playerId}:${index}`,
       kind: 'choose-cards',
       playerId,
       prompt: options.prompt,
       timeoutMs: options.timeoutMs,
-      optional: true,
+      optional: min === 0,
       cardIds,
       hiddenCardSlots: [],
-      min: options.min ?? 0,
-      max: options.max ?? cardIds.length,
+      min,
+      max,
       purpose: 'skill',
       ...(options.skillId ? { skillId: options.skillId, skillStep: options.tag } : {}),
     }

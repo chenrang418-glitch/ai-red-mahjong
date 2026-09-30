@@ -118,6 +118,11 @@ describe('技能请求通道', () => {
     game.damage({ sourceId: 'p0', targetId: victim.id, amount: 1, nature: 'normal', cardName: '杀' })
     expect(victim.hp).toBe(hpBefore - 2)
 
+    const duelTarget = game.state.players[3]
+    const duelHpBefore = duelTarget.hp
+    game.damage({ sourceId: 'p0', targetId: duelTarget.id, amount: 1, nature: 'normal', cardName: '决斗' })
+    expect(duelTarget.hp).toBe(duelHpBefore - 2)
+
     // 别的牌不吃这个加成
     const other = game.state.players[2]
     const otherHpBefore = other.hp

@@ -6,11 +6,8 @@ import type { CharacterDefinition } from './types'
 /**
  * 麹义（三国杀 OL 经典身份 SP）。
  *
- * 【伏骑】：锁定技，与麹义距离为1的其他角色，不能响应麹义使用的牌。
- *          目前通过 `slashUndodgeable`（杀不可闪）与 `trickUnresponsive`
- *          （锦囊目标完全不能响应）两个既有的“使用者方向”钩子实现；
- *          引擎目前没有面向旁观者的无懈可击/决斗响应封锁通用钩子，
- *          这两类间接响应不在本次实现范围内。
+ * 【伏骑】：锁定技，与麹义距离为1的其他角色不能响应麹义使用的牌；
+ *          目标响应、锦囊无懈及决斗等牌效响应均按使用者和响应者统一拦截。
  * 【骄恣】：锁定技，若麹义当前手牌数是全场唯一最多，其造成和受到的伤害
  *          各+1（每次伤害结算时动态判断，不缓存）。
  */
@@ -29,6 +26,9 @@ function isUniqueHandMax(state: SanguoshaState, ownerId: PlayerId): boolean {
 
 registerSkillRuntime({
   id: FUQI,
+  blocksResponseToCard(state, ownerId, responderId) {
+    return ownerId !== responderId && getDistance(state, ownerId, responderId) === 1
+  },
   slashUndodgeable(state, ownerId, targetId) {
     return getDistance(state, ownerId, targetId) === 1
   },
@@ -57,7 +57,7 @@ export const QUYI: CharacterDefinition = {
   maxHp: 4,
   pack: 'sp',
   skills: [
-    { id: FUQI, name: '伏骑', description: '锁定技，与麹义距离为1的其他角色，不能响应麹义使用的杀（不可闪）和锦囊牌（目标不可响应）。' },
+    { id: FUQI, name: '伏骑', description: '锁定技，与麹义距离为1的其他角色不能使用或打出牌响应麹义使用的牌。' },
     { id: JIAOZI, name: '骄恣', description: '锁定技，若麹义的手牌数在全场唯一最多，其造成和受到的伤害都+1。' },
   ],
 }

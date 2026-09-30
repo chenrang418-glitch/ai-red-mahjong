@@ -166,6 +166,7 @@ function endDiscardPhase(
   game.dispatch('PhaseEnd', { playerId: 'p0', phase: 'discard' }, { sourceId: 'p0', phase: 'discard' })
   game.settle()
   settle(game, (request) => {
+    if (request.kind === 'choose-option' && request.prompt?.includes('枭姬')) return { optionId: 'yes' }
     if (request.kind === 'choose-option' && request.prompt?.includes('旋风')) {
       seen.modeRequest = request
       return { optionId: plan.mode ?? 'cancel' }
@@ -380,7 +381,7 @@ describe('凌统：旋风的效果', () => {
 
 describe('凌统：旋风与其他技能的联动', () => {
   it('弃掉别人的装备会触发其枭姬', () => {
-    // p1 是孙尚香（枭姬）：装备离开她的装备区时摸两张
+    // p1 是孙尚香（枭姬）：装备离开她的装备区后，明确选择摸两张
     const game = gameAt('lt-xiaoji', ['lingtong', 'sunshangxiang', 'zhaoyun', 'huangzhong', 'guojia'])
     ledgerWith(game, 'p0', 'hand', 2)
     trimHand(game, 'p1', 0)

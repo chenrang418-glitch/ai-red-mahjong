@@ -25,8 +25,8 @@ const badgeVars = computed(() => ({
  * 不是浏览器不兼容，是字体压根不在设备上。
  *
  * 所以自带一份。用开源的 Ma Shan Zheng（马善政毛笔楷书，SIL OFL 1.1），
- * 并且**只子集角标真正用到的六个字**「魏蜀吴群晋神」，woff2 之后 3.9 KB。
- * unicode-range 也框死在这六个字上，绝不会影响页面上别的文字。
+ * 并且**只子集角标真正用到的七个字**「魏蜀吴群晋神乐」，woff2 之后约 4.2 KB。
+ * unicode-range 也框死在这七个字上，绝不会影响页面上别的文字。
  *
  * 必须自托管，不能用 Google Fonts CDN——那个域名在国内打不开，
  * 正好对使用者本人失效。
@@ -38,7 +38,7 @@ const badgeVars = computed(() => ({
   font-style: normal;
   /* 字体没到位时先用兜底字体显示，不留空白 */
   font-display: swap;
-  unicode-range: U+9B4F, U+8700, U+5434, U+7FA4, U+664B, U+795E;
+  unicode-range: U+9B4F, U+8700, U+5434, U+7FA4, U+664B, U+795E, U+4E50;
 }
 
 .sgs-faction-badge {

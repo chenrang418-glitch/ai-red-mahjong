@@ -35,10 +35,12 @@ export function buildGameUrl(current: URL, gameId: GameId): URL {
   return next
 }
 
-export function buildPortalUrl(current: URL): URL {
+export function buildPortalUrl(current: URL, portalGame?: GameId): URL {
   const next = new URL(current)
   next.searchParams.delete('game')
   next.searchParams.delete('room')
+  if (portalGame) next.searchParams.set('portalGame', portalGame)
+  else next.searchParams.delete('portalGame')
   next.hash = ''
   return next
 }

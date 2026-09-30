@@ -177,7 +177,7 @@ function askDiscard(host: SkillHost, ownerId: PlayerId): void {
 }
 
 export const YUANTAN_YUANSHANG: CharacterDefinition = {
-  id: 'yuantan_yuanshang',
+  id: 'yuantanyuanshang',
   name: '袁谭袁尚',
   kingdom: 'qun',
   gender: 'male',

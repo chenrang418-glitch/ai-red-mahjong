@@ -15,12 +15,6 @@ $sourceRoot = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $ffmpeg = (Get-Command ffmpeg -ErrorAction Stop).Source
 $ffprobe = (Get-Command ffprobe -ErrorAction Stop).Source
 
-$sourceAliases = @{
-  pingtoufangkuai = '平头方块.png'
-  zhuge_dan = 'zhugedan.png'
-  yuantan_yuanshang = 'yuantanyuanshang.png'
-}
-
 if (-not $CharacterId -or $CharacterId.Count -eq 0) {
   $CharacterId = Get-ChildItem -LiteralPath $smallRoot -Filter '*.webp' |
     ForEach-Object { $_.BaseName } |
@@ -37,7 +31,7 @@ function Get-ImageSize([string]$Path) {
 
 foreach ($id in ($CharacterId | Sort-Object -Unique)) {
   if ($id -notmatch '^[a-z0-9_]+$') { throw "characterId 非法：$id" }
-  $sourceName = if ($sourceAliases.ContainsKey($id)) { $sourceAliases[$id] } else { "$id.png" }
+  $sourceName = "$id.png"
   $input = Join-Path $sourceRoot $sourceName
   if (-not (Test-Path -LiteralPath $input -PathType Leaf)) { throw "缺少源图：$input" }
 

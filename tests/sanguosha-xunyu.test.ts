@@ -159,6 +159,8 @@ describe('驱虎的发动条件', () => {
     runQuhu(game, 13, 7)
     while (pending(game)) answer(game, { targetIds: [pending(game)!.kind === 'choose-targets' ? (pending(game) as { candidateIds: PlayerId[] }).candidateIds[0] : ''] })
     expect(quhuAction(game), '真的拼过之后就不能再来').toBeUndefined()
+    game.state.extraPhase = { phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1 }
+    expect(quhuAction(game), '另一个出牌阶段可以再次发动').toBeTruthy()
   })
 })
 

@@ -50,7 +50,6 @@ describe('晋势力专项第一批合并压测', () => {
     for (const [skillId, name] of [
       ['taoyin', '韬隐'], ['yimie', '夷灭'], ['ruilue', '睿略'], ['tairan', '泰然'],
       ['tuishi', '推弑'], ['choufa', '筹伐'], ['zhaoran', '昭然'],
-      ['shiren', '识人'], ['yanxi', '宴戏'],
       ['sanchen', '三陈'],
       ['huirong', '慧容'], ['ciwei', '慈威'], ['caiyuan', '才媛'],
       ['caiwang', '才望'],

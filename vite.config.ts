@@ -22,6 +22,17 @@ export default defineConfig({
   build: {
     target: 'es2022',
     minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks(moduleId) {
+          const id = moduleId.replaceAll('\\', '/')
+          // 武将定义会向引擎注入技能运行时，两边天然互相引用；放进同一核心块
+          // 可以避免人为拆成两个循环 chunk，同时把入口界面本身稳定压到 400 kB 以下。
+          if (id.includes('/src/sanguosha/data/characters/') || id.includes('/src/sanguosha/engine/')) return 'sgs-core'
+          return undefined
+        },
+      },
+    },
   },
   clearScreen: false,
 })

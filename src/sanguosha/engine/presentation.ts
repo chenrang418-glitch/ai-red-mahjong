@@ -1,5 +1,5 @@
 import type { GameEvent } from './events'
-import { delayedTrickHits } from './delayed-trick-rules'
+import { delayedTrickHitsForPlayer } from './delayed-trick-rules'
 import type { DamageNature, PlayerId, SanguoshaState, Suit } from './types'
 import { effectiveGenderOf } from './huashen'
 import { displayCharacterName, ALL_CHARACTERS } from '../data/characters/standard'
@@ -227,7 +227,9 @@ export function buildPresentationEvent(
       const result = judged ? `【${judged}】${face}` : '完成'
       const suit = payload.suit as Suit | undefined
       const rank = payload.rank as number | undefined
-      const judgeHit = suit !== undefined && rank !== undefined ? delayedTrickHits(reason, suit, rank) : undefined
+      const judgeHit = suit !== undefined && rank !== undefined && actorId
+        ? delayedTrickHitsForPlayer(state, actorId, reason, suit, rank)
+        : undefined
       return {
         id: event.id, seq: event.seq, kind: 'judge', targetIds: actorId ? [actorId] : [], cardName: judged,
         judgeReason: reason || undefined, judgeHit,

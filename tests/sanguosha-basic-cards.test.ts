@@ -131,10 +131,11 @@ describe('基础牌的合法动作与可恢复结算', () => {
     const slashId = giveCard(game, 'p0', '杀')
     useAction(game, slashId, 'p1')
     const request = game.state.pendingRequests[0]
-    const before = JSON.stringify(game.state)
+    const before = game.serialize()
     expect(() => game.respond({ requestId: request.id, playerId: 'p2', payload: { actionId: 'respond-pass' } })).toThrow('响应玩家')
+    expect(game.serialize()).toEqual(before)
     expect(() => game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: 'forged' } })).toThrow('actionId')
-    expect(JSON.stringify(game.state)).toBe(before)
+    expect(game.serialize()).toEqual(before)
     respond(game, 'respond-pass')
     expect(() => game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: 'respond-pass' } })).toThrow('不存在')
   })

@@ -16,13 +16,13 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await page.goto('/')
 
-    await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /红中麻将/ })).toContainText('可游玩')
-    // 单机和联机都已开放
-    await expect(page.getByRole('button', { name: /纸上三国/ })).toContainText('可游玩')
-    await expect(page.getByRole('button', { name: /更多游戏/ })).toBeDisabled()
-    await expect(page.getByRole('button', { name: /红中麻将/ })).toBeInViewport({ ratio: 1 })
-    await expect(page.getByRole('button', { name: /纸上三国/ })).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
+    // 两款正式游戏继续通过原来的门户路由打开，更多游戏入口不再渲染。
+    await expect(page.getByRole('button', { name: '红中麻将', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '吴魏契约', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /更多游戏/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '红中麻将', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: '吴魏契约', exact: true })).toBeInViewport({ ratio: 1 })
     await page.screenshot({ path: testInfo.outputPath('game-center.png'), animations: 'disabled' })
 
     const dimensions = await page.evaluate(() => ({
@@ -36,25 +36,27 @@ for (const viewport of viewports) {
   })
 }
 
-test('门户、麻将、纸上三国支持前进后退和刷新恢复', async ({ page }) => {
+test('门户、麻将、吴魏契约支持前进后退和刷新恢复', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: /红中麻将/ }).click()
+  await page.getByRole('button', { name: '开始游戏', exact: true }).click()
   await expect(page).toHaveURL(/game=mahjong/)
   await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
 
   await page.goBack()
-  await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
   await page.goForward()
   await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
 
   await page.getByRole('button', { name: '返回游戏中心' }).click()
-  await page.getByRole('button', { name: /纸上三国/ }).click()
+  await page.getByRole('button', { name: '吴魏契约', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '吴魏契约' })).toBeVisible()
+  await page.getByRole('button', { name: '开始游戏', exact: true }).click()
   await expect(page).toHaveURL(/game=sanguosha/)
-  await expect(page.getByRole('heading', { name: '纸上三国' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '吴魏契约' })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('heading', { name: '纸上三国' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '吴魏契约' })).toBeVisible()
 })
 
 test('旧麻将分享链接和管理员入口保持兼容', async ({ page }) => {
@@ -77,7 +79,7 @@ test('全站用同一套墨青配色，文字对比度达标', async ({ page }) 
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
   }
 
-  for (const [url, root] of [['/', '.game-portal'], ['/?game=mahjong', '.mode-home'], ['/?game=sanguosha', '.sgs-app']] as const) {
+  for (const [url, root] of [['/', '.portal-home'], ['/?game=mahjong', '.mode-home'], ['/?game=sanguosha', '.sgs-app']] as const) {
     await page.goto(url)
     await page.waitForSelector(root)
     const probe = await page.evaluate((selector) => {

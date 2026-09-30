@@ -80,9 +80,9 @@ function towerAndTarget(game: SanguoshaGame, targetId: PlayerId = 'p1'): void {
 }
 
 describe('许老板的基础信息', () => {
-  it('群势力、4 体力、三个技能、娱乐包', () => {
+  it('乐势力、4 体力、三个技能、娱乐包', () => {
     const character = getCharacter('xulaoban')!
-    expect(character.kingdom).toBe('qun')
+    expect(character.kingdom).toBe('le')
     expect(character.maxHp).toBe(4)
     expect(character.pack).toBe('entertainment')
     expect(character.skills.map((skill) => skill.id)).toEqual([KONGCHENGJI, GANGGAN, KONGSHOUTAOBAILANG])

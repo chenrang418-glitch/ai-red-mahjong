@@ -195,17 +195,60 @@ export function clearCardIdLocksOf(state: SanguoshaState, playerId: PlayerId): v
   if (state.cardIdLocks.length === 0) delete state.cardIdLocks
 }
 
+/** 为获得的实体牌添加“当前回合不能使用”限制，不影响弃置、转交或响应。 */
+export function lockCardUseUntilTurnEnd(
+  state: SanguoshaState,
+  entry: { targetId: PlayerId; cardId: CardId; sourceId: PlayerId; skillId: string },
+): void {
+  state.cardUseLocks ??= []
+  state.cardUseLocks = state.cardUseLocks.filter((candidate) => !(candidate.targetId === entry.targetId
+    && candidate.cardId === entry.cardId && candidate.skillId === entry.skillId))
+  state.cardUseLocks.push({ ...entry, turnNumber: state.turnNumber })
+}
+
+/** Lock every physical hand card for both use and response paths until the current turn ends. */
+export function lockHandUseAndResponseUntilTurnEnd(state: SanguoshaState, playerId: PlayerId): void {
+  const blocked = state as SanguoshaState & {
+    handUseBlockedUntilTurnEnd?: Record<PlayerId, number>
+    handResponseBlockedUntilTurnEnd?: Record<PlayerId, number>
+  }
+  blocked.handUseBlockedUntilTurnEnd ??= {}
+  blocked.handResponseBlockedUntilTurnEnd ??= {}
+  blocked.handUseBlockedUntilTurnEnd[playerId] = state.turnNumber
+  blocked.handResponseBlockedUntilTurnEnd[playerId] = state.turnNumber
+}
+
+/** 仅拦截“使用”路径；响应/打出规则仍走 `cardPlayable` 的原有条件。 */
+export function isCardUseLocked(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
+  return (state.cardUseLocks ?? []).some((entry) => entry.targetId === playerId
+    && entry.cardId === cardId && entry.turnNumber === state.turnNumber)
+    || skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.prohibitsCardIdUse?.(state, playerId, cardId) === true)
+    || state.players.filter((candidate) => candidate.alive).some((skillOwner) =>
+      skillsOf(state, skillOwner.id, skillIdsOf).some((runtime) => runtime.globallyProhibitsCardUse?.(state, skillOwner.id, playerId, cardId) === true))
+}
+
+export function clearTurnCardUseLocks(state: SanguoshaState, turnNumber: number): void {
+  if (!state.cardUseLocks) return
+  state.cardUseLocks = state.cardUseLocks.filter((entry) => entry.turnNumber !== turnNumber)
+  if (state.cardUseLocks.length === 0) delete state.cardUseLocks
+}
+
 /**
  * 这张实体牌现在能不能被这名角色**使用或打出**。花色、颜色、类别、
- * 具体 Card ID 四类禁令都查。
+ * 具体 Card ID 四类禁令都查；回合内“不能使用”锁只拦使用路径，不影响响应。
  *
  * 这是唯一出口：新增第五类禁令时加在这里，不要在各条路径上再写一遍。
  */
-export function cardPlayable(state: SanguoshaState, playerId: PlayerId, cardId: CardId): boolean {
+export function cardPlayable(state: SanguoshaState, playerId: PlayerId, cardId: CardId, options: { forResponse?: boolean } = {}): boolean {
+  const handUseBlock = (state as SanguoshaState & { handUseBlockedUntilTurnEnd?: Record<PlayerId, number>; handResponseBlockedUntilTurnEnd?: Record<PlayerId, number> })
+  const isHandCard = state.players.find((player) => player.id === playerId)?.zones.hand.includes(cardId)
+  if (isHandCard && ((!options.forResponse && handUseBlock.handUseBlockedUntilTurnEnd?.[playerId] === state.turnNumber)
+    || (options.forResponse && handUseBlock.handResponseBlockedUntilTurnEnd?.[playerId] === state.turnNumber))) return false
   return cardPlayableBySuit(state, playerId, cardId)
     && cardPlayableByColor(state, playerId, cardId)
     && cardPlayableByCategory(state, playerId, cardId)
     && !isCardIdLocked(state, playerId, cardId)
+    && (options.forResponse === true || !isCardUseLocked(state, playerId, cardId))
 }
 
 /** 这名角色现在有没有任何用牌禁令，用于界面提示。 */

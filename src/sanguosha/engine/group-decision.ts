@@ -61,6 +61,8 @@ export interface GroupDecisionOptions {
    * 不给这个函数时所有人共用同一份 `options`。
    */
   optionsFor?(playerId: PlayerId): ReadonlyArray<{ id: string; label: string }>
+  /** 当选项因人裁剪时，为该参与者指定其有效超时项。 */
+  defaultOptionIdFor?(playerId: PlayerId): string
   /** 超时或掉线时替玩家填的默认选项，必须在 `options` 里。 */
   defaultOptionId: string
   timeoutMs: number
@@ -91,6 +93,7 @@ export function startGroupDecision(host: GroupDecisionHost, options: GroupDecisi
     playerIds: [...participants],
     responses: {},
     defaultOptionId: options.defaultOptionId,
+    defaultOptionIds: {},
     requestIds: {},
     data: options.data ?? {},
   }
@@ -103,9 +106,11 @@ export function startGroupDecision(host: GroupDecisionHost, options: GroupDecisi
   host.state.groupDecision = decision
   participants.forEach((playerId, index) => {
     const offered = options.optionsFor?.(playerId) ?? options.options
-    if (!offered.some((option) => option.id === options.defaultOptionId)) {
+    const defaultOptionId = options.defaultOptionIdFor?.(playerId) ?? options.defaultOptionId
+    if (!offered.some((option) => option.id === defaultOptionId)) {
       throw new Error('按人裁剪后的选项必须仍然包含默认选项')
     }
+    decision.defaultOptionIds![playerId] = defaultOptionId
     const request: ChooseOptionRequest = {
       id: `${options.id}:${playerId}:${index}`,
       kind: 'choose-option',
@@ -173,7 +178,7 @@ export function forceCompleteGroupDecision(host: GroupDecisionHost): void {
   const decision = host.state.groupDecision
   if (!decision) return
   for (const playerId of decision.playerIds) {
-    if (decision.responses[playerId] === undefined) decision.responses[playerId] = decision.defaultOptionId
+    if (decision.responses[playerId] === undefined) decision.responses[playerId] = decision.defaultOptionIds?.[playerId] ?? decision.defaultOptionId
   }
   const ids = new Set(Object.values(decision.requestIds))
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => !ids.has(candidate.id))
@@ -189,7 +194,7 @@ export function dropDeadParticipants(host: GroupDecisionHost): void {
     if (decision.responses[playerId] !== undefined) continue
     const player = host.state.players.find((candidate) => candidate.id === playerId)
     if (player?.alive) continue
-    decision.responses[playerId] = decision.defaultOptionId
+    decision.responses[playerId] = decision.defaultOptionIds?.[playerId] ?? decision.defaultOptionId
     const requestId = decision.requestIds[playerId]
     host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== requestId)
     changed = true

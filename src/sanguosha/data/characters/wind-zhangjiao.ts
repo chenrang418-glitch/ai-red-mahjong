@@ -4,6 +4,7 @@ import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/req
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { effectiveKingdomOf } from '../../engine/huashen'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 
 /**
  * 张角【雷击】【鬼道】【黄天】。
@@ -174,8 +175,7 @@ registerSkillRuntime({
     if (!actor?.alive || actor.characterId === null) return []
     // 只有群雄角色能交
     if (!isQun(state, actorId)) return []
-    // 每阶段限一次：出牌阶段本身就是一个阶段，用回合内记账即可
-    if (actor.turnUsedSkills.includes(HUANGTIAN)) return []
+    if (usedThisPhase(state, actorId, HUANGTIAN)) return []
     if (huangtianGiftIds(state, actorId).length === 0) return []
     return [{ id: HUANGTIAN_GIVE, label: `发动【黄天】：交给${lord.nickname}一张【闪】或【闪电】` }]
   },
@@ -184,10 +184,10 @@ registerSkillRuntime({
     if (actionId !== HUANGTIAN_GIVE) return
     const gifts = huangtianGiftIds(host.state, actorId)
     if (gifts.length === 0) return
-    // 先记账再发问：反复取消不能刷次数
+    // 先按当前出牌阶段记账再发问：额外出牌阶段拥有独立次数。
     const actor = playerOf(host.state, actorId)
-    if (!actor || actor.turnUsedSkills.includes(HUANGTIAN)) return
-    actor.turnUsedSkills.push(HUANGTIAN)
+    if (!actor || usedThisPhase(host.state, actorId, HUANGTIAN)) return
+    markUsedThisPhase(host.state, actorId, HUANGTIAN)
     host.askSkill({
       skillId: HUANGTIAN,
       ownerId: actorId,

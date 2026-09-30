@@ -161,6 +161,8 @@ describe('挑衅的次数与取消', () => {
       guard += 1
     }
     expect(tiaoxinAction(game, 'p0'), '一个出牌阶段只能挑衅一次').toBeUndefined()
+    game.state.extraPhase = { phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1 }
+    expect(tiaoxinAction(game, 'p0'), '同一回合的另一个出牌阶段可重新挑衅').toBeTruthy()
   })
 
   it('取消选目标不消耗次数', () => {

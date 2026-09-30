@@ -64,7 +64,7 @@ function storageGet(key: string): string {
   try {
     const raw = window.localStorage.getItem(key) ?? ''
     if (!raw) return ''
-    // 麻将和纸上三国共用昵称。麻将按 JSON 保存字符串，旧实现直接读取会把双引号也显示出来。
+    // 麻将和吴魏契约共用昵称。麻将按 JSON 保存字符串，旧实现直接读取会把双引号也显示出来。
     try {
       const parsed = JSON.parse(raw) as unknown
       return typeof parsed === 'string' ? parsed : ''
@@ -88,13 +88,18 @@ function storageSet(key: string, value: string): void {
  * 而房间号只存在 localStorage 里——于是后台其实还连着房间，用户却看到首页。
  * 顺带让地址栏本身就是一条可分享的邀请链接。
  */
-function syncRoomUrl(code: string): void {
+function syncRoomUrl(code: string, spectator = false): void {
   try {
     const url = new URL(window.location.href)
-    if (url.searchParams.get('room') === code) return
     url.searchParams.set('game', 'sanguosha')
-    if (code) url.searchParams.set('room', code)
-    else url.searchParams.delete('room')
+    if (code) {
+      url.searchParams.set('room', code)
+      if (spectator) url.searchParams.set('spectator', '1')
+      else url.searchParams.delete('spectator')
+    } else {
+      url.searchParams.delete('room')
+      url.searchParams.delete('spectator')
+    }
     window.history.replaceState(window.history.state, '', url.toString())
   } catch { /* 地址栏同步失败不该影响牌局 */ }
 }
@@ -131,6 +136,7 @@ export function useOnlineSanguosha() {
   const chatBubbles = ref<Record<string, { id: number; text: string }>>({})
   let socket: WebSocket | null = null
   let roomCode = ''
+  let spectating = new URLSearchParams(window.location.search).get('spectator') === '1'
   let manualClose = false
   let reconnectTimer: number | null = null
   let reconnectAttempt = 0
@@ -194,7 +200,7 @@ export function useOnlineSanguosha() {
       storageSet(NICKNAME_KEY, session.value.nickname)
       await refreshRooms()
       const invited = new URLSearchParams(window.location.search).get('room')?.toUpperCase() ?? ''
-      if (/^[A-Z0-9]{6}$/.test(invited)) connectRoom(invited)
+      if (/^[A-Z0-9]{6}$/.test(invited)) connectRoom(invited, false, spectating)
     } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
     finally { busy.value = false }
   }
@@ -207,8 +213,8 @@ export function useOnlineSanguosha() {
       await refreshRooms()
       const invited = new URLSearchParams(window.location.search).get('room')?.toUpperCase()
       const stored = storageGet(ROOM_KEY)
-      if (invited && /^[A-Z0-9]{6}$/.test(invited)) connectRoom(invited)
-      else if (stored) connectRoom(stored)
+      if (invited && /^[A-Z0-9]{6}$/.test(invited)) connectRoom(invited, false, spectating)
+      else if (stored) connectRoom(stored, false, false)
     } catch { session.value = null }
   }
 
@@ -227,21 +233,21 @@ export function useOnlineSanguosha() {
       const result = await request<{ code: string }>('/api/sanguosha/rooms', {
         method: 'POST', body: JSON.stringify({ settings, createRequestId }),
       })
-      connectRoom(result.code)
+      connectRoom(result.code, false, false)
     } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
     finally { busy.value = false }
   }
 
-  function joinRoom(code: string): void {
+  function joinRoom(code: string, asSpectator = false): void {
     const normalized = code.trim().toUpperCase()
     if (!/^[A-Z0-9]{6}$/.test(normalized)) {
       error.value = '请输入 6 位房间号'
       return
     }
-    connectRoom(normalized)
+    connectRoom(normalized, false, asSpectator)
   }
 
-  function connectRoom(code: string, reconnecting = false): void {
+  function connectRoom(code: string, reconnecting = false, asSpectator = spectating): void {
     closeCurrentSocket()
     if (!reconnecting) {
       reconnectAttempt = 0
@@ -249,13 +255,15 @@ export function useOnlineSanguosha() {
       syncPendingCount()
     }
     roomCode = code
+    spectating = asSpectator
     storageSet(ROOM_KEY, code)
-    syncRoomUrl(code)
+    syncRoomUrl(code, spectating)
     manualClose = false
     connecting.value = true
     connectionState.value = reconnecting ? 'reconnecting' : 'connecting'
 
     const url = new URL(`${apiBase}/api/sanguosha/rooms/${code}/socket`)
+    if (spectating) url.searchParams.set('spectator', '1')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const mine = ++generation
     const current = new WebSocket(url)
@@ -328,11 +336,12 @@ export function useOnlineSanguosha() {
       if (event.code === ROOM_REJECT_CLOSE_CODE || event.code === SESSION_SUPERSEDED_CODE) {
         room.value = null
         roomCode = ''
+        spectating = false
         pending.clear()
         syncPendingCount()
         connectionState.value = 'closed'
         storageSet(ROOM_KEY, '')
-        syncRoomUrl('')
+        syncRoomUrl('', false)
         error.value = event.reason || '无法进入房间'
         if (event.code === SESSION_SUPERSEDED_CODE) session.value = null
         return
@@ -439,7 +448,7 @@ export function useOnlineSanguosha() {
     const code = roomCode
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null
-      connectRoom(code, true)
+      connectRoom(code, true, spectating)
     }, delay)
   }
 
@@ -564,8 +573,9 @@ export function useOnlineSanguosha() {
     connectionState.value = 'closed'
     room.value = null
     roomCode = ''
+    spectating = false
     storageSet(ROOM_KEY, '')
-    syncRoomUrl('')
+    syncRoomUrl('', false)
     closeCurrentSocket()
     void refreshRooms()
   }

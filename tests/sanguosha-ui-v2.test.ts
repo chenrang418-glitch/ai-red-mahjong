@@ -13,7 +13,7 @@ function setup(count: number): GameSetup {
 
 describe('纸上三国牌桌 V2 座位', () => {
   it.each([
-    [5, ['self', 'right-bottom', 'right-top', 'top-left', 'left-bottom']],
+    [5, ['self', 'right-bottom', 'right-top', 'left-top', 'left-bottom']],
     [6, ['self', 'right-bottom', 'right-top', 'top-center', 'left-top', 'left-bottom']],
     [7, ['self', 'right-bottom', 'right-top', 'top-right', 'top-left', 'left-top', 'left-bottom']],
     [8, ['self', 'right-bottom', 'right-top', 'top-right', 'top-center', 'top-left', 'left-top', 'left-bottom']],
@@ -35,17 +35,13 @@ describe('纸上三国牌桌 V2 座位', () => {
     expect(view.players.find((player) => player.id === 'p2')!.distanceFromViewer).toBe(getDistance(game.state, 'p0', 'p2'))
   })
 
-  it('移动端不再隐藏装备或裁切技能区', () => {
-    // 原来靠「最后一个 @media (max-width: 820px) 块」来定位，后面一加新的移动端规则
-    // 就会定位到别的块上。改成直接找这几条规则本身，位置怎么变都不影响。
+  it('移动端把装备和状态折叠进完整公开信息面板，技能名称仍不裁切', () => {
     const source = readFileSync('src/sanguosha/components/SgsSeat.vue', 'utf8')
-    const rule = (selector: string) => {
-      const at = source.indexOf(selector)
-      return at < 0 ? '' : source.slice(at, source.indexOf('}', at))
-    }
-    expect(rule('.sgs-seat__equipment {'), '装备槽要展开成双列，不能整块隐藏').toContain('display: grid')
+    expect(source).toContain('class="sgs-seat-details__list"')
+    expect(source).toContain('v-for="card in player.equipment"')
+    expect(source).toContain('v-for="card in player.judgingArea"')
+    expect(source).toMatch(/\.sgs-seat--compact \.sgs-seat__equipment,[\s\S]*?display:\s*none/)
     expect(source, '技能区不能再被裁高').toMatch(/\.sgs-seat__skills\s*\{[^}]*max-height:\s*none[^}]*overflow:\s*visible/s)
-    expect(source).not.toMatch(/\.sgs-seat__equipment\s*\{\s*display:\s*none/)
     expect(source).not.toMatch(/\.sgs-seat__skills\s*\{\s*max-height:\s*14px/)
   })
 

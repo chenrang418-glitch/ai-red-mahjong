@@ -182,8 +182,10 @@ describe('Footer：内容、位置、不出现 GitHub', () => {
     }
   })
 
-  it('只出现在 GamePortal（游戏选择主页），不在其它地方单独出现', () => {
-    expect(gamePortal).toContain('<SiteFooter')
+  it('只出现在游戏中心入口菜单，不在游戏内部单独出现', () => {
+    expect(gamePortal).toContain('<PortalMoreMenu')
+    expect(read('portal/PortalMoreMenu.vue')).toContain("FullDisclaimerModal")
+    expect(read('portal/PortalMoreMenu.vue')).toContain("ContactDeveloperModal")
   })
 })
 
@@ -220,7 +222,7 @@ describe('SSR/localStorage 安全：不在模块顶层直接摸 window', () => {
 describe('游戏内部不能出现同样的文字', () => {
   const forbiddenMarkers = ['项目说明', '免责声明', '联系开发者', '1507394636', 'crplay_project_notice']
 
-  /** 纸上三国和麻将里，真正会渲染进玩家可见界面的组件文件。 */
+  /** 吴魏契约和麻将里，真正会渲染进玩家可见界面的组件文件。 */
   function listVueFiles(dir: string): string[] {
     const url = new URL(`../src/${dir}`, import.meta.url)
     const entries = readdirSync(url, { withFileTypes: true })
@@ -241,7 +243,7 @@ describe('游戏内部不能出现同样的文字', () => {
     }
   })
 
-  it('纸上三国界面文件（SanguoshaApp.vue、sanguosha/components）不包含声明文字', () => {
+  it('吴魏契约界面文件（SanguoshaApp.vue、sanguosha/components）不包含声明文字', () => {
     const files = ['sanguosha/SanguoshaApp.vue', ...listVueFiles('sanguosha/components')]
     for (const file of files) {
       const source = read(file)

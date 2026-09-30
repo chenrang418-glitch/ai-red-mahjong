@@ -80,7 +80,7 @@ describe('牌区域、合法操作与可中断阶段', () => {
   it('Engine 进入摸牌阶段实际摸两张，并在弃牌阶段生成强制选择', () => {
     const game = new SanguoshaGame({ seed: 'phase-behavior', setup: setup() })
     game.start()
-    const current = game.state.players.find((player) => player.id === game.state.currentPlayerId)!
+    let current = game.state.players.find((player) => player.id === game.state.currentPlayerId)!
     const initialHand = current.zones.hand.length
     game.advancePhase()
     expect(game.state.phase).toBe('judge')
@@ -94,11 +94,22 @@ describe('牌区域、合法操作与可中断阶段', () => {
     const request = game.state.pendingRequests[0]
     expect(request).toMatchObject({ kind: 'choose-cards', purpose: 'discard-phase', min: 2, max: 2, optional: false })
     expect(() => game.advancePhase()).toThrow('Request')
+    // 失败操作会回滚到克隆的快照，后续断言必须读取当前状态里的玩家对象。
+    current = game.state.players.find((player) => player.id === current.id)!
     const selected = current.zones.hand.slice(0, 2)
     game.respond({ requestId: request.id, playerId: current.id, payload: { cardIds: selected } })
     expect(current.zones.hand).toHaveLength(current.hp)
     expect(game.state.zones.discardPile).toEqual(expect.arrayContaining(selected))
     expect(game.state.decisions.at(-1)).toMatchObject({ requestId: request.id, kind: 'choose-cards' })
+    // 新增武将的结束/回合被动可在弃牌回答后提出可选发动；本测试关注阶段推进，统一拒绝这些额外选项。
+    while (game.state.pendingRequests.length) {
+      const pending = game.state.pendingRequests[0]
+      expect(pending.optional, JSON.stringify(pending)).toBe(true)
+      const payload = pending.kind === 'choose-option' ? { optionId: 'no' }
+        : pending.kind === 'choose-targets' ? { targetIds: [] }
+          : { cardIds: [] }
+      game.respond({ requestId: pending.id, playerId: pending.playerId, payload } as any)
+    }
     game.advancePhase()
     expect(game.state.phase).toBe('finish')
     assertCardConservation(game.state)

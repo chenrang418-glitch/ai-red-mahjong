@@ -1,12 +1,13 @@
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { recover } from '../../engine/recover'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
-import { moveCard } from '../../engine/zones'
+import { discardCardsByIds } from '../../engine/discard-all'
 import { giveCards } from '../../engine/hand-transfer'
 import type { CharacterDefinition, Kingdom } from './types'
 import { effectiveKingdomOf } from '../../engine/huashen'
+import { drawCards } from '../../engine/draw'
 
 /**
  * 三位主公，以及主公技。
@@ -75,7 +76,7 @@ registerSkillRuntime({
   id: 'rende',
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
-    if (!owner.alive || owner.zones.hand.length === 0) return []
+    if (state.phase !== 'play' || state.currentPlayerId !== ownerId || !owner.alive || owner.zones.hand.length === 0) return []
     if (!state.players.some((player) => player.alive && player.id !== ownerId)) return []
     return [{ id: 'skill:rende', label: '发动【仁德】：把手牌交给其他角色，给出两张后回复一点体力' }]
   },
@@ -135,23 +136,36 @@ registerSkillRuntime({
     const given = giveCards(host, ownerId, targetId, cardIds, '仁德')
     if (given.length === 0) return
 
-    // 一个回合内累计给出两张才回血，而且只回一次
+    // 仁德的累计量和恢复次数都限定在当前出牌阶段。
     const marks = owner.marks
     marks.rendeGiven = (marks.rendeGiven ?? 0) + given.length
-    if (marks.rendeGiven >= 2 && !usedThisTurn(host.state, ownerId, 'rende-recover')) {
-      markUsedThisTurn(host.state, ownerId, 'rende-recover')
+    if (marks.rendeGiven >= 2 && !marks.rendeRecoveredThisPlayPhase) {
+      marks.rendeRecoveredThisPlayPhase = 1
       recover(host, ownerId, 1, ownerId)
     }
   },
-  triggers: [{
-    event: 'TurnEnd',
-    handle(host, ownerId) {
-      // 计数只在本回合有效
-      const owner = host.state.players.find((candidate) => candidate.id === ownerId)
-      if (!owner) return
-      delete owner.marks.rendeGiven
+  triggers: [
+    {
+      event: 'PlayPhase',
+      handle(host, ownerId, context) {
+        if ((context.event.payload as { playerId?: PlayerId }).playerId !== ownerId) return
+        const owner = host.state.players.find((candidate) => candidate.id === ownerId)
+        if (!owner) return
+        owner.marks.rendeGiven = 0
+        delete owner.marks.rendeRecoveredThisPlayPhase
+      },
     },
-  }],
+    {
+      event: 'TurnEnd',
+      handle(host, ownerId) {
+        // 清理阶段内计数，避免跨回合残留
+        const owner = host.state.players.find((candidate) => candidate.id === ownerId)
+        if (!owner) return
+        delete owner.marks.rendeGiven
+        delete owner.marks.rendeRecoveredThisPlayPhase
+      },
+    },
+  ],
 })
 
 // —— 刘备 主公技【激将】——
@@ -169,13 +183,15 @@ registerSkillRuntime({
   id: 'zhiheng',
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
-    if (!owner.alive || owner.zones.hand.length === 0) return []
-    if (usedThisTurn(state, ownerId, 'zhiheng')) return []
+    if (state.phase !== 'play' || state.currentPlayerId !== ownerId || usedThisPhase(state, ownerId, 'zhiheng')) return []
+    if (!owner.alive || (owner.zones.hand.length === 0 && Object.values(owner.zones.equipment).every((cardId) => !cardId))) return []
     return [{ id: 'skill:zhiheng', label: '发动【制衡】：弃置任意张牌，摸等量的牌' }]
   },
   invokeActive(host, ownerId, actionId) {
     if (actionId !== 'skill:zhiheng') throw new Error('制衡动作不匹配')
     const owner = playerOf(host.state, ownerId)
+    const equipmentIds = Object.values(owner.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId))
+    const selectableIds = [...owner.zones.hand, ...equipmentIds]
     host.askSkill({
       skillId: 'zhiheng',
       ownerId,
@@ -184,29 +200,22 @@ registerSkillRuntime({
         id: requestId,
         kind: 'choose-cards',
         playerId: ownerId,
-        prompt: '弃置任意张手牌，然后摸等量的牌',
+        prompt: '弃置任意张牌，然后摸等量的牌',
         timeoutMs: 25_000,
         optional: false,
         purpose: 'skill',
-        cardIds: [...owner.zones.hand],
+        cardIds: selectableIds,
         hiddenCardSlots: [],
         min: 1,
-        max: owner.zones.hand.length,
+        max: selectableIds.length,
       }),
     })
   },
   resume(host, ownerId, _resolution, response) {
     const cardIds = (response.payload as { cardIds: CardId[] }).cardIds
-    const owner = playerOf(host.state, ownerId)
-    const discarded: CardId[] = []
-    for (const cardId of cardIds) {
-      if (!owner.zones.hand.includes(cardId)) continue
-      moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'discardPile' })
-      discarded.push(cardId)
-    }
+    const discarded = discardCardsByIds(host as never, ownerId, cardIds, '制衡')
     if (discarded.length === 0) return
-    markUsedThisTurn(host.state, ownerId, 'zhiheng')
-    host.dispatch('LoseCard', { playerId: ownerId, cardIds: discarded, reason: '制衡' }, { sourceId: ownerId, cardIds: discarded })
+    markUsedThisPhase(host.state, ownerId, 'zhiheng')
     drawInto(host, ownerId, discarded.length, '制衡')
   },
 })
@@ -224,15 +233,10 @@ registerSkillRuntime({
 })
 
 function drawInto(host: SkillHost, playerId: PlayerId, count: number, reason: string): void {
-  const owner = playerOf(host.state, playerId)
-  const drawn: CardId[] = []
-  for (let index = 0; index < count; index += 1) {
-    const cardId = host.state.zones.drawPile.shift()
-    if (!cardId) break
-    owner.zones.hand.push(cardId)
-    drawn.push(cardId)
-  }
-  if (drawn.length > 0) host.dispatch('GainCard', { playerId, cardIds: drawn, reason }, { targetId: playerId, cardIds: drawn })
+  drawCards(host.state, host.rng, playerId, count, (name, payload) => {
+    if (name === 'GainCard') host.dispatch(name, { ...payload, reason }, { targetId: playerId, cardIds: payload.cardIds as CardId[] })
+    else host.dispatch(name, payload)
+  })
 }
 
 /**
@@ -255,7 +259,7 @@ export const LORD_CHARACTERS: readonly CharacterDefinition[] = [
     maxHp: 4,
     pack: 'standard',
     skills: [
-      { id: 'rende', name: '仁德', description: '出牌阶段，你可以将任意张手牌交给其他角色；你在一个回合内以此法给出两张或更多牌后，回复一点体力。' },
+      { id: 'rende', name: '仁德', description: '出牌阶段，你可以将任意张手牌交给其他角色，然后若你于此阶段内给出第二张“仁德”牌时，你回复1点体力。' },
       { id: 'jijiang', name: '激将', description: '主公技。你需要打出【杀】时，其他蜀势力角色可以代你打出。' },
     ],
   },
@@ -267,7 +271,7 @@ export const LORD_CHARACTERS: readonly CharacterDefinition[] = [
     maxHp: 4,
     pack: 'standard',
     skills: [
-      { id: 'zhiheng', name: '制衡', description: '出牌阶段限一次，你可以弃置任意张手牌，然后摸等量的牌。' },
+      { id: 'zhiheng', name: '制衡', description: '出牌阶段限一次，你可以弃置任意张牌，然后摸等量的牌。' },
       { id: 'jiuyuan', name: '救援', description: '主公技。其他吴势力角色对你使用【桃】时，你额外回复一点体力。' },
     ],
   },

@@ -15,11 +15,11 @@ import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from '../guhuo-
 import { WEIJIE_ACTION, canWeijieRespond } from '../weijie-response'
 import { RENNAI_ACTION, RENNAI_SKILL, canRennai } from '../rennai'
 import { usedThisTurn } from '../turn-usage'
-import type { CardId, PlayerId, PlayerState, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
-import { moveCard } from '../zones'
+import type { CardId, CardResolutionState, PlayerId, PlayerState, SanguoshaState, TrickEffectState, TrickResolutionState } from '../types'
+import { locateOwnedCard, moveCard } from '../zones'
 import type { CardEngineHost } from './host'
-import { finishPhysicalCard, hiddenHandSlot, playerOf, useAction } from './host'
-import { effectiveCardSuit, isCardProtectedFromDiscard, isCardResponseProhibited, isTargetProhibited, skillsOf } from '../skills/runtime'
+import { finishPhysicalCard, finishReplacedCardEffect, hiddenHandSlot, playerOf, useAction } from './host'
+import { additionalTargetsOnUseOf, effectiveCardColor, effectiveCardSuit, isCardProtectedFromDiscard, isCardResponseProhibited, isCardlessResponseProhibited, isCardUseUnresponsiveToTarget, isResponseCardProhibited, isTargetProhibited, sharedHandCardSourcesOf, skillsOf, trickDistanceBonusOf, trickDistanceLimitOf } from '../skills/runtime'
 import { skillIdsOf } from '../../data/characters/standard'
 import { setChained } from '../character-state'
 
@@ -46,8 +46,11 @@ export const DELAYED_TRICKS = new Set(['乐不思蜀', '兵粮寸断', '闪电']
 export const INSTANT_TRICKS = new Set([
   '无中生有', '桃园结义', '铁索连环', '南蛮入侵', '万箭齐发',
   '决斗', '过河拆桥', '顺手牵羊', '五谷丰登', '火攻', '借刀杀人',
-  '奇正相生',
+  '奇正相生', '瞒天过海',
 ])
+
+/** 直接造成伤害的锦囊牌注册表；技能按此集合判断“伤害锦囊”，不各自复制牌名清单。 */
+export const DAMAGE_TRICKS = new Set(['南蛮入侵', '万箭齐发', '决斗', '火攻'])
 
 function alive(state: SanguoshaState): PlayerId[] {
   return state.players.filter((candidate) => candidate.alive).map((candidate) => candidate.id)
@@ -121,6 +124,36 @@ function canZhuoshengModifyTargets(state: SanguoshaState, playerId: PlayerId, ca
   return !obtained.includes(cardId)
 }
 
+function extraTargetsForTrick(state: SanguoshaState, playerId: PlayerId, cardName: string, cardId: CardId): number {
+  const own = skillsOf(state, playerId, skillIdsOf).reduce((total, runtime) => (
+    total + Math.max(0, Math.trunc(runtime.extraTargetsForTrick?.(state, playerId, cardName) ?? 0))
+  ), 0)
+  const global = state.players.filter((owner) => owner.alive && owner.id !== playerId).reduce((total, owner) => (
+    total + skillsOf(state, owner.id, skillIdsOf).reduce((sum, runtime) => (
+      sum + Math.max(0, Math.trunc(runtime.globalExtraTargetsForTrick?.(state, owner.id, playerId, cardName, cardId) ?? 0))
+    ), 0)
+  ), 0)
+  return own + global
+}
+
+function appendSkillTargetSetActions(
+  state: SanguoshaState, actions: LegalAction[], cardId: CardId, playerId: PlayerId, cardName: string,
+  legalTargetIds: readonly PlayerId[], fixed = false,
+): void {
+  const legal = new Set(legalTargetIds)
+  const existing = new Set(actions.filter((action) => action.kind === 'use-card').map((action) => action.targetIds.join('|')))
+  for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
+    for (const targetIds of runtime.additionalTargetSetsForTrick?.(state, playerId, cardId, cardName) ?? []) {
+      if (!targetIds.length || new Set(targetIds).size !== targetIds.length || targetIds.some((id) => !legal.has(id))) continue
+      const key = targetIds.join('|')
+      if (existing.has(key)) continue
+      existing.add(key)
+      const names = targetIds.map((id) => playerOf(state, id).nickname).join('、')
+      actions.push(useAction(cardId, playerId, cardName, [...targetIds], `对${names}使用【${cardName}】`, fixed ? 'fixed' : undefined))
+    }
+  }
+}
+
 /** 给单目标即时锦囊追加"多指定一个目标"的动作变体（决斗/过河拆桥/顺手牵羊/借刀杀人/火攻）。 */
 function pushZhuoshengExtraTargetActions(
   actions: LegalAction[],
@@ -142,7 +175,13 @@ function pushZhuoshengExtraTargetActions(
   }
 }
 
-export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, cardId: CardId, asName?: string): LegalAction[] {
+export function instantTrickActions(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  cardId: CardId,
+  asName?: string,
+  options: { allowOneAdditionalTarget?: boolean; ignoreDistance?: boolean } = {},
+): LegalAction[] {
   const physical = state.cards[cardId]
   if (!physical) return []
   const card = asName ? { ...physical, name: asName } : physical
@@ -150,6 +189,8 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
   const actions: LegalAction[] = []
   const allowed = (targetId: PlayerId) => !isTargetProhibited(state, playerId, targetId, card.name, skillIdsOf, cardId)
   const zhuoshengEligible = canZhuoshengModifyTargets(state, playerId, cardId)
+  const canExpandTargets = zhuoshengEligible || extraTargetsForTrick(state, playerId, card.name, cardId) > 0
+    || options.allowOneAdditionalTarget === true
 
   switch (card.name) {
     case '无中生有':
@@ -172,6 +213,7 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
           ))
         }
       }
+      appendSkillTargetSetActions(state, actions, cardId, playerId, card.name, allTargets, true)
       return actions
     }
     case '决斗': {
@@ -181,7 +223,30 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【决斗】`))
       }
-      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      if (canExpandTargets) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      appendSkillTargetSetActions(state, actions, cardId, playerId, card.name, legalTargets.map(({ id }) => id))
+      return actions
+    }
+    case '瞒天过海': {
+      const targets = others.filter((target) => allowed(target.id) && hasAnyStealable(state, target.id))
+      for (const first of targets) {
+        actions.push(useAction(cardId, playerId, card.name, [first.id], `对${first.nickname}使用【瞒天过海】`))
+        for (const second of targets) {
+          if (first.id === second.id) continue
+          actions.push(useAction(cardId, playerId, card.name, [first.id, second.id], `对${first.nickname}和${second.nickname}使用【瞒天过海】`))
+        }
+      }
+      if (options.allowOneAdditionalTarget) {
+        for (const first of targets) {
+          for (const second of targets) {
+            if (second.id === first.id) continue
+            for (const third of targets) {
+              if (third.id === first.id || third.id === second.id) continue
+              actions.push(useAction(cardId, playerId, card.name, [first.id, second.id, third.id], `对${first.nickname}、${second.nickname}和${third.nickname}使用【瞒天过海】`))
+            }
+          }
+        }
+      }
       return actions
     }
     case '奇正相生':
@@ -189,6 +254,14 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       for (const target of others) {
         if (!allowed(target.id)) continue
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【奇正相生】`))
+      }
+      if (options.allowOneAdditionalTarget) {
+        for (let first = 0; first < others.length; first += 1) {
+          for (let second = first + 1; second < others.length; second += 1) {
+            const targets = [others[first]!, others[second]!].filter((target) => allowed(target.id))
+            if (targets.length === 2) actions.push(useAction(cardId, playerId, card.name, targets.map(({ id }) => id), `对${targets.map(({ nickname }) => nickname).join('和')}使用【奇正相生】`))
+          }
+        }
       }
       return actions
     case '过河拆桥': {
@@ -199,7 +272,8 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【过河拆桥】`))
       }
-      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      if (canExpandTargets) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      appendSkillTargetSetActions(state, actions, cardId, playerId, card.name, legalTargets.map(({ id }) => id))
       return actions
     }
     case '顺手牵羊': {
@@ -207,14 +281,16 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       for (const target of others) {
         if (!allowed(target.id)) continue
         // 顺手牵羊受距离限制，拆桥不受；奇才无视这个限制
-        if (!ignoresTrickDistance(state, playerId)
+        const skillLimit = trickDistanceLimitOf(state, playerId, cardId, card.name, skillIdsOf)
+        if (!options.ignoreDistance && !ignoresTrickDistance(state, playerId, cardId)
           && !ignoresDistanceTo(state, playerId, target.id, cardId)
-          && getDistance(state, playerId, target.id) > 1) continue
+          && getDistance(state, playerId, target.id) > Math.max(1 + trickDistanceBonusOf(state, playerId, target.id, card.name, skillIdsOf), skillLimit ?? 1)) continue
         if (!hasAnyStealable(state, target.id)) continue
         legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【顺手牵羊】`))
       }
-      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      if (canExpandTargets) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      appendSkillTargetSetActions(state, actions, cardId, playerId, card.name, legalTargets.map(({ id }) => id))
       return actions
     }
     case '五谷丰登':
@@ -230,7 +306,8 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【火攻】`))
       }
-      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      if (canExpandTargets) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      appendSkillTargetSetActions(state, actions, cardId, playerId, card.name, legalTargets.map(({ id }) => id))
       return actions
     }
     case '借刀杀人': {
@@ -248,7 +325,7 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
         legalTargets.push(target)
         actions.push(useAction(cardId, playerId, card.name, [target.id], `对${target.nickname}使用【借刀杀人】`))
       }
-      if (zhuoshengEligible) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
+      if (canExpandTargets) pushZhuoshengExtraTargetActions(actions, cardId, playerId, card.name, legalTargets)
       return actions
     }
     case '铁索连环': {
@@ -265,6 +342,17 @@ export function instantTrickActions(state: SanguoshaState, playerId: PlayerId, c
       for (const first of state.players.filter((candidate) => candidate.alive && allowed(candidate.id))) {
         for (const second of state.players.filter((candidate) => candidate.alive && allowed(candidate.id) && candidate.seat > first.seat)) {
           actions.push(useAction(cardId, playerId, card.name, [first.id, second.id], `对${first.nickname}和${second.nickname}使用【铁索连环】`))
+        }
+      }
+      if (extraTargetsForTrick(state, playerId, card.name, cardId) > 0 || options.allowOneAdditionalTarget) {
+        const eligible = state.players.filter((candidate) => candidate.alive && allowed(candidate.id))
+        for (let first = 0; first < eligible.length; first += 1) {
+          for (let second = first + 1; second < eligible.length; second += 1) {
+            for (let third = second + 1; third < eligible.length; third += 1) {
+              const selected = [eligible[first], eligible[second], eligible[third]]
+              actions.push(useAction(cardId, playerId, card.name, selected.map((target) => target.id), `对${selected.map((target) => target.nickname).join('、')}使用【铁索连环】（额外目标）`))
+            }
+          }
         }
       }
       return actions
@@ -323,6 +411,23 @@ function askFireReveal(host: CardEngineHost, resolution: TrickResolutionState, t
   const target = playerOf(host.state, targetId)
   if (target.zones.hand.length === 0) {
     advanceToNextTarget(host)
+    return
+  }
+  if (resolution.sourceSkillId === 'jie-huoji-b41') {
+    const revealed = target.zones.hand[host.rng.nextInt(target.zones.hand.length)]
+    const color = effectiveCardColor(host.state, targetId, revealed, skillIdsOf)
+    host.dispatch('CardResponded', { asking: false, playerId: targetId, cardId: revealed, cardName: host.state.cards[revealed]?.name, revealed: true, randomReveal: true }, { targetId, cardIds: [revealed] })
+    const source = playerOf(host.state, resolution.sourceId)
+    const payable = source.zones.hand.filter(id => effectiveCardColor(host.state, source.id, id, skillIdsOf) === color)
+    if ((color !== 'red' && color !== 'black') || payable.length === 0) { advanceToNextTarget(host); return }
+    const request: ChooseCardsRequest = {
+      id: `request-jie-fire-pay-${host.state.seq}-${host.state.decisions.length}`, kind: 'choose-cards', playerId: source.id,
+      prompt: `【界火计】：弃置一张${color === 'red' ? '红色' : '黑色'}手牌以造成一点火焰伤害`, timeoutMs: 30_000,
+      optional: true, cardIds: payable, hiddenCardSlots: [], min: 0, max: 1, purpose: 'card-effect',
+    }
+    host.state.pendingRequests.push(request)
+    resolution.requestId = request.id
+    resolution.effect = { kind: 'jie-fire-discard', targetId, revealedCardId: revealed, color, requestId: request.id }
     return
   }
   // 由目标自己选择展示哪一张，所以可以直接给真实 cardId——他看得到自己的手牌
@@ -384,8 +489,13 @@ export function beginInstantTrick(
   targetIds: PlayerId[],
   asName?: string,
   extraCardIds: CardId[] = [],
+  sourceSkillId?: string,
+  preserveTargets = false,
+  damageAmount?: number,
+  effectReplacement = false,
 ): void {
   const card = host.state.cards[cardId]
+  if (!preserveTargets) targetIds = additionalTargetsOnUseOf(host.state, sourceId, cardId, asName ?? card.name, targetIds, skillIdsOf)
   // 陪跑的底牌和主牌一起进处理区：结算期间它们都算「已经使用出去的牌」，
   // 不能留在手上，也不能提前进弃牌堆
   for (const extra of extraCardIds) {
@@ -396,11 +506,16 @@ export function beginInstantTrick(
   }
   host.state.cardResolution = {
     kind: 'trick',
+    ...(effectReplacement ? { effectReplacement: true } : {}),
     cardId,
     extraCardIds: [...extraCardIds],
     // 转化技用的是转化后的牌名，后续结算全部以它为准
     cardName: asName ?? card.name,
     sourceId,
+    ...(damageAmount === undefined ? {} : { damageAmount }),
+    sourceSkillId: sourceSkillId ?? skillsOf(host.state, sourceId, skillIdsOf)
+      .find(runtime => runtime.viewAs?.(host.state, sourceId).some(option => option.cardId === cardId && option.asCardName === (asName ?? card.name)))?.id
+      ?? (asName === '火攻' || card.name === '火攻' ? skillsOf(host.state, sourceId, skillIdsOf).find(runtime => runtime.id === 'jie-huoji-b41')?.id : undefined),
     targetIds: [...targetIds],
     targetIndex: 0,
     nullifiedTargetIds: [],
@@ -419,15 +534,44 @@ export function beginInstantTrick(
   enterTrickTarget(host)
 }
 
+/** Substitute a pending card's complete effect with an ordinary instant Trick on its original targets. */
+export function beginReplacementTrickEffect(
+  host: CardEngineHost,
+  original: CardResolutionState,
+  cardName: string,
+): boolean {
+  if (host.state.cardResolution !== original || host.state.suspendedCardEffectResolution || !INSTANT_TRICKS.has(cardName)) return false
+  const targetIds = host.state.cardUseTargets?.find((entry) => entry.cardId === original.cardId)?.targetIds
+    ?? (original.kind === 'slash' ? [original.targetId, ...original.remainingTargetIds] : original.targetIds)
+  const livingTargets = targetIds.filter((targetId) => playerOf(host.state, targetId).alive)
+  if (!livingTargets.length) return false
+  host.state.cardResolution = null
+  host.state.suspendedCardEffectResolution = original
+  beginInstantTrick(host, original.sourceId, original.cardId, livingTargets, cardName, [], undefined, true,
+    original.kind === 'trick' ? original.damageAmount : undefined, true)
+  return true
+}
+
 /** 当前锦囊目标先经过武将的“成为目标后”技能，再进入无懈链。 */
 function enterTrickTarget(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
+  if (host.state.invalidatedCardUses?.[resolution.cardId]) {
+    resolution.targetIndex = resolution.targetIds.length
+    finishTrick(host)
+    return
+  }
   if (resolution.targetIndex >= resolution.targetIds.length) {
     finishTrick(host)
     return
   }
   const targetId = resolution.targetIds[resolution.targetIndex]
+  // 技能可在整张锦囊开始结算前预先指定无效目标（如界甘宁【奋威】）。
+  // 此类目标不进入成为目标后的技能、无懈询问或牌效结算。
+  if (resolution.nullifiedTargetIds.includes(targetId)) {
+    advanceToNextTarget(host)
+    return
+  }
   /*
    * 目标可能在这张牌结算途中死掉。
    *
@@ -477,6 +621,24 @@ function enterTrickTarget(host: CardEngineHost): void {
     advanceToNextTarget(host)
     return
   }
+  // 旁观者目标插入点与【杀】共用 SkillRuntime.interceptBystanderTarget：
+  // 谋甘宁【奋威】等效果需要在普通锦囊每个目标结算前交互，不能把观察者
+  // 逻辑塞进目标本人或使用者技能，否则多人局中会漏掉真正的技能持有者。
+  for (const bystander of host.state.players) {
+    if (!bystander.alive || bystander.id === resolution.sourceId || bystander.id === targetId) continue
+    for (const runtime of skillsOf(host.state, bystander.id, skillIdsOf)) {
+      if (!runtime.interceptBystanderTarget) continue
+      const interceptId = `bystander-skill:${runtime.id}:${bystander.id}`
+      if (resolution.interceptsDone.includes(interceptId)) continue
+      resolution.interceptsDone.push(interceptId)
+      if (!runtime.interceptBystanderTarget(host, bystander.id, {
+        sourceId: resolution.sourceId, targetId, cardId: resolution.cardId,
+        cardName: resolution.cardName, category: 'trick',
+      })) continue
+      resolution.stage = 'awaiting-intercept'
+      return
+    }
+  }
   /*
    * 使用者自己的插入点（孙邵【佚典】），排在目标方的 `interceptTarget` 之前，
    * 和【杀】那边 `askSlashInterceptors` 的顺序一致。只在处理第一个目标时
@@ -498,6 +660,18 @@ function enterTrickTarget(host: CardEngineHost): void {
       resolution.stage = 'awaiting-intercept'
       return
     }
+  }
+  for (const runtime of skillsOf(host.state, resolution.sourceId, skillIdsOf)) {
+    if (!runtime.interceptSourceTargetEach) continue
+    const interceptId = `source-each:${runtime.id}:${targetId}`
+    if (resolution.interceptsDone.includes(interceptId)) continue
+    resolution.interceptsDone.push(interceptId)
+    if (!runtime.interceptSourceTargetEach(host, resolution.sourceId, {
+      sourceId: resolution.sourceId, targetId, cardId: resolution.cardId,
+      cardName: resolution.cardName, category: card.category,
+    })) continue
+    resolution.stage = 'awaiting-intercept'
+    return
   }
   for (const runtime of skillsOf(host.state, targetId, skillIdsOf)) {
     if (!runtime.interceptTarget) continue
@@ -565,6 +739,16 @@ export function askNullification(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
 
+  const currentTargetId = resolution.targetIds[resolution.targetIndex]
+  const cannotBeNullified = skillsOf(host.state, resolution.sourceId, skillIdsOf)
+    .some((runtime) => runtime.cannotBeNullified?.(host.state, resolution.sourceId, resolution.cardName) ?? false)
+    || (resolution.sourceSkillId === 'lijian' && resolution.cardName === '决斗')
+  if (cannotBeNullified && currentTargetId) {
+    resolution.stage = 'awaiting-effect'
+    applyTrickEffect(host, currentTargetId)
+    return
+  }
+
   if (resolution.targetIndex >= resolution.targetIds.length) {
     finishTrick(host)
     return
@@ -586,12 +770,17 @@ export function askNullification(host: CardEngineHost): void {
 
   const responderId = resolution.responderOrder[resolution.responderIndex]
   const responder = playerOf(host.state, responderId)
-  const currentTargetId = resolution.targetIds[resolution.targetIndex]
+  const sourceBlocksResponse = skillsOf(host.state, resolution.sourceId, skillIdsOf).some((runtime) =>
+    runtime.blocksResponseToCard?.(host.state, resolution.sourceId, responderId, resolution.cardName, resolution.cardId) ?? false)
+  const targetCannotRespond = currentTargetId !== undefined && isCardUseUnresponsiveToTarget(
+    host.state, resolution.sourceId, resolution.cardId, currentTargetId, resolution.cardName, skillIdsOf,
+  )
   const skip = !responder.alive
-    || (responderId === currentTargetId && resolution.unresponsiveTargetIds.includes(responderId))
+    || (responderId === currentTargetId && (resolution.unresponsiveTargetIds.includes(responderId) || targetCannotRespond))
     // 首轮不询问锦囊使用者是否无懈自己的牌；若别人先打出无懈，使用者仍可在
     // 后续轮次打出反无懈来保护原锦囊。
     || (resolution.nullificationCount === 0 && responderId === resolution.sourceId)
+    || sourceBlocksResponse
     // 声明过「本轮均不使用」的人，这张牌剩下的目标都不再问
     || resolution.declinedAllIds.includes(responderId)
     // 刚打出无懈的人不问他自己：对自己的无懈再叠一张，等于两张都没打
@@ -603,24 +792,28 @@ export function askNullification(host: CardEngineHost): void {
   }
   const cardIds = [...new Set([
     ...nullificationCardIds(host.state, responderId),
+    ...sharedHandCardSourcesOf(host.state, responderId).flatMap((source) => source.cardIds)
+      .filter((cardId) => host.state.cards[cardId]?.name === '无懈可击'),
     ...responseViewAsOptions(host.state, responderId, '无懈可击').map((option) => option.cardId),
   ])]
   // 于吉【蛊惑】可以凭任意手牌声明无懈，所以他即使没有无懈也要问
   const canGuhuo = canGuhuoRespond(host.state, responderId, '无懈可击', skillIdsOf)
-  if (cardIds.length === 0 && !canGuhuo) {
+  const canMultiCardRespond = canMultiCardViewAs(host.state, responderId, '无懈可击')
+  if (cardIds.length === 0 && !canGuhuo && !canMultiCardRespond) {
     // 手上没有无懈就不必打扰这名玩家，直接问下一个
     resolution.responderIndex += 1
     askNullification(host)
     return
   }
   const actionIds = cardIds
-    .filter((cardId) => canUseCardAs(host.state, responderId, cardId, '无懈可击'))
+    .filter((cardId) => canUseCardAs(host.state, responderId, cardId, '无懈可击')
+      && !isResponseCardProhibited(host.state, responderId, cardId, '无懈可击', skillIdsOf))
     .map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
   // 多目标锦囊才需要「本轮均不使用」：单目标牌只问一轮，多一个按钮反而是噪音
   if (resolution.targetIds.length > 1) actionIds.push(PASS_ROUND_ACTION)
   if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
-  if (canMultiCardViewAs(host.state, responderId, '无懈可击')) actionIds.push(MULTI_VIEWAS_ACTION)
+  if (canMultiCardRespond) actionIds.push(MULTI_VIEWAS_ACTION)
   /*
    * 无亮【忍耐】：**只有当前正在结算的目标是他自己**时才给。
    *
@@ -651,6 +844,28 @@ export function askNullification(host: CardEngineHost): void {
 export function advanceToNextTarget(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
+  if (host.state.pendingSourceDamage || host.state.pendingTargetDamage || host.state.pendingDamageModifier) return
+  if (resolution.stage === 'awaiting-effect' && host.state.status === 'playing') {
+    const targetId = resolution.targetIds[resolution.targetIndex]
+    if (targetId) {
+      let repeats = resolution.repeatEffectsRemainingByTarget?.[targetId]
+      if (repeats === undefined) {
+        repeats = skillsOf(host.state, resolution.sourceId, skillIdsOf).reduce((count, runtime) => count
+          + Math.max(0, Math.trunc(runtime.repeatTargetEffectCount?.(host.state, resolution.sourceId, targetId, resolution.cardId) ?? 0)), 0)
+        repeats += host.state.players.filter((owner) => owner.alive && owner.id !== resolution.sourceId).reduce((count, owner) => count
+          + skillsOf(host.state, owner.id, skillIdsOf).reduce((sum, runtime) => sum
+            + Math.max(0, Math.trunc(runtime.globalRepeatTargetEffectCount?.(host.state, owner.id, resolution.sourceId, targetId, resolution.cardId) ?? 0)), 0), 0)
+      }
+      if (repeats > 0) {
+        resolution.repeatEffectsRemainingByTarget ??= {}
+        resolution.repeatEffectsRemainingByTarget[targetId] = repeats - 1
+        resolution.requestId = null
+        resolution.effect = null
+        applyTrickEffect(host, targetId)
+        return
+      }
+    }
+  }
   // 中途有人死掉、胜负已分时不能再往下问：牌局结束时 pendingRequests 已经被清空，
   // 这时候再发一个请求会永远挂在那里
   if (host.state.status !== 'playing') {
@@ -671,6 +886,7 @@ export function advanceToNextTarget(host: CardEngineHost): void {
 function finishTrick(host: CardEngineHost): void {
   const resolution = host.state.cardResolution
   if (!resolution || resolution.kind !== 'trick') return
+  if (finishReplacedCardEffect(host, resolution)) return
   const allNullified = new Set([...resolution.nullifiedTargetIds, ...resolution.cancelledTargetIds]).size === resolution.targetIds.length
   // 陪跑的底牌先落地：即使整张牌被无懈掉，它们也已经是「使用过的牌」，
   // 按普通用牌规则进弃牌堆，不退回手上
@@ -679,8 +895,12 @@ function finishTrick(host: CardEngineHost): void {
       moveCard(host.state, extra, { kind: 'processingArea' }, { kind: 'discardPile' })
     }
   }
-  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, resolution.targetIds, allNullified, resolution.cardName)
+  // 结束时机允许技能立刻开始下一张牌（例如 SP孙策【连讨】）。先释放旧结算，
+  // 否则新牌会被 beginVirtualTrick 误认为与尚未完成的旧牌并行而拒绝。
   host.state.cardResolution = null
+  finishPhysicalCard(host, resolution.sourceId, resolution.cardId, resolution.targetIds, allNullified, resolution.cardName, {
+    nullifiedTargetIds: [...resolution.nullifiedTargetIds], cancelledTargetIds: [...resolution.cancelledTargetIds],
+  })
 }
 
 /**
@@ -785,14 +1005,25 @@ function askRespondCard(
       if (host.state.cards[cardId]?.name === name) allow(cardId, name)
     }
     // 武圣、龙胆等“打出”转化同样适用于南蛮、万箭和决斗，不能只在普通【杀】求闪时生效。
-    for (const option of responseViewAsOptions(host.state, responderId, name)) allow(option.cardId, name)
+    for (const option of responseViewAsOptions(host.state, responderId, name)) {
+      if (!isResponseCardProhibited(host.state, responderId, option.cardId, name, skillIdsOf)) allow(option.cardId, name)
+    }
   }
   const actionIds: string[] = []
+  for (const name of names) {
+    if (isCardResponseProhibited(host.state, responderId, name, skillIdsOf)) continue
+    if (!isCardlessResponseProhibited(host.state, responderId, name, skillIdsOf)) {
+      for (const runtime of skillsOf(host.state, responderId, skillIdsOf)) {
+        if (runtime.virtualBasicResponse?.(host.state, responderId, name)) actionIds.push(`virtual-basic:${runtime.id}:${name}`)
+      }
+    }
+  }
   for (const [cardId, cardNames] of responseCards) {
     for (const name of cardNames) {
       if (!canUseCardAs(host.state, responderId, cardId, name)) continue
       // 「本回合不能打出【杀】」这类禁令（曹彰【将驰】）在这里拦掉
-      if (isCardResponseProhibited(host.state, responderId, name, skillIdsOf)) continue
+      if (isCardResponseProhibited(host.state, responderId, name, skillIdsOf)
+        || isResponseCardProhibited(host.state, responderId, cardId, name, skillIdsOf)) continue
       // 只有二选一的求牌才需要在 action 里写死牌名；单一牌名沿用原格式，
       // 免得把蛊惑、龙魂那些回填 `respond-trick:` 的地方一起改坏
       actionIds.push(alternativeCardName ? `${RESPOND_AS_PREFIX[name]}${cardId}` : `respond-trick:${cardId}`)
@@ -801,7 +1032,8 @@ function askRespondCard(
   // 声明牌和多牌转化同样受「不能打出」的约束——只挡实体牌等于没挡
   if (!isCardResponseProhibited(host.state, responderId, requiredCardName, skillIdsOf)) {
     if (canGuhuoRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(GUHUO_RESPOND_ACTION)
-    if (canWeijieRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(WEIJIE_ACTION)
+    if (!isCardlessResponseProhibited(host.state, responderId, requiredCardName, skillIdsOf)
+      && canWeijieRespond(host.state, responderId, requiredCardName, skillIdsOf)) actionIds.push(WEIJIE_ACTION)
     if (canMultiCardViewAs(host.state, responderId, requiredCardName)) actionIds.push(MULTI_VIEWAS_ACTION)
   }
   // 无亮【忍耐】：南蛮、万箭、决斗要求打出牌时，本来打得出才能改成忍
@@ -809,6 +1041,9 @@ function askRespondCard(
     usedThisTurn(host.state, responderId, RENNAI_SKILL), skillIdsOf)) {
     actionIds.push(RENNAI_ACTION)
   }
+  const blockedByCardUser = skillsOf(host.state, resolution.sourceId, skillIdsOf).some((runtime) =>
+    runtime.blocksResponseToCard?.(host.state, resolution.sourceId, responderId, resolution.cardName, resolution.cardId) ?? false)
+  if (blockedByCardUser) actionIds.length = 0
   actionIds.push('respond-pass')
   const request: RespondCardRequest = {
     id: `request-effect-${host.state.seq}-${host.state.decisions.length}`,
@@ -833,7 +1068,7 @@ function duelSlashCount(state: SanguoshaState, opponentId: PlayerId): number {
 function askPickCard(host: CardEngineHost, resolution: TrickResolutionState, targetId: PlayerId, mode: 'discard' | 'steal'): void {
   const { visible: rawVisible, hidden } = stealableSlots(host.state, targetId)
   // 滕胤【皙秀】：装备区最后一张牌不能被弃置分支选中，拿走（顺手牵羊）不受影响
-  const visible = mode === 'discard' ? rawVisible.filter((cardId) => !isCardProtectedFromDiscard(host.state, targetId, cardId)) : rawVisible
+  const visible = mode === 'discard' ? rawVisible.filter((cardId) => !isCardProtectedFromDiscard(host.state, targetId, cardId, resolution.sourceId)) : rawVisible
   // 生成动作时目标身上是有牌的，但问无懈那一轮里他可能把最后一张牌当【无懈可击】打了出去。
   // 这时效果自然落空，不能发一个「从零张牌里选一张」的请求——那是个必然非法的 Request。
   if (visible.length + hidden.length === 0) {
@@ -865,6 +1100,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
   if (!resolution || resolution.kind !== 'trick') return
   const target = playerOf(host.state, targetId)
   const cannotRespond = resolution.unresponsiveTargetIds.includes(targetId)
+    || isCardUseUnresponsiveToTarget(host.state, resolution.sourceId, resolution.cardId, targetId, resolution.cardName, skillIdsOf)
 
   /*
    * 技能造成的「这张牌对我无效」在这里统一拦一次（陈宫【智迟】）。
@@ -897,9 +1133,12 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       host.dispatch('CardResolved', { cardId: resolution.cardId, cardName: resolution.cardName, targetIds: [targetId], chained: target.chained }, { sourceId: resolution.sourceId, targetId })
       advanceToNextTarget(host)
       return
+    case '瞒天过海':
+      askPickCard(host, resolution, targetId, 'steal')
+      return
     case '南蛮入侵': {
       // 藤甲让南蛮/万箭完全无效：不问响应，也不造成伤害
-      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId)) {
+      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId, undefined, resolution.cardId)) {
         announceSkillInvalidation(host, targetId, resolution.cardName, null, resolution.sourceId)
         advanceToNextTarget(host)
         return
@@ -914,7 +1153,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       return
     }
     case '万箭齐发': {
-      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId)) {
+      if (isCardIneffective(host.state, targetId, resolution.cardName, null, 'normal', resolution.sourceId, undefined, resolution.cardId)) {
         announceSkillInvalidation(host, targetId, resolution.cardName, null, resolution.sourceId)
         advanceToNextTarget(host)
         return
@@ -944,7 +1183,7 @@ function applyTrickEffect(host: CardEngineHost, targetId: PlayerId): void {
       if (cannotRespond) {
         // 目标打不出杀，使用者赢
         dispatchDuelResult(host, resolution.sourceId, targetId)
-        resolveDamage(host, { sourceId: resolution.sourceId, targetId, amount: 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
+        resolveDamage(host, { sourceId: resolution.sourceId, targetId, amount: resolution.damageAmount ?? 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
         if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
         return
       }
@@ -1060,6 +1299,7 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   const actionId = (response.payload as { actionId: string }).actionId
 
   let playedCardId: CardId | null = null
+  let virtualBasicPlayed = false
   /*
    * 实际打出的是哪一种牌名。
    *
@@ -1069,6 +1309,33 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
    */
   let playedName = request.requiredCardName
   if (actionId !== 'respond-pass') {
+    if (actionId.startsWith('virtual-basic:')) {
+      const separator = actionId.lastIndexOf(':')
+      const skillId = actionId.slice('virtual-basic:'.length, separator)
+      const name = actionId.slice(separator + 1)
+      const runtime = skillsOf(host.state, response.playerId, skillIdsOf).find((candidate) => candidate.id === skillId)
+      const allowedNames = [request.requiredCardName, ...(request.alternativeCardName ? [request.alternativeCardName] : [])]
+      if (!request.actionIds.includes(actionId) || !allowedNames.includes(name)
+        || isCardResponseProhibited(host.state, response.playerId, name, skillIdsOf)
+        || isCardlessResponseProhibited(host.state, response.playerId, name, skillIdsOf)
+        || !runtime?.virtualBasicResponse?.(host.state, response.playerId, name)) throw new Error('当前不能虚拟响应此基本牌')
+      if (runtime.beginVirtualBasicResponse?.(host as never, response.playerId, name, request)) {
+        host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+        resolution.requestId = null
+        host.state.decisions.push({ index: host.state.decisions.length, requestId: request.id, playerId: response.playerId,
+          kind: request.kind, payload: structuredClone(response.payload) })
+        return
+      }
+      virtualBasicPlayed = true
+      playedName = name
+      host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+      resolution.requestId = null
+      host.state.decisions.push({ index: host.state.decisions.length, requestId: request.id, playerId: response.playerId,
+        kind: request.kind, payload: structuredClone(response.payload) })
+      host.dispatch('CardResponded', { asking: false, playerId: response.playerId, cardId: null, cardName: name, virtual: true },
+        { sourceId: response.playerId })
+      runtime.consumeVirtualBasicResponse?.(host as never, response.playerId, name)
+    } else {
     // 声明式的 action 只认它自己那一种牌名，不再让引擎替玩家挑
     const declared = (['杀', '闪'] as const).find((name) => actionId.startsWith(RESPOND_AS_PREFIX[name])) ?? null
     if (declared) playedCardId = actionId.slice(RESPOND_AS_PREFIX[declared].length)
@@ -1084,34 +1351,43 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
         || multiCardGrantedAs(host.state, response.playerId, playedCardId!) === name
       return host.state.cards[playedCardId!]?.name === name || converted || granted
     })
-    if (!responder.zones.hand.includes(playedCardId) || !matched) {
+    const responseZone = locateOwnedCard(host.state, responder.id, playedCardId, { includeCharacterPiles: true })
+    const inHand = responder.zones.hand.includes(playedCardId)
+    const fromSkillPile = responseZone?.kind === 'characterPile' && responseViewAsOptions(host.state, response.playerId, playedName).some((option) => option.cardId === playedCardId)
+    if ((!inHand && !fromSkillPile) || !matched) {
       throw new Error(`响应牌不是该玩家持有的${candidates.join('或')}`)
     }
     playedName = matched
+    }
   }
 
-  host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
-  resolution.requestId = null
-  host.state.decisions.push({
-    index: host.state.decisions.length,
-    requestId: request.id,
-    playerId: response.playerId,
-    kind: request.kind,
-    payload: structuredClone(response.payload),
-  })
+  if (!virtualBasicPlayed) {
+    host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+    resolution.requestId = null
+    host.state.decisions.push({
+      index: host.state.decisions.length,
+      requestId: request.id,
+      playerId: response.playerId,
+      kind: request.kind,
+      payload: structuredClone(response.payload),
+    })
+  }
 
   if (playedCardId) {
     const responder = playerOf(host.state, response.playerId)
-    moveCard(host.state, playedCardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })
-    host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId: playedCardId, cardName: playedName }, { sourceId: responder.id, cardIds: [playedCardId] })
+    const from = locateOwnedCard(host.state, responder.id, playedCardId, { includeCharacterPiles: true })
+    if (!from) throw new Error('响应牌已不在玩家区域内')
+    moveCard(host.state, playedCardId, from, { kind: 'processingArea' })
+    host.dispatch('CardResponded', { asking: false, playerId: responder.id, cardId: playedCardId, cardName: playedName, fromKind: from.kind }, { sourceId: responder.id, cardIds: [playedCardId] })
     moveCard(host.state, playedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+    if (from.kind === 'hand') host.dispatch('CardEnteredDiscard', { playerId: responder.id, cardId: playedCardId, fromKind: 'hand', reason: 'response' }, { sourceId: responder.id, cardIds: [playedCardId] })
   }
 
   const effect = resolution.effect
   if (!effect) throw new Error('锦囊效果状态缺失')
 
   if (effect.kind === 'ask-slash' || effect.kind === 'ask-dodge') {
-    if (!playedCardId) {
+    if (!playedCardId && !virtualBasicPlayed) {
       // 主公技：目标自己打不出时，同势力角色还有机会代打（激将 / 护驾）
       // requiredCardName 在这个分支只可能是杀或闪，收窄一下类型
       const needed = effect.kind === 'ask-slash' ? '杀' : '闪'
@@ -1144,13 +1420,13 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
      * 打错类型（奇兵却打了闪）时那张牌已经真实打出并移走了，
      * 但惩罚照样触发——这是这张牌的核心，不能因为"他出了一张牌"就放过。
      */
-    const satisfied = playedCardId !== null && playedName === (effect.mode === 'qi' ? '杀' : '闪')
+    const satisfied = (playedCardId !== null || virtualBasicPlayed) && playedName === (effect.mode === 'qi' ? '杀' : '闪')
     applyQizhengOutcome(host, resolution, effect.targetId, effect.mode, satisfied)
     return
   }
 
   if (effect.kind === 'borrowed-knife') {
-    if (!playedCardId) {
+    if (!playedCardId && !virtualBasicPlayed) {
       // 不出杀就把武器交给使用者
       const weapon = playerOf(host.state, effect.targetId).zones.equipment.weapon
       resolution.effect = null
@@ -1196,11 +1472,11 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   }
 
   if (effect.kind === 'duel') {
-    if (!playedCardId) {
+    if (!playedCardId && !virtualBasicPlayed) {
       // 这一方出不出杀，由对方造成一点伤害——**这就是决斗分出胜负的那一刻**
       resolution.effect = null
       dispatchDuelResult(host, effect.otherId, effect.responderId)
-      resolveDamage(host, { sourceId: effect.otherId, targetId: effect.responderId, amount: 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
+      resolveDamage(host, { sourceId: effect.otherId, targetId: effect.responderId, amount: resolution.damageAmount ?? 1, nature: 'normal', cardName: '决斗', cardId: resolution.cardId })
       if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
       return
     }
@@ -1222,6 +1498,70 @@ export function resolveTrickEffectResponse(host: CardEngineHost, request: Respon
   throw new Error('当前锦囊效果不接受打出牌的响应')
 }
 
+/** Finish a payment-backed virtual basic response while preserving the pending trick effect. */
+export function completeVirtualTrickBasicResponse(
+  host: CardEngineHost,
+  playerId: PlayerId,
+  cardName: string,
+  sourceSkillId: string,
+  physicalCardIds: CardId[] = [],
+): boolean {
+  const resolution = host.state.cardResolution
+  if (resolution?.kind !== 'trick' || resolution.stage !== 'awaiting-effect' || resolution.requestId !== null) return false
+  const effect = resolution.effect
+  if (!effect) return false
+  const expected = effect.kind === 'ask-slash' || effect.kind === 'borrowed-knife' || effect.kind === 'duel'
+    ? '杀' : effect.kind === 'ask-dodge' ? '闪' : null
+  if (expected && cardName !== expected) return false
+  const uniquePhysicalIds = [...new Set(physicalCardIds)]
+  const responder = playerOf(host.state, playerId)
+  if (uniquePhysicalIds.some((cardId) => !responder.zones.hand.includes(cardId))) return false
+  for (const cardId of uniquePhysicalIds) moveCard(host.state, cardId, { kind: 'hand', playerId }, { kind: 'processingArea' })
+  host.dispatch('CardResponded', {
+    asking: false, playerId, cardId: uniquePhysicalIds[0] ?? null, cardIds: uniquePhysicalIds,
+    cardName, virtual: true, physicalCardIds: uniquePhysicalIds,
+  }, { sourceId: playerId, targetId: resolution.sourceId, sourceSkillId, cardIds: uniquePhysicalIds })
+  for (const cardId of uniquePhysicalIds) {
+    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+    host.dispatch('CardEnteredDiscard', { playerId, cardId, fromKind: 'hand', reason: 'response' }, { sourceId: playerId, cardIds: [cardId] })
+  }
+  if (effect.kind === 'ask-slash' || effect.kind === 'ask-dodge') {
+    advanceToNextTarget(host)
+    return true
+  }
+  if (effect.kind === 'qizheng') {
+    applyQizhengOutcome(host, resolution, effect.targetId, effect.mode, cardName === (effect.mode === 'qi' ? '杀' : '闪'))
+    return true
+  }
+  if (effect.kind === 'borrowed-knife') {
+    resolution.effect = null
+    host.state.suspendedTrickResolution = resolution
+    host.state.cardResolution = null
+    getEngineCallbacks()?.beginBorrowedSlash(host, effect.targetId, effect.victimId, null)
+    if (!host.state.cardResolution && host.state.suspendedTrickResolution === resolution) {
+      host.state.cardResolution = resolution
+      host.state.suspendedTrickResolution = null
+      advanceToNextTarget(host)
+    }
+    return true
+  }
+  if (effect.kind === 'duel') {
+    if (effect.slashRemaining > 1) {
+      const requestId = askRespondCard(host, resolution, effect.responderId, '杀', '【无双】仍在生效，请再打出一张【杀】')
+      resolution.effect = { ...effect, requestId, slashRemaining: effect.slashRemaining - 1 }
+      return true
+    }
+    const nextResponderId = effect.otherId
+    const requestId = askRespondCard(host, resolution, nextResponderId, '杀', '【决斗】仍在继续，请打出【杀】')
+    resolution.effect = {
+      kind: 'duel', responderId: nextResponderId, otherId: effect.responderId, requestId,
+      slashRemaining: duelSlashCount(host.state, effect.responderId),
+    }
+    return true
+  }
+  return false
+}
+
 /** 效果阶段收到「挑一张牌」的响应（过河拆桥 / 顺手牵羊）。 */
 export function resolveTrickPickResponse(host: CardEngineHost, request: ChooseCardsRequest, response: GameResponse): void {
   const resolution = host.state.cardResolution
@@ -1230,9 +1570,37 @@ export function resolveTrickPickResponse(host: CardEngineHost, request: ChooseCa
   if (validationError) throw new Error(validationError)
   const effect = resolution.effect
   if (!effect) throw new Error('锦囊效果状态缺失')
+  if (effect.kind === 'man-tian-give') {
+    const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
+    const owner = playerOf(host.state, resolution.sourceId)
+    const target = playerOf(host.state, effect.targetId)
+    if (!owner.zones.hand.includes(cardId) || !target.alive) throw new Error('瞒天过海交牌无效')
+    consumeRequest(host, resolution, request.id, response, request.kind)
+    moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'hand', playerId: target.id })
+    host.dispatch('LoseCard', { playerId: owner.id, cardIds: [cardId], reason: 'man-tian-guo-hai' }, { sourceId: owner.id, targetId: target.id, cardIds: [cardId] })
+    host.dispatch('GainCard', { playerId: target.id, cardIds: [cardId], reason: 'man-tian-guo-hai' }, { sourceId: owner.id, targetId: target.id, cardIds: [cardId] })
+    host.dispatch('CardGiven', { fromPlayerId: owner.id, toPlayerId: target.id, cardIds: [cardId], reason: 'man-tian-guo-hai' }, { sourceId: owner.id, targetId: target.id, cardIds: [cardId] })
+    resolution.effect = null
+    advanceToNextTarget(host)
+    return
+  }
   if (effect.kind === 'harvest') { resolveHarvestPick(host, request, response, effect); return }
   if (effect.kind === 'fire-reveal') { resolveFireReveal(host, request, response, effect); return }
   if (effect.kind === 'fire-discard') { resolveFireDiscard(host, request, response, effect); return }
+  if (effect.kind === 'jie-fire-discard') {
+    const ids = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
+    const source = playerOf(host.state, resolution.sourceId)
+    if (ids.length > 1 || (ids[0] && (!source.zones.hand.includes(ids[0]) || effectiveCardColor(host.state, source.id, ids[0], skillIdsOf) !== effect.color))) throw new Error('界火计弃牌无效')
+    consumeRequest(host, resolution, request.id, response, request.kind)
+    resolution.effect = null
+    if (ids[0]) {
+      moveCard(host.state, ids[0], { kind: 'hand', playerId: source.id }, { kind: 'discardPile' })
+      host.dispatch('LoseCard', { playerId: source.id, cardIds: ids, reason: 'jie-huoji-b41' }, { sourceId: source.id, targetId: effect.targetId, cardIds: ids })
+      resolveDamage(host, { sourceId: source.id, targetId: effect.targetId, amount: 1, nature: 'fire', cardName: '火攻', cardId: resolution.cardId })
+      if (!host.state.dying && !host.state.damageChain) advanceToNextTarget(host)
+    } else advanceToNextTarget(host)
+    return
+  }
   if (effect.kind !== 'pick-card') throw new Error('锦囊效果状态缺失')
 
   const [picked] = (response.payload as { cardIds: string[] }).cardIds
@@ -1256,15 +1624,7 @@ export function resolveTrickPickResponse(host: CardEngineHost, request: ChooseCa
     from = { kind: 'equipment', playerId: effect.targetId, slot }
   }
 
-  host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
-  resolution.requestId = null
-  host.state.decisions.push({
-    index: host.state.decisions.length,
-    requestId: request.id,
-    playerId: response.playerId,
-    kind: request.kind,
-    payload: structuredClone(response.payload),
-  })
+  consumeRequest(host, resolution, request.id, response, request.kind)
 
   if (effect.mode === 'discard') {
     moveCard(host.state, cardId, from, { kind: 'discardPile' })
@@ -1274,6 +1634,19 @@ export function resolveTrickPickResponse(host: CardEngineHost, request: ChooseCa
   // 被拆掉或被顺走的装备同样算「失去装备」，白银狮子要回血
   if (from.kind === 'equipment') handleEquipmentLost(host, effect.targetId, cardId)
   host.dispatch('CardMove', { cardId, mode: effect.mode }, { sourceId: resolution.sourceId, targetId: effect.targetId, cardIds: [cardId] })
+  if (resolution.cardName === '瞒天过海' && effect.mode === 'steal') {
+    const source = playerOf(host.state, resolution.sourceId)
+    const giveRequest: ChooseCardsRequest = {
+      id: `request-man-tian-give-${host.state.seq}-${host.state.decisions.length}`,
+      kind: 'choose-cards', playerId: resolution.sourceId,
+      prompt: `【瞒天过海】：交给${target.nickname}一张手牌`, timeoutMs: 30_000,
+      optional: false, cardIds: [...source.zones.hand], hiddenCardSlots: [], min: 1, max: 1, purpose: 'card-effect',
+    }
+    host.state.pendingRequests.push(giveRequest)
+    resolution.effect = { kind: 'man-tian-give', targetId: target.id, requestId: giveRequest.id }
+    resolution.requestId = giveRequest.id
+    return
+  }
   resolution.effect = null
   advanceToNextTarget(host)
 }

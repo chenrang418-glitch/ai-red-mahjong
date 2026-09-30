@@ -1,4 +1,4 @@
-import type { ArrangeCardsRequest, GameResponse } from '../../engine/requests'
+import type { ArrangeCardsRequest, ChooseOptionRequest, GameResponse } from '../../engine/requests'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
 import type { CardId, PlayerId } from '../../engine/types'
 import type { CharacterDefinition } from './types'
@@ -16,8 +16,30 @@ registerSkillRuntime({
       host.askSkill({
         skillId: 'guanxing',
         ownerId,
+        step: 'invoke',
+        build: (requestId): ChooseOptionRequest => ({
+          id: requestId,
+          kind: 'choose-option',
+          playerId: ownerId,
+          prompt: '【观星】：是否观看并调整牌堆顶的牌？',
+          timeoutMs: 20_000,
+          optional: true,
+          options: [{ id: 'yes', label: '发动观星' }, { id: 'no', label: '不发动' }],
+        }),
+      })
+    },
+  }],
+  resume(host, ownerId, resolution, response: GameResponse) {
+    if (resolution.step === 'invoke') {
+      if ((response.payload as { optionId?: string }).optionId !== 'yes') return
+      const count = Math.min(5, host.state.players.filter((player) => player.alive).length, host.state.zones.drawPile.length)
+      if (count === 0) return
+      const cardIds = host.state.zones.drawPile.slice(0, count)
+      host.askSkill({
+        skillId: 'guanxing',
+        ownerId,
         step: 'arrange',
-        data: { cardIds: host.state.zones.drawPile.slice(0, count) },
+        data: { cardIds },
         build: (requestId): ArrangeCardsRequest => ({
           id: requestId,
           kind: 'arrange-cards',
@@ -25,15 +47,14 @@ registerSkillRuntime({
           prompt: `【观星】：查看牌堆顶 ${count} 张牌，并以任意顺序置于牌堆顶或牌堆底`,
           timeoutMs: 30_000,
           optional: false,
-          cardIds: host.state.zones.drawPile.slice(0, count),
+          cardIds,
           minTop: 0,
           maxTop: count,
           allowBottom: true,
         }),
       })
-    },
-  }],
-  resume(host, _ownerId, resolution, response: GameResponse) {
+      return
+    }
     const original = resolution.data.cardIds as CardId[]
     const { top, bottom } = response.payload as { top: CardId[]; bottom: CardId[] }
     const observed = new Set(original)
@@ -61,7 +82,7 @@ export const SHU_CHARACTERS: readonly CharacterDefinition[] = [{
   maxHp: 3,
   pack: 'standard',
   skills: [
-    { id: 'guanxing', name: '观星', description: '准备阶段，你观看牌堆顶的X张牌（X为存活角色数且至多为5），然后以任意顺序置于牌堆顶或牌堆底。' },
+    { id: 'guanxing', name: '观星', description: '准备阶段，你可以观看牌堆顶的X张牌（X为存活角色数且至多为5），然后以任意顺序置于牌堆顶或牌堆底。' },
     { id: 'kongcheng', name: '空城', qiexie: true, description: '锁定技，若你没有手牌，你不能成为【杀】或【决斗】的目标。' },
   ],
 }] as const

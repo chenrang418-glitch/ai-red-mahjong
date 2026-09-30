@@ -128,7 +128,7 @@ type WithoutActionMetadata<T> = T extends { actionId: string; version: number }
 export type RoomActionDraft = WithoutActionMetadata<RoomCommand>
 
 /**
- * 服务端主动心跳。和纸上三国同一套。
+ * 服务端主动心跳。和吴魏契约同一套。
  *
  * 只靠客户端 `setInterval` 发 ping 的话，手机把页面切到后台之后定时器会被
  * 节流甚至冻结，「socket 还是 OPEN、数据其实不通」这种半死连接就发现不了。

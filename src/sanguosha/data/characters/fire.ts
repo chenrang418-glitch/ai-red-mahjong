@@ -5,7 +5,7 @@ import { loseHp } from '../../engine/hp'
 import { performJudgment, registerJudgmentContinuation } from '../../engine/judgment'
 import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import type { PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
@@ -85,7 +85,7 @@ registerSkillRuntime({
   activeActions(state, ownerId) {
     const owner = playerOf(state, ownerId)
     if (!owner.alive) return []
-    if (usedThisTurn(state, ownerId, QIANGXI)) return []
+    if (usedThisPhase(state, ownerId, QIANGXI)) return []
     // 打不到人就没有发动的意义，直接不出现在合法动作里
     if (qiangxiTargets(state, ownerId).length === 0) return []
     const costs = qiangxiCosts(state, ownerId)
@@ -96,7 +96,7 @@ registerSkillRuntime({
     if (actionId !== `skill:${QIANGXI}`) throw new Error('强袭动作不匹配')
     // 先记账再发问：中途的每一步都可能因为休眠中断，标记必须在最早的时机落下，
     // 否则玩家可以靠取消发问把「限一次」刷成无限次。
-    markUsedThisTurn(host.state, ownerId, QIANGXI)
+    markUsedThisPhase(host.state, ownerId, QIANGXI)
     const costs = qiangxiCosts(host.state, ownerId)
     if (costs.hp && costs.weapon) {
       host.askSkill({
@@ -195,6 +195,10 @@ registerSkillRuntime({
   },
 })
 
+// 庞德【马术】单独注册，避免借用其他武将的技能 ID / 运行时处理器。
+const PANGDE_MASHU = 'pangde-mashu'
+registerSkillRuntime({ id: PANGDE_MASHU, distanceModifier: { toOthers: -1 } })
+
 const SHUANGXIONG_TAG = 'shuangxiong'
 
 registerJudgmentContinuation(SHUANGXIONG_TAG, (host, judged, data) => {
@@ -238,8 +242,7 @@ export const FIRE_CHARACTERS: readonly CharacterDefinition[] = [
     maxHp: 4,
     pack: 'fire',
     skills: [
-      // 马术直接复用马超那套 distanceModifier，没有另写一份庞德专属的距离判断
-      { id: 'mashu', name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' },
+      { id: PANGDE_MASHU, name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' },
       { id: 'mengjin', name: '猛进', description: '当你使用的【杀】被【闪】抵消后，你可以弃置一张牌，然后弃置该角色的一张牌。' },
     ],
   },

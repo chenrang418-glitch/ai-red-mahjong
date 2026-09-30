@@ -35,7 +35,7 @@ test.describe('全新访问：门槛挡在最前面，且不碰 URL', () => {
     await expect(page.getByRole('heading', { name: '项目说明' })).toBeVisible()
 
     // 底下的游戏中心还没渲染出来
-    await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '红中麻将' })).toHaveCount(0)
   })
 
   test('点「我知道了」：写入 localStorage、弹窗关闭、继续显示首页内容', async ({ page }) => {
@@ -43,7 +43,7 @@ test.describe('全新访问：门槛挡在最前面，且不碰 URL', () => {
     await page.getByRole('button', { name: '我知道了' }).click()
 
     await expect(page.getByRole('heading', { name: '项目说明' })).toHaveCount(0)
-    await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
     await expect(page).toHaveURL('/')
 
     const stored = await page.evaluate((key) => window.localStorage.getItem(key), STORAGE_KEY)
@@ -66,7 +66,7 @@ test.describe('全新访问：门槛挡在最前面，且不碰 URL', () => {
 
     // 这才是真正的确认路径
     await page.getByRole('button', { name: '我知道了' }).click()
-    await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
   })
 })
 
@@ -88,7 +88,7 @@ test.describe('全新访问 + 房间分享链接：URL 和房间号必须原样�
     await expect(page).toHaveURL(/room=ABC234/)
   })
 
-  test('纸上三国房间链接：先看到项目说明，接受后继续进入联机身份局，URL 不变', async ({ page }) => {
+  test('吴魏契约房间链接：先看到项目说明，接受后继续进入联机身份局，URL 不变', async ({ page }) => {
     await page.goto('/?game=sanguosha&room=ABC234')
 
     await expect(page.getByRole('heading', { name: '项目说明' })).toBeVisible()
@@ -108,7 +108,7 @@ test.describe('已接受过的访问：门槛不再出现', () => {
 
   test('直接看到首页，不经过项目说明弹窗', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: 'CRPlay 游戏中心' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '红中麻将' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '项目说明' })).toHaveCount(0)
   })
 })
@@ -116,7 +116,8 @@ test.describe('已接受过的访问：门槛不再出现', () => {
 test.describe('Footer：完整声明和联系开发者入口', () => {
   test('「项目声明与免责声明」打开可关闭的完整声明弹窗', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: '项目声明与免责声明' }).click()
+    await page.getByRole('button', { name: '•••' }).click()
+    await page.locator('.portal-menu-panel button').nth(0).click()
 
     await expect(page.getByRole('heading', { name: 'CRPlay 项目声明与免责声明' })).toBeVisible()
     for (const heading of ['一、原创及 AI 生成内容', '二、游戏玩法与第三方作品', '三、开源代码', '四、非商业用途', '五、权利反馈与联系方式']) {
@@ -132,7 +133,8 @@ test.describe('Footer：完整声明和联系开发者入口', () => {
   test('「联系开发者」展示服务端下发的方式：号码，并且能复制号码本身', async ({ page, context, baseURL }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL })
     await page.goto('/')
-    await page.getByRole('button', { name: '联系开发者', exact: true }).click()
+    await page.getByRole('button', { name: '•••' }).click()
+    await page.locator('.portal-menu-panel button').nth(1).click()
 
     await expect(page.getByRole('heading', { name: '联系开发者' })).toBeVisible()
     const copyButton = page.getByRole('button', { name: '复制号码' })

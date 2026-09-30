@@ -3,22 +3,20 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertCardConservation, moveCard } from '@/sanguosha/engine/zones'
 import { maxCardsOf } from '@/sanguosha/engine/phase'
 import { canMultiCardViewAs, baseCardsOf, MULTI_VIEWAS_ACTION } from '@/sanguosha/engine/multi-card-viewas'
-import { SHENZHAOYUN, longhunRequiredCount } from '@/sanguosha/data/characters/god-shenzhaoyun'
+import { SHENZHAOYUN } from '@/sanguosha/data/characters/god-shenzhaoyun'
+import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import type { CardId, GameSetup, Identity, PlayerId, Suit } from '@/sanguosha/engine/types'
 
 /**
- * 神赵云。经典**原版**，2 体力。
+ * 神赵云。按武将册当前采用规则，2 体力。
  *
- * 版本锁三条（2018 重做版一条都不要）：
- * - 绝境 = 摸牌阶段额外摸「已损失体力」张 + 手牌上限 +2
- * - 龙魂 = X 张**同花色**牌，X = 当前体力且至少为 1
- * - 没有「进入/脱离濒死摸牌」「至多两张」「两红增强」「两黑弃牌」
+ * 规则核验：绝境在进入/脱离濒死时摸牌；龙魂至多两张同花色牌。
  */
 
-function gameWith(characterIds: string[], seed = 'shenzhaoyun'): SanguoshaGame {
+function gameWith(characterIds: string[], seed = 'shenzhaoyun', humanPlayerIds: string[] = []): SanguoshaGame {
   const setup: GameSetup = {
     mode: 'identity', generalChoices: 1,
-    players: Array.from({ length: characterIds.length }, (_, index) => ({ id: `p${index}`, nickname: `玩家${index}`, isHuman: false })),
+    players: Array.from({ length: characterIds.length }, (_, index) => ({ id: `p${index}`, nickname: `玩家${index}`, isHuman: humanPlayerIds.includes(`p${index}`) })),
   }
   const game = new SanguoshaGame({ seed, setup })
   const identities: Identity[] = ['lord', 'rebel', 'loyalist', 'rebel', 'renegade']
@@ -82,66 +80,20 @@ function cardsOfSuit(game: SanguoshaGame, suit: Suit, count: number, exclude: Ca
 const FIVE = ['shenzhaoyun', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei']
 
 describe('绝境', () => {
-  it('满血时不额外摸牌，掉一血额外摸一张', () => {
+  it('进入和脱离濒死各摸一张，手牌上限加二', () => {
     const game = gameWith(FIVE)
     const owner = playerOf(game, 'p0')
-    /*
-     * 体力上限在发牌时按当时的随机武将算过了，测试里手动改 characterId 不会重算，
-     * 所以「经典神赵云是 2 体力」这条版本锁要断言**武将定义**本身，
-     * 流程用例则自己把上限摆成 2。
-     */
-    expect(SHENZHAOYUN.maxHp, '经典神赵云是 2 体力').toBe(2)
+    expect(SHENZHAOYUN.maxHp).toBe(2)
     owner.maxHp = 2
-
-    const drawCount = (hp: number): number => {
-      owner.hp = hp
-      clearHand(game, 'p0')
-      game.state.currentPlayerId = 'p0'
-      game.state.normalTurnPlayerId = 'p0'
-      game.state.currentTurnKind = 'normal'
-      game.state.phase = 'judge'
-      game.state.skippedPhases = []
-      game.state.judgedDelayedCards = []
-      game.advancePhase()
-      return playerOf(game, 'p0').zones.hand.length
-    }
-
-    expect(drawCount(2), '2/2 血：正常摸 2 张').toBe(2)
-    expect(drawCount(1), '1/2 血：额外摸 1 张，共 3 张').toBe(3)
-  })
-
-  it('额外摸牌数按当前最大体力算，不写死 2', () => {
-    const game = gameWith(FIVE)
-    const owner = playerOf(game, 'p0')
-    owner.maxHp = 5
-    owner.hp = 2
     clearHand(game, 'p0')
-    game.state.currentPlayerId = 'p0'
-    game.state.normalTurnPlayerId = 'p0'
-    game.state.currentTurnKind = 'normal'
-    game.state.phase = 'judge'
-    game.state.skippedPhases = []
-    game.state.judgedDelayedCards = []
-    game.advancePhase()
-    expect(playerOf(game, 'p0').zones.hand, '已损失 3 点，摸 2+3=5 张').toHaveLength(5)
+    const before = owner.zones.hand.length
+    game.emit('EnterDying', { playerId: 'p0', hp: 0 })
+    expect(owner.zones.hand).toHaveLength(before + 1)
+    game.emit('QuitDying', { playerId: 'p0', hp: 1 })
+    expect(owner.zones.hand).toHaveLength(before + 2)
   })
 
-  it('摸牌阶段被跳过时不会凭空额外摸牌', () => {
-    const game = gameWith(FIVE)
-    const owner = playerOf(game, 'p0')
-    owner.hp = 1
-    clearHand(game, 'p0')
-    game.state.currentPlayerId = 'p0'
-    game.state.normalTurnPlayerId = 'p0'
-    game.state.currentTurnKind = 'normal'
-    game.state.phase = 'judge'
-    game.state.skippedPhases = ['draw']
-    game.state.judgedDelayedCards = []
-    game.advancePhase()
-    expect(playerOf(game, 'p0').zones.hand, '整个摸牌阶段被跳过').toHaveLength(0)
-  })
-
-  it('手牌上限 +2（这一条经典神赵云确实有）', () => {
+  it('手牌上限 +2', () => {
     const game = gameWith(FIVE)
     const owner = playerOf(game, 'p0')
     owner.hp = 2
@@ -151,27 +103,33 @@ describe('绝境', () => {
   })
 })
 
-describe('龙魂：X 的计算', () => {
-  it('X 等于当前体力，且至少为 1', () => {
+describe('龙魂：张数与花色', () => {
+  it('任意体力下都允许 1 至 2 张同花色牌', () => {
     const game = gameWith(FIVE)
     const owner = playerOf(game, 'p0')
     owner.hp = 2
-    expect(longhunRequiredCount(game.state, 'p0'), '2 血要 2 张').toBe(2)
+    const spec = getSkillRuntime('longhun')!.multiCardViewAs!(game.state, 'p0')!
+    expect(spec.requiredCount, '最少一张').toBe(1)
+    expect(spec.maxCount, '至多两张').toBe(2)
+    giveHand(game, 'p0', cardsOfSuit(game, 'heart', 2))
+    expect(canMultiCardViewAs(game.state, 'p0', '桃')).toBe(true)
+    expect(canMultiCardViewAs(game.state, 'p0', '桃'), '有两张同花色时可选择一张或两张').toBe(true)
     owner.hp = 1
-    expect(longhunRequiredCount(game.state, 'p0'), '1 血要 1 张').toBe(1)
+    expect(getSkillRuntime('longhun')!.multiCardViewAs!(game.state, 'p0')!.maxCount).toBe(2)
     owner.hp = 0
-    expect(longhunRequiredCount(game.state, 'p0'), '0 血仍是 1 张').toBe(1)
+    expect(getSkillRuntime('longhun')!.multiCardViewAs!(game.state, 'p0')!.maxCount).toBe(2)
     owner.hp = -1
-    expect(longhunRequiredCount(game.state, 'p0'), '负血仍是 1 张').toBe(1)
+    expect(getSkillRuntime('longhun')!.multiCardViewAs!(game.state, 'p0')!.maxCount).toBe(2)
   })
 
-  it('X 是当前体力，不是已损失体力', () => {
+  it('当前体力不改变至多两张的规则', () => {
     const game = gameWith(FIVE)
     const owner = playerOf(game, 'p0')
     owner.maxHp = 4
     owner.hp = 1
-    // 已损失 3 点。如果错写成已损失体力，这里会是 3
-    expect(longhunRequiredCount(game.state, 'p0')).toBe(1)
+    const spec = getSkillRuntime('longhun')!.multiCardViewAs!(game.state, 'p0')!
+    expect(spec.requiredCount).toBe(1)
+    expect(spec.maxCount).toBe(2)
   })
 })
 
@@ -196,14 +154,15 @@ describe('龙魂：底牌区域与花色', () => {
     expect(pool, '判定区不算').not.toContain(hearts[2])
   })
 
-  it('同花色才行，同颜色不同花色不行', () => {
+  it('转化候选不跨花色混合', () => {
     const game = gameWith(FIVE)
     clearHand(game, 'p0')
-    playerOf(game, 'p0').hp = 2  // 需要 2 张
+    playerOf(game, 'p0').hp = 2  // 体力值不影响龙魂张数
 
-    // 一张红桃 + 一张方块：都是红色，但花色不同
+    // 一张红桃 + 一张方块分别属于不同转换花色
     giveHand(game, 'p0', [cardsOfSuit(game, 'heart', 1)[0], cardsOfSuit(game, 'diamond', 1)[0]])
-    expect(canMultiCardViewAs(game.state, 'p0', '桃'), '红桃只有一张，凑不够 2 张').toBe(false)
+    expect(baseCardsOf(game.state, 'p0', 'heart')).toHaveLength(1)
+    expect(baseCardsOf(game.state, 'p0', 'diamond')).toHaveLength(1)
 
     // 换成两张红桃
     clearHand(game, 'p0')
@@ -247,7 +206,7 @@ describe('龙魂：濒死自救', () => {
     game.respond({ requestId: request.id, playerId: 'p0', payload: { actionId: MULTI_VIEWAS_ACTION } })
     const pick = pending(game)
     expect(String(pick.prompt)).toContain('龙魂')
-    expect(String(pick.prompt), '提示里要写清楚需要几张、要同花色').toContain('1 张花色相同')
+    expect(String(pick.prompt), '提示里要写清楚可选张数与花色要求').toContain('1至2 张花色相同')
     game.respond({ requestId: pick.id, playerId: 'p0', payload: { cardIds: [heart] } })
 
     expect(playerOf(game, 'p0').alive, '自救成功').toBe(true)
@@ -255,19 +214,20 @@ describe('龙魂：濒死自救', () => {
     assertCardConservation(game.state)
   })
 
-  it('2 血时要两张同花色，濒死掉到 0 血后只要一张', () => {
+  it('两张同花色可供玩家选择；可用数量与当前体力无关', () => {
     const game = gameWith(FIVE)
     clearHand(game, 'p0')
     const owner = playerOf(game, 'p0')
     owner.hp = 2
     const hearts = cardsOfSuit(game, 'heart', 1)
     giveHand(game, 'p0', hearts)
-    // 2 血时只有一张红桃，凑不出
-    expect(canMultiCardViewAs(game.state, 'p0', '桃')).toBe(false)
-
-    // 打到 0 血进入濒死，这时 X 变成 1，同一张牌就够了
+    // 另有一张红桃后，龙魂可选一张或两张。
+    const secondHeart = cardsOfSuit(game, 'heart', 2, hearts)[0]
+    giveHand(game, 'p0', [secondHeart])
+    expect(canMultiCardViewAs(game.state, 'p0', '桃')).toBe(true)
+    // 打到 0 血后允许张数仍然是 1 至 2。
     game.damage({ sourceId: 'p1', targetId: 'p0', amount: 2, cardName: null })
-    expect(canMultiCardViewAs(game.state, 'p0', '桃'), '濒死时 X=1').toBe(true)
+    expect(canMultiCardViewAs(game.state, 'p0', '桃'), '濒死时仍允许龙魂').toBe(true)
     const request = pending(game)
     expect((request as unknown as { actionIds: string[] }).actionIds).toContain(MULTI_VIEWAS_ACTION)
   })
@@ -334,24 +294,142 @@ describe('龙魂：响应链接入', () => {
   })
 })
 
-describe('版本锁：不是 2018 重做版', () => {
-  it('龙魂没有「至多两张」的上限，X 完全跟着体力走', () => {
-    const game = gameWith(FIVE)
-    const owner = playerOf(game, 'p0')
-    owner.maxHp = 5
-    owner.hp = 4
-    // 2018 版限制至多 2 张；经典版就是 4 张
-    expect(longhunRequiredCount(game.state, 'p0')).toBe(4)
-  })
+describe('龙魂：出牌阶段主动使用与双红奖励', () => {
+  function enterPlay(game: SanguoshaGame, playerId: PlayerId): void {
+    game.state.currentPlayerId = playerId
+    game.state.normalTurnPlayerId = playerId
+    game.state.currentTurnKind = 'normal'
+    game.state.phase = 'play'
+    game.state.skippedPhases = []
+    game.state.judgedDelayedCards = []
+  }
 
-  it('进入濒死不摸牌（2018 版才有）', () => {
+  it('两张红桃可主动当桃使用，回复值加一', () => {
     const game = gameWith(FIVE)
     clearHand(game, 'p0')
+    playerOf(game, 'p0').maxHp = 4
     playerOf(game, 'p0').hp = 1
-    game.damage({ sourceId: 'p1', targetId: 'p0', amount: 1, cardName: null })
-    expect(playerOf(game, 'p0').zones.hand, '进入濒死不该摸到牌').toHaveLength(0)
+    const hearts = cardsOfSuit(game, 'heart', 2)
+    giveHand(game, 'p0', hearts)
+    enterPlay(game, 'p0')
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.sourceSkillId === 'longhun' && candidate.asCardName === '桃' && candidate.cardIds.length === 2)
+    const allLonghunActions = game.legalActions('p0').filter((candidate) => candidate.kind === 'use-card' && candidate.sourceSkillId === 'longhun')
+    expect(allLonghunActions.some((candidate) => candidate.kind === 'use-card' && candidate.cardIds.length === 1), '应允许只选一张')
+    expect(allLonghunActions.every((candidate) => candidate.kind !== 'use-card' || candidate.cardIds.length <= 2
+      && new Set(candidate.cardIds.map((id) => game.state.cards[id]?.suit)).size === 1), '主动动作只能使用至多两张同花色材料')
+    expect(action, '应提供自主选择两张红桃当桃的主动用牌动作').toBeTruthy()
+    game.act('p0', action!.id)
+    expect(playerOf(game, 'p0').hp, '基础回复1加两张红牌奖励1').toBe(3)
+    expect(hearts.every((id) => game.state.zones.discardPile.includes(id)), '两张材料都应弃置').toBe(true)
+    assertCardConservation(game.state)
   })
 
+  it('两张方块主动当火杀使用，伤害值加一', () => {
+    const game = gameWith(FIVE)
+    clearHand(game, 'p0')
+    const diamonds = cardsOfSuit(game, 'diamond', 2)
+    giveHand(game, 'p0', diamonds)
+    enterPlay(game, 'p0')
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.sourceSkillId === 'longhun' && candidate.asCardName === '杀'
+      && candidate.cardIds.length === 2 && candidate.targetIds.includes('p1'))
+    expect(action, '应提供合法的主动火杀目标选项').toBeTruthy()
+    game.act('p0', action!.id)
+    const request = pending(game)
+    if (request?.kind === 'respond-card')
+      game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'respond-pass' } })
+    expect(playerOf(game, 'p1').hp, '两张红牌使火杀造成2点伤害').toBe(2)
+    expect(diamonds.every((id) => game.state.zones.discardPile.includes(id)), '两张材料都应弃置').toBe(true)
+    assertCardConservation(game.state)
+  })
+
+  it('单张红桃当桃使用不获得双红加成', () => {
+    const game = gameWith(FIVE)
+    clearHand(game, 'p0')
+    playerOf(game, 'p0').maxHp = 4
+    playerOf(game, 'p0').hp = 1
+    const heart = cardsOfSuit(game, 'heart', 1)[0]
+    giveHand(game, 'p0', [heart])
+    enterPlay(game, 'p0')
+
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.sourceSkillId === 'longhun' && candidate.asCardName === '桃' && candidate.cardIds.length === 1)
+    expect(action).toBeTruthy()
+    game.act('p0', action!.id)
+    expect(playerOf(game, 'p0').hp).toBe(2)
+    assertCardConservation(game.state)
+  })
+})
+
+describe('龙魂：两张黑牌响应后的当前回合角色弃牌', () => {
+  it('黑桃双牌响应时建立私密弃牌选择并弃置当前回合角色的一张牌', () => {
+    const game = gameWith(FIVE, 'longhun-black-response', ['p0'])
+    clearHand(game, 'p0')
+    clearHand(game, 'p1')
+    const spades = cardsOfSuit(game, 'spade', 2)
+    giveHand(game, 'p0', spades)
+    const spare = cardsOfSuit(game, 'club', 1)[0]
+    giveHand(game, 'p1', [spare])
+    game.state.currentPlayerId = 'p1'
+    game.state.normalTurnPlayerId = 'p1'
+    game.state.currentTurnKind = 'normal'
+    game.state.phase = 'play'
+    game.state.skippedPhases = []
+    game.state.judgedDelayedCards = []
+
+    const dismantlement = Object.values(game.state.cards).find((card) => card.name === '过河拆桥' && !card.virtual)!.id
+    const targetCard = Object.values(game.state.cards).find((card) => card.name === '闪' && !card.virtual && card.id !== spare)!.id
+    clearHand(game, 'p1')
+    clearHand(game, 'p2')
+    giveHand(game, 'p1', [dismantlement, spare])
+    giveHand(game, 'p2', [targetCard])
+    const use = game.legalActions('p1').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds[0] === dismantlement && candidate.targetIds.includes('p2'))
+    expect(use).toBeTruthy()
+    game.act('p1', use!.id)
+
+    let nullification = pending(game)
+    while (nullification?.playerId !== 'p0' || nullification.kind !== 'respond-card') {
+      expect(nullification, `响应链应到达真人神赵云；resolution=${JSON.stringify(game.state.cardResolution)} status=${game.state.status}`).toBeTruthy()
+      if (nullification!.kind === 'respond-card') {
+        game.respond({ requestId: nullification!.id, playerId: nullification!.playerId, payload: { actionId: 'respond-pass' } })
+      } else if (nullification!.kind === 'choose-cards') {
+        const choices = [...nullification!.cardIds, ...nullification!.hiddenCardSlots]
+        expect(choices.length).toBeGreaterThan(0)
+        game.respond({ requestId: nullification!.id, playerId: nullification!.playerId, payload: { cardIds: [choices[0]] } })
+      } else {
+        throw new Error(`黑桃无懈测试遇到非预期请求：${nullification!.kind}`)
+      }
+      nullification = pending(game)
+    }
+    expect((nullification as unknown as { actionIds: string[] }).actionIds).toContain(MULTI_VIEWAS_ACTION)
+    game.respond({ requestId: nullification.id, playerId: 'p0', payload: { actionId: MULTI_VIEWAS_ACTION } })
+    const chooseMaterial = pending(game)!
+    game.respond({ requestId: chooseMaterial.id, playerId: 'p0', payload: { cardIds: spades } })
+
+    let discard = pending(game)
+    while (!(discard?.kind === 'choose-cards' && discard.skillId === 'longhun')) {
+      expect(discard, '黑桃龙魂响应的后续无懈链应继续等待').toBeTruthy()
+      expect(discard!.kind).toBe('respond-card')
+      game.respond({ requestId: discard!.id, playerId: discard!.playerId, payload: { actionId: 'respond-pass' } })
+      discard = pending(game)
+    }
+    expect(discard?.kind).toBe('choose-cards')
+    expect(discard?.skillId).toBe('longhun')
+    expect(discard?.playerId).toBe('p0')
+    expect(String(discard?.prompt)).toContain('当前回合角色')
+    const hiddenSlot = (discard as unknown as { hiddenCardSlots: string[] }).hiddenCardSlots[0]
+    expect(hiddenSlot, '对方手牌应以私密占位槽让赵云选择').toBeTruthy()
+    game.respond({ requestId: discard!.id, playerId: 'p0', payload: { cardIds: [hiddenSlot] } })
+    expect(game.state.zones.discardPile).toContain(spare)
+    assertCardConservation(game.state)
+  })
+})
+
+describe('神赵云技能登记', () => {
   it('绝境和龙魂之外没有别的技能', () => {
     const game = gameWith(FIVE)
     expect(playerOf(game, 'p0').grantedSkills ?? []).toHaveLength(0)

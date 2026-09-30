@@ -1,4 +1,4 @@
-import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from './multi-card-viewas'
+import { MULTI_VIEWAS_ACTION, MULTI_VIEWAS_WINE_ACTION, canMultiCardViewAs, multiCardGrantedAs } from './multi-card-viewas'
 import { clearArmorSuppressionsOf } from './armor-suppression'
 import { canUseCardAs, clearForcedIdentitiesOf } from './forced-identity'
 import { clearAbolishedSlotsOf } from './equipment-slots'
@@ -10,33 +10,39 @@ import { cleanupDetainedCardsOf } from './turn-bound-pile'
 import { clearCardCategoryLocksOf, clearCardColorLocksOf } from './card-play-lock'
 import { recordCardDamage } from './card-damage-ledger'
 import { drawCards } from './draw'
+import { clearTemporaryCardSkillTag } from './temporary-card-skill-tags'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import { checkIdentityVictory } from './modes/identity'
 import type { GameResponse, RescueRequest } from './requests'
 import { validateResponse } from './requests'
 import { recover } from './recover'
-import { damagePreventedBy, isCardUseProhibited, modifiedDamageSource, offerSourceDamagePreventionAsk, offerTargetDamagePreventionAsk, skillsOf, type SkillHost } from './skills/runtime'
+import { damagePreventedBy, finalDamagePreventedBy, getSkillRuntime, isCardUseProhibited, modifiedDamageSource, offerSourceDamagePreventionAsk, offerTargetDamagePreventionAsk, offerDamageModifierAsk, skillsOf, type SkillHost } from './skills/runtime'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { WEIJIE_ACTION, canWeijieRespond } from './weijie-response'
 import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
-import { adjustDamageAmount } from './equipment'
+import { adjustDamageAmount, handleEquipmentLost } from './equipment'
 import { loseHp } from './hp'
-import { adjustIncomingDamage, adjustOutgoingDamage, damageReplacedWithHpLoss, interceptIncomingDamage } from './damage-modifiers'
+import { adjustIncomingDamage, adjustGlobalIncomingDamage, adjustOutgoingDamage, damageReplacedWithHpLoss, interceptIncomingDamage, interceptGlobalIncomingDamage, interceptCardDamageTarget } from './damage-modifiers'
 import { DAWU_STATE, KUANGFENG_STATE, applyTargetStateDamage, clearTargetStatesOf } from './target-state'
 import type { GameRng } from './rng'
-import type { CardId, DamageNature, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
+import type { CardId, DamageNature, DamageSequenceState, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from './types'
 
 /** 战报里怎么称呼一种伤害属性。 */
 const DAMAGE_NATURE_NAMES: Record<DamageNature, string> = { normal: '', fire: '火焰', thunder: '雷电', ice: '冰' }
-import { moveCard } from './zones'
+import { locateOwnedCard, moveCard } from './zones'
 import { setChained } from './character-state'
 import { deathCardClaimantOf, holdDeathCards, releaseDeathCards } from './death-claim'
+import { dispatchHealthColorChange } from './health-color'
 
 export interface DamageOptions {
   sourceId?: PlayerId | null
   targetId: PlayerId
   amount?: number
   nature?: DamageNature
+  /** Skill responsible for a non-card damage effect; propagated to DamageSettled observers. */
+  sourceSkillId?: string
+  /** Optional skill-specific trace token for matching this damage's final settlement. */
+  reason?: string
   /** 造成这次伤害的牌名。装备特效要靠它区分「【杀】造成的伤害」和别的伤害。 */
   cardName?: string | null
   /** 造成这次伤害的实体牌。奸雄这类「获得造成伤害的牌」的技能要靠它定位。 */
@@ -57,6 +63,14 @@ export interface DamageOptions {
   skipSourcePreventionAsk?: boolean
   /** 同上，目标侧版本（杜畿【安东】），只由 `resumeTargetDamagePrevention` 续接时设置。 */
   skipTargetPreventionAsk?: boolean
+  /** 同一笔伤害中已经明确拒绝过的目标侧防止技能；拒绝一个不应屏蔽后续其他技能。 */
+  skipTargetPreventionSkillIds?: string[]
+  /** Internal continuation guard for third-party global damage-prevention prompts. */
+  skipGlobalDamagePreventionSkillIds?: string[]
+  /** 内部续接用；避免重新向已回答的数值修正技能发问。 */
+  skipDamageModifierSkillIds?: string[]
+  /** 目标侧数值询问已在出伤修正和入伤修正之后发生，恢复时不能重复跑前置管线。 */
+  resumeAfterTargetModifier?: boolean
 }
 
 interface InternalDamageOptions extends DamageOptions {
@@ -71,6 +85,7 @@ export interface DamageEngineHost {
     payload?: Record<string, unknown>,
     metadata?: Omit<GameEvent, 'id' | 'seq' | 'name' | 'payload'>,
   ): EventContext
+  resumeAfterDying?(): void
 }
 
 
@@ -96,10 +111,11 @@ function dispatchDamageTiming(
   cardId: CardId | null = null,
   cardName: string | null = null,
   redirectedBy: string | null = null,
+  extraPayload: Record<string, unknown> = {},
 ): EventContext {
   return host.dispatch(
     name,
-    { amount, cardId, cardName, redirectedBy },
+    { amount, cardId, cardName, redirectedBy, ...extraPayload },
     { sourceId: sourceId ?? undefined, targetId, damageNature: nature, cardIds: cardId ? [cardId] : undefined },
   )
 }
@@ -145,7 +161,11 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
    * 三条路都要挡住，只挡实体牌等于没挡。
    */
   const peachProhibited = isCardUseProhibited(state, responderId, '桃', { dyingPlayerId })
-  const usable = responder.zones.hand.filter((cardId) => {
+  const responseViewAsIds = [...viewAsPeach].filter(cardId => {
+    const zone = locateOwnedCard(state, responderId, cardId, { includeCharacterPiles: true })
+    return zone?.kind === 'equipment' || zone?.kind === 'characterPile'
+  })
+  const usable = [...new Set([...responder.zones.hand, ...responseViewAsIds])].filter((cardId) => {
     const name = state.cards[cardId]?.name
     /*
      * 身份被强制改写的牌**不能再按原来的用途用**（高顺【禁酒】：他的【酒】
@@ -163,6 +183,8 @@ function rescueActionIds(state: SanguoshaState, responderId: PlayerId, dyingPlay
   if (!peachProhibited && canWeijieRespond(state, responderId, '桃', skillIdsOf)) actionIds.push(WEIJIE_ACTION)
   // 龙魂这类多牌同花色转化：同样只多挂一条声明动作，引擎集中认领
   if (!peachProhibited && canMultiCardViewAs(state, responderId, '桃')) actionIds.push(MULTI_VIEWAS_ACTION)
+  // 濒死者可以把牌当【酒】自救；与当【桃】分开列动作，避免两种声明共用一个模糊 action id。
+  if (responderId === dyingPlayerId && canMultiCardViewAs(state, responderId, '酒')) actionIds.push(MULTI_VIEWAS_WINE_ACTION)
   /*
    * 技能自己提供的救援途径（曹植【酒诗】：翻面视为使用一张【酒】）。
    * 走同一条 `actionIds`，玩家才点得到。
@@ -229,6 +251,12 @@ function requestCurrentRescuer(host: DamageEngineHost): void {
   dying.requestId = request.id
 }
 
+/** Continue a suspended rescue sequence after a skill's own payment request resolves. */
+export function continueDyingAfterSkill(host: DamageEngineHost): void {
+  requestCurrentRescuer(host)
+  if (!host.state.dying) host.resumeAfterDying?.()
+}
+
 function discardOwnedCards(host: DamageEngineHost, owner: PlayerState, includeJudgingArea: boolean): void {
   for (const cardId of [...owner.zones.hand]) {
     moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'discardPile' })
@@ -249,11 +277,45 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
   const dead = player(host.state, playerId)
   host.dispatch('BeforeDeath', { playerId, sourceId }, { sourceId: sourceId ?? undefined, targetId: playerId })
   if (dead.hp > 0) {
+    delete dead.restingUntilRound
     host.state.dying = null
     host.dispatch('QuitDying', { playerId, hp: dead.hp }, { targetId: playerId })
     return
   }
   // BeforeDeath 技能必须把角色实际回复到存活体力；仅取消事件不能形成 0 体力悬空状态。
+
+  if (dead.restingUntilRound !== undefined && dead.maxHp > 0) {
+    const returnRound = dead.restingUntilRound
+    if (dead.chained) setChained(host, dead.id, 'death', false)
+    dead.alive = false
+    cleanupDetainedCardsOf(host as never, playerId)
+    discardOwnedCards(host, dead, true)
+    for (const [pile, cardIds] of Object.entries(dead.characterPiles)) {
+      for (const cardId of [...cardIds])
+        moveCard(host.state, cardId, { kind: 'characterPile', playerId, pile }, { kind: 'discardPile' })
+    }
+    dead.characterPiles = {}
+    dead.hiddenCharacterPiles = []
+    dead.identityRevealed = false
+    clearTargetStatesOf(host.state, playerId)
+    clearArmorSuppressionsOf(host.state, playerId)
+    clearForcedIdentitiesOf(host.state, playerId)
+    clearCardColorLocksOf(host.state, playerId)
+    clearCardCategoryLocksOf(host.state, playerId)
+    clearAbolishedSlotsOf(host.state, playerId)
+    releaseStolenSkillsOf(host.state, playerId)
+    clearTokensOf(host.state, playerId)
+    dead.marks = {}
+    host.state.dying = null
+    // 休整仍会触发死亡时机，但不公开身份、不记击杀、不执行身份胜负和奖惩。
+    host.dispatch('Death', { playerId, sourceId, identity: dead.identity, resting: true }, { sourceId: sourceId ?? undefined, targetId: playerId })
+    host.dispatch('RestBegin', { playerId, returnRound }, { sourceId: sourceId ?? undefined, targetId: playerId })
+    if (host.state.skillResolution && host.state.pendingRequests.length > 0)
+      host.state.pendingIdentityVictoryCheck = true
+    return
+  }
+  // 体力上限归零不能休整；避免遗留一个被身份胜负与回合调度误认为可回归的标记。
+  delete dead.restingUntilRound
 
   if (dead.chained) setChained(host, dead.id, 'death', false)
   dead.alive = false
@@ -316,6 +378,10 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
     discardAllCards(host as never, killer.id, 'identity-punishment')
   }
 
+  if (host.state.skillResolution && host.state.pendingRequests.length > 0) {
+    host.state.pendingIdentityVictoryCheck = true
+    return
+  }
   const result = checkIdentityVictory(host.state.players)
   if (result) {
     // 牌局就此结束，认领的问句永远不会问出去了：暂存的牌立刻归位，
@@ -327,6 +393,29 @@ function resolveDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: Play
     host.state.pendingRequests = []
     host.state.damageChain = null
   }
+}
+
+/** Death 触发技的身份选择完成后，补做暂缓的身份局胜负判定。 */
+export function settlePendingIdentityVictory(host: DamageEngineHost): void {
+  if (!host.state.pendingIdentityVictoryCheck || host.state.pendingRequests.length > 0 || host.state.status !== 'playing') return
+  host.state.pendingIdentityVictoryCheck = false
+  const result = checkIdentityVictory(host.state.players)
+  if (!result) return
+  releaseDeathCards(host)
+  host.state.result = result
+  host.state.status = 'game-over'
+  for (const candidate of host.state.players) candidate.identityRevealed = true
+  host.state.pendingRequests = []
+  host.state.damageChain = null
+}
+
+/** 锁定效果要求角色立即死亡时使用；绕过濒死求桃，但仍执行完整死亡/休整结算。 */
+export function forceDeath(host: DamageEngineHost, playerId: PlayerId, sourceId: PlayerId | null = null): void {
+  const target = host.state.players.find((candidate) => candidate.id === playerId)
+  if (!target?.alive) return
+  target.hp = 0
+  host.state.dying = null
+  resolveDeath(host, playerId, sourceId)
 }
 
 /** 「防止了这次伤害」统一报一行战报：牌打过去什么都没发生必须有个说法。 */
@@ -359,13 +448,79 @@ function resolveSingleDamage(host: DamageEngineHost, options: InternalDamageOpti
   const target = host.state.players.find((candidate) => candidate.id === options.targetId)
   const hpBefore = target?.hp ?? 0
   const requestedAmount = options.amount ?? 1
-  const pendingBefore = Boolean(host.state.pendingSourceDamage) || Boolean(host.state.pendingTargetDamage)
+  const pendingBefore = Boolean(host.state.pendingSourceDamage) || Boolean(host.state.pendingTargetDamage) || Boolean(host.state.pendingDamageModifier)
   resolveSingleDamageInner(host, options)
-  const pendingAfter = Boolean(host.state.pendingSourceDamage) || Boolean(host.state.pendingTargetDamage)
+  const pendingAfter = Boolean(host.state.pendingSourceDamage) || Boolean(host.state.pendingTargetDamage) || Boolean(host.state.pendingDamageModifier)
   if (pendingAfter && !pendingBefore) return
   const targetAfter = host.state.players.find((candidate) => candidate.id === options.targetId)
   const finalAmount = targetAfter ? Math.max(0, hpBefore - targetAfter.hp) : 0
-  host.dispatch('DamageSettled', { requestedAmount, finalAmount }, { targetId: options.targetId })
+  host.dispatch('DamageSettled', {
+    requestedAmount,
+    finalAmount,
+    cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null,
+    ...(options.reason ? { reason: options.reason } : {}),
+  }, {
+    sourceId: options.sourceId ?? undefined,
+    targetId: options.targetId,
+    sourceSkillId: options.sourceSkillId
+      ?? (options.reason && getSkillRuntime(options.reason) ? options.reason : undefined)
+      ?? (options.cardId ? host.state.cardUseSourceSkills?.[options.cardId] ?? host.state.cards[options.cardId]?.sourceSkillId : undefined),
+  })
+}
+
+/**
+ * Resolve an ordered multi-target damage effect without crossing an unfinished
+ * dying, elemental-chain, or interactive damage window.
+ */
+export function resolveDamageSequence(
+  host: DamageEngineHost,
+  options: Omit<DamageSequenceState, 'nextIndex'>,
+): void {
+  if (host.state.damageSequence) throw new Error('已有多目标伤害序列尚未完成')
+  host.state.damageSequence = { ...options, targetIds: [...options.targetIds], nextIndex: 0 }
+  resumeDamageSequence(host)
+}
+
+/** Resume the persisted sequence after the current damage/response stack settles. */
+export function resumeDamageSequence(host: DamageEngineHost): void {
+  const sequence = host.state.damageSequence
+  if (!sequence) return
+  if (host.state.status !== 'playing') {
+    host.state.damageSequence = null
+    return
+  }
+  while (sequence.nextIndex < sequence.targetIds.length) {
+    if (host.state.status !== 'playing') {
+      host.state.damageSequence = null
+      return
+    }
+    if (host.state.dying || host.state.damageChain || host.state.pendingSourceDamage
+      || host.state.pendingTargetDamage || host.state.pendingDamageModifier || host.state.retrial) return
+    const targetId = sequence.targetIds[sequence.nextIndex++]!
+    if (!host.state.players.some((candidate) => candidate.id === targetId && candidate.alive)) continue
+    resolveDamage(host, {
+      sourceId: sequence.sourceId,
+      targetId,
+      amount: sequence.amount,
+      nature: sequence.nature,
+      cardId: sequence.cardId,
+      cardName: sequence.cardName,
+      sourceSkillId: sequence.sourceSkillId,
+    })
+  }
+  if (!host.state.dying && !host.state.damageChain && !host.state.pendingSourceDamage
+    && !host.state.pendingTargetDamage && !host.state.pendingDamageModifier && !host.state.retrial) {
+    const completed = host.state.damageSequence
+    host.state.damageSequence = null
+    if (completed && host.state.status === 'playing') host.dispatch('DamageSequenceResolved', {
+      sourceId: completed.sourceId,
+      sourceSkillId: completed.sourceSkillId,
+      targetIds: [...completed.targetIds],
+      amount: completed.amount,
+      nature: completed.nature,
+    }, { sourceId: completed.sourceId ?? undefined, sourceSkillId: completed.sourceSkillId })
+  }
 }
 
 function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamageOptions): void {
@@ -376,7 +531,11 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
   if (!target.alive) throw new Error('不能对死亡角色造成伤害')
   let sourceId = options.sourceId ?? null
   if (sourceId) player(host.state, sourceId)
+  let nature = options.nature ?? 'normal'
+  let amount = options.amount ?? 1
+  const resumedAfterTargetModifier = options.resumeAfterTargetModifier === true
 
+  if (!resumedAfterTargetModifier) {
   /*
    * 伤害来源改写（孟获【祸首】）。
    *
@@ -404,8 +563,6 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
     sourceId = override.sourceId
   }
 
-  let nature = options.nature ?? 'normal'
-  let amount = options.amount ?? 1
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('伤害值必须是正整数')
 
   /*
@@ -425,6 +582,12 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
     cardName: options.cardName ?? null,
     chainTransfer: Boolean(options.chainTransfer),
   }
+  const skippedModifierIds = options.skipDamageModifierSkillIds ?? []
+  const sourceModifier = sourceId && offerDamageModifierAsk(host as unknown as SkillHost, sourceId, 'source', preventionContext, skippedModifierIds)
+  if (sourceModifier) {
+    host.state.pendingDamageModifier = { side: 'source', ...sourceModifier, options: { ...options, sourceId, amount, nature, cardId: options.cardId ?? null, cardName: options.cardName ?? null } }
+    return
+  }
   const preventedBySource = damagePreventedBy(host.state, sourceId, 'source', preventionContext)
   if (preventedBySource) {
     announceDamagePrevented(host, preventedBySource, sourceId, target.id, nature)
@@ -438,9 +601,11 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
    * `host.askSkill` 发问，答完后用 `resumeSourceDamagePrevention` 续接，
    * 要么就此终止（防止），要么原样重新调用一次 `resolveDamage`。
    */
-  if (!options.skipSourcePreventionAsk
-    && offerSourceDamagePreventionAsk(host as unknown as SkillHost, sourceId, preventionContext)) {
+  const sourcePreventionAsk = !options.skipSourcePreventionAsk
+    ? offerSourceDamagePreventionAsk(host as unknown as SkillHost, sourceId, preventionContext) : null
+  if (sourcePreventionAsk) {
     host.state.pendingSourceDamage = {
+      ...sourcePreventionAsk,
       options: { ...options, sourceId, amount, nature, cardId: options.cardId ?? null, cardName: options.cardName ?? null },
     }
     return
@@ -492,6 +657,35 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
   nature = incoming.nature
   amount = incoming.amount
 
+  const globalIncoming = adjustGlobalIncomingDamage(host.state, target.id, {
+    targetId: target.id, sourceId, amount, nature,
+    cardId: options.cardId ?? null, cardName: options.cardName ?? null, chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (globalIncoming.appliedOwners.length > 0 && (globalIncoming.nature !== nature || globalIncoming.amount !== amount)) {
+    for (const { ownerId, skillId } of globalIncoming.appliedOwners) {
+      const skillName = skillDisplayName(host.state, ownerId, skillId)
+      host.dispatch('SkillActivated', {
+        skillId, skillName, playerId: ownerId, targetIds: [target.id], result: 'damage-modified',
+        logText: `【${skillName}】令${target.nickname}受到的这次伤害变为${DAMAGE_NATURE_NAMES[globalIncoming.nature]}${globalIncoming.amount} 点`,
+      }, { sourceId: ownerId, targetId: target.id, damageNature: globalIncoming.nature })
+    }
+  }
+  nature = globalIncoming.nature
+  amount = globalIncoming.amount
+  }
+
+  const targetModifier = offerDamageModifierAsk(
+    host as unknown as SkillHost, target.id, 'target', {
+      sourceId, targetId: target.id, amount, nature,
+      cardId: options.cardId ?? null, cardName: options.cardName ?? null, chainTransfer: Boolean(options.chainTransfer),
+    },
+    options.skipDamageModifierSkillIds ?? [],
+  )
+  if (targetModifier) {
+    host.state.pendingDamageModifier = { side: 'target', ...targetModifier, options: { ...options, sourceId, amount, nature, cardId: options.cardId ?? null, cardName: options.cardName ?? null } }
+    return
+  }
+
   /*
    * 「造成的伤害改为等量失去体力」（张春华【绝情】）。
    *
@@ -520,6 +714,14 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
     loseHp(host as never, target.id, amount, replacedBy)
     return
   }
+  const finalPreventedBy = finalDamagePreventedBy(host.state, sourceId, {
+    sourceId, targetId: target.id, amount, nature, cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null, chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (finalPreventedBy) {
+    announceDamagePrevented(host, finalPreventedBy, sourceId, target.id, nature)
+    return
+  }
   if (amount <= 0) return
 
   /*
@@ -529,9 +731,33 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
    * 换完之后已经不存在「一次伤害」，无言也就没有可防的东西——
    * 两个技能各自成立，最终只产生一条结果，不会「防止了却又扣一次血」。
    */
-  const preventedByTarget = damagePreventedBy(host.state, target.id, 'target', { ...preventionContext, amount, nature })
+  const currentPreventionContext = {
+    sourceId, targetId: target.id, amount, nature,
+    cardId: options.cardId ?? null, cardName: options.cardName ?? null,
+    chainTransfer: Boolean(options.chainTransfer),
+  }
+  const preventedByTarget = damagePreventedBy(host.state, target.id, 'target', currentPreventionContext)
   if (preventedByTarget) {
     announceDamagePrevented(host, preventedByTarget, target.id, target.id, nature)
+    getSkillRuntime(preventedByTarget)?.onDamagePrevented?.(host as unknown as SkillHost, target.id, 'target', currentPreventionContext)
+    return
+  }
+
+  const preventedByCardTarget = interceptCardDamageTarget(host as unknown as SkillHost, {
+    targetId: target.id,
+    sourceId,
+    amount,
+    nature,
+    cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null,
+    chainTransfer: Boolean(options.chainTransfer),
+  })
+  if (preventedByCardTarget) {
+    const skillName = skillDisplayName(host.state, preventedByCardTarget.ownerId, preventedByCardTarget.skillId)
+    host.dispatch('SkillActivated', {
+      skillId: preventedByCardTarget.skillId, skillName, playerId: preventedByCardTarget.ownerId, result: 'damage-prevented',
+      logText: `【${skillName}】防止了${target.nickname}受到的这次伤害`,
+    }, { sourceId: preventedByCardTarget.ownerId, targetId: target.id, cardIds: options.cardId ? [options.cardId] : undefined, damageNature: nature })
     return
   }
 
@@ -542,10 +768,13 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
    * 发问（问的是来源，不是目标本人），答完后用 `resumeTargetDamagePrevention`
    * 续接，要么就此终止（防止），要么原样重新调用一次 `resolveDamage`。
    */
-  if (!options.skipTargetPreventionAsk
-    && offerTargetDamagePreventionAsk(host as unknown as SkillHost, target.id, { ...preventionContext, amount, nature })) {
+  const targetPreventionSkillId = !options.skipTargetPreventionAsk
+    ? offerTargetDamagePreventionAsk(host as unknown as SkillHost, target.id, currentPreventionContext, skillIdsOf, options.skipTargetPreventionSkillIds)
+    : null
+  if (targetPreventionSkillId) {
     host.state.pendingTargetDamage = {
       options: { ...options, sourceId, amount, nature, cardId: options.cardId ?? null, cardName: options.cardName ?? null },
+      ...targetPreventionSkillId,
     }
     return
   }
@@ -573,6 +802,20 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
     return
   }
 
+  const globalInterception = interceptGlobalIncomingDamage(host as unknown as SkillHost, target.id, {
+    sourceId, amount, nature, cardId: options.cardId ?? null,
+    cardName: options.cardName ?? null, chainTransfer: Boolean(options.chainTransfer),
+  }, options.skipGlobalDamagePreventionSkillIds)
+  if (globalInterception) {
+    const skillName = skillDisplayName(host.state, host.state.players.find((player) =>
+      skillsOf(host.state, player.id, skillIdsOf).some((runtime) => runtime.id === globalInterception))?.id ?? target.id, globalInterception)
+    host.dispatch('SkillActivated', {
+      skillId: globalInterception, skillName, playerId: target.id, result: 'damage-prevented',
+      logText: `【${skillName}】防止了${target.nickname}受到的这次伤害`,
+    }, { targetId: target.id, damageNature: nature })
+    return
+  }
+
   // 装备的数值修正放在技能时机之前：古锭刀 / 藤甲加成、白银狮子封顶都是牌本身的规则，
   // 技能仍然可以在随后的时机里继续改或者直接取消。
   // 裸衣：本回合【杀】和【决斗】伤害 +1。
@@ -589,7 +832,7 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
     const source = host.state.players.find((player) => player.id === sourceId)
     if (source?.marks.zhaozhongYintianPending) { amount += 1; source.marks.zhaozhongYintianPending = 0 }
   }
-  amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null)
+  amount = adjustDamageAmount(host.state, sourceId, target.id, amount, nature, options.cardName ?? null, options.cardId ?? undefined)
   /*
    * 临时角色状态的伤害修正（神诸葛亮【狂风】加火伤、【大雾】防非雷伤）。
    *
@@ -615,7 +858,7 @@ function resolveSingleDamageInner(host: DamageEngineHost, options: InternalDamag
   if (amount <= 0) return
 
   const cardId = options.cardId ?? null
-  const beforeContext = dispatchDamageTiming(host, 'BeforeDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null, options.redirectedBy ?? null)
+  const beforeContext = dispatchDamageTiming(host, 'BeforeDamage', sourceId, target.id, amount, nature, cardId, options.cardName ?? null, options.redirectedBy ?? null, { chainTransfer: Boolean(options.chainTransfer) })
   if (beforeContext.cancelled) return
   amount = amountAfter(beforeContext)
   if (amount === 0) return
@@ -669,7 +912,24 @@ export function finalizeDamage(
     }
   }
 
-  target.hp -= amount
+  const armorBefore = target.armorPoints ?? 0
+  const absorbedByArmor = Math.min(armorBefore, amount)
+  if (absorbedByArmor > 0) {
+    target.armorPoints = armorBefore - absorbedByArmor
+    host.dispatch('ArmorChanged', {
+      playerId: target.id,
+      amount: -absorbedByArmor,
+      armorPoints: target.armorPoints,
+      reason: 'damage',
+      sourceId,
+      cardId,
+      cardName,
+    }, { sourceId: sourceId ?? undefined, targetId: target.id, damageNature: nature, cardIds: cardId ? [cardId] : undefined })
+  }
+  const previousHp = target.hp
+  const previousMaxHp = target.maxHp
+  target.hp -= amount - absorbedByArmor
+  if (target.hp <= target.maxHp) delete target.hpCeilingOverride
   /*
    * 「本局是否受到过伤害」记在这里，一次成立终局有效。
    *
@@ -686,8 +946,9 @@ export function finalizeDamage(
    * 伤害时机，各自记账很容易变成「伤了两个人就失去两点体力」。
    */
   recordCardDamage(host.state, cardId, amount)
-  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, cardName)
-  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, cardName)
+  dispatchDamageTiming(host, 'Damaged', sourceId, target.id, amount, nature, cardId, cardName, null, { armorLost: absorbedByArmor, armorAfter: target.armorPoints ?? 0 })
+  dispatchDamageTiming(host, 'AfterDamage', sourceId, target.id, amount, nature, cardId, cardName, null, { armorLost: absorbedByArmor, armorAfter: target.armorPoints ?? 0 })
+  dispatchHealthColorChange(host, target.id, previousHp, previousMaxHp, 'damage')
   if (target.hp > 0) return
 
   enterDying(host, target.id, sourceId, nature)
@@ -732,7 +993,39 @@ export function enterDying(host: DamageEngineHost, playerId: PlayerId, sourceId:
     return
   }
 
-  requestCurrentRescuer(host)
+  continueDyingAssists(host)
+}
+
+/** 依座位顺序执行其他角色的濒死前介入，完成后才开始常规求桃。 */
+export function continueDyingAssists(host: DamageEngineHost): void {
+  const dying = host.state.dying
+  if (!dying) return
+  const candidates = dying.responderOrder.flatMap(ownerId => {
+    const owner = host.state.players.find(candidate => candidate.id === ownerId)
+    if (!owner?.alive) return []
+    return skillsOf(host.state, ownerId, skillIdsOf)
+      .filter(runtime => runtime.dyingAssist)
+      .map(runtime => ({ ownerId, runtime }))
+  })
+
+  while (host.state.dying === dying) {
+    const target = host.state.players.find(candidate => candidate.id === dying.playerId)
+    if (!target?.alive || target.hp > 0) {
+      host.dispatch('QuitDying', { playerId: dying.playerId, hp: target?.hp ?? 0 }, { targetId: dying.playerId })
+      host.state.dying = null
+      host.resumeAfterDying?.()
+      return
+    }
+    const index = dying.assistIndex ?? 0
+    const candidate = candidates[index]
+    if (!candidate) {
+      requestCurrentRescuer(host)
+      return
+    }
+    dying.assistIndex = index + 1
+    const result = candidate.runtime.dyingAssist!(host as unknown as SkillHost, candidate.ownerId, dying.playerId, dying.sourceId)
+    if (result === 'pending') return
+  }
 }
 
 /**
@@ -763,7 +1056,7 @@ export function resolveDamage(host: DamageEngineHost, options: DamageOptions): v
    * 提前续到下一个目标会让还在等回答的这一个目标之后再收到一次错位的
    * 结算，续接改由各自的 `resumeSourceDamagePrevention` / `resumeTargetDamagePrevention` 负责。
    */
-  if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage) resumeDamageChain(host)
+  if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage && !host.state.pendingDamageModifier) resumeDamageChain(host)
 }
 
 /**
@@ -786,7 +1079,7 @@ export function resumeSourceDamagePrevention(
     if (preventedBySkillId) {
       announceDamagePrevented(host, preventedBySkillId, options.sourceId ?? null, options.targetId, options.nature ?? 'normal')
     }
-    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage) resumeDamageChain(host)
+    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage && !host.state.pendingDamageModifier) resumeDamageChain(host)
     return
   }
   resolveDamage(host, { ...options, skipSourcePreventionAsk: true })
@@ -812,15 +1105,45 @@ export function resumeTargetDamagePrevention(
     if (preventedBySkillId) {
       announceDamagePrevented(host, preventedBySkillId, options.sourceId ?? null, options.targetId, options.nature ?? 'normal')
     }
-    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage) resumeDamageChain(host)
+    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage && !host.state.pendingDamageModifier) resumeDamageChain(host)
     return
   }
-  resolveDamage(host, { ...options, skipTargetPreventionAsk: true })
+  const skipTargetPreventionSkillIds = [...(options.skipTargetPreventionSkillIds ?? [])]
+  if (pending.skillId && !skipTargetPreventionSkillIds.includes(pending.skillId)) skipTargetPreventionSkillIds.push(pending.skillId)
+  resolveDamage(host, {
+    ...options,
+    skipTargetPreventionAsk: pending.skillId ? false : true,
+    skipTargetPreventionSkillIds,
+  })
+}
+
+/** 续接一次交互式伤害数值修正。delta 可为 +1 或 -1；归零即视为伤害被完全抵消。 */
+export function resumeDamageModifier(host: DamageEngineHost, skillId: string, delta: number): void {
+  const pending = host.state.pendingDamageModifier
+  if (!pending || pending.skillId !== skillId) return
+  host.state.pendingDamageModifier = undefined
+  const options = pending.options as unknown as DamageOptions
+  const amount = Math.max(0, (options.amount ?? 1) + delta)
+  if (amount === 0) {
+    host.dispatch('DamageSettled', { requestedAmount: options.amount ?? 1, finalAmount: 0, cardId: options.cardId ?? null, cardName: options.cardName ?? null, ...(options.reason ? { reason: options.reason } : {}) }, {
+      sourceId: options.sourceId ?? undefined, targetId: options.targetId,
+    })
+    if (!host.state.dying && !host.state.pendingSourceDamage && !host.state.pendingTargetDamage && !host.state.pendingDamageModifier) resumeDamageChain(host)
+    return
+  }
+  resolveDamage(host, {
+    ...options,
+    amount,
+    resumeAfterTargetModifier: pending.side === 'target' ? true : options.resumeAfterTargetModifier,
+    skipDamageModifierSkillIds: [...new Set([...(options.skipDamageModifierSkillIds ?? []), skillId])],
+  })
 }
 
 /** 濒死流程结束后继续同一批属性传导；每名目标仍独立经过伤害时机。 */
 export function resumeDamageChain(host: DamageEngineHost): void {
-  while (host.state.damageChain && !host.state.dying && host.state.status === 'playing') {
+  while (host.state.damageChain && !host.state.dying && !host.state.pendingSourceDamage
+    && !host.state.pendingTargetDamage && !host.state.pendingDamageModifier && !host.state.retrial
+    && host.state.status === 'playing') {
     const chain = host.state.damageChain
     const targetId = chain.remainingTargetIds.shift()
     if (!targetId) {
@@ -845,6 +1168,34 @@ export function resumeDamageChain(host: DamageEngineHost): void {
 export function continueDyingRescue(host: DamageEngineHost): void {
   if (!host.state.dying) return
   requestCurrentRescuer(host)
+}
+
+/** 技能效果视为使用【桃】救援当前濒死角色；沿用同一濒死与伤害续接链。 */
+export function useVirtualPeachDuringDying(
+  host: DamageEngineHost,
+  sourceId: PlayerId,
+  dyingPlayerId: PlayerId,
+  reason: string,
+  physicalCardIds: CardId[] = [],
+): boolean {
+  const dying = host.state.dying
+  const source = player(host.state, sourceId)
+  const target = player(host.state, dyingPlayerId)
+  if (!dying || dying.playerId !== dyingPlayerId || !source?.alive || !target?.alive || target.hp > 0) return false
+  const uniquePhysicalIds = [...new Set(physicalCardIds)]
+  if (uniquePhysicalIds.some((cardId) => !source.zones.hand.includes(cardId))) return false
+  for (const cardId of uniquePhysicalIds) moveCard(host.state, cardId, { kind: 'hand', playerId: sourceId }, { kind: 'processingArea' })
+  host.dispatch('CardResponded', {
+    playerId: sourceId, cardId: uniquePhysicalIds[0] ?? null, cardIds: uniquePhysicalIds,
+    cardName: '桃', virtual: true, reason, physicalCardIds: uniquePhysicalIds,
+  }, { sourceId, targetId: dyingPlayerId, cardIds: uniquePhysicalIds })
+  for (const cardId of uniquePhysicalIds) {
+    moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+    host.dispatch('CardEnteredDiscard', { playerId: sourceId, cardId, fromKind: 'hand', reason: 'response' }, { sourceId, cardIds: [cardId] })
+  }
+  recover(host, dyingPlayerId, 1, sourceId)
+  continueDyingAssists(host)
+  return true
 }
 
 export function resolveRescueResponse(host: DamageEngineHost, request: RescueRequest, response: GameResponse): void {
@@ -876,8 +1227,9 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
    */
   for (const runtime of skillsOf(host.state, response.playerId, skillIdsOf)) {
     if (!runtime.invokeRescueAction) continue
-    if (!runtime.invokeRescueAction(host as unknown as SkillHost, response.playerId, actionId, dying.playerId)) continue
-    requestCurrentRescuer(host)
+    const result = runtime.invokeRescueAction(host as unknown as SkillHost, response.playerId, actionId, dying.playerId)
+    if (!result) continue
+    if (result !== 'deferred') requestCurrentRescuer(host)
     return
   }
 
@@ -892,21 +1244,33 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
    * 整局崩掉；这条判断只影响"选中的这张牌恰好没了"这一种情况，
    * 不放宽其它任何校验。
    */
-  if (!responder.zones.hand.includes(cardId)) {
+  const from = locateOwnedCard(host.state, responder.id, cardId, { includeCharacterPiles: true })
+  if (!from || from.kind === 'judgingArea') {
     dying.responderIndex += 1
     requestCurrentRescuer(host)
     return
   }
   const card = host.state.cards[cardId]
-  const asPeach = guhuoGrantedAs(host.state, responder.id, cardId) === '桃'
-    || multiCardGrantedAs(host.state, responder.id, cardId) === '桃'
-    || skillsOf(host.state, responder.id, skillIdsOf)
+  const grantedName = guhuoGrantedAs(host.state, responder.id, cardId)
+    ?? multiCardGrantedAs(host.state, responder.id, cardId)
+    ?? skillsOf(host.state, responder.id, skillIdsOf)
       .flatMap((runtime) => runtime.viewAs?.(host.state, responder.id) ?? [])
-      .some((option) => option.asCardName === '桃' && option.cardId === cardId)
-  if (!card || (card.name !== '桃' && !asPeach && !(card.name === '酒' && responder.id === dying.playerId))) throw new Error('该牌不能用于当前救援')
-  const responseName = asPeach ? '桃' : card.name
-  moveCard(host.state, cardId, { kind: 'hand', playerId: responder.id }, { kind: 'processingArea' })
-  host.dispatch('CardResponded', { playerId: responder.id, cardId, cardName: responseName }, { sourceId: responder.id, targetId: dying.playerId, cardIds: [cardId] })
+      .find((option) => option.cardId === cardId)?.asCardName
+  const asPeach = grantedName === '桃'
+  const asWine = grantedName === '酒'
+  if (from.kind === 'characterPile' && !asPeach) {
+    dying.responderIndex += 1
+    requestCurrentRescuer(host)
+    return
+  }
+  if (!card || (card.name !== '桃' && !asPeach && !asWine && !(card.name === '酒' && responder.id === dying.playerId))) throw new Error('该牌不能用于当前救援')
+  const responseName = asPeach ? '桃' : asWine ? '酒' : card.name
+  moveCard(host.state, cardId, from, { kind: 'processingArea' })
+  if (from.kind === 'equipment') handleEquipmentLost(host as never, responder.id, cardId)
+  // 求酒是本回合真实使用过【酒】的一次，供【煮酒】等按本回合酒次数计数的技能读取；
+  // 濒死求酒不设置出牌阶段下一张【杀】的酒伤害加成。
+  if (responseName === '酒') host.state.turnUsage.wineUses += 1
+  host.dispatch('CardResponded', { playerId: responder.id, cardId, cardName: responseName, fromKind: from.kind }, { sourceId: responder.id, targetId: dying.playerId, cardIds: [cardId] })
   moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
   const target = player(host.state, dying.playerId)
   // 主公技救援：同势力角色的【桃】对主公多回复一点
@@ -914,6 +1278,7 @@ export function resolveRescueResponse(host: DamageEngineHost, request: RescueReq
     ? skillsOf(host.state, target.id, skillIdsOf)
       .reduce((sum, runtime) => sum + (runtime.rescueRecoverBonus?.(host.state, target.id, responder.id) ?? 0), 0)
     : 0
-  recover(host, target.id, 1 + bonus, responder.id)
+  recover(host, target.id, 1 + bonus, responder.id, cardId)
+  clearTemporaryCardSkillTag(host.state, cardId)
   requestCurrentRescuer(host)
 }

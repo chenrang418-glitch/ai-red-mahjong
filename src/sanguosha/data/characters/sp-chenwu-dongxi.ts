@@ -136,7 +136,7 @@ registerSkillRuntime({
 })
 
 export const CHENWU_DONGXI: CharacterDefinition = {
-  id: 'chenwu_dongxi',
+  id: 'chenwudongxi',
   name: '陈武董袭',
   kingdom: 'wu',
   gender: 'male',

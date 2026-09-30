@@ -7,8 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
  *
  * 1. **整页不滚动**。牌桌是一屏应用，页面级滚动会把顶部信息推出视野；
  *    面板、弹窗内部该滚的照滚。
- * 2. 新武将的卡片**读得出名字、势力角标不压字**。这 11 个人暂时都没有立绘，
- *    走的是「没有立绘」那条布局分支，正是容易和角标打架的那一条。
+ * 2. 新武将的卡片**读得出名字、势力角标不压字**。
  */
 
 const VIEWPORTS = [
@@ -59,7 +58,7 @@ for (const viewport of VIEWPORTS) {
       await expect(card, `${name} 应该在自选池里`).toHaveCount(1)
     }
 
-    // 势力角标不能压在名字上（这四个人没有立绘，走的是最容易打架的那条分支）
+    // 势力角标不能压在名字上
     const overlaps = await page.locator('.sgs-dock__general').evaluateAll((cards) => cards.filter((card) => {
       const badge = card.querySelector('.sgs-faction-badge')?.getBoundingClientRect()
       const label = card.querySelector(':scope > strong')?.getBoundingClientRect()

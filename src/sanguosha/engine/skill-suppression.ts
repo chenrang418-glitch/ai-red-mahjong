@@ -25,16 +25,19 @@ export interface SkillSuppression {
    *
    * - `'skill'`（默认）：只压 `skillId` 这一个。
    * - `'non-locked'`：压目标的**全部非锁定技**（神马超【霆威】）。
+   * - `'all'`：压目标武将牌上的全部技能（谋曹丕【放逐】）。
    *
    * 范围压制不能退化成「把当前技能 id 列一遍」：那样期间新获得的非锁定技
    * 会漏网，而这恰恰是这条规则最要紧的一半。所以存的是范围，
    * 每次查询时现算。
    */
-  scope?: 'skill' | 'non-locked'
+  scope?: 'skill' | 'non-locked' | 'all'
   /** 谁让它失效的。到期和清理都按这个来源走。 */
   sourceId: PlayerId
   /** 施加它的技能，用于战报和调试。 */
   sourceSkillId: string
+  /** Default is the target's next TurnEnd; selected effects expire at its next TurnStart. */
+  expiresAt?: 'turn-start' | 'turn-end' | 'never'
   /**
    * 施加时的回合序号。
    *
@@ -50,7 +53,8 @@ export interface SkillSuppression {
 export function isSkillSuppressed(state: SanguoshaState, targetId: PlayerId, skillId: string): boolean {
   return (state.skillSuppressions ?? []).some((entry) => {
     if (entry.targetId !== targetId) return false
-    if (entry.scope === 'non-locked') return !isLockedSkill(skillId)
+    if (entry.scope === 'all') return true
+    if (entry.scope === 'non-locked') return !isLockedSkill(skillId, state, targetId)
     return entry.skillId === skillId
   })
 }
@@ -77,10 +81,10 @@ export function suppressionBySource(state: SanguoshaState, sourceId: PlayerId, s
 
 export function suppressSkill(state: SanguoshaState, entry: SkillSuppression): void {
   state.skillSuppressions ??= []
-  if (entry.scope === 'non-locked') {
+  if (entry.scope === 'non-locked' || entry.scope === 'all') {
     // 同一个来源对同一个人只压一次；重复施加只该刷新期限，不该堆叠两条
     const existing = state.skillSuppressions.find((candidate) => candidate.targetId === entry.targetId
-      && candidate.scope === 'non-locked'
+      && candidate.scope === entry.scope
       && candidate.sourceId === entry.sourceId
       && candidate.sourceSkillId === entry.sourceSkillId)
     if (existing) {
@@ -107,12 +111,21 @@ export function expireSkillSuppressions(
 ): SkillSuppression[] {
   const all = state.skillSuppressions ?? []
   const expired = all.filter((entry) => (
-    entry.targetId === endingTurnPlayerId && turnNumber > entry.armedAtTurn
+    entry.targetId === endingTurnPlayerId && (entry.expiresAt ?? 'turn-end') === 'turn-end' && turnNumber > entry.armedAtTurn
   ))
   if (expired.length > 0) {
     state.skillSuppressions = all.filter((entry) => !expired.includes(entry))
   }
   return expired
+}
+
+/** Remove start-expiring suppressions before the target's next TurnStart triggers. */
+export function expireSkillSuppressionsAtTurnStart(state: SanguoshaState, playerId: PlayerId, turnNumber: number): void {
+  const all = state.skillSuppressions ?? []
+  state.skillSuppressions = all.filter((entry) => !(
+    entry.targetId === playerId && entry.expiresAt === 'turn-start' && turnNumber > entry.armedAtTurn
+  ))
+  // Keep the required array shape stable for serialized match states.
 }
 
 /**

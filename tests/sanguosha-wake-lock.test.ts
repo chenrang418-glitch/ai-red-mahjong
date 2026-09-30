@@ -18,6 +18,22 @@ describe('纸上三国对局防息屏', () => {
     expect(app).toContain('useScreenWakeLock')
   })
 
+  it('锁被系统主动释放后，在前台自动重新申请', async () => {
+    const document = new FakeDocument()
+    const first = new FakeSentinel(), second = new FakeSentinel()
+    const request = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    const controller = createScreenWakeLockController(() => true, {
+      document: document as unknown as Document,
+      wakeLock: { request: request as never },
+    })
+    controller.start()
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+
+    first.dispatchEvent(new Event('release'))
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+    controller.stop()
+  })
+
   it('进入对局申请、退回首页释放，隐藏后释放且可见时重新申请', async () => {
     const document = new FakeDocument()
     const first = new FakeSentinel(), second = new FakeSentinel()

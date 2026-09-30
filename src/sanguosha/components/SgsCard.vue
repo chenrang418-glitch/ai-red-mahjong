@@ -59,7 +59,7 @@ function showInfo(): void {
       </template>
       <span v-else class="sgs-card__back">{{ backIndex === null ? '' : backIndex + 1 }}</span>
     </button>
-    <button v-if="card" type="button" class="sgs-card__info" :aria-label="`查看${card.name}说明`" @click.stop="showInfo"><span aria-hidden="true">i</span></button>
+    <button v-if="card" type="button" class="sgs-card__info" :aria-label="`查看词条：${card.name}`" @click.stop="showInfo"><span aria-hidden="true">i</span></button>
   </div>
 </template>
 
@@ -116,10 +116,14 @@ function showInfo(): void {
 @media (pointer: coarse), (max-width: 820px) {
   .sgs-card-shell { width: 48px; height: 68px; }
   .sgs-card__name { font-size: 13px; }
+  .sgs-card__category, .sgs-card__corner, .sgs-card__nature { font-size: 10px; }
+  .sgs-card__info::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
   .sgs-card-shell--compact { width: 30px; height: 42px; }
 }
 @media (orientation: landscape) and (max-height: 500px) {
   .sgs-card-shell { width: 44px; height: 62px; }
   .sgs-card__name { font-size: 12px; }
+  .sgs-card__category, .sgs-card__corner, .sgs-card__nature { font-size: 10px; }
+  .sgs-card__info::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 }
 </style>

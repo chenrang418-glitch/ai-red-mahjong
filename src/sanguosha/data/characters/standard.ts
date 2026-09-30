@@ -1,13 +1,15 @@
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import { recover } from '../../engine/recover'
-import type { ChooseCardsRequest, ChooseTargetsRequest } from '../../engine/requests'
+import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { loseHp } from '../../engine/hp'
-import { getSkillRuntime as skillRuntimeOf, provideBorrowableSkillLookup, provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
+import { drawCards } from '../../engine/draw'
+import { getSkillRuntime as skillRuntimeOf, provideBorrowableSkillLookup, provideCharacterClanLookup, provideSkillIdsLookup, registerSkillRuntime, skillsOf, type ViewAsOption } from '../../engine/skills/runtime'
 import { provideLockedSkillLookup } from '../../engine/locked-skills'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
 import { effectiveGenderOf, provideHuashenCharacterCatalog } from '../../engine/huashen'
+import { provideGeneralFactionLookup } from '../../engine/general-slots'
 import { provideCharacterPool } from '../../engine/character-pool'
 import { provideRandomSkillPool } from '../../engine/random-skill-pool'
 import { WEI_CHARACTERS } from './wei'
@@ -35,6 +37,74 @@ import { HISTORICAL_BATCH20_CHARACTERS } from './historical-batch20'
 import { HISTORICAL_BATCH21_CHARACTERS } from './historical-batch21'
 import { HISTORICAL_BATCH22_CHARACTERS } from './historical-batch22'
 import { HISTORICAL_BATCH23_CHARACTERS } from './historical-batch23'
+import { HISTORICAL_BATCH24_CHARACTERS } from './historical-batch24'
+import { HISTORICAL_BATCH25_CHARACTERS } from './historical-batch25'
+import { HISTORICAL_BATCH26_CHARACTERS } from './historical-batch26'
+import { HISTORICAL_BATCH27_CHARACTERS } from './historical-batch27'
+import { HISTORICAL_BATCH28_CHARACTERS } from './historical-batch28'
+import { HISTORICAL_BATCH29_CHARACTERS } from './historical-batch29'
+import { HISTORICAL_BATCH30_CHARACTERS } from './historical-batch30'
+import { HISTORICAL_BATCH31_CHARACTERS } from './historical-batch31'
+import { LIUZHANG_B34, MOU_GONGSUNZAN_B34, MOU_LIUCHENG_B34, MOUYUANSHAO_B34, PANGXI_B34, SHI_HUANGZU_B34, SHI_SUNCHEN_B34, SHI_TAISHICI_B34, SIMAZHAO_SP_B34, WUKE_B34 } from './historical-batch32'
+import { LAIMIN_B35, LIFENG_B35, LIRU_JIE_B35, MAJUN_B35, MALIANG_B35, MIFUREN_B35, PANGDEGONG_B35, PANZHANG_MAZHONG_JIE_B35, YANBAIHU_B35, ZERONG_B35 } from './historical-batch33'
+import { HISTORICAL_BATCH34_CHARACTERS } from './historical-batch34'
+import { HISTORICAL_BATCH35_CHARACTERS } from './historical-batch35'
+import { HISTORICAL_BATCH36_CHARACTERS } from './historical-batch36'
+import { HISTORICAL_BATCH37_CHARACTERS } from './historical-batch37'
+import { HISTORICAL_BATCH38_CHARACTERS } from './historical-batch38'
+import { HISTORICAL_BATCH39_CHARACTERS } from './historical-batch39'
+import { HISTORICAL_BATCH40_CHARACTERS } from './historical-batch40'
+import { HISTORICAL_BATCH41_CHARACTERS } from './historical-batch41'
+import { HISTORICAL_BATCH42_CHARACTERS } from './historical-batch42'
+import { HISTORICAL_BATCH43_CHARACTERS } from './historical-batch43'
+import { HISTORICAL_BATCH45_PART1, HISTORICAL_BATCH45_PART2 } from './historical-batch45'
+import { HISTORICAL_BATCH46_PART1, HISTORICAL_BATCH46_PART2 } from './historical-batch46'
+import { HISTORICAL_BATCH47_CHARACTERS } from './historical-batch47'
+import { HISTORICAL_BATCH48_CHARACTERS } from './historical-batch48'
+import { HISTORICAL_BATCH49_CHARACTERS } from './historical-batch49'
+import { HISTORICAL_BATCH50_CHARACTERS } from './historical-batch50'
+import { HISTORICAL_BATCH51_CHARACTERS } from './historical-batch51'
+import { HISTORICAL_BATCH52_CHARACTERS } from './historical-batch52'
+import { HISTORICAL_BATCH53_CHARACTERS } from './historical-batch53'
+import { HISTORICAL_BATCH54_CHARACTERS } from './historical-batch54'
+import { HISTORICAL_BATCH55_CHARACTERS } from './historical-batch55'
+import { HISTORICAL_BATCH56_CHARACTERS } from './historical-batch56'
+import { HISTORICAL_BATCH57_CHARACTERS } from './historical-batch57'
+import { HISTORICAL_BATCH58_CHARACTERS } from './historical-batch58'
+import { HISTORICAL_BATCH59_CHARACTERS } from './historical-batch59'
+import { HISTORICAL_BATCH60_CHARACTERS } from './historical-batch60'
+import { HISTORICAL_BATCH61_CHARACTERS } from './historical-batch61'
+import { HISTORICAL_BATCH62_CHARACTERS } from './historical-batch62'
+import { HISTORICAL_BATCH63_CHARACTERS } from './historical-batch63'
+import { HISTORICAL_BATCH64_CHARACTERS } from './historical-batch64'
+import { HISTORICAL_BATCH65_CHARACTERS } from './historical-batch65'
+import { HISTORICAL_BATCH66_CHARACTERS } from './historical-batch66'
+import { HISTORICAL_BATCH67_CHARACTERS } from './historical-batch67'
+import { HISTORICAL_BATCH68_CHARACTERS } from './historical-batch68'
+import { HISTORICAL_BATCH69_CHARACTERS } from './historical-batch69'
+import { HISTORICAL_BATCH70_CHARACTERS } from './historical-batch70'
+import { HISTORICAL_BATCH71_CHARACTERS } from './historical-batch71'
+import { HISTORICAL_BATCH72_CHARACTERS } from './historical-batch72'
+import { HISTORICAL_BATCH73_CHARACTERS } from './historical-batch73'
+import { HISTORICAL_BATCH74_CHARACTERS } from './historical-batch74'
+import { HISTORICAL_BATCH75_CHARACTERS } from './historical-batch75'
+import { HISTORICAL_BATCH76_CHARACTERS } from './historical-batch76'
+import { HISTORICAL_BATCH77_CHARACTERS } from './historical-batch77'
+import { HISTORICAL_BATCH78_CHARACTERS } from './historical-batch78'
+import { HISTORICAL_BATCH79_CHARACTERS } from './historical-batch79'
+import { HISTORICAL_BATCH80_CHARACTERS } from './historical-batch80'
+import { HISTORICAL_BATCH81_CHARACTERS } from './historical-batch81'
+import { HISTORICAL_BATCH82_CHARACTERS } from './historical-batch82'
+import { HISTORICAL_BATCH83_CHARACTERS } from './historical-batch83'
+import { HISTORICAL_BATCH84_CHARACTERS } from './historical-batch84'
+import { HISTORICAL_BATCH85_CHARACTERS } from './historical-batch85'
+import { HISTORICAL_BATCH86_CHARACTERS } from './historical-batch86'
+import { HISTORICAL_BATCH87_CHARACTERS } from './historical-batch87'
+import { HISTORICAL_BATCH88_CHARACTERS } from './historical-batch88'
+import { HISTORICAL_BATCH89_CHARACTERS } from './historical-batch89'
+import { HISTORICAL_BATCH90_CHARACTERS } from './historical-batch90'
+import { FLASH_BATCH91_CHARACTERS } from './flash-batch91'
+import { FENGJI_2026 } from './fengji-2026'
 import { ENTERTAINMENT_CHARACTERS } from './entertainment'
 
 /**
@@ -107,7 +177,7 @@ registerSkillRuntime({
   viewAs(state, ownerId): ViewAsOption[] {
     return playerOf(state, ownerId).zones.hand
       .filter((cardId) => state.cards[cardId]?.color === 'black')
-      .map((cardId) => ({ asCardName: '闪', cardId, label: `将【${state.cards[cardId].name}】当【闪】打出` }))
+      .map((cardId) => ({ asCardName: '闪', cardId, label: `将【${state.cards[cardId].name}】当【闪】使用或打出` }))
   },
 })
 
@@ -138,12 +208,27 @@ registerSkillRuntime({
       if (DELAYED_TRICK_NAMES.has(card.name)) return
       const owner = host.state.players.find((candidate) => candidate.id === ownerId)
       if (!owner?.alive) return
-      const drawn = host.state.zones.drawPile.shift()
-      if (!drawn) return
-      owner.zones.hand.push(drawn)
-      host.dispatch('GainCard', { cardId: drawn, reason: '集智' }, { targetId: ownerId, cardIds: [drawn] })
+      host.queueSkill({ skillId: 'jizhi', ownerId, step: 'draw', data: {} })
     },
   }],
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'draw') return
+    const owner = host.state.players.find((candidate) => candidate.id === ownerId && candidate.alive)
+    if (!owner) return
+    host.askSkill({
+      skillId: 'jizhi', ownerId, step: 'draw', data: {},
+      build: (id): ChooseOptionRequest => ({
+        id, kind: 'choose-option', playerId: ownerId, prompt: '【集智】：是否摸一张牌？',
+        timeoutMs: 20_000, optional: true,
+        options: [{ id: 'yes', label: '摸一张牌' }, { id: 'no', label: '不发动' }],
+      }),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step !== 'draw' || (response.payload as { optionId?: string }).optionId !== 'yes') return
+    if (!host.state.players.some((candidate) => candidate.id === ownerId && candidate.alive)) return
+    drawCards(host.state, host.rng, ownerId, 1, (name, payload) => host.dispatch(name, payload))
+  },
 })
 
 registerSkillRuntime({
@@ -181,17 +266,14 @@ registerSkillRuntime({
   },
   invokeActive(host, ownerId, actionId) {
     if (actionId !== 'skill:kurou') throw new Error('苦肉动作不匹配')
-    // 苦肉是失去体力不是受到伤害，所以不触发伤害时机，但仍然可能进入濒死。
-    // 这里以前是内联减血 + 派发事件，漏了濒死判断：1 点体力发动会卡在「0 血活着」。
+    // 苦肉是失去体力而不是受到伤害。若因此进入濒死，先让求桃结算完成再续接摸牌。
     const owner = playerOf(host.state, ownerId)
     loseHp(host, ownerId, 1, '苦肉')
-    if (!owner.alive) return
-    for (let index = 0; index < 2; index += 1) {
-      const drawn = host.state.zones.drawPile.shift()
-      if (!drawn) break
-      owner.zones.hand.push(drawn)
-      host.dispatch('GainCard', { cardId: drawn, reason: '苦肉' }, { targetId: ownerId, cardIds: [drawn] })
-    }
+    if (owner.alive) host.queueSkill({ skillId: 'kurou', ownerId, step: 'draw', data: {} })
+  },
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'draw' || !playerOf(host.state, ownerId).alive) return
+    drawCards(host.state, host.rng, ownerId, 2, (name, payload) => host.dispatch(name, payload))
   },
 })
 
@@ -205,14 +287,26 @@ registerSkillRuntime({
       if (payload.playerId !== ownerId) return
       const owner = host.state.players.find((candidate) => candidate.id === ownerId)
       if (!owner?.alive) return
-      for (let index = 0; index < 2; index += 1) {
-        const drawn = host.state.zones.drawPile.shift()
-        if (!drawn) break
-        owner.zones.hand.push(drawn)
-        host.dispatch('GainCard', { cardId: drawn, reason: '枭姬' }, { targetId: ownerId, cardIds: [drawn] })
-      }
+      host.queueSkill({ skillId: 'xiaoji', ownerId, step: 'draw', data: {} })
     },
   }],
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'draw') return
+    if (!host.state.players.some((candidate) => candidate.id === ownerId && candidate.alive)) return
+    host.askSkill({
+      skillId: 'xiaoji', ownerId, step: 'draw', data: {},
+      build: (id): ChooseOptionRequest => ({
+        id, kind: 'choose-option', playerId: ownerId, prompt: '【枭姬】：是否摸两张牌？',
+        timeoutMs: 20_000, optional: true,
+        options: [{ id: 'yes', label: '摸两张牌' }, { id: 'no', label: '不发动' }],
+      }),
+    })
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step !== 'draw' || (response.payload as { optionId?: string }).optionId !== 'yes') return
+    if (!host.state.players.some((candidate) => candidate.id === ownerId && candidate.alive)) return
+    drawCards(host.state, host.rng, ownerId, 2, (name, payload) => host.dispatch(name, payload))
+  },
 })
 
 // —— 孙尚香【结姻】——
@@ -269,9 +363,13 @@ registerSkillRuntime({
 export function responseViewAsOptions(state: SanguoshaState, playerId: PlayerId, requiredCardName: string): ViewAsOption[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player?.characterId) return []
-  return skillsOf(state, playerId, skillIdsOf)
+  const own = skillsOf(state, playerId, skillIdsOf)
     .flatMap((runtime) => runtime.viewAs?.(state, playerId) ?? [])
     .filter((option) => option.asCardName === requiredCardName)
+  const granted = state.players.filter((owner) => owner.alive && owner.id !== playerId)
+    .flatMap((owner) => skillsOf(state, owner.id, skillIdsOf)
+      .flatMap((runtime) => runtime.globalResponseViewAs?.(state, owner.id, playerId, requiredCardName) ?? []))
+  return [...own, ...granted].filter((option) => option.asCardName === requiredCardName)
 }
 
 /** 需要打出【闪】时，哪些手牌可以转化成【闪】。 */
@@ -298,7 +396,7 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     pack: 'standard',
     skills: [
       { id: 'mashu', name: '马术', description: '锁定技，你计算与其他角色的距离时，始终减一。' },
-      { id: 'tieji', name: '铁骑', qiexie: true, description: '你使用【杀】指定目标后，可以进行判定，若结果为红色，该角色不能使用【闪】响应。' },
+      { id: 'tieji', name: '铁骑', qiexie: true, description: '当你使用【杀】指定一个目标后，你可以进行判定，若结果为红色，该角色不能使用【闪】响应此【杀】。' },
     ],
   },
   {
@@ -308,7 +406,7 @@ export const STANDARD_CHARACTERS: readonly CharacterDefinition[] = [
     gender: 'male',
     maxHp: 4,
     pack: 'standard',
-    skills: [{ id: 'wusheng', name: '武圣', qiexie: true, description: '你可以将一张红色牌当【杀】使用。' }],
+    skills: [{ id: 'wusheng', name: '武圣', qiexie: true, description: '你可以将一张红色牌当【杀】使用或打出。' }],
   },
   {
     id: 'huangyueying',
@@ -400,6 +498,94 @@ export const ALL_CHARACTERS: readonly CharacterDefinition[] = [
   ...HISTORICAL_BATCH21_CHARACTERS,
   ...HISTORICAL_BATCH22_CHARACTERS,
   ...HISTORICAL_BATCH23_CHARACTERS,
+  ...HISTORICAL_BATCH24_CHARACTERS,
+  ...HISTORICAL_BATCH25_CHARACTERS,
+  ...HISTORICAL_BATCH26_CHARACTERS,
+  ...HISTORICAL_BATCH27_CHARACTERS,
+  ...HISTORICAL_BATCH28_CHARACTERS,
+  ...HISTORICAL_BATCH29_CHARACTERS,
+  ...HISTORICAL_BATCH30_CHARACTERS,
+  ...HISTORICAL_BATCH31_CHARACTERS,
+  WUKE_B34,
+  LIUZHANG_B34,
+  MOU_LIUCHENG_B34,
+  SIMAZHAO_SP_B34,
+  MOUYUANSHAO_B34,
+  SHI_TAISHICI_B34,
+  SHI_SUNCHEN_B34,
+  MOU_GONGSUNZAN_B34,
+  PANGXI_B34,
+  SHI_HUANGZU_B34,
+  ZERONG_B35,
+  MIFUREN_B35,
+  LIRU_JIE_B35,
+  MAJUN_B35,
+  PANZHANG_MAZHONG_JIE_B35,
+  PANGDEGONG_B35,
+  LIFENG_B35,
+  YANBAIHU_B35,
+  LAIMIN_B35,
+  MALIANG_B35,
+  ...HISTORICAL_BATCH34_CHARACTERS,
+  ...HISTORICAL_BATCH35_CHARACTERS,
+  ...HISTORICAL_BATCH36_CHARACTERS,
+  ...HISTORICAL_BATCH37_CHARACTERS,
+  ...HISTORICAL_BATCH38_CHARACTERS,
+  ...HISTORICAL_BATCH39_CHARACTERS,
+  ...HISTORICAL_BATCH40_CHARACTERS,
+  ...HISTORICAL_BATCH41_CHARACTERS,
+  ...HISTORICAL_BATCH42_CHARACTERS,
+  ...HISTORICAL_BATCH43_CHARACTERS,
+  ...HISTORICAL_BATCH45_PART1,
+  ...HISTORICAL_BATCH45_PART2,
+  ...HISTORICAL_BATCH46_PART1,
+  ...HISTORICAL_BATCH46_PART2,
+  ...HISTORICAL_BATCH47_CHARACTERS,
+  ...HISTORICAL_BATCH48_CHARACTERS,
+  ...HISTORICAL_BATCH49_CHARACTERS,
+  ...HISTORICAL_BATCH50_CHARACTERS,
+  ...HISTORICAL_BATCH51_CHARACTERS,
+  ...HISTORICAL_BATCH52_CHARACTERS,
+  ...HISTORICAL_BATCH53_CHARACTERS,
+  ...HISTORICAL_BATCH54_CHARACTERS,
+  ...HISTORICAL_BATCH55_CHARACTERS,
+  ...HISTORICAL_BATCH56_CHARACTERS,
+  ...HISTORICAL_BATCH57_CHARACTERS,
+  ...HISTORICAL_BATCH58_CHARACTERS,
+  ...HISTORICAL_BATCH59_CHARACTERS,
+  ...HISTORICAL_BATCH60_CHARACTERS,
+  ...HISTORICAL_BATCH61_CHARACTERS,
+  ...HISTORICAL_BATCH62_CHARACTERS,
+  ...HISTORICAL_BATCH63_CHARACTERS,
+  ...HISTORICAL_BATCH64_CHARACTERS,
+  ...HISTORICAL_BATCH65_CHARACTERS,
+  ...HISTORICAL_BATCH66_CHARACTERS,
+  ...HISTORICAL_BATCH67_CHARACTERS,
+  ...HISTORICAL_BATCH68_CHARACTERS,
+  ...HISTORICAL_BATCH69_CHARACTERS,
+  ...HISTORICAL_BATCH70_CHARACTERS,
+  ...HISTORICAL_BATCH71_CHARACTERS,
+  ...HISTORICAL_BATCH72_CHARACTERS,
+  ...HISTORICAL_BATCH73_CHARACTERS,
+  ...HISTORICAL_BATCH74_CHARACTERS,
+  ...HISTORICAL_BATCH75_CHARACTERS,
+  ...HISTORICAL_BATCH76_CHARACTERS,
+  ...HISTORICAL_BATCH77_CHARACTERS,
+  ...HISTORICAL_BATCH78_CHARACTERS,
+  ...HISTORICAL_BATCH79_CHARACTERS,
+  ...HISTORICAL_BATCH80_CHARACTERS,
+  ...HISTORICAL_BATCH81_CHARACTERS,
+  ...HISTORICAL_BATCH82_CHARACTERS,
+  ...HISTORICAL_BATCH83_CHARACTERS,
+  ...HISTORICAL_BATCH84_CHARACTERS,
+  ...HISTORICAL_BATCH85_CHARACTERS,
+  ...HISTORICAL_BATCH86_CHARACTERS,
+  ...HISTORICAL_BATCH87_CHARACTERS,
+  ...HISTORICAL_BATCH88_CHARACTERS,
+  ...HISTORICAL_BATCH89_CHARACTERS,
+  ...HISTORICAL_BATCH90_CHARACTERS,
+  ...FLASH_BATCH91_CHARACTERS,
+  FENGJI_2026,
   ...ENTERTAINMENT_CHARACTERS,
 ] as const
 
@@ -421,6 +607,8 @@ provideCharacterPool(ALL_CHARACTERS.map(({ id, name, pack, maxHp }) => ({ id, na
 
 // 主公技要按势力找同伴，但势力表在这里才拼齐，所以运行时回注一个查询函数
 provideKingdomLookup((characterId) => BY_ID.get(characterId)?.kingdom)
+provideGeneralFactionLookup((characterId) => BY_ID.get(characterId)?.kingdom)
+provideCharacterClanLookup((characterId) => BY_ID.get(characterId)?.clan)
 
 export function getCharacter(characterId: string): CharacterDefinition | undefined {
   return BY_ID.get(characterId)
@@ -488,6 +676,12 @@ export function allCharacterIds(): string[] {
   return ALL_CHARACTERS.map((character) => character.id)
 }
 
+/** Resolve a registered skill by its catalogued character and exact display name. */
+export function skillIdByCharacterAndName(characterName: string, skillName: string): string | undefined {
+  return ALL_CHARACTERS.find((character) => character.name === characterName)?.skills
+    .find((skill) => skill.name === skillName && !skill.granted)?.id
+}
+
 export function entertainmentCharacterIds(): string[] {
   return ALL_CHARACTERS.filter((character) => character.pack === 'entertainment').map((character) => character.id)
 }
@@ -523,10 +717,10 @@ export function displayCharacterName(
  * 再来一个同类锁定技就必须改这一行。徐晃【断粮】那种「只加距离、不取消限制」
  * 的修正走另一个入口 `trickDistanceBonus`，两者互不干扰。
  */
-export function ignoresTrickDistance(state: SanguoshaState, playerId: PlayerId): boolean {
+export function ignoresTrickDistance(state: SanguoshaState, playerId: PlayerId, cardId?: CardId): boolean {
   return skillsOf(state, playerId, skillIdsOf).some((runtime) => (
     typeof runtime.ignoresTrickDistance === 'function'
-      ? runtime.ignoresTrickDistance(state, playerId)
+      ? runtime.ignoresTrickDistance(state, playerId, cardId)
       : runtime.ignoresTrickDistance === true
   ))
 }

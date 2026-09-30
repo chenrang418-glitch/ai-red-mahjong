@@ -3,6 +3,7 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { getCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
+import { killPlayer } from '@/sanguosha/engine/damage'
 
 /**
  * 标准包里补齐的三个技能：天妒、铁骑、鬼才。
@@ -47,9 +48,28 @@ function stackJudgment(game: SanguoshaGame, suit: 'heart' | 'spade' | 'club' | '
   return cardId
 }
 
+function stackJudgments(game: SanguoshaGame, suits: Array<'heart' | 'spade' | 'club' | 'diamond'>): string[] {
+  const selected: string[] = []
+  for (const suit of suits) {
+    const cardId = game.state.zones.drawPile.find((id) => !selected.includes(id) && game.state.cards[id].suit === suit)
+    if (!cardId) throw new Error(`牌堆里没有足够的${suit}判定牌`)
+    selected.push(cardId)
+  }
+  game.state.zones.drawPile = [...selected, ...game.state.zones.drawPile.filter((id) => !selected.includes(id))]
+  return selected
+}
+
 function giveNamed(game: SanguoshaGame, playerId: PlayerId, cardName: string): string {
   const cardId = game.state.zones.drawPile.find((id) => game.state.cards[id].name === cardName)
   if (!cardId) throw new Error(`牌堆里没有【${cardName}】`)
+  game.state.zones.drawPile = game.state.zones.drawPile.filter((id) => id !== cardId)
+  game.state.players.find((player) => player.id === playerId)!.zones.hand.push(cardId)
+  return cardId
+}
+
+function giveSuit(game: SanguoshaGame, playerId: PlayerId, suit: 'heart' | 'spade' | 'club' | 'diamond'): string {
+  const cardId = game.state.zones.drawPile.find((id) => game.state.cards[id].suit === suit)
+  if (!cardId) throw new Error(`牌堆里没有${suit}手牌`)
   game.state.zones.drawPile = game.state.zones.drawPile.filter((id) => id !== cardId)
   game.state.players.find((player) => player.id === playerId)!.zones.hand.push(cardId)
   return cardId
@@ -208,6 +228,189 @@ describe('马超【铁骑】', () => {
     assertGameInvariants(game.state)
   })
 
+  it('判定结果按鬼才改判后的最终颜色决定', () => {
+    for (const [initialSuit, retrialSuit, canDodge] of [
+      ['spade', 'heart', false],
+      ['heart', 'club', true],
+    ] as const) {
+      const game = gameWith(['machao', 'simayi', 'zhangfei', 'zhangfei', 'zhangfei'], `tieji-retrial-${initialSuit}`)
+      const slash = giveNamed(game, 'p0', '杀')
+      const dodge = giveNamed(game, 'p2', '闪')
+      game.state.zones.discardPile.push(...game.state.players[1].zones.hand)
+      game.state.players[1].zones.hand = []
+      const retrialCard = giveSuit(game, 'p1', retrialSuit)
+      const initialJudgment = stackJudgment(game, initialSuit)
+      const hpBefore = game.state.players[2].hp
+      const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+        && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p2'))
+      expect(action).toBeTruthy()
+
+      game.act('p0', action!.id)
+      const tiejiAsk = pending(game)
+      expect(tiejiAsk?.skillId).toBe('tieji')
+      game.respond({ requestId: tiejiAsk.id, playerId: 'p0', payload: { optionId: 'yes' } })
+      const retrialAsk = pending(game)
+      expect(retrialAsk?.kind).toBe('choose-cards')
+      expect((retrialAsk as { purpose?: string }).purpose).toBe('retrial')
+      expect(retrialAsk.playerId).toBe('p1')
+      game.respond({ requestId: retrialAsk.id, playerId: 'p1', payload: { cardIds: [retrialCard] } })
+
+      const response = pending(game)
+      if (canDodge) {
+        expect(response?.kind).toBe('respond-card')
+        expect(response.playerId).toBe('p2')
+        game.respond({ requestId: response.id, playerId: 'p2', payload: { actionId: `respond-dodge:${dodge}` } })
+        expect(game.state.players[2].hp).toBe(hpBefore)
+        expect(game.state.zones.discardPile).toContain(dodge)
+      } else {
+        expect(response?.prompt ?? '').not.toContain('闪')
+        expect(game.state.players[2].hp, `${initialSuit}→${retrialSuit} should use final red result; next=${JSON.stringify(response)}`).toBe(hpBefore - 1)
+        expect(game.state.players[2].zones.hand).toContain(dodge)
+      }
+      expect(game.state.zones.discardPile).toContain(initialJudgment)
+      expect(game.state.zones.discardPile).toContain(retrialCard)
+      expect(game.state.cardResolution).toBeNull()
+      assertGameInvariants(game.state)
+    }
+  })
+
+  it('大乔先流离改定最终目标，再询问铁骑', () => {
+    const game = gameWith(['machao', 'daqiao', 'zhangfei', 'zhangfei', 'zhangfei'], 'tieji-liuli-order')
+    const slash = giveNamed(game, 'p0', '杀')
+    const liuliCost = giveSuit(game, 'p1', 'heart')
+    const p1Hp = game.state.players[1].hp
+    const p2Hp = game.state.players[2].hp
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))
+    expect(action).toBeTruthy()
+
+    game.act('p0', action!.id)
+    const liuliAsk = pending(game)
+    expect(liuliAsk?.skillId, '成为目标时的流离先处理，之后目标才固定').toBe('liuli')
+    game.respond({ requestId: liuliAsk.id, playerId: 'p1', payload: { optionId: 'yes' } })
+    const discardAsk = pending(game)
+    expect(discardAsk?.kind).toBe('choose-cards')
+    game.respond({ requestId: discardAsk.id, playerId: 'p1', payload: { cardIds: [liuliCost] } })
+    const targetAsk = pending(game)
+    expect(targetAsk?.kind).toBe('choose-targets')
+    game.respond({ requestId: targetAsk.id, playerId: 'p1', payload: { targetIds: ['p2'] } })
+
+    const tiejiAsk = pending(game)
+    expect(tiejiAsk?.skillId, '铁骑应对流离后的最终目标发动').toBe('tieji')
+    expect(tiejiAsk?.prompt).toContain(game.state.players[2].nickname)
+    game.respond({ requestId: tiejiAsk.id, playerId: 'p0', payload: { optionId: 'no' } })
+    if (pending(game)?.kind === 'respond-card') {
+      const dodgeAsk = pending(game)!
+      expect(dodgeAsk.prompt).toContain('闪')
+      game.respond({ requestId: dodgeAsk.id, playerId: 'p2', payload: { actionId: 'respond-pass' } })
+    }
+
+    expect(game.state.players[1].hp).toBe(p1Hp)
+    expect(game.state.players[2].hp).toBe(p2Hp - 1)
+    expect(game.state.zones.discardPile).toContain(liuliCost)
+    assertGameInvariants(game.state)
+  })
+
+  it('多目标时先完成所有成为目标时的流离，再按目标顺序询问铁骑', () => {
+    const game = gameWith(['machao', 'daqiao', 'daqiao', 'zhangfei', 'zhangfei'], 'tieji-multi-target-window-order')
+    const halberd = giveNamed(game, 'p0', '方天画戟')
+    const slash = giveNamed(game, 'p0', '杀')
+    game.state.zones.discardPile.push(...game.state.players[0].zones.hand.filter((id) => id !== slash && id !== halberd))
+    game.state.players[0].zones.hand = [slash]
+    game.state.players[0].zones.equipment.weapon = halberd
+
+    game.act('p0', 'skill:fangtian')
+    const targets = pending(game)
+    expect(targets?.kind).toBe('choose-targets')
+    game.respond({ requestId: targets.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
+
+    const firstLiuli = pending(game)
+    expect(firstLiuli?.skillId).toBe('liuli')
+    game.respond({ requestId: firstLiuli.id, playerId: 'p1', payload: { optionId: 'no' } })
+
+    const secondLiuli = pending(game)
+    expect(secondLiuli?.skillId, '第二目标的成为目标时窗口应先于任何铁骑窗口').toBe('liuli')
+    expect(secondLiuli?.playerId).toBe('p2')
+    game.respond({ requestId: secondLiuli.id, playerId: 'p2', payload: { optionId: 'no' } })
+
+    const firstTieji = pending(game)
+    expect(firstTieji?.skillId).toBe('tieji')
+    expect(firstTieji?.prompt).toContain(game.state.players[1].nickname)
+    assertGameInvariants(game.state)
+  })
+
+  it('流离把方天目标转给已指定角色时，铁骑按两次指定分别记录并在响应前结算', () => {
+    const game = gameWith(['machao', 'daqiao', 'zhangfei', 'zhangfei', 'zhangfei'], 'tieji-liuli-duplicate-target')
+    const halberd = giveNamed(game, 'p0', '方天画戟')
+    const slash = giveNamed(game, 'p0', '杀')
+    game.state.zones.discardPile.push(...game.state.players[0].zones.hand.filter((id) => id !== slash && id !== halberd))
+    game.state.players[0].zones.hand = [slash]
+    game.state.players[0].zones.equipment.weapon = halberd
+    const liuliCost = giveSuit(game, 'p1', 'heart')
+    const dodge = giveNamed(game, 'p2', '闪')
+    const [redJudgment, blackJudgment] = stackJudgments(game, ['heart', 'spade'])
+
+    game.act('p0', 'skill:fangtian')
+    const targetRequest = pending(game)
+    game.respond({ requestId: targetRequest.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
+    const liuliAsk = pending(game)
+    expect(liuliAsk?.skillId).toBe('liuli')
+    game.respond({ requestId: liuliAsk.id, playerId: 'p1', payload: { optionId: 'yes' } })
+    const discardAsk = pending(game)
+    game.respond({ requestId: discardAsk.id, playerId: 'p1', payload: { cardIds: [liuliCost] } })
+    const redirectAsk = pending(game)
+    game.respond({ requestId: redirectAsk.id, playerId: 'p1', payload: { targetIds: ['p2'] } })
+
+    const firstTieji = pending(game)
+    expect(firstTieji?.skillId).toBe('tieji')
+    game.respond({ requestId: firstTieji.id, playerId: 'p0', payload: { optionId: 'yes' } })
+    expect(game.state.players[2].hp).toBe(4)
+    const secondTieji = pending(game)
+    expect(secondTieji?.skillId).toBe('tieji')
+    game.respond({ requestId: secondTieji.id, playerId: 'p0', payload: { optionId: 'yes' } })
+    expect(game.state.zones.discardPile).toContain(redJudgment)
+    expect(game.state.zones.discardPile).toContain(blackJudgment)
+
+    expect(game.state.players[2].hp).toBe(3)
+    const dodgeAsk = pending(game)
+    expect(dodgeAsk?.kind).toBe('respond-card')
+    expect(dodgeAsk.playerId).toBe('p2')
+    game.respond({ requestId: dodgeAsk.id, playerId: 'p2', payload: { actionId: `respond-dodge:${dodge}` } })
+    expect(game.state.players[2].hp).toBe(3)
+    expect(game.state.players[1].hp).toBe(4)
+    assertGameInvariants(game.state)
+  })
+
+  it('多目标准备期间后续目标死亡时跳过该目标并继续当前牌结算', () => {
+    const game = gameWith(['machao', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], 'tieji-target-dies-during-preparation')
+    const halberd = giveNamed(game, 'p0', '方天画戟')
+    const slash = giveNamed(game, 'p0', '杀')
+    game.state.zones.discardPile.push(...game.state.players[0].zones.hand.filter((id) => id !== slash && id !== halberd))
+    game.state.players[0].zones.hand = [slash]
+    game.state.players[0].zones.equipment.weapon = halberd
+    const dodge = giveNamed(game, 'p1', '闪')
+
+    game.act('p0', 'skill:fangtian')
+    const targetRequest = pending(game)
+    game.respond({ requestId: targetRequest.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
+    const firstTieji = pending(game)
+    expect(firstTieji?.skillId).toBe('tieji')
+    game.respond({ requestId: firstTieji.id, playerId: 'p0', payload: { optionId: 'no' } })
+    const secondTieji = pending(game)
+    expect(secondTieji?.skillId).toBe('tieji')
+    killPlayer(game, 'p2', 'p0', '测试：在目标指定后、杀结算前死亡')
+    game.respond({ requestId: secondTieji.id, playerId: 'p0', payload: { optionId: 'no' } })
+
+    const dodgeAsk = pending(game)
+    expect(dodgeAsk?.kind).toBe('respond-card')
+    expect(dodgeAsk.playerId).toBe('p1')
+    game.respond({ requestId: dodgeAsk.id, playerId: 'p1', payload: { actionId: `respond-dodge:${dodge}` } })
+    expect(game.state.players[1].hp).toBe(4)
+    expect(game.state.players[2].alive).toBe(false)
+    expect(game.state.cardResolution).toBeNull()
+    assertGameInvariants(game.state)
+  })
+
   it('放弃发动：结算和没有铁骑时一样', () => {
     const game = gameWith(['machao', 'machao', 'machao', 'machao', 'machao'])
     const dodge = giveNamed(game, 'p1', '闪')
@@ -231,6 +434,44 @@ describe('马超【铁骑】', () => {
     game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { optionId: 'yes' } })
     // 这次结算已经结束，标记不该留在状态里
     expect(game.state.cardResolution?.kind === 'slash' ? game.state.cardResolution.noDodge : false).toBeFalsy()
+    assertGameInvariants(game.state)
+  })
+
+  it('方天多目标杀按目标逐次判定，红判禁闪不会泄漏给后续黑判目标', () => {
+    const game = gameWith(['machao', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'])
+    const halberd = giveNamed(game, 'p0', '方天画戟')
+    const slash = giveNamed(game, 'p0', '杀')
+    game.state.zones.discardPile.push(...game.state.players[0].zones.hand.filter((id) => id !== slash && id !== halberd))
+    game.state.players[0].zones.hand = [slash]
+    game.state.players[0].zones.equipment.weapon = halberd
+    const p1Dodge = giveNamed(game, 'p1', '闪')
+    const p2Dodge = giveNamed(game, 'p2', '闪')
+    const [redJudgment, blackJudgment] = stackJudgments(game, ['heart', 'spade'])
+
+    game.act('p0', 'skill:fangtian')
+    const targetRequest = pending(game)
+    expect(targetRequest?.kind).toBe('choose-targets')
+    game.respond({ requestId: targetRequest.id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
+
+    const firstTieji = pending(game)
+    expect(firstTieji?.skillId).toBe('tieji')
+    game.respond({ requestId: firstTieji.id, playerId: 'p0', payload: { optionId: 'yes' } })
+    expect(game.state.zones.discardPile).toContain(redJudgment)
+    expect(game.state.players[1].zones.hand).toContain(p1Dodge)
+    expect(game.state.players[1].hp, '所有目标的铁骑判定完成前不能开始第一个目标的响应/伤害').toBe(4)
+
+    const secondTieji = pending(game)
+    expect(secondTieji?.skillId).toBe('tieji')
+    game.respond({ requestId: secondTieji.id, playerId: 'p0', payload: { optionId: 'yes' } })
+    expect(game.state.zones.discardPile).toContain(blackJudgment)
+    const dodgeRequest = pending(game)
+    expect(dodgeRequest?.kind).toBe('respond-card')
+    expect(dodgeRequest.playerId).toBe('p2')
+    game.respond({ requestId: dodgeRequest.id, playerId: 'p2', payload: { actionId: `respond-dodge:${p2Dodge}` } })
+
+    expect(game.state.players[1].hp).toBe(3)
+    expect(game.state.players[2].hp).toBe(4)
+    expect(game.state.cardResolution).toBeNull()
     assertGameInvariants(game.state)
   })
 })

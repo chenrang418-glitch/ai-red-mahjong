@@ -5,7 +5,8 @@ import {
   closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivateZone, privateZoneCards,
 } from './private-zone'
 import type { ChooseCardsRequest, GameRequest, GameResponse } from './requests'
-import type { SkillHost } from './skills/runtime'
+import { grantSkill, isResponseCardProhibited, ownedSkillIds, type SkillHost } from './skills/runtime'
+import { markUsedThisTurn, usedThisTurn } from './turn-usage'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 /**
  * 技能 id。**故意写在引擎侧而不是从武将文件 import**：
@@ -14,6 +15,8 @@ import type { CardId, PlayerId, SanguoshaState } from './types'
  * 症状是 ALL_CHARACTERS 初始化到一半就被读，整套测试全红。
  */
 const GUHUO = 'guhuo'
+const JIE_YUJI_CHARACTER = 'jie-yuji-b38'
+const CHANYUAN = 'chanyuan-jie-b38'
 
 /**
  * 于吉【蛊惑】的**打出**模式。
@@ -46,7 +49,7 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
 
 function hasGuhuo(state: SanguoshaState, playerId: PlayerId, skillIdsOf: (characterId: string) => string[]): boolean {
   const player = playerOf(state, playerId)
-  return Boolean(player?.alive && player.characterId && skillIdsOf(player.characterId).includes(GUHUO))
+  return Boolean(player?.alive && ownedSkillIds(state, playerId, skillIdsOf).includes(GUHUO))
 }
 
 /**
@@ -67,9 +70,11 @@ export function canGuhuoRespond(
   if (state.guhuoResponse && !['granted', 'declined'].includes(state.guhuoResponse.stage)) return false
   if (state.groupDecision) return false
   if (!hasGuhuo(state, playerId, skillIdsOf)) return false
+  const owner = playerOf(state, playerId)
+  if (owner?.characterId === JIE_YUJI_CHARACTER && usedThisTurn(state, playerId, GUHUO)) return false
   // 声明的必须是基本牌或非延时锦囊——求牌场合本来也只会要这几种
   if (!['闪', '杀', '桃', '酒', '无懈可击'].includes(requiredCardName)) return false
-  return (playerOf(state, playerId)?.zones.hand.length ?? 0) > 0
+  return (owner?.zones.hand ?? []).some((cardId) => !isResponseCardProhibited(state, playerId, cardId, requiredCardName, skillIdsOf))
 }
 
 /**
@@ -115,6 +120,7 @@ export function beginGuhuoRespond(host: SkillHost, request: GameRequest): void {
   // 求桃本身就是一条濒死流程。质疑期间若有人因失去体力进入濒死，
   // 必须让新的流程暂时占用 state.dying，原流程跟随蛊惑上下文序列化挂起。
   if (request.kind === 'rescue' && host.state.dying) host.state.dying = null
+  if (owner.characterId === JIE_YUJI_CHARACTER) markUsedThisTurn(host.state, ownerId, GUHUO)
   host.askSkill({
     skillId: GUHUO,
     ownerId,
@@ -127,7 +133,7 @@ export function beginGuhuoRespond(host: SkillHost, request: GameRequest): void {
       timeoutMs: 20_000,
       optional: false,
       purpose: 'skill',
-      cardIds: [...owner.zones.hand],
+      cardIds: owner.zones.hand.filter((cardId) => !isResponseCardProhibited(host.state, ownerId, cardId, requiredCardName)),
       hiddenCardSlots: [],
       min: 1,
       max: 1,
@@ -139,7 +145,8 @@ export function beginGuhuoRespond(host: SkillHost, request: GameRequest): void {
 export function continueGuhuoRespond(host: SkillHost, ownerId: PlayerId, cardId: CardId): void {
   const pending = host.state.guhuoResponse
   const owner = playerOf(host.state, ownerId)
-  if (!pending || pending.stage !== 'declaring' || !owner?.alive || !owner.zones.hand.includes(cardId)) {
+  if (!pending || pending.stage !== 'declaring' || !owner?.alive || !owner.zones.hand.includes(cardId)
+    || isResponseCardProhibited(host.state, ownerId, cardId, pending.requiredCardName)) {
     finishGuhuoRespond(host, false)
     return
   }
@@ -172,7 +179,8 @@ function challengeOrder(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
   const order: PlayerId[] = []
   for (let offset = 0; offset < state.players.length; offset += 1) {
     const candidate = state.players[(start + offset) % state.players.length]
-    if (candidate.alive && candidate.id !== ownerId) order.push(candidate.id)
+    if (candidate.alive && candidate.id !== ownerId
+      && !(playerOf(state, ownerId)?.characterId === JIE_YUJI_CHARACTER && ownedSkillIds(state, candidate.id).includes(CHANYUAN))) order.push(candidate.id)
   }
   return order
 }
@@ -208,6 +216,15 @@ registerGroupDecision(CHALLENGE_TAG, (host, decision) => {
     playerId: ownerId, cardIds: [cardId], reason: GUHUO, revealed: true,
     declaredName: pending.requiredCardName, truthful, challengerIds: [...challengers],
   }, { sourceId: ownerId, cardIds: [cardId] })
+
+  if (owner.characterId === JIE_YUJI_CHARACTER) {
+    if (truthful) for (const challengerId of challengers) if (playerOf(host.state, challengerId)?.alive) grantSkill(host.state, challengerId, CHANYUAN)
+    pending.stage = 'penalizing'
+    pending.penaltyPlayerIds = []
+    pending.grantedAfterPenalties = truthful
+    continueGuhuoResponseAfterDying(skillHost, truthful)
+    return
+  }
 
   pending.stage = 'penalizing'
   pending.penaltyPlayerIds = [...challengers]

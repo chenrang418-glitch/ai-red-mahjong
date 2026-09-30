@@ -23,6 +23,9 @@ const EXTRA_TARGETS = 'slash-extra-targets'
 const IGNORE_DISTANCE = 'slash-ignore-distance'
 /** 这一回合不能使用杀。 */
 const PROHIBITED = 'slash-prohibited'
+/** 左棻【诏颂】的“颂”：消耗一次，为【杀】追加至多两个目标。 */
+export const ZUOFEN_SONG_MARK = 'zuofenSong'
+const ZUOFEN_SONG_TARGETS = 2
 
 /** 回合结束时要抹掉的临时标记，由 `turn.ts` 统一清理。 */
 export const TURN_SLASH_MARKS = [EXTRA_USES, EXTRA_TARGETS, IGNORE_DISTANCE, PROHIBITED] as const
@@ -48,6 +51,14 @@ export function slashRules(state: SanguoshaState, playerId: PlayerId): SlashRule
     ignoreDistance: markOf(state, playerId, IGNORE_DISTANCE) > 0,
     prohibited: markOf(state, playerId, PROHIBITED) > 0,
   }
+}
+
+/** Add a turn-scoped Slash-use allowance; removed with the other slash rule marks. */
+export function addSlashUseQuota(state: SanguoshaState, playerId: PlayerId, amount: number): void {
+  const target = state.players.find((candidate) => candidate.id === playerId)
+  const extra = Math.trunc(amount)
+  if (!target || extra <= 0) return
+  target.marks[EXTRA_USES] = Math.max(0, target.marks[EXTRA_USES] ?? 0) + extra
 }
 
 /**
@@ -96,7 +107,7 @@ export function canUseSlashAtTargets(
   if (slashRules(state, playerId).prohibited) return false
   if (canUseSlash(state, playerId, unlimited)) return true
   if (targetIds.length === 0) return false
-  return targetIds.every((targetId) => ignoresSlashUsesTo(state, playerId, targetId))
+  return targetIds.every((targetId) => ignoresSlashUsesTo(state, playerId, targetId, targetIds))
 }
 
 /** 场上现在有没有「对他出杀不计次数」的目标。用于决定要不要继续生成动作。 */
@@ -119,7 +130,8 @@ export function slashTargetLimit(
   playerId: PlayerId,
   nature: DamageNature = 'normal',
 ): number {
-  return 1 + slashRules(state, playerId).extraTargets + extraSlashTargetsOf(state, playerId, nature)
+  const songMarks = markOf(state, playerId, ZUOFEN_SONG_MARK)
+  return 1 + slashRules(state, playerId).extraTargets + extraSlashTargetsOf(state, playerId, nature) + songMarks * ZUOFEN_SONG_TARGETS
 }
 
 function addMark(state: SanguoshaState, playerId: PlayerId, key: string, amount: number): void {

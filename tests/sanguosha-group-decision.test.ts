@@ -95,6 +95,22 @@ describe('多人决定的基本流程', () => {
     expect(playersWhoChose(results[0], NO)).toHaveLength(5)
   })
 
+  it('每位参与者的超时默认值都从其实际可选项中独立选取', () => {
+    const game = gameWith()
+    const tag = freshTag()
+    startGroupDecision(game, {
+      id: `decision-${tagSeq}`, tag, playerIds: ['p1', 'p2'], prompt: '选择一项',
+      options: OPTIONS, optionsFor: (playerId) => playerId === 'p1' ? [OPTIONS[0]!] : [OPTIONS[1]!],
+      defaultOptionId: NO, defaultOptionIdFor: (playerId) => playerId === 'p1' ? YES : NO,
+      timeoutMs: 5_000,
+    })
+    expect(game.state.groupDecision?.defaultOptionIds).toEqual({ p1: YES, p2: NO })
+
+    forceCompleteGroupDecision(game)
+    expect(playersWhoChose(results[0]!, YES)).toEqual(['p1'])
+    expect(playersWhoChose(results[0]!, NO)).toEqual(['p2'])
+  })
+
   it('多人质疑时按参与者顺序返回，不看谁先点', () => {
     const game = gameWith()
     begin(game, ['p1', 'p2', 'p3'])

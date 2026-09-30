@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { GUZHENG, ZHIJIAN } from '@/sanguosha/data/characters/mountain-zhangzhaozhanghong'
 import { getCharacter } from '@/sanguosha/data/characters/standard'
+import { GUZHENG, ZHIJIAN } from '@/sanguosha/data/characters/mountain-zhangzhaozhanghong'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { moveCard } from '@/sanguosha/engine/zones'
@@ -54,7 +54,7 @@ describe('张昭张纮', () => {
     expect(game.legalActions('p0').some((a) => a.skillId === ZHIJIAN)).toBe(true)
   })
 
-  it('直谏目标列表排除已占同槽者，且成功后仍可继续发动', () => {
+  it('直谏可替换目标的同槽装备并正常结算失去装备，成功后仍可继续发动', () => {
     const game = gameWith()
     const occupied = give(game, 'p1', (id) => game.state.cards[id].equipmentSlot === 'weapon')
     moveCard(game.state, occupied, { kind: 'hand', playerId: 'p1' }, { kind: 'equipment', playerId: 'p1', slot: 'weapon' })
@@ -62,8 +62,10 @@ describe('张昭张纮', () => {
     game.act('p0', game.legalActions('p0').find((action) => action.skillId === ZHIJIAN)!.id)
     answer(game, { cardIds: [weapon] })
     expect(game.state.pendingRequests[0].kind).toBe('choose-targets')
-    if (game.state.pendingRequests[0].kind === 'choose-targets') expect(game.state.pendingRequests[0].candidateIds).not.toContain('p1')
-    answer(game, { targetIds: ['p2'] })
+    if (game.state.pendingRequests[0].kind === 'choose-targets') expect(game.state.pendingRequests[0].candidateIds).toContain('p1')
+    answer(game, { targetIds: ['p1'] })
+    expect(game.state.players[1].zones.equipment.weapon).toBe(weapon)
+    expect(game.state.zones.discardPile).toContain(occupied)
     expect(game.legalActions('p0').some((action) => action.skillId === ZHIJIAN)).toBe(game.state.players[0].zones.hand.some((id) => Boolean(game.state.cards[id].equipmentSlot)))
   })
 

@@ -213,6 +213,8 @@ describe('缔盟：令两名其他角色交换手牌', () => {
     game.act('p0', dimengAction(game)!.id)
     game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1', 'p2'] } })
     expect(dimengAction(game), '用过之后本回合不能再用').toBeFalsy()
+    game.state.extraPhase = { phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1 }
+    expect(dimengAction(game), '同一回合的另一个出牌阶段可以再发动').toBeTruthy()
   })
 
   it('放弃选人不消耗本回合这一次', () => {

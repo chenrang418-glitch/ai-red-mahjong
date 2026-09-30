@@ -866,8 +866,12 @@ registerSkillRuntime({
       if (yes && owner?.alive && host.state.pendingSourceDamage) {
         const options = host.state.pendingSourceDamage.options as { amount?: number }
         options.amount = (options.amount ?? 1) + 1
-        owner.marks.jinjianOutPenalty = 1
         host.dispatch('SkillActivated', { skillId: JINJIAN, skillName: '进谏', playerId: ownerId, logText: `${owner.nickname}发动【进谏】，令此伤害+1` }, { sourceId: ownerId })
+        // Resume this already-boosted damage before arming the next-damage penalty;
+        // otherwise outgoingDamage would consume the penalty on the same hit.
+        resumeSourceDamagePrevention(host as never, false)
+        owner.marks.jinjianOutPenalty = 1
+        return
       }
       resumeSourceDamagePrevention(host as never, false)
       return

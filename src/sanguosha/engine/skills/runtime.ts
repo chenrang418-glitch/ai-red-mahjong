@@ -3,9 +3,15 @@ import type { EventContext, GameEvent, GameEventName } from '../events'
 import { clearForcedAwakening, hasForcedAwakening } from '../forced-awakening'
 import type { LegalAction } from '../actions'
 import type { GameRequest, GameResponse } from '../requests'
+import type { ChooseCardsRequest } from '../requests'
 import type { GameRng } from '../rng'
 import { isSkillSuppressed } from '../skill-suppression'
+import { equipmentEffectsSuppressed } from '../equipment-suppression'
+export { equipmentEffectsSuppressed } from '../equipment-suppression'
+import { revealedGeneralCharacterIdsOf } from '../general-slots'
 import { cardColorOverrideOf } from '../card-color'
+import { blocksMilitaryOrderHandCard, retainOnlyLockedSkills, suppressesMilitaryOrderSkills } from '../modes/military-order'
+import { isLockedSkill } from '../locked-skills'
 import type { MultiCardViewAsSpec } from '../multi-card-viewas'
 import type { CardCategory, CardId, DamageNature, PlayerId, QueuedSkillPrompt, SanguoshaState, SkillResolutionState, Suit, TurnPhase } from '../types'
 
@@ -85,6 +91,16 @@ export interface SkillHost {
     data?: Record<string, unknown>
     build(requestId: string): GameRequest
   }): void
+  /** Re-run a suspended root operation after a choice at a pre-draw interruption point. */
+  resumeDrawOperation?(options: {
+    skillId: string
+    attemptIndex: number
+    step: string
+    playerId: PlayerId
+    requestId: string
+    requestKind: string
+    payload: unknown
+  }): void
   /**
    * 把发问推迟到牌局回到干净状态。
    *
@@ -95,6 +111,8 @@ export interface SkillHost {
   queueSkill(prompt: QueuedSkillPrompt): void
   /** 技能造成的「失去体力」把人打到 0 时走这里，不允许技能自己判死。 */
   enterDying(playerId: PlayerId): void
+  /** 濒死前置技能（如陈情）以虚拟桃救援，并续接同一濒死栈。 */
+  useVirtualPeachDuringDying(sourceId: PlayerId, dyingPlayerId: PlayerId, reason: string, physicalCardIds?: CardId[]): boolean
   /** 濒死技能结束后恢复属性链、判定或卡牌结算。 */
   resumeAfterDying(): void
   /**
@@ -106,13 +124,56 @@ export interface SkillHost {
   /** 「视为使用一张【杀】」。返回 false 表示被封牌规则挡住、这次没用出去。 */
   beginVirtualSlash(options: {
     sourceId: PlayerId
-    targetId: PlayerId
+    targetId?: PlayerId
+    targetIds?: PlayerId[]
     sourceSkillId: string
     nature?: DamageNature
     cardId?: CardId
     /** 这张虚拟【杀】算不算一次出杀次数；不传按老行为不计次数。 */
     countUsage?: boolean
+    /** 技能明确规定此杀不受距离限制时使用。 */
+    ignoreDistance?: boolean
+    /** 本次技能杀无视目标防具，仅持续到这张牌结算完毕。 */
+    ignoreArmor?: boolean
+    /** 指定目标响应这张【杀】前须额外弃置一张牌。 */
+    responseDiscardCostTargetIds?: PlayerId[]
+    /** 指定目标不能以【闪】响应此【杀】。 */
+    noDodgeTargetIds?: PlayerId[]
+    /** 该技能杀可指定的合法目标上限。 */
+    maxTargets?: number
+    /** 转换规则明确允许时，实体载体可同时指定多个目标。 */
+    allowMultipleTargetsWithPhysicalCard?: boolean
+    /** 该技能杀的基础伤害修正。 */
+    damageBonus?: number
+    /** Card user remains sourceId while damage attribution can be source-less. */
+    damageSourceId?: PlayerId | null
   }): boolean
+  /** 直接使用另一名角色手牌里的实体牌，避免先获得到手牌再转换使用。 */
+  beginSkillSlashFromOtherHand(options: { sourceId: PlayerId; physicalOwnerId: PlayerId; cardId: CardId; targetId: PlayerId; sourceSkillId: string }): boolean
+  /** 技能在使用时机内真实使用一张虚拟基本牌，并复用普通出牌合法性与结算管线。 */
+  beginVirtualBasic(options: { sourceId: PlayerId; targetIds: PlayerId[]; cardName: string; sourceSkillId: string }): boolean
+  /** 由技能时机授权，将一张实体手牌按普通合法性完整使用为基本牌。 */
+  beginSkillBasicUse(options: { sourceId: PlayerId; cardId: CardId; cardName: string; targetIds: PlayerId[]; sourceSkillId: string }): boolean
+  /** 使用明确由技能授权、且正位于弃牌堆中的实体【杀】。 */
+  beginSkillSlashFromDiscard(options: { sourceId: PlayerId; cardId: CardId; targetId: PlayerId; sourceSkillId: string }): boolean
+  /** 将弃牌堆中的实体牌按【闪电】使用，复用真实延时锦囊生命周期。 */
+  beginSkillLightningFromDiscard(sourceId: PlayerId, cardId: CardId, sourceSkillId: string): boolean
+  /** 技能真实使用一张虚拟即时锦囊，完整经过无懈、目标与弃置生命周期。 */
+  beginVirtualTrick(options: { sourceId: PlayerId; targetId?: PlayerId; targetIds?: PlayerId[]; cardName: string; sourceSkillId: string; cardId?: CardId; extraCardIds?: CardId[]; damageAmount?: number }): boolean
+  /** 使用一张无实体材料的延时锦囊，并按实体延时锦囊生命周期留在判定区。 */
+  beginVirtualDelayedTrick(options: { sourceId: PlayerId; targetId: PlayerId; cardName: string; sourceSkillId: string }): boolean
+  /** 由规则明确授权在通常出牌阶段之外使用一张手牌。 */
+  performSkillCardAction(options: { playerId: PlayerId; cardOwnerId: PlayerId; cardId: CardId; sourceSkillId: string; actionId: string }): void
+  /** 使用因技能效果仍在处理区、且已授权给指定角色使用的实体牌。 */
+  beginSkillCardUseFromProcessing(playerId: PlayerId, cardId: CardId, sourceSkillId: string, actionId: string): boolean
+  /** 技能授权从弃牌堆使用实体牌；可选声明牌名，合法性仍走普通用牌规则。 */
+  beginSkillCardUseFromDiscard(playerId: PlayerId, cardId: CardId, sourceSkillId: string, actionId: string, asCardName?: string,
+    options?: { ignoreDistance?: boolean; ignoreUsageLimits?: boolean }): boolean
+  beginSkillCardUseFromOtherHand(playerId: PlayerId, physicalOwnerId: PlayerId, cardId: CardId | CardId[], sourceSkillId: string,
+    actionId: string, asCardName?: string, nature?: DamageNature,
+    options?: { allowSelf?: boolean; ignoreDistance?: boolean; ignoreUsageLimits?: boolean }): boolean
+  /** 技能授权将他人手牌转化成实体锦囊并使用。 */
+  beginSkillDeclaredCardUseFromOtherHand(options: { playerId: PlayerId; physicalOwnerId: PlayerId; cardId: CardId; asCardName: string; targetIds: PlayerId[]; sourceSkillId: string }): boolean
   /** “成为目标后”的技能回答完毕，把控制权交回当前牌的结算管线。 */
   resumeCardTarget(): void
   /** 技能完成阶段替代效果后，按统一回合状态机进入下一阶段。 */
@@ -164,15 +225,63 @@ export interface ViewAsOption {
   cardId: CardId
   /** 展示给玩家的说明，多用途牌靠它区分用途 */
   label: string
+  /** 转化出的【杀】属性；不提供时按牌自身属性处理。 */
+  nature?: DamageNature
+  /** 转化时保留实体材料（「改为展示」而非弃置）。仅用于正式视为使用路径。 */
+  retainCard?: boolean
+}
+
+/** 由技能/公共效果发起的虚拟【杀】；拦截器可在牌进入结算前挂起并续接。 */
+export interface VirtualSlashUseContext {
+  sourceId: PlayerId
+  targetIds: PlayerId[]
+  sourceSkillId: string
+  nature?: 'normal' | 'fire' | 'thunder'
+  cardId?: CardId
+  countUsage?: boolean
+  maxTargets?: number
+  /** Explicit permission for a physical carrier card to resolve as a multi-target Slash. */
+  allowMultipleTargetsWithPhysicalCard?: boolean
+  damageBonus?: number
+  ignoreArmor?: boolean
+  noDodgeTargetIds?: PlayerId[]
+  responseDiscardCostTargetIds?: PlayerId[]
 }
 
 export interface SkillRuntime {
   id: string
+  /** An unconditional prevention has resolved; stateful armor-like rules may now consume a source. */
+  onDamagePrevented?(host: SkillHost, ownerId: PlayerId, side: 'source' | 'target', context: DamagePreventionContext): void
+  /** A locked transformation may replace the effective name of a committed physical card use. */
+  useCardNameOverride?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardId: CardId,
+    cardName: string, targetIds: readonly PlayerId[]): string | null
+  /** 锁定技造成条件性技能失效时，集中于拥有技能集合出口过滤（于吉【缠怨】）。 */
+  invalidatesOtherSkills?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /** 全局按角色状态令指定角色的非锁定技能失效（如手牌带“筝”的角色）。 */
+  globallyInvalidatesSkill?(state: SanguoshaState, targetId: PlayerId, skillId: string): boolean
+  /** 全局压制指定角色的非锁定武将技（界贾诩【完杀】：濒死结算期间）。 */
+  globallyInvalidatesOtherSkills?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
   /** 供化身资格判断使用，不能靠技能 id 黑名单。 */
   limited?: boolean
   lord?: boolean
   /** 选将完成并进入 playing 后初始化本技能的可序列化局内资源。 */
   onGameStart?(host: SkillHost, ownerId: PlayerId): void
+  /** 弃牌阶段确定弃牌后、实际移区前的可选公共替代处理。返回 true 表示技能接管此次结算。 */
+  interceptDiscardPhaseSelection?(host: SkillHost, ownerId: PlayerId, request: ChooseCardsRequest, response: GameResponse): boolean
+  /** 弃牌阶段选中的牌若改为交给其他角色，返回接收者；否则返回 null。 */
+  discardPhaseRecipient?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): PlayerId | null
+  /** 仅拦截主动使用，不影响响应/打出；用于阶段内次数类公共限制。 */
+  prohibitsCardIdUse?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
+  /** 由技能拥有者施加给另一角色的主动用牌限制。 */
+  globallyProhibitsCardUse?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId: CardId): boolean
+  /** 把弃牌阶段选中的牌改为交给另一角色；用于延迟结算的全局效果。 */
+  globallyRedirectsDiscardPhaseCard?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId: CardId): PlayerId | null
+  /** Override this player's initial hand count for mode-dependent character rules. */
+  initialHandCount?(state: SanguoshaState, ownerId: PlayerId, normalCount: number): number | null
+  /** A global skill may adjust another player's dealt opening-hand count. */
+  globalInitialHandModifier?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
+  /** Optional state-dependent wording shown by existing player skill glossary surfaces. */
+  descriptionForView?(state: SanguoshaState, ownerId: PlayerId): string | undefined
   /** 见上方说明：这个技能每次发动都自己播横幅，引擎不补兜底那条。 */
   announcesSelf?: boolean
   /** 挂到事件总线上的触发技。 */
@@ -182,6 +291,8 @@ export interface SkillRuntime {
    * 返回 true 表示技能已经发出可序列化 Request，原动作暂不继续。
    */
   interceptPlayAction?(host: SkillHost, ownerId: PlayerId, action: Extract<LegalAction, { kind: 'use-card' }>): boolean
+  /** 虚拟/技能发起的【杀】在实体牌转移前拦截，返回 true 表示已挂起原动作。 */
+  interceptVirtualSlash?(host: SkillHost, ownerId: PlayerId, context: VirtualSlashUseContext): boolean
   /**
    * 阶段开始**之前**的「付代价跳过这个阶段」机会（张郃【巧变】、刘禅【放权】）。
    *
@@ -247,6 +358,12 @@ export interface SkillRuntime {
    * 多个技能都声明覆盖时取第一个命中的（当前没有武将会撞车）。
    */
   overridesAttackRange?(state: SanguoshaState, ownerId: PlayerId): number | null
+  /** 普通攻击范围的动态加值（攻击范围+N），与距离修正相互独立。 */
+  attackRangeBonus?(state: SanguoshaState, ownerId: PlayerId): number
+  /** 拥有者给指定角色的攻击范围加值；与距离修正相互独立。 */
+  globalAttackRangeBonus?(state: SanguoshaState, ownerId: PlayerId, actorId: PlayerId): number
+  /** Absolute attack range for a specific physical card, when the rule replaces weapon range. */
+  attackRangeForCard?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): number | null
 
   /**
    * 按【杀】的**属性**多指定几个目标（程普【疠火】的火【杀】+1）。
@@ -256,8 +373,26 @@ export interface SkillRuntime {
    * 是什么属性，和回合无关。两者在 `slashTargetLimit` 里相加。
    */
   extraSlashTargets?(state: SanguoshaState, ownerId: PlayerId, nature: DamageNature): number
+  /** Specific living players granted as selectable additional targets for this player's Slash. */
+  extraSlashTargetIds?(state: SanguoshaState, ownerId: PlayerId): PlayerId[]
+  /** Conceal this owner's Slash targets from all viewers except the source and each target. */
+  concealsSlashTargets?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
   /** 锁定技：出牌阶段【杀】不限次。 */
-  unlimitedSlash?: boolean
+  unlimitedSlash?: boolean | ((state: SanguoshaState, ownerId: PlayerId) => boolean)
+  /** 本次【杀】的回合/阶段次数不记账（一次性通用出牌额度豁免）。 */
+  slashUseQuotaBypass?(state: SanguoshaState, ownerId: PlayerId, cardId?: CardId): boolean
+  /** 锁定技：使用【酒】不受通常每回合次数限制。 */
+  unlimitedWine?: boolean
+  /** 本回合使用牌均不受通常次数限制；由共享牌使用入口同时覆盖【杀】与【酒】等有次数账目的牌。 */
+  unlimitedCardUses?: boolean | ((state: SanguoshaState, ownerId: PlayerId, cardId?: CardId) => boolean)
+  /** A skill owner may grant a specific card in another player's hand unlimited use this turn. */
+  globalUnlimitedCardUses?(state: SanguoshaState, ownerId: PlayerId, actorId: PlayerId, cardId: CardId): boolean
+  /** 按本次实体牌动态豁免【酒】次数限制；用于有花色条件的效果。 */
+  unlimitedWineFor?(state: SanguoshaState, ownerId: PlayerId, cardId?: CardId): boolean
+  /** Character-card subzones whose physical cards may be played from their own area. */
+  playableCharacterPiles?(state: SanguoshaState, ownerId: PlayerId): string[]
+  /** Equipment-derived unlimited slash effect that varies with the owner's current loadout. */
+  unlimitedSlashFor?(state: SanguoshaState, ownerId: PlayerId, cardId?: CardId): boolean
   /**
    * 条件式无距离使用【杀】；状态必须来自可序列化牌局数据。
    *
@@ -279,7 +414,7 @@ export interface SkillRuntime {
    * 允许写成函数：有些效果只在某个条件下成立（神孙权【圣质】只管「下一张牌」），
    * 写死成布尔就只能是「一直有」或「一直没有」。
    */
-  ignoresTrickDistance?: boolean | ((state: SanguoshaState, ownerId: PlayerId) => boolean)
+  ignoresTrickDistance?: boolean | ((state: SanguoshaState, ownerId: PlayerId, cardId?: CardId) => boolean)
   /**
    * 使用普通锦囊（非延时、非全体固定目标）时可以额外指定/减少一个目标（石苞【擢升】）。
    *
@@ -288,6 +423,33 @@ export interface SkillRuntime {
    * 生成动作时给出更长/更短的 `targetIds`，后续无懈、效果结算不需要改一行。
    */
   modifiesTrickTargetCount?(state: SanguoshaState, ownerId: PlayerId): boolean
+  /** Pending skill that modifies the target count of the next basic or non-delayed trick. */
+  modifiesNextCardTargets?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, cardName: string): boolean
+  /**
+   * 为下一张基本牌或普通锦囊提供一次多目标扩展。候选牌必须先通过技能自身的
+   * 限制（例如奔袭的“距离为1”）；引擎仍会再次检查存活、重复目标和目标禁止。
+   */
+  nextCardTargetExpansion?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, cardName: string):
+    { maxAdditionalTargets: number; candidateIds: PlayerId[] } | null
+  /** Target-dependent extra Slash targets, evaluated while the player is choosing a concrete target set. */
+  slashTargetExpansionForAction?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, targetIds: readonly PlayerId[]):
+    { maxAdditionalTargets: number; candidateIds: PlayerId[] } | null
+  /** Repeat one Slash target's full response/effect sequence once after its first resolution. */
+  repeatSlashTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId: CardId): boolean
+  /** Repeat a card target's complete effect sequence this many additional times. */
+  repeatTargetEffectCount?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId: CardId): number
+  /** A source skill owned by someone other than the current card user repeats this target's effect. */
+  globalRepeatTargetEffectCount?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): number
+  /** 指定某种锦囊可额外选择的目标数；与通用锦囊目标增减技能分开。 */
+  extraTargetsForTrick?(state: SanguoshaState, ownerId: PlayerId, cardName: string): number
+  /** Another character's skill may grant this actor one conditional trick target. */
+  globalExtraTargetsForTrick?(state: SanguoshaState, ownerId: PlayerId, actorId: PlayerId, cardName: string, cardId: CardId): number
+  /** Skill-authorized concrete multi-target sets for a particular trick use. */
+  additionalTargetSetsForTrick?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, cardName: string): PlayerId[][]
+  /** 技能指定的普通锦囊不能响应无懈；范围锦囊是否受影响由技能自行判定。 */
+  cannotBeNullified?(state: SanguoshaState, ownerId: PlayerId, cardName: string): boolean
+  /** 由此技能转化打出的响应牌不能被后续响应（界卧龙【看破】）。 */
+  unanswerableResponses?: string[]
   /**
    * 可以被钟琰【博览】这类"动态随机技能池"临时授予（源自钟琰当前批次）。
    *
@@ -334,6 +496,7 @@ export interface SkillRuntime {
     sourceId: PlayerId | null,
     cardName: string,
     cardColor?: 'red' | 'black' | null,
+    targetId?: PlayerId,
   ): boolean
   /** 锁定技：在伤害事件产生前改写伤害来源。 */
   modifyDamageSource?(state: SanguoshaState, ownerId: PlayerId, context: DamageSourceContext): PlayerId | null | undefined
@@ -343,6 +506,10 @@ export interface SkillRuntime {
    * 不改这张牌本身的点数。
    */
   pindianRankOverride?(state: SanguoshaState, ownerId: PlayerId, card: { rank: number; suit?: string }): number | null | undefined
+  /** Ask an owner-side optional skill before that participant privately commits a Pindian card. */
+  offersPindianSelectionAsk?(host: SkillHost, ownerId: PlayerId, pindianId: string): boolean
+  /** Ask a participant-side optional skill after both Pindian cards are privately committed but before reveal. */
+  offersPindianPreRevealAsk?(host: SkillHost, ownerId: PlayerId, pindianId: string): boolean
   /**
    * 拥有者**造成**伤害时对属性和数值的修正（神马超【驭雳】）。
    *
@@ -377,6 +544,13 @@ export interface SkillRuntime {
     ownerId: PlayerId,
     context: { sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
   ): { amount?: number; nature?: DamageNature } | null
+  /** A bystander-owned effect may modify damage received by a specific other player. */
+  globalIncomingDamage?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    targetId: PlayerId,
+    context: { sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): { amount?: number; nature?: DamageNature } | null
   /**
    * 锁定技：把拥有者**造成的伤害**整个换成等量的失去体力（张春华【绝情】）。
    *
@@ -403,6 +577,19 @@ export interface SkillRuntime {
     ownerId: PlayerId,
     context: { sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
   ): boolean
+  /** 全局旁观者对指定角色所受伤害的交互式防止；适用于需同时征询其他角色的规则。 */
+  interceptGlobalIncomingDamage?(
+    host: SkillHost,
+    ownerId: PlayerId,
+    targetId: PlayerId,
+    context: { sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): boolean
+  /** 多目标牌逐目标结算时，由非受伤者技能防止某一个目标的伤害。 */
+  interceptCardDamageTarget?(
+    host: SkillHost,
+    ownerId: PlayerId,
+    context: { targetId: PlayerId; sourceId: PlayerId | null; amount: number; nature: DamageNature; cardId: CardId | null; cardName: string | null; chainTransfer: boolean },
+  ): boolean
   /**
    * 锁定「这名角色死亡时，我要认领他的牌」。
    *
@@ -427,6 +614,10 @@ export interface SkillRuntime {
     toOthers?: number | ((state: SanguoshaState, ownerId: PlayerId) => number)
     fromOthers?: number | ((state: SanguoshaState, ownerId: PlayerId) => number)
   }
+  /** A field-wide faction or aura rule can adjust distance for one acting role. */
+  globalDistanceModifier?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, targetId: PlayerId): number
+  /** 针对这张实体牌覆盖锦囊距离上限；null 表示不覆盖。 */
+  trickDistanceLimit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, cardName: string): number | null
   /**
    * 拥有者对**某一个特定目标**的距离修正（田豫【追讨】：只对被选中的那个人
    * -1，不是对所有人都 -1）。和 `distanceModifier.toOthers` 是两回事——
@@ -435,6 +626,8 @@ export interface SkillRuntime {
    * 「对所有人」和「对某一个人」两种语义混进同一个字段）。
    */
   directedDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
+  /** 对某一名攻击者的攻击范围作定向修正；不改变普通距离。 */
+  directedAttackRangeModifier?(state: SanguoshaState, ownerId: PlayerId, attackerId: PlayerId, targetId: PlayerId): number
   /**
    * 固定手牌上限。返回 null 表示沿用通常的“当前体力值”。
    *
@@ -442,6 +635,10 @@ export interface SkillRuntime {
    * 临时效果必须把有效期写进可序列化状态，不能依赖计时器或闭包。
    */
   fixedMaxCards?(state: SanguoshaState, ownerId: PlayerId): number | null
+  /** 锁定技改写全部最终判定花色（族荀粲【分钗】）。 */
+  overrideJudgmentSuit?(state: SanguoshaState, ownerId: PlayerId, judgedPlayerId: PlayerId, suit: Suit): Suit | null
+  /** 将一个既有阶段位替换成另一种真实阶段；位置不变，内容完整执行。 */
+  replacesPhase?(state: SanguoshaState, ownerId: PlayerId, slot: TurnPhase): TurnPhase | null
   /**
    * 手牌上限**加成**。返回 0 表示不加。
    *
@@ -449,19 +646,25 @@ export interface SkillRuntime {
    * 多个来源相加，不会互相覆盖（袁绍【血裔】走这一条）。
    */
   maxCardsBonus?(state: SanguoshaState, ownerId: PlayerId): number
+  /** 给指定目标的手牌上限加减值（妄尊等跨角色效果）。 */
+  globalMaxCardsBonus?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): number
   /**
    * 拥有者即将回复的体力值加成（曹嵩【翊正】：目标下一次回复+1）。
    *
    * 在 `recover()` 夹住上限之前叠加到 amount 上，多个来源相加。
    * 返回 0 表示不加。
    */
-  recoverAmountBonus?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null): number
+  recoverAmountBonus?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null, sourceCardId?: CardId): number
+  /** 拥有者使用的某张基本牌，其伤害值/回复值等牌面数值加成。 */
+  basicCardUseValueBonus?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, cardName: string): number
   /**
    * 弃牌阶段手牌数是否计入「张数」：返回 true 表示这张牌**不计入**手牌上限判定
    * （诸葛果【羽化】的锦囊/装备牌、李严【腹鳞】本回合获得的牌）。
    * 只影响弃牌数量的计算，不影响这张牌能否被选中弃置。
    */
   handLimitExempt?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
+  /** 其他玩家可被拥有者技能指定为手牌上限豁免对象（王桃【护关】）。 */
+  globalHandLimitExempt?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId: CardId): boolean
   /**
    * 锁定技：拥有者的摸牌一律改为从牌堆底摸（许攸/彭羕【寸目】）。
    * 只改摸牌的来源位置，不改摸牌数量、不改摸牌事件本身。
@@ -515,7 +718,7 @@ export interface SkillRuntime {
    *
    * 处理完之后引擎会照常继续濒死流程，技能自己不要去碰内部入口。
    */
-  invokeRescueAction?(host: SkillHost, ownerId: PlayerId, actionId: string, dyingPlayerId: PlayerId): boolean
+  invokeRescueAction?(host: SkillHost, ownerId: PlayerId, actionId: string, dyingPlayerId: PlayerId): boolean | 'deferred'
   /**
    * 濒死介入：拥有者刚进入濒死时先给技能一次机会（不屈）。
    *
@@ -525,6 +728,8 @@ export interface SkillRuntime {
    * 只在拥有者自己濒死时调用，而且在 `EnterDying` 之后、第一次求桃之前。
    */
   dyingIntercept?(host: SkillHost, ownerId: PlayerId): boolean | 'pending'
+  /** 其他角色进入濒死、开始常规求桃前的旁观介入。返回 pending 挂起选择。 */
+  dyingAssist?(host: SkillHost, ownerId: PlayerId, dyingPlayerId: PlayerId, sourceId: PlayerId | null): boolean | 'pending'
   /**
    * 拥有者对**这个目标**使用【杀】时不受次数限制（高顺【陷阵】胜利后）。
    *
@@ -533,7 +738,7 @@ export interface SkillRuntime {
    * **每个目标**都被豁免时才算突破次数限制，否则捎带一个普通目标
    * 就成了无限杀的后门。
    */
-  ignoresSlashUsesTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  ignoresSlashUsesTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, targetIds?: readonly PlayerId[]): boolean
   /**
    * 拥有者手上的某张牌**只能**按另一张牌用（高顺【禁酒】：酒均视为杀）。
    *
@@ -551,6 +756,8 @@ export interface SkillRuntime {
   ): { asCardName: string; nature?: DamageNature } | null
   /** 无真实防具时提供的虚拟防具牌名（八阵）。 */
   virtualArmor?(state: SanguoshaState, ownerId: PlayerId): string | null
+  /** 武器栏均为空时由技能提供的虚拟武器。 */
+  virtualWeapon?(state: SanguoshaState, ownerId: PlayerId): string | null
   /**
    * 锁定技：允许拥有者在体力值 0 或更低时**不处于濒死状态地活着**（不屈）。
    *
@@ -566,6 +773,8 @@ export interface SkillRuntime {
    * 所以这里只报「有哪些牌可用」，**不要自己判断该不该改**。
    */
   retrial?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): CardId[]
+  /** 允许被判定角色额外选择并使用牌堆顶牌；替换前仍留在牌堆。 */
+  retrialDrawPileTop?(state: SanguoshaState, ownerId: PlayerId, judgingPlayerId: PlayerId): boolean
   /**
    * 改判该问谁：默认问拥有者自己（他自己决定用不用、用哪张）。
    *
@@ -584,6 +793,8 @@ export interface SkillRuntime {
   forcedJudgmentCard?(host: SkillHost, ownerId: PlayerId, judgingPlayerId: PlayerId): CardId | null
   /** 锁定技对拥有者牌张花色的修正；判定牌按判定角色处理。 */
   cardSuit?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, printedSuit: Suit): Suit
+  /** 判定牌翻开、改判结束后，判定结果公开前的可挂起修正窗口。返回 true 表示等待技能回应。 */
+  beforeJudgmentResult?(host: SkillHost, ownerId: PlayerId, cardId: CardId, suit: Suit): boolean
   /**
    * 锁定技对判定牌点数的修正（张琪瑛【真仪·紫微】把判定结果强制改成 5）。
    * 只在判定改判窗口关闭、真正计算最终结果时生效，不改变这张牌本身的点数。
@@ -604,7 +815,7 @@ export interface SkillRuntime {
    * 【皙秀】：不能弃置装备区最后一张牌）。只挡弃置，拿走（顺手牵羊）不挡，
    * 由调用方按 `mode` 区分是否查询这个钩子。
    */
-  protectsCardFromDiscard?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): boolean
+  protectsCardFromDiscard?(state: SanguoshaState, ownerId: PlayerId, cardId: CardId, sourceId?: PlayerId): boolean
   /**
    * 禁止**别人**在当前情境下使用某张牌（贾诩【完杀】）。
    *
@@ -615,7 +826,7 @@ export interface SkillRuntime {
   prohibitsCardUse?(
     state: SanguoshaState,
     ownerId: PlayerId,
-    context: { userId: PlayerId; cardName: string; dyingPlayerId: PlayerId | null },
+    context: { userId: PlayerId; cardName: string; dyingPlayerId: PlayerId | null; cardIds?: readonly CardId[] },
   ): boolean
   /**
    * 禁止**拥有者自己**打出某个牌名的牌（曹彰【将驰】的多摸分支）。
@@ -627,28 +838,61 @@ export interface SkillRuntime {
    * 判断的是**有效牌名**：转化出来的【杀】（武圣、龙胆、禁酒的酒）同样被堵住。
    */
   prohibitsOwnResponse?(state: SanguoshaState, ownerId: PlayerId, cardName: string): boolean
+  /** 改写拥有者使用/打出【杀】的有效属性（谋·黄忠未装备武器时只能按普通【杀】结算）。 */
+  slashNatureOverride?(state: SanguoshaState, ownerId: PlayerId, nature: DamageNature): DamageNature | null
+  /** 全局禁止某名角色在响应入口打出指定牌名。 */
+  prohibitsCardResponse?(state: SanguoshaState, ownerId: PlayerId, responderId: PlayerId, cardName: string): boolean
+  /** 按响应实体牌继续过滤响应（例如牌色），需同时确认正在响应的牌结算上下文。 */
+  prohibitsResponseCard?(state: SanguoshaState, ownerId: PlayerId, responderId: PlayerId, responseCardId: CardId, cardName: string): boolean
+  /** 禁止不消耗响应实体牌的技能/装备响应，供“只能使用或打出指定实体牌”类规则复用。 */
+  prohibitsCardlessResponse?(state: SanguoshaState, ownerId: PlayerId, responderId: PlayerId, cardName: string): boolean
+  /** The current use cannot be answered by one of its targets (while preserving other response windows). */
+  cardUnresponsiveToTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardId: CardId, targetId: PlayerId, cardName: string): boolean
   /** 拥有者作为用牌者时，临时禁止其把某名角色设为指定目标。 */
-  prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string): boolean
-  /** 成为【杀】或普通锦囊目标后可插入发问；返回 true 表示结算已挂起。 */
+  prohibitsSourceTarget?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string, sourceSkillId?: string): boolean
+  /** 在“成为目标时”窗口插入发问；对【杀】而言早于“指定目标后”，返回 true 表示结算已挂起。 */
   interceptTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /**
-   * **使用者**在指定目标后的插入点（神马超【霆威】）。
+   * **使用者**在“指定目标后”窗口的插入点（神马超【霆威】、马超【铁骑】）。
    *
-   * 和 `interceptTarget` 同一个挂起点，只是方向相反：那个属于被指定的人，
-   * 这个属于出牌的人。排在装备和目标方的反应之前——【铁骑】就是这个位置，
-   * 它先于雌雄双股剑和【流离】。
+   * 和 `interceptTarget` 属于不同窗口：目标方的“成为目标时”效果（如大乔【流离】）
+   * 先处理；之后才轮到这里。相同窗口内先处理使用者的武将技能，再处理装备效果。
    *
    * 返回 true 表示已经发问、结算挂起；答完之后**必须**调 `resumeCardTarget()`
    * 把控制权交回去，否则牌局停在这里。
    */
   interceptSourceTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
+  /** 使用者在“指定目标后”对每个目标分别调用的插入点。 */
+  interceptSourceTargetEach?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
   /**
-   * 旁观者插入点（秦宓【谏征】）：既不是使用者也不是目标，只要求某个前置
-   * 条件（谏征要求「在使用者攻击范围内」，由技能自己判断，这里不做通用
-   * 校验）。目前只有【杀】的结算会遍历它，见 `askSlashInterceptors`。
+   * 旁观者插入点：既不是使用者也不是目标，只要求某个前置
+   * 条件（秦宓【谏征】要求「在使用者攻击范围内」、谋甘宁【奋威】要求
+   * 「本角色有威牌且成为锦囊目标」，由技能自己判断）。【杀】和普通锦囊
+   * 的目标结算都会遍历此入口。
    * 返回 true 表示已经发问、结算挂起；答完之后同样要调 `resumeCardTarget()`。
    */
   interceptBystanderTarget?(host: SkillHost, ownerId: PlayerId, context: TargetedCardContext): boolean
+  /** 满足条件的旁观技能可以将拥有者追加为这张正在使用之牌的额外目标。 */
+  additionalTargetsOnUse?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    sourceId: PlayerId,
+    cardId: CardId,
+    cardName: string,
+    currentTargetIds: readonly PlayerId[],
+  ): PlayerId[]
+  /** Forced targets attached to a skill-authorized use, such as adjacent targets. */
+  forcedAdditionalTargetsOnUse?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId, cardId: CardId,
+    cardName: string, currentTargetIds: readonly PlayerId[], skillIdsOf: (characterId: string) => string[]): PlayerId[]
+  /** 持有者可对当前出牌者施加跨目标选择的限制（乱群标记）。 */
+  globalProhibitsSourceTarget?(
+    state: SanguoshaState,
+    ownerId: PlayerId,
+    sourceId: PlayerId,
+    targetId: PlayerId,
+    cardName: string,
+    sourceSkillId?: string,
+  ): boolean
   /**
    * 锁定技式的「取消自己这个目标」（神荀彧【定汉】）。
    *
@@ -689,6 +933,11 @@ export interface SkillRuntime {
   virtualDodge?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null): boolean
   /** 与 `virtualDodge` 配对：确认真正使用后由技能自己更新用量记录。 */
   consumeVirtualDodge?(host: SkillHost, ownerId: PlayerId): void
+  /** 无实体牌地响应所需基本牌；声明和扣费分离，确认响应后才扣费。 */
+  virtualBasicResponse?(state: SanguoshaState, ownerId: PlayerId, requiredCardName: string): boolean
+  consumeVirtualBasicResponse?(host: SkillHost, ownerId: PlayerId, requiredCardName: string): void
+  /** 允许需要选择实体支付牌的技能接管虚拟基本牌响应。 */
+  beginVirtualBasicResponse?(host: SkillHost, ownerId: PlayerId, requiredCardName: string, request?: GameRequest): boolean
   /**
    * 锁定技：拥有者对某个目标使用的**锦囊**，那个目标完全不能响应
    * （神孙策【覆海】）。
@@ -698,6 +947,8 @@ export interface SkillRuntime {
    * 那是另一条规则，不从这里走。
    */
   trickUnresponsive?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardName: string, cardId?: CardId): boolean
+  /** Locking rule that prevents a particular responder from responding to any card used by this owner. */
+  blocksResponseToCard?(state: SanguoshaState, ownerId: PlayerId, responderId: PlayerId, cardName: string, cardId?: CardId): boolean
   /**
    * 拥有者对某个特定角色**使用牌时不受距离限制**（神孙策【英霸】）。
    *
@@ -706,6 +957,12 @@ export interface SkillRuntime {
    * 【顺手牵羊】【兵粮寸断】的距离 1 都一并覆盖，不是只管杀。
    */
   ignoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean
+  /** 该角色对这个目标使用牌时，目标的防具技能无效；不移动装备牌。 */
+  ignoresArmorFor?(state: SanguoshaState, ownerId: PlayerId, targetId: PlayerId): boolean
+  /** A target may disable its own armor against a specific incoming card. */
+  armorIneffectiveWhenTargeted?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null, cardName: string, color: 'red' | 'black' | null): boolean
+  /** Per-card, per-target effect immunity whose identity depends on a skill-selected physical card. */
+  cardIneffectiveForTarget?(state: SanguoshaState, ownerId: PlayerId, sourceId: PlayerId | null, cardName: string, cardId?: CardId): boolean
   /**
    * 拥有者的技能让**任意第三方**对某个目标无视距离（孙休【诏缚】：与孙休
    * 距离为 1 的角色视为处于所有其他吴势力角色的攻击范围内）。
@@ -714,7 +971,13 @@ export interface SkillRuntime {
    * 这个要覆盖「别人打这个目标」，`attackerId` 因此和 `ownerId` 是两个人。
    * 动态计算，不建立常驻覆盖记录——诏缚这类效果会随距离实时变化。
    */
-  globalIgnoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, attackerId: PlayerId, targetId: PlayerId): boolean
+  globalIgnoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, attackerId: PlayerId, targetId: PlayerId, cardId?: CardId): boolean
+  /** A skill owner may waive distance for a particular card used by another player. */
+  globalIgnoresDistanceToCard?(state: SanguoshaState, ownerId: PlayerId, actorId: PlayerId, targetId: PlayerId, cardId: CardId): boolean
+  /** 第三方授予的实体牌在其持有者手中可无限使用【杀】。 */
+  globalUnlimitedSlashWithCard?(state: SanguoshaState, ownerId: PlayerId, attackerId: PlayerId, cardId: CardId): boolean
+  /** 第三方技能仅让指定角色使用【杀】时无视距离，不影响其其他牌。 */
+  globalSlashIgnoresDistanceTo?(state: SanguoshaState, ownerId: PlayerId, attackerId: PlayerId, targetId: PlayerId): boolean
   /** 对方在与拥有者【决斗】时，每轮需要连续打出多少张【杀】。 */
   duelSlashResponses?: number
   /**
@@ -762,6 +1025,8 @@ export interface SkillRuntime {
     side: 'source' | 'target',
     context: DamagePreventionContext,
   ): boolean
+  /** After all source/target damage modifiers, prevent final damage based on its settled amount. */
+  preventsFinalDamage?(state: SanguoshaState, ownerId: PlayerId, context: DamagePreventionContext): boolean
   /**
    * 可选（交互式）的伤害防止发问（马谡【制蛮】"你可以防止此伤害"）。
    *
@@ -781,6 +1046,12 @@ export interface SkillRuntime {
    * 张济【掠命】的询问已经是这个先例。
    */
   offersTargetDamagePreventionAsk?(host: SkillHost, ownerId: PlayerId, context: DamagePreventionContext): boolean
+  /** 可在任意角色将因伤害进入濒死时介入的全局目标侧防止技能。 */
+  offersGlobalDamagePreventionAsk?(host: SkillHost, ownerId: PlayerId, context: DamagePreventionContext): boolean
+  /** 伤害结算前，可挂起询问并在同一笔伤害上调整数值。 */
+  offersDamageModifierAsk?(host: SkillHost, ownerId: PlayerId, side: 'source' | 'target', context: DamagePreventionContext): boolean
+  /** 伤害目标侧的全局修正询问；仅用于拥有者以外角色受到特定伤害时介入。 */
+  offersGlobalDamageModifierAsk?(host: SkillHost, ownerId: PlayerId, side: 'source' | 'target', context: DamagePreventionContext): boolean
   startQueued?(host: SkillHost, ownerId: PlayerId, prompt: QueuedSkillPrompt): void
   /**
    * 这个技能的发问可以问一名**已阵亡**的角色。
@@ -812,6 +1083,14 @@ export interface SkillRuntime {
    * 返回这名玩家当前能做的所有转化，引擎据此生成 LegalAction。
    */
   viewAs?(state: SanguoshaState, ownerId: PlayerId): ViewAsOption[]
+  /** A skill owner may grant a temporary card conversion to another responder. */
+  globalResponseViewAs?(state: SanguoshaState, ownerId: PlayerId, responderId: PlayerId, requiredCardName: string): ViewAsOption[]
+  /** A globally granted response conversion can carry response-only properties when that exact conversion is used. */
+  globalUnanswerableResponses?: string[]
+  /** Global conversion that creates ordinary legal use actions for another player. */
+  globalViewAs?(state: SanguoshaState, ownerId: PlayerId, actorId: PlayerId): ViewAsOption[]
+  /** 允许另一名角色在限定期间将拥有者的指定手牌当作自己的牌使用/打出。 */
+  sharedHandCards?(state: SanguoshaState, ownerId: PlayerId, userId: PlayerId): CardId[]
   /**
    * 「恰好 N 张同花色的牌当作某张牌」的转化能力（神赵云【龙魂】）。
    *
@@ -822,7 +1101,19 @@ export interface SkillRuntime {
 }
 
 const registry = new Map<string, SkillRuntime>()
+const SPECIAL_EQUIPMENT_SKILLS: Record<string, string> = {
+  qiongshu: 'qiongshu', xishu: 'xishu', jinshu: 'jinshu', 'taiping-yaoshu': 'taiping-yaoshu', 'huntianyi-b69': 'gailan-luji-b69',
+}
 let providedSkillIdsOf: (characterId: string) => string[] = () => []
+let providedClanOf: (characterId: string) => string | undefined = () => undefined
+
+export function provideCharacterClanLookup(lookup: (characterId: string) => string | undefined): void {
+  providedClanOf = lookup
+}
+
+export function clanOfCharacter(characterId: string): string | undefined {
+  return providedClanOf(characterId)
+}
 /**
  * 一张武将牌作为装备被借用时，能提供哪些技能（神典韦【挈挟】）。
  *
@@ -846,9 +1137,17 @@ export function provideBorrowableSkillLookup(lookup: (characterId: string) => st
 export function equipmentSkillIdsOf(state: SanguoshaState, playerId: PlayerId): string[] {
   const player = state.players.find((candidate) => candidate.id === playerId)
   if (!player) return []
+  if (equipmentEffectsSuppressed(state, playerId)) return []
   const ids: string[] = []
   for (const cardId of Object.values(player.zones.equipment)) {
     if (!cardId) continue
+    // 特殊装备不是武将牌，也没有可借用的 characterId；它们的技能归属
+    // 直接由牌实例声明，离开装备区后自然随本枚举结果失效。
+    const specialEquipment = state.cards[cardId]?.specialEquipment
+    if (specialEquipment && SPECIAL_EQUIPMENT_SKILLS[specialEquipment]) {
+      ids.push(SPECIAL_EQUIPMENT_SKILLS[specialEquipment])
+      continue
+    }
     const characterId = state.cards[cardId]?.characterId
     if (!characterId) continue
     ids.push(...providedBorrowableSkillIdsOf(characterId))
@@ -910,11 +1209,11 @@ export function ownedSkillIds(
    * 断肠说的是「武将牌上的技能」，管不到装备。
    */
   const borrowed = equipmentSkillIdsOf(state, playerId)
-  if (!player.characterId || player.characterSkillsDisabled) {
-    return borrowed.filter((skillId) => !isSkillSuppressed(state, playerId, skillId))
+  if (player.characterSkillsDisabled) {
+    const availableBorrowed = borrowed.filter((skillId) => !isSkillSuppressed(state, playerId, skillId))
+    return suppressesMilitaryOrderSkills(state, playerId) ? retainOnlyLockedSkills(availableBorrowed, state, playerId) : availableBorrowed
   }
-  // 提到闭包外面：TS 在 filter 的回调里丢掉 characterId 的非空收窄
-  const own = skillIdsOf(player.characterId)
+  const own = revealedGeneralCharacterIdsOf(player).flatMap((characterId) => skillIdsOf(characterId))
   const granted = player.grantedSkills ?? []
   const temporary = (player.temporaryGrantedSkills ?? []).map((entry) => entry.skillId)
   /*
@@ -924,8 +1223,30 @@ export function ownedSkillIds(
    * AI 全都自然失效——不需要在每条路径上各写一遍判断。
    * 和断肠的「全部技能失效」是两条独立规则，各管各的。
    */
-  return [...new Set([...own, ...granted, ...temporary, ...borrowed])]
+  const available = [...new Set([...own, ...granted, ...temporary, ...borrowed])]
+    .filter((skillId) => !(player.permanentlyLostSkills ?? []).includes(skillId))
     .filter((skillId) => !isSkillSuppressed(state, playerId, skillId))
+  const invalidators = available.filter(skillId => registry.get(skillId)?.invalidatesOtherSkills?.(state, playerId))
+  const validSkills = (invalidators.length ? available.filter(skillId => invalidators.includes(skillId)) : available)
+    .filter((skillId) => isLockedSkill(skillId, state, playerId) || ![...registry.values()].some((runtime) => runtime.globallyInvalidatesSkill?.(state, playerId, skillId)))
+  return suppressesMilitaryOrderSkills(state, playerId) ? retainOnlyLockedSkills(validSkills, state, playerId) : validSkills
+}
+
+export function sharedHandCardSourcesOf(state: SanguoshaState, userId: PlayerId): Array<{ ownerId: PlayerId; cardIds: CardId[] }> {
+  const sources: Array<{ ownerId: PlayerId; cardIds: CardId[] }> = []
+  for (const owner of state.players) {
+    if (!owner.alive || owner.id === userId) continue
+    const cardIds = skillsOf(state, owner.id, providedSkillIdsOf).flatMap((runtime) => runtime.sharedHandCards?.(state, owner.id, userId) ?? [])
+      .filter((cardId) => owner.zones.hand.includes(cardId))
+    if (cardIds.length) sources.push({ ownerId: owner.id, cardIds: [...new Set(cardIds)] })
+  }
+  return sources
+}
+
+export function sharedHandCardOwnerOf(state: SanguoshaState, userId: PlayerId, cardId: CardId): PlayerId | null {
+  const override = state.skillCardOwnerOverride
+  if (override?.playerId === userId && (override.cardId === cardId || override.cardIds?.includes(cardId))) return override.physicalOwnerId
+  return sharedHandCardSourcesOf(state, userId).find((source) => source.cardIds.includes(cardId))?.ownerId ?? null
 }
 
 /**
@@ -999,7 +1320,13 @@ export function initializeGameSkills(host: SkillHost, skillIdsOf: (characterId: 
 
 /** 某名玩家当前拥有的技能运行时。武将没选定时返回空。 */
 export function skillsOf(state: SanguoshaState, playerId: PlayerId, skillIdsOf: (characterId: string) => string[]): SkillRuntime[] {
-  return ownedSkillIds(state, playerId, skillIdsOf)
+  const ownIds = ownedSkillIds(state, playerId, skillIdsOf)
+  const useMuted = state.clanUseSkillMute?.playerId === playerId
+  const effectiveIds = useMuted ? ownIds.filter((skillId) => skillId === 'zhongliu-clan-wang') : ownIds
+  const externallyDisabled = Boolean(state.dying && state.players.some((owner) => owner.alive && owner.id !== playerId && owner.characterId
+    && ownedSkillIds(state, owner.id, skillIdsOf).some((skillId) => registry.get(skillId)
+      ?.globallyInvalidatesOtherSkills?.(state, owner.id, playerId) ?? false)))
+  return (externallyDisabled ? effectiveIds.filter((skillId) => isLockedSkill(skillId, state, playerId)) : effectiveIds)
     .map((skillId) => registry.get(skillId))
     .filter((runtime): runtime is SkillRuntime => !!runtime)
 }
@@ -1043,15 +1370,28 @@ export function recoverAmountBonusOf(
   targetId: PlayerId,
   sourceId: PlayerId | null,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+  sourceCardId?: CardId,
 ): number {
   let bonus = 0
   for (const owner of state.players) {
     if (!owner.alive || !owner.characterId) continue
     for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
-      bonus += Math.trunc(runtime.recoverAmountBonus?.(state, targetId, sourceId) ?? 0)
+      bonus += Math.trunc(runtime.recoverAmountBonus?.(state, targetId, sourceId, sourceCardId) ?? 0)
     }
   }
   return bonus
+}
+
+/** 拥有者使用一张基本牌时，来自其技能的数值加成之和。 */
+export function basicCardUseValueBonusOf(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  cardId: CardId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): number {
+  return skillsOf(state, ownerId, skillIdsOf).reduce((bonus, runtime) =>
+    bonus + Math.trunc(runtime.basicCardUseValueBonus?.(state, ownerId, cardId, cardName) ?? 0), 0)
 }
 
 export function maxCardsBonusOf(
@@ -1073,7 +1413,11 @@ export function isHandLimitExempt(
   cardId: CardId,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): boolean {
-  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.handLimitExempt?.(state, playerId, cardId))
+  return (state.skillHandLimitExemptCardIds?.[playerId]?.includes(cardId) ?? false)
+    || state.cards[cardId]?.name === '瞒天过海'
+    || skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.handLimitExempt?.(state, playerId, cardId))
+    || state.players.some((owner) => owner.alive && owner.id !== playerId
+      && skillsOf(state, owner.id, skillIdsOf).some((runtime) => runtime.globalHandLimitExempt?.(state, owner.id, playerId, cardId)))
 }
 
 /** 拥有者的摸牌是否一律改从牌堆底摸。 */
@@ -1098,15 +1442,28 @@ export function fixedMaxCardsOf(
   return null
 }
 
+export function overrideJudgmentSuitOf(state: SanguoshaState, judgedPlayerId: PlayerId, suit: Suit,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf): Suit {
+  let result = suit
+  for (const owner of state.players) {
+    if (!owner.alive) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      result = runtime.overrideJudgmentSuit?.(state, owner.id, judgedPlayerId, result) ?? result
+    }
+  }
+  return result
+}
+
 /** 服务端生成合法操作时统一检查目标限制，客户端不自行推断。 */
 /** 过河拆桥/顺手牵羊的「弃置」分支挑牌前过一遍：拥有者的哪些牌不能被这样弃掉。 */
 export function isCardProtectedFromDiscard(
   state: SanguoshaState,
   ownerId: PlayerId,
   cardId: CardId,
+  sourceId?: PlayerId,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): boolean {
-  return skillsOf(state, ownerId, skillIdsOf).some((runtime) => runtime.protectsCardFromDiscard?.(state, ownerId, cardId) ?? false)
+  return skillsOf(state, ownerId, skillIdsOf).some((runtime) => runtime.protectsCardFromDiscard?.(state, ownerId, cardId, sourceId) ?? false)
 }
 
 export function isTargetProhibited(
@@ -1116,11 +1473,45 @@ export function isTargetProhibited(
   cardName: string,
   skillIdsOf: (characterId: string) => string[],
   cardId?: CardId,
+  sourceSkillId?: string,
 ): boolean {
   return skillsOf(state, targetId, skillIdsOf)
     .some((runtime) => runtime.prohibitsTarget?.(state, targetId, sourceId, cardName, cardId) ?? false)
     || skillsOf(state, sourceId, skillIdsOf)
-      .some((runtime) => runtime.prohibitsSourceTarget?.(state, sourceId, targetId, cardName) ?? false)
+      .some((runtime) => runtime.prohibitsSourceTarget?.(state, sourceId, targetId, cardName, sourceSkillId) ?? false)
+    || state.players.some((owner) => owner.alive && skillsOf(state, owner.id, skillIdsOf)
+      .some((runtime) => runtime.globalProhibitsSourceTarget?.(state, owner.id, sourceId, targetId, cardName) ?? false))
+}
+
+/** 将旁观技能要求的额外目标接入牌的真实结算列表，按座次聚合并去重。 */
+export function additionalTargetsOnUseOf(
+  state: SanguoshaState,
+  sourceId: PlayerId,
+  cardId: CardId,
+  cardName: string,
+  currentTargetIds: readonly PlayerId[],
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): PlayerId[] {
+  const result = [...currentTargetIds]
+  for (const owner of state.players) {
+    if (!owner.alive || owner.id === sourceId || result.includes(owner.id)) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      const added = runtime.additionalTargetsOnUse?.(state, owner.id, sourceId, cardId, cardName, result) ?? []
+      for (const targetId of added) {
+        if (targetId === owner.id && !result.includes(targetId) && state.players.some(p => p.id === targetId && p.alive)) result.push(targetId)
+      }
+    }
+  }
+  for (const owner of state.players) {
+    if (!owner.alive) continue
+    for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
+      const forced = runtime.forcedAdditionalTargetsOnUse?.(state, owner.id, sourceId, cardId, cardName, result, skillIdsOf) ?? []
+      for (const targetId of forced) {
+        if (!result.includes(targetId) && state.players.some(p => p.id === targetId && p.alive)) result.push(targetId)
+      }
+    }
+  }
+  return result
 }
 
 /**
@@ -1146,27 +1537,83 @@ export function extraSlashTargetsOf(
     .reduce((total, runtime) => total + Math.max(0, Math.trunc(runtime.extraSlashTargets?.(state, playerId, nature) ?? 0)), 0)
 }
 
+/** Candidate identities granted as selectable additional Slash targets by skills. */
+export function extraSlashTargetIdsOf(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): PlayerId[] {
+  return [...new Set(skillsOf(state, playerId, skillIdsOf)
+    .flatMap((runtime) => runtime.extraSlashTargetIds?.(state, playerId) ?? [])
+    .filter((targetId) => state.players.some((target) => target.id === targetId && target.alive && target.id !== playerId)))]
+}
+
 export function isCardResponseProhibited(
   state: SanguoshaState,
   responderId: PlayerId,
   cardName: string,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): boolean {
-  return skillsOf(state, responderId, skillIdsOf)
-    .some((runtime) => runtime.prohibitsOwnResponse?.(state, responderId, cardName))
+  if (skillsOf(state, responderId, skillIdsOf)
+    .some((runtime) => runtime.prohibitsOwnResponse?.(state, responderId, cardName))) return true
+  return state.players
+    .filter((player) => player.alive && player.characterId)
+    .some((owner) => skillsOf(state, owner.id, skillIdsOf)
+      .some((runtime) => runtime.prohibitsCardResponse?.(state, owner.id, responderId, cardName)))
+}
+
+/** 对响应实体牌应用全场技能的牌级限制；转化牌仍以其实体子牌判定。 */
+export function isResponseCardProhibited(
+  state: SanguoshaState,
+  responderId: PlayerId,
+  responseCardId: CardId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  if (blocksMilitaryOrderHandCard(state, responderId, responseCardId)) return true
+  return state.players
+    .filter((owner) => owner.alive && owner.characterId)
+    .some((owner) => skillsOf(state, owner.id, skillIdsOf)
+      .some((runtime) => runtime.prohibitsResponseCard?.(state, owner.id, responderId, responseCardId, cardName)))
+}
+
+/** 无实体牌的虚拟响应与装备响应也必须经过公共限制入口。 */
+export function isCardlessResponseProhibited(
+  state: SanguoshaState,
+  responderId: PlayerId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return state.players.filter((owner) => owner.alive && owner.characterId)
+    .some((owner) => skillsOf(state, owner.id, skillIdsOf)
+      .some((runtime) => runtime.prohibitsCardlessResponse?.(state, owner.id, responderId, cardName)))
+}
+
+export function isCardUseUnresponsiveToTarget(
+  state: SanguoshaState,
+  sourceId: PlayerId,
+  cardId: CardId,
+  targetId: PlayerId,
+  cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): boolean {
+  return state.players.filter((player) => player.alive && player.characterId)
+    .some((owner) => skillsOf(state, owner.id, skillIdsOf)
+      .some((runtime) => runtime.cardUnresponsiveToTarget?.(state, owner.id, sourceId, cardId, targetId, cardName) ?? false))
 }
 
 export function isCardUseProhibited(
   state: SanguoshaState,
   userId: PlayerId,
   cardName: string,
-  context: { dyingPlayerId: PlayerId | null },
+  context: { dyingPlayerId: PlayerId | null; cardIds?: readonly CardId[] },
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): boolean {
+  if (context.cardIds?.some((cardId) => blocksMilitaryOrderHandCard(state, userId, cardId))) return true
   for (const owner of state.players) {
     if (!owner.alive || !owner.characterId) continue
     for (const runtime of skillsOf(state, owner.id, skillIdsOf)) {
-      if (runtime.prohibitsCardUse?.(state, owner.id, { userId, cardName, dyingPlayerId: context.dyingPlayerId })) return true
+      if (runtime.prohibitsCardUse?.(state, owner.id, { userId, cardName, dyingPlayerId: context.dyingPlayerId, cardIds: context.cardIds })) return true
     }
   }
   return false
@@ -1188,6 +1635,18 @@ export function effectiveCardSuit(
   if (!card) throw new Error(`卡牌不存在：${cardId}`)
   return skillsOf(state, ownerId, skillIdsOf)
     .reduce((suit, runtime) => runtime.cardSuit?.(state, ownerId, cardId, suit) ?? suit, card.suit)
+}
+
+export function slashNatureFor(
+  state: SanguoshaState,
+  ownerId: PlayerId,
+  nature: DamageNature,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): DamageNature {
+  let result = nature
+  for (const runtime of skillsOf(state, ownerId, skillIdsOf))
+    result = runtime.slashNatureOverride?.(state, ownerId, result) ?? result
+  return result
 }
 
 /** 判定牌点数的有效值：没有技能覆盖就是印刷点数。 */
@@ -1246,6 +1705,14 @@ export function trickDistanceBonusOf(
     .reduce((total, runtime) => total + Math.trunc(runtime.trickDistanceBonus?.(state, sourceId, targetId, cardName) ?? 0), 0)
 }
 
+/** 特定实体牌的锦囊距离上限；多个规则同时提供时取最大值。 */
+export function trickDistanceLimitOf(state: SanguoshaState, sourceId: PlayerId, cardId: CardId, cardName: string,
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf): number | null {
+  const limits = skillsOf(state, sourceId, skillIdsOf).map((runtime) => runtime.trickDistanceLimit?.(state, sourceId, cardId, cardName))
+    .filter((limit): limit is number => limit !== null && limit !== undefined)
+  return limits.length ? Math.max(...limits) : null
+}
+
 /**
  * 「防止这次伤害」——**发生在伤害真的落地之前**的一整条阻断。
  *
@@ -1269,18 +1736,44 @@ export function damagePreventedBy(
   return null
 }
 
+/** Final damage gate for skills whose condition depends on the fully modified amount. */
+export function finalDamagePreventedBy(
+  state: SanguoshaState,
+  sourceId: PlayerId | null,
+  context: DamagePreventionContext,
+): string | null {
+  if (!sourceId) return null
+  return skillsOf(state, sourceId, providedSkillIdsOf)
+    .find((runtime) => runtime.preventsFinalDamage?.(state, sourceId, context))?.id ?? null
+}
+
 /**
  * 来源侧是否有技能想就"是否防止这次伤害"发起一次交互式发问。
  * 只在来源侧调用（目前只支持这一侧），别的侧没有对应需求。
  */
+export interface DamageAskOwner {
+  skillId: string
+  ownerId: PlayerId
+  step?: string
+}
+
+function damageAskOwner(host: SkillHost, skillId: string, ownerId: PlayerId, previousQueueLength: number): DamageAskOwner {
+  const queued = host.state.skillQueue.slice(previousQueueLength).find((prompt) => prompt.skillId === skillId && prompt.ownerId === ownerId)
+  return { skillId, ownerId, ...(queued ? { step: queued.step } : {}) }
+}
+
 export function offerSourceDamagePreventionAsk(
   host: SkillHost,
   sourceId: PlayerId | null,
   context: DamagePreventionContext,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
-): boolean {
-  if (!sourceId) return false
-  return skillsOf(host.state, sourceId, skillIdsOf).some((runtime) => runtime.offersSourceDamagePreventionAsk?.(host, sourceId, context) ?? false)
+): DamageAskOwner | null {
+  if (!sourceId) return null
+  for (const runtime of skillsOf(host.state, sourceId, skillIdsOf)) {
+    const previousQueueLength = host.state.skillQueue.length
+    if (runtime.offersSourceDamagePreventionAsk?.(host, sourceId, context)) return damageAskOwner(host, runtime.id, sourceId, previousQueueLength)
+  }
+  return null
 }
 
 /** 目标侧的等价版本（杜畿【安东】），见 `offersTargetDamagePreventionAsk` 字段说明。 */
@@ -1289,8 +1782,49 @@ export function offerTargetDamagePreventionAsk(
   targetId: PlayerId,
   context: DamagePreventionContext,
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
-): boolean {
-  return skillsOf(host.state, targetId, skillIdsOf).some((runtime) => runtime.offersTargetDamagePreventionAsk?.(host, targetId, context) ?? false)
+  skipSkillIds: readonly string[] = [],
+): DamageAskOwner | null {
+  const targetSkills = skillsOf(host.state, targetId, skillIdsOf)
+  for (const runtime of targetSkills) {
+    if (skipSkillIds.includes(runtime.id)) continue
+    const previousQueueLength = host.state.skillQueue.length
+    if (runtime.offersTargetDamagePreventionAsk?.(host, targetId, context)) return damageAskOwner(host, runtime.id, targetId, previousQueueLength)
+  }
+  for (const owner of host.state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(host.state, owner.id, skillIdsOf)) {
+      if (skipSkillIds.includes(runtime.id)) continue
+      const previousQueueLength = host.state.skillQueue.length
+      if (runtime.offersGlobalDamagePreventionAsk?.(host, owner.id, context)) return damageAskOwner(host, runtime.id, owner.id, previousQueueLength)
+    }
+  }
+  return null
+}
+
+export function offerDamageModifierAsk(
+  host: SkillHost,
+  playerId: PlayerId,
+  side: 'source' | 'target',
+  context: DamagePreventionContext,
+  skippedSkillIds: readonly string[] = [],
+  skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
+): DamageAskOwner | null {
+  for (const runtime of skillsOf(host.state, playerId, skillIdsOf)) {
+    if (skippedSkillIds.includes(runtime.id)) continue
+    const previousQueueLength = host.state.skillQueue.length
+    if (runtime.offersDamageModifierAsk?.(host, playerId, side, context)) return damageAskOwner(host, runtime.id, playerId, previousQueueLength)
+  }
+  if (side === 'target') {
+    for (const owner of host.state.players) {
+      if (!owner.alive || !owner.characterId || owner.id === playerId) continue
+      for (const runtime of skillsOf(host.state, owner.id, skillIdsOf)) {
+        if (skippedSkillIds.includes(runtime.id)) continue
+        const previousQueueLength = host.state.skillQueue.length
+        if (runtime.offersGlobalDamageModifierAsk?.(host, owner.id, side, context)) return damageAskOwner(host, runtime.id, owner.id, previousQueueLength)
+      }
+    }
+  }
+  return null
 }
 
 /** 返回让牌对目标无效的第一个技能；顺序固定为武将技能登记顺序。 */
@@ -1303,7 +1837,7 @@ export function cardEffectInvalidBy(
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): SkillRuntime | null {
   return skillsOf(state, targetId, skillIdsOf)
-    .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName, cardColor) ?? false) ?? null
+    .find((runtime) => runtime.cardEffectInvalid?.(state, targetId, sourceId, cardName, cardColor, targetId) ?? false) ?? null
 }
 
 /** 拼点点数的有效值覆盖（秦宓【天辩】把自己的红桃拼点牌视为 13）；没有覆盖返回 null。 */
@@ -1334,9 +1868,10 @@ export function ignoresSlashUsesTo(
   state: SanguoshaState,
   sourceId: PlayerId,
   targetId: PlayerId,
+  targetIds: readonly PlayerId[] = [targetId],
   skillIdsOf: (characterId: string) => string[] = providedSkillIdsOf,
 ): boolean {
-  return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresSlashUsesTo?.(state, sourceId, targetId))
+  return skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresSlashUsesTo?.(state, sourceId, targetId, targetIds))
 }
 
 /** 技能对这张手牌的强制身份改写（高顺【禁酒】）。没有就返回 null。 */
@@ -1414,7 +1949,14 @@ export function registerSkillTriggers(
         // 只有真正拥有这个技能的人才会被触发；觉醒后获得的技能也算拥有
         for (const player of host.state.players) {
           if ((!player.alive && !trigger.allowDeadOwner) || !player.characterId) continue
-          if (!ownedSkillIds(host.state, player.id, skillIdsOf).includes(runtime.id)) continue
+          const clanMute = host.state.clanUseSkillMute
+          const eventCardId = (context.event.payload as { cardId?: CardId }).cardId
+          if (runtime.id !== 'zhongliu-clan-wang' && clanMute?.playerId === player.id
+            && clanMute.cardId === eventCardId) continue
+          const removedEquipmentSkill = (context.event.payload as { playerId?: PlayerId; specialEquipment?: string }).playerId === player.id
+            ? SPECIAL_EQUIPMENT_SKILLS[(context.event.payload as { specialEquipment?: string }).specialEquipment ?? '']
+            : undefined
+          if (removedEquipmentSkill !== runtime.id && !ownedSkillIds(host.state, player.id, skillIdsOf).includes(runtime.id)) continue
           trigger.handle(host, player.id, context)
         }
       }, trigger.priority ?? 0)

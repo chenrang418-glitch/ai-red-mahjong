@@ -1,5 +1,6 @@
 import { INSTANT_TRICKS, instantTrickActions } from './cards/tricks'
 import type { CardId, PlayerId, SanguoshaState } from './types'
+import { recordCardHandEntry } from './zones'
 
 /**
  * 「视为使用一张普通锦囊牌」。
@@ -27,7 +28,7 @@ import type { CardId, PlayerId, SanguoshaState } from './types'
  * 从锦囊注册表动态生成，不写死名单；并且**逐个试算合法目标**，
  * 印出来却没有合法目标的牌不进候选（选了也用不出去，只会让玩家卡住）。
  */
-export function virtualTrickChoices(state: SanguoshaState, sourceId: PlayerId): string[] {
+export function virtualTrickChoices(state: SanguoshaState, sourceId: PlayerId, targetCount?: number): string[] {
   const probeId = `virtual-probe:${sourceId}`
   const choices: string[] = []
   for (const name of INSTANT_TRICKS) {
@@ -45,7 +46,10 @@ export function virtualTrickChoices(state: SanguoshaState, sourceId: PlayerId): 
     }
     let usable = false
     try {
-      usable = instantTrickActions(state, sourceId, probeId, name).length > 0
+      const actions = instantTrickActions(state, sourceId, probeId, name)
+      usable = targetCount === undefined
+        ? actions.length > 0
+        : actions.some((action) => action.kind === 'use-card' && action.targetIds.length === targetCount)
     } finally {
       delete state.cards[probeId]
     }
@@ -84,5 +88,6 @@ export function createVirtualTrick(
     sourceSkillId,
   }
   source.zones.hand.push(cardId)
+  recordCardHandEntry(state, cardId)
   return cardId
 }

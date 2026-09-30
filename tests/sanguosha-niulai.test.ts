@@ -97,9 +97,9 @@ function playNiulai(game: SanguoshaGame, choices: Array<'continue' | 'stop'>): v
 const FILLER = ['niulai', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei']
 
 describe('牛来的基础信息', () => {
-  it('群势力、4 体力、两个技能、娱乐包', () => {
+  it('乐势力、4 体力、两个技能、娱乐包', () => {
     const character = getCharacter('niulai')!
-    expect(character.kingdom).toBe('qun')
+    expect(character.kingdom).toBe('le')
     expect(character.gender).toBe('male')
     expect(character.maxHp).toBe(4)
     expect(character.pack).toBe('entertainment')

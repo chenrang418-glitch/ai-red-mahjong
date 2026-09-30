@@ -7,7 +7,8 @@ import {
   closePrivateZone, moveIntoPrivateZone, moveOutOfPrivateZone, openPrivateZone, privateZoneCards,
 } from '../../engine/private-zone'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
-import { registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
+import { grantSkill, ownedSkillIds, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
+import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { LegalAction } from '../../engine/actions'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { continueGuhuoRespond } from '../../engine/guhuo-response'
@@ -33,6 +34,12 @@ import type { CharacterDefinition } from './types'
  */
 
 export const GUHUO = 'guhuo'
+const JIE_YUJI_CHARACTER = 'jie-yuji-b38'
+const CHANYUAN = 'chanyuan-jie-b38'
+
+function isJieYuji(state: SanguoshaState, ownerId: PlayerId): boolean {
+  return playerOf(state, ownerId)?.characterId === JIE_YUJI_CHARACTER
+}
 
 /** 质疑的多人决定 tag。 */
 const CHALLENGE_TAG = 'guhuo-challenge'
@@ -91,6 +98,7 @@ registerSkillRuntime({
   announcesSelf: true,
 
   activeActions(state, ownerId) {
+    if (isJieYuji(state, ownerId) && usedThisTurn(state, ownerId, GUHUO)) return []
     if (!hasAnyDeclaration(state, ownerId)) return []
     return [{ id: `skill:${GUHUO}`, label: '发动【蛊惑】：扣置一张手牌并声明牌名' }]
   },
@@ -218,6 +226,7 @@ function beginChallenge(
 ): void {
   const owner = playerOf(host.state, ownerId)
   if (!owner?.alive) return
+  if (isJieYuji(host.state, ownerId)) markUsedThisTurn(host.state, ownerId, GUHUO)
   const action = actionsFor(host.state, ownerId, cardId, declaredName)
     .find((candidate) => candidate.id === actionId)
   if (!action || action.kind !== 'use-card') throw new Error('蛊惑动作已经失效')
@@ -251,7 +260,8 @@ function challengeOrder(state: SanguoshaState, ownerId: PlayerId): PlayerId[] {
   const order: PlayerId[] = []
   for (let offset = 0; offset < state.players.length; offset += 1) {
     const candidate = state.players[(start + offset) % state.players.length]
-    if (candidate.alive && candidate.id !== ownerId) order.push(candidate.id)
+    if (candidate.alive && candidate.id !== ownerId
+      && !(isJieYuji(state, ownerId) && ownedSkillIds(state, candidate.id).includes(CHANYUAN))) order.push(candidate.id)
   }
   return order
 }
@@ -294,6 +304,17 @@ registerGroupDecision(CHALLENGE_TAG, (host, decision) => {
     playerId: ownerId, cardIds: [cardId], reason: GUHUO, revealed: true,
     declaredName, truthful, challengerIds: [...challengers],
   }, { sourceId: ownerId, cardIds: [cardId] })
+
+  if (isJieYuji(state, ownerId)) {
+    if (truthful) {
+      for (const challengerId of challengers) if (playerOf(state, challengerId)?.alive) grantSkill(state, challengerId, CHANYUAN)
+      resolveDeclared(skillHost, ownerId, cardId, actionId, declaredName, targetIds)
+    } else {
+      moveOutOfPrivateZone(state, cardId, ZONE_ID, { kind: 'discardPile' })
+      closePrivateZone(state, ZONE_ID)
+    }
+    return
+  }
 
   for (const challengerId of challengers) {
     const challenger = playerOf(state, challengerId)

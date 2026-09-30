@@ -2,7 +2,7 @@ import { drawCards } from './draw'
 import type { ChooseCardsRequest, GameResponse } from './requests'
 import { validateResponse } from './requests'
 import { advancePhase, resumeTurnTransition } from './turn'
-import type { PlayerId, SanguoshaState } from './types'
+import type { CardId, PlayerId, SanguoshaState } from './types'
 import { moveCard } from './zones'
 import { beginJudgmentPhase, type JudgmentEngineHost } from './judgment'
 import { fixedMaxCardsOf, globalMaxCardsBonusOf, isHandLimitExempt, maxCardsBonusOf, skillsOf } from './skills/runtime'
@@ -47,7 +47,8 @@ export function maxCardsOf(state: SanguoshaState, playerId: PlayerId): number {
   const target = state.players.find((player) => player.id === playerId)
   if (!target) throw new Error(`玩家不存在：${playerId}`)
   const base = fixedMaxCardsOf(state, playerId) ?? Math.max(0, target.hp)
-  return Math.max(0, base + maxCardsBonusOf(state, playerId) + globalMaxCardsBonusOf(state, playerId))
+  return Math.max(0, base + maxCardsBonusOf(state, playerId) + globalMaxCardsBonusOf(state, playerId)
+    + Math.trunc(state.maxCardsAdjustments?.[playerId] ?? 0))
 }
 
 function maxCards(state: SanguoshaState, playerId: PlayerId): number {
@@ -77,10 +78,14 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
        * 引擎照最终值摸——写死 2 的话「以该摸牌阶段最终应摸数量为准」就无从谈起，
        * 而且逼着每个想少摸一张的技能都去接管整个阶段。
        */
-      const count = Math.max(0, Math.trunc(Number((context.event.payload as { count?: unknown }).count ?? 2)))
+      const drawPayload = context.event.payload as { count?: unknown }
+      const pendingBonus = Math.trunc(host.state.drawPhaseBonuses?.[playerId] ?? 0)
+      const count = Math.max(0, Math.trunc(Number(drawPayload.count ?? 2)) + pendingBonus)
+      if (pendingBonus) delete host.state.drawPhaseBonuses?.[playerId]
       // 同上：摸牌阶段的时机也可能把牌局打完，结束之后不再摸牌
       if (count <= 0 || host.state.status !== 'playing') return
-      drawCards(host.state, host.rng, playerId, count, (name, payload) => { host.dispatch(name, payload) })
+      const drawnCardIds = drawCards(host.state, host.rng, playerId, count, (name, payload) => { host.dispatch(name, payload) })
+      host.dispatch('DrawPhaseResolved', { playerId, cardIds: drawnCardIds }, { sourceId: playerId, phase: 'draw', cardIds: drawnCardIds })
       return
     }
     case 'play':
@@ -112,6 +117,7 @@ function enterCurrentPhase(host: PhaseEngineHost): void {
       if (context.cancelled || host.state.pendingRequests.length > 0) return
       const exemptCount = current.zones.hand.filter((cardId) => isHandLimitExempt(host.state, playerId, cardId)).length
       const count = (current.zones.hand.length - exemptCount) - maxCards(host.state, playerId)
+      delete host.state.maxCardsAdjustments?.[playerId]
       if (count <= 0) return
       /*
        * 类别禁令（杨修【鸡肋】）挡住的牌不能出现在弃牌阶段的候选里。
@@ -259,24 +265,56 @@ export function resolveDiscardPhaseResponse(host: PhaseEngineHost, request: Choo
   const selected = (response.payload as { cardIds: string[] }).cardIds
   const owner = host.state.players.find((player) => player.id === request.playerId)!
   if (selected.some((cardId) => !owner.zones.hand.includes(cardId))) throw new Error('弃置牌不属于当前玩家')
+  const intercept = skillsOf(host.state, owner.id, skillIdsOf).some((runtime) =>
+    runtime.interceptDiscardPhaseSelection?.(host, owner.id, request, response),
+  )
+  if (intercept) {
+    host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
+    return
+  }
+  completeDiscardPhaseSelection(host, request, response)
+}
+
+/** 弃牌阶段选牌后的公共结算；伪帝等技能可把部分牌替换为交付而非弃置。 */
+export function completeDiscardPhaseSelection(host: PhaseEngineHost, request: ChooseCardsRequest, response: GameResponse, recipients: readonly PlayerId[] = []): void {
+  const selected = (response.payload as { cardIds: string[] }).cardIds
+  const owner = host.state.players.find((player) => player.id === request.playerId)
+  if (!owner?.alive || selected.some((cardId) => !owner.zones.hand.includes(cardId))) return
   host.state.pendingRequests = host.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
-  for (const cardId of selected) {
+  const given = new Set<CardId>()
+  for (let index = 0; index < selected.length; index += 1) {
+    const cardId = selected[index]
+    const redirectedBySkill = host.state.players.filter((skillOwner) => skillOwner.alive).flatMap((skillOwner) => skillsOf(host.state, skillOwner.id, skillIdsOf)
+      .map((runtime) => runtime.globallyRedirectsDiscardPhaseCard?.(host.state, skillOwner.id, owner.id, cardId)))
+      .find((targetId): targetId is PlayerId => Boolean(targetId))
+      ?? skillsOf(host.state, owner.id, skillIdsOf)
+      .map((runtime) => runtime.discardPhaseRecipient?.(host.state, owner.id, cardId))
+      .find((targetId): targetId is PlayerId => Boolean(targetId))
+    const recipientId = recipients[index] ?? redirectedBySkill
+    const recipient = host.state.players.find((candidate) => candidate.id === recipientId && candidate.alive && candidate.id !== owner.id)
+    if (!recipient) continue
+    moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, { kind: 'hand', playerId: recipient.id })
+    given.add(cardId)
+    const reason = recipients[index] ? 'weidi-discard-transfer' : 'skill-discard-transfer'
+    host.dispatch('GainCard', { playerId: recipient.id, cardIds: [cardId], reason }, { sourceId: owner.id, targetId: recipient.id, cardIds: [cardId] })
+    host.dispatch('CardGiven', { fromPlayerId: owner.id, toPlayerId: recipient.id, cardIds: [cardId], reason }, { sourceId: owner.id, targetId: recipient.id, cardIds: [cardId] })
+  }
+  const discarded = selected.filter((cardId) => !given.has(cardId))
+  const enteredDiscardPile: CardId[] = []
+  for (const cardId of discarded) {
     const redirectToBottom = skillsOf(host.state, owner.id, skillIdsOf).some((runtime) => runtime.redirectsOwnDiscardToBottom?.(host.state, owner.id, cardId))
     moveCard(host.state, cardId, { kind: 'hand', playerId: owner.id }, redirectToBottom ? { kind: 'drawPile' } : { kind: 'discardPile' })
+    if (!redirectToBottom) enteredDiscardPile.push(cardId)
   }
   const ledger = host.state.discardPhaseLedger
-  if (ledger?.ownerPlayerId === owner.id) {
+  if (ledger?.ownerPlayerId === owner.id && enteredDiscardPile.length) {
     host.dispatch('CardMove', {
-      cardIds: selected, sourcePlayerId: owner.id, originalZone: 'hand', destinationZone: 'discardPile',
+      cardIds: enteredDiscardPile, sourcePlayerId: owner.id, originalZone: 'hand', destinationZone: 'discardPile',
       reason: 'discard', phaseInstanceId: ledger.phaseInstanceId,
-    }, { sourceId: owner.id, cardIds: selected, phase: 'discard' })
+    }, { sourceId: owner.id, cardIds: enteredDiscardPile, phase: 'discard' })
   }
-  host.dispatch('LoseCard', { playerId: owner.id, cardIds: selected, reason: 'discard-phase' }, { sourceId: owner.id, cardIds: selected, phase: 'discard' })
+  if (selected.length) host.dispatch('LoseCard', { playerId: owner.id, cardIds: selected, reason: 'discard-phase' }, { sourceId: owner.id, cardIds: selected, phase: 'discard' })
   host.state.decisions.push({
-    index: host.state.decisions.length,
-    requestId: request.id,
-    playerId: response.playerId,
-    kind: request.kind,
-    payload: structuredClone(response.payload),
+    index: host.state.decisions.length, requestId: request.id, playerId: response.playerId, kind: request.kind, payload: structuredClone(response.payload),
   })
 }

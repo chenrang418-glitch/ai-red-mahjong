@@ -15,6 +15,7 @@ import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } fr
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { effectiveKingdomOf } from '../../engine/huashen'
 import type { CharacterDefinition } from './types'
+import { CURRENT_WANGYUANJI } from './wangyuanji-current'
 
 /**
  * 晋势力专项第一批：司马师、司马昭、王元姬、杜预、羊徽瑜、司马伷、贾充、
@@ -444,137 +445,6 @@ registerSkillRuntime({
     return false
   },
 })
-
-// ============================== 王元姬 ==============================
-
-const SHIREN = 'shiren'
-const YANXI = 'yanxi'
-
-registerSkillRuntime({
-  id: SHIREN,
-  triggers: [{
-    event: 'PhaseStart',
-    handle(host, ownerId, context) {
-      if ((host.state.shirenUsed ?? []).includes(ownerId)) return
-      const payload = context.event.payload as { phase?: string; playerId?: PlayerId }
-      if (payload.phase !== 'prepare' || !payload.playerId || payload.playerId === ownerId) return
-      const owner = playerOf(host.state, ownerId)
-      const turnOwner = playerOf(host.state, payload.playerId)
-      if (!owner?.alive || !turnOwner?.alive || turnOwner.zones.hand.length === 0) return
-      host.state.shirenUsed = [...(host.state.shirenUsed ?? []), ownerId]
-      host.dispatch('SkillActivated', { skillId: SHIREN, skillName: '识人', playerId: ownerId, targetId: turnOwner.id, logText: `${owner.nickname}发动【识人】` }, { sourceId: ownerId, targetId: turnOwner.id })
-      host.queueSkill({ skillId: YANXI, ownerId, step: 'ask', data: { targetId: turnOwner.id } })
-    },
-  }],
-})
-
-registerSkillRuntime({
-  id: YANXI,
-  handLimitExempt(state, ownerId, cardId) {
-    return Boolean(state.yanxiExempt?.[ownerId]?.includes(cardId))
-  },
-  triggers: [
-    {
-      event: 'PhaseStart',
-      handle(host, ownerId, context) {
-        const payload = context.event.payload as { phase?: string; playerId?: PlayerId }
-        if (payload.phase !== 'play' || payload.playerId !== ownerId) return
-        const owner = playerOf(host.state, ownerId)
-        if (!owner?.alive || usedThisTurn(host.state, ownerId, YANXI)) return
-        const candidateIds = host.state.players.filter((candidate) => candidate.alive && candidate.id !== ownerId && candidate.zones.hand.length > 0).map((candidate) => candidate.id)
-        if (candidateIds.length === 0) return
-        host.queueSkill({ skillId: YANXI, ownerId, step: 'pick-target', data: { candidateIds } })
-      },
-    },
-    {
-      event: 'PhaseEnd',
-      handle(host, ownerId, context) {
-        const payload = context.event.payload as { phase?: string; playerId?: PlayerId }
-        if (payload.phase !== 'play' || payload.playerId !== ownerId) return
-        if (host.state.yanxiExempt) delete host.state.yanxiExempt[ownerId]
-      },
-    },
-  ],
-  startQueued(host, ownerId, prompt) {
-    if (prompt.step === 'ask') {
-      const { targetId } = prompt.data as { targetId: PlayerId }
-      const target = playerOf(host.state, targetId)
-      const owner = playerOf(host.state, ownerId)
-      if (!owner?.alive || !target?.alive || target.zones.hand.length === 0) return
-      runYanxi(host, ownerId, targetId)
-      return
-    }
-    if (prompt.step === 'pick-target') {
-      if (usedThisTurn(host.state, ownerId, YANXI)) return
-      const { candidateIds } = prompt.data as { candidateIds: PlayerId[] }
-      const owner = playerOf(host.state, ownerId)
-      if (!owner?.alive) return
-      host.askSkill({
-        skillId: YANXI, ownerId, step: 'pick-target', data: {},
-        build: (requestId): ChooseTargetsRequest => ({
-          id: requestId, kind: 'choose-targets', playerId: ownerId,
-          prompt: '【宴戏】：选择一名有手牌的其他角色', timeoutMs: 20_000, optional: true,
-          candidateIds, min: 0, max: 1,
-        }),
-      })
-    }
-  },
-  resume(host, ownerId, resolution, response) {
-    if (resolution.step === 'pick-target') {
-      const [targetId] = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
-      const target = targetId ? playerOf(host.state, targetId) : undefined
-      if (!target?.alive || target.zones.hand.length === 0) return
-      markUsedThisTurn(host.state, ownerId, YANXI)
-      runYanxi(host, ownerId, targetId!)
-      return
-    }
-    if (resolution.step !== 'guess') return
-    const { targetId, handCardId, deckA, deckB } = resolution.data as { targetId: PlayerId; handCardId: CardId; deckA: CardId; deckB: CardId }
-    const owner = playerOf(host.state, ownerId)
-    const target = playerOf(host.state, targetId)
-    if (!owner?.alive || !target?.alive) return
-    const [selected] = (response.payload as { cardIds?: CardId[] }).cardIds ?? []
-    if (selected === handCardId) {
-      moveCard(host.state, handCardId, { kind: 'hand', playerId: targetId }, { kind: 'hand', playerId: ownerId })
-      moveCard(host.state, deckA, { kind: 'drawPile' }, { kind: 'hand', playerId: ownerId })
-      moveCard(host.state, deckB, { kind: 'drawPile' }, { kind: 'hand', playerId: ownerId })
-      const gained = [handCardId, deckA, deckB]
-      host.state.yanxiExempt ??= {}
-      host.state.yanxiExempt[ownerId] = [...(host.state.yanxiExempt[ownerId] ?? []), ...gained]
-      host.dispatch('LoseCard', { playerId: targetId, cardIds: [handCardId], reason: YANXI }, { sourceId: targetId, cardIds: [handCardId] })
-      host.dispatch('GainCard', { playerId: ownerId, cardIds: gained, reason: YANXI }, { sourceId: targetId, targetId: ownerId, cardIds: gained })
-    } else if (selected === deckA || selected === deckB) {
-      moveCard(host.state, selected, { kind: 'drawPile' }, { kind: 'hand', playerId: ownerId })
-      host.state.yanxiExempt ??= {}
-      host.state.yanxiExempt[ownerId] = [...(host.state.yanxiExempt[ownerId] ?? []), selected]
-      host.dispatch('GainCard', { playerId: ownerId, cardIds: [selected], reason: YANXI }, { targetId: ownerId, cardIds: [selected] })
-    }
-  },
-})
-
-function runYanxi(host: SkillHost, ownerId: PlayerId, targetId: PlayerId): void {
-  const owner = playerOf(host.state, ownerId)
-  const target = playerOf(host.state, targetId)
-  if (!owner?.alive || !target?.alive || target.zones.hand.length === 0) return
-  const handCardId = target.zones.hand[host.rng.nextInt(target.zones.hand.length)]
-  if (host.state.zones.drawPile.length < 2) return
-  const [deckA, deckB] = host.state.zones.drawPile.slice(0, 2)
-  const pool = [handCardId, deckA, deckB]
-  const shuffled = [...pool]
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = host.rng.nextInt(i + 1)
-    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
-  host.dispatch('SkillActivated', { skillId: YANXI, skillName: '宴戏', playerId: ownerId, targetId, logText: `${owner.nickname}发动【宴戏】` }, { sourceId: ownerId, targetId })
-  host.askSkill({
-    skillId: YANXI, ownerId, step: 'guess', data: { targetId, handCardId, deckA, deckB, shuffled },
-    build: (requestId): ChooseCardsRequest => ({
-      id: requestId, kind: 'choose-cards', playerId: ownerId,
-      prompt: '【宴戏】：从这3张牌中选择1张，猜测它来自目标手牌', timeoutMs: 20_000, optional: false,
-      purpose: 'skill', cardIds: shuffled, hiddenCardSlots: [], min: 1, max: 1,
-    }),
-  })
-}
 
 // ============================== 杜预 ==============================
 
@@ -1504,13 +1374,7 @@ export const JIN_CHARACTERS: readonly CharacterDefinition[] = [
       { id: CHENGWU, name: '成务', description: '主公技，锁定技，其他晋势力角色攻击范围内的角色均视为在你的攻击范围内。' },
     ],
   },
-  {
-    id: 'wangyuanji', name: '王元姬', kingdom: 'jin', gender: 'female', maxHp: 3, pack: 'sp',
-    skills: [
-      { id: SHIREN, name: '识人', description: '游戏开始后第一次其他角色回合开始时，若其有手牌，可以立即对其发动一次宴戏（身份局兼容版）。' },
-      { id: YANXI, name: '宴戏', description: '出牌阶段限一次，选择一名有手牌的其他角色，随机取其1张手牌与牌堆顶2张牌混合，你从中选1张猜测其来自对方手牌；猜对获得全部3张，猜错只获得选中的那张，其余归位；因此获得的牌本回合不计入手牌上限。' },
-    ],
-  },
+  CURRENT_WANGYUANJI,
   {
     id: 'duyu', name: '杜预', kingdom: 'jin', gender: 'male', maxHp: 4, pack: 'sp',
     skills: [

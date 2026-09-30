@@ -314,6 +314,26 @@ describe('黄天是主公技，动作长在别人身上', () => {
     assertGameInvariants(game.state)
   })
 
+  it('同一回合的另一个额外出牌阶段可以再次发动', () => {
+    const game = huangtianGame()
+    clearHand(game, 'p1')
+    const first = giveNamed(game, 'p1', '闪')
+    const second = giveNamed(game, 'p1', '闪电')
+    game.act('p1', huangtianAction(game, 'p1')!.id)
+    game.respond({ requestId: pending(game)!.id, playerId: 'p1', payload: { cardIds: [first] } })
+
+    expect(huangtianAction(game, 'p1'), '同一阶段不能再交').toBeFalsy()
+    game.state.extraPhase = {
+      phase: 'play', resumeSlot: 'finish', playerId: 'p1', skillId: 'test-extra-play', instanceId: 1,
+    }
+    expect(huangtianAction(game, 'p1'), '额外阶段是新的出牌阶段实例').toBeTruthy()
+    game.act('p1', huangtianAction(game, 'p1')!.id)
+    game.respond({ requestId: pending(game)!.id, playerId: 'p1', payload: { cardIds: [second] } })
+    expect(game.state.players[0].zones.hand).toContain(first)
+    expect(game.state.players[0].zones.hand).toContain(second)
+    expect(huangtianAction(game, 'p1')).toBeFalsy()
+  })
+
   it('黄天不会给张角自己加动作', () => {
     const game = huangtianGame()
     game.state.currentPlayerId = 'p0'

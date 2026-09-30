@@ -385,6 +385,11 @@ describe('神愤', () => {
     runShenfen(game)
     expect(shenfenAction(game), '本阶段用过了').toBeUndefined()
 
+    // 同一回合获得的额外出牌阶段是新的阶段限次窗口。
+    game.state.extraPhase = { phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1 }
+    expect(shenfenAction(game), '同回合额外出牌阶段可再次发动').toBeTruthy()
+    game.state.extraPhase = null
+
     // 换一个回合，攒够暴怒还能再发动——不是限定技
     game.state.phase = 'finish'
     game.state.pendingRequests = []

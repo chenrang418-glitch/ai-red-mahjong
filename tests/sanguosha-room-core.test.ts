@@ -470,6 +470,17 @@ describe('联机的等待窗口', () => {
     expect(anyRoom.nominalWindowMs(request)).toBe(1_000)
     expect(anyRoom.nominalWindowMs()).toBe(1_000)
   })
+
+  it('马钧水转百戏图使用技能自身剩余的10秒窗口，不随房间普通操作时间缩短', () => {
+    const room = SanguoshaRoomCoordinator.create('ABC235', HOST, normalizeSettings({ playerCount: 5, turnSeconds: 15 }), 1_000)
+    const anyRoom = room as unknown as Internals
+    anyRoom.state.settings.turnSeconds = 1
+    const request = {
+      kind: 'choose-option', playerId: 'seat-0', timeoutMs: 4_250,
+      interaction: { kind: 'waterwheel', progress: [0, 0, 0, 0, 0, 0], active: [] },
+    }
+    expect(anyRoom.nominalWindowMs(request)).toBe(4_250)
+  })
 })
 
 describe('全员托管自动解散', () => {

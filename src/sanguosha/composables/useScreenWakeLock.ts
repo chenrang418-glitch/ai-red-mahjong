@@ -34,7 +34,12 @@ export function createScreenWakeLockController(
         return
       }
       sentinel = next
-      next.addEventListener('release', () => { if (sentinel === next) sentinel = null }, { once: true })
+      next.addEventListener('release', () => {
+        if (sentinel !== next) return
+        sentinel = null
+        // 部分浏览器会在仍处于前台时主动释放锁；不能等下一次触摸才恢复。
+        if (started && isActive() && environment.document.visibilityState === 'visible') void acquire()
+      }, { once: true })
     } catch {
       // 权限被拒绝或系统暂时不允许时，等待下一次用户触摸/回到前台再试。
     } finally {
@@ -74,9 +79,10 @@ export function createScreenWakeLockController(
 }
 
 /**
- * 对局、选将和联机等人时保持屏幕常亮。
+ * 在应用需要保持可见时保持屏幕常亮。
  *
- * 浏览器切到后台会由系统自动释放锁；回到前台以及下一次用户触摸时重新申请。
+ * 浏览器切到后台会由系统自动释放锁；回到前台、下一次用户触摸，
+ * 以及锁被系统主动释放后都会重新申请。
  * 不支持 Screen Wake Lock 的旧浏览器安静降级，不使用循环视频或静音音频绕过系统。
  */
 export function useScreenWakeLock(active: Readonly<Ref<boolean>>): void {

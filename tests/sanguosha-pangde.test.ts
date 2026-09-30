@@ -3,6 +3,7 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { getDistance } from '@/sanguosha/engine/distance'
 import { skillIdsOf } from '@/sanguosha/data/characters/standard'
+import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 /**
@@ -64,9 +65,11 @@ function slashAndDodge(game: SanguoshaGame) {
   return pending(game)
 }
 
-describe('庞德【马术】复用马超那套', () => {
-  it('技能 id 就是马超的 mashu，不是另写的一份', () => {
-    expect(skillIdsOf('pangde')).toContain('mashu')
+describe('庞德【马术】独立实现', () => {
+  it('使用庞德自己的技能 ID 和直接注册运行时', () => {
+    expect(skillIdsOf('pangde')).toContain('pangde-mashu')
+    expect(skillIdsOf('pangde')).not.toContain('mashu')
+    expect(getSkillRuntime('pangde-mashu')?.distanceModifier).toEqual({ toOthers: -1 })
   })
 
   it('距离效果和马超一致', () => {

@@ -8,6 +8,8 @@ export interface HuashenCharacter {
   kingdom: Kingdom
   gender: 'male' | 'female'
   skills: Array<{ id: string; name: string; granted?: boolean }>
+  huashenInitialCount?: number
+  huashenRerollUnusedCount?: number
 }
 
 let catalog: readonly HuashenCharacter[] = []
@@ -29,20 +31,22 @@ export function huashenEligibleSkills(characterId: CharacterId): Array<{ id: str
   }).map(({ id, name }) => ({ id, name }))
 }
 
-export function initializeHuashenOwner(host: SkillHost, ownerId: PlayerId): void {
+export function initializeHuashenOwner(host: SkillHost, ownerId: PlayerId, initialCount = 2): void {
   if (!host.state.huashen) {
     const seated = new Set(host.state.players.map((player) => player.characterId).filter(Boolean))
     host.state.huashen = {
       remainingCharacterIds: catalog
-        .filter((character) => character.pack !== 'entertainment' && character.id !== 'zuoci' && !seated.has(character.id))
+        .filter((character) => character.pack !== 'entertainment' && !character.skills.some((skill) => skill.id === 'huashen') && !seated.has(character.id))
         .filter((character) => huashenEligibleSkills(character.id).length > 0)
         .map((character) => character.id),
       owners: {},
     }
   }
   if (host.state.huashen.owners[ownerId]) return
+  const ownerCharacterId = host.state.players.find((player) => player.id === ownerId)?.characterId
+  const configuredCount = ownerCharacterId ? byId.get(ownerCharacterId)?.huashenInitialCount : undefined
   const characterIds: CharacterId[] = []
-  for (let count = 0; count < 2 && host.state.huashen.remainingCharacterIds.length > 0; count += 1) {
+  for (let count = 0; count < Math.max(0, Math.trunc(configuredCount ?? initialCount)) && host.state.huashen.remainingCharacterIds.length > 0; count += 1) {
     const index = host.rng.nextInt(host.state.huashen.remainingCharacterIds.length)
     characterIds.push(host.state.huashen.remainingCharacterIds.splice(index, 1)[0])
   }

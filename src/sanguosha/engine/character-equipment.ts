@@ -1,4 +1,5 @@
 import type { CardId, CharacterId, PhysicalCard, PlayerId, SanguoshaState } from './types'
+import { notifyHandCardLeft } from './zones'
 
 /**
  * 「武将牌当装备用」的实例（神典韦【挈挟】）。
@@ -85,6 +86,7 @@ export function destroyCharacterEquipment(state: SanguoshaState, cardId: CardId)
   state.zones.discardPile = state.zones.discardPile.filter((id) => id !== cardId)
   state.zones.processingArea = state.zones.processingArea.filter((id) => id !== cardId)
   for (const player of state.players) {
+    if (player.zones.hand.includes(cardId)) notifyHandCardLeft(state, { cardId, playerId: player.id, destination: null })
     player.zones.hand = player.zones.hand.filter((id) => id !== cardId)
     player.zones.judgingArea = player.zones.judgingArea.filter((id) => id !== cardId)
     for (const [slot, equipped] of Object.entries(player.zones.equipment)) {

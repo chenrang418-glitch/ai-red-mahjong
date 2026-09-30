@@ -12,7 +12,7 @@ import { DEFAULT_SGS_ROOM_SETTINGS } from '../online/protocol'
 defineEmits<{ back: [] }>()
 
 /*
- * 维护态。以前纸上三国这边**完全没接**：维护期间「创建房间」照样是亮的，
+ * 维护态。以前吴魏契约这边**完全没接**：维护期间「创建房间」照样是亮的，
  * 点下去才收到服务端 503 弹一个红字，和麻将那边直接灰成「维护中」不一致。
  * 现在两边读的是同一份 useServiceStatus。
  */
@@ -43,6 +43,7 @@ const tableVisible = computed(() => {
   return room.phase === 'playing' || room.phase === 'finished'
 })
 const me = computed(() => online.room.value?.seats.find((seat) => seat.isSelf) ?? null)
+const isSpectator = computed(() => online.room.value?.isSpectator ?? false)
 const isHost = computed(() => online.session.value?.userId === online.room.value?.hostUserId)
 const allSeatsFilled = computed(() => online.room.value?.seats.every((seat) => seat.kind !== 'empty') ?? false)
 const allHumansReady = computed(() => online.room.value?.seats.every((seat) => seat.kind !== 'human' || seat.ready) ?? false)
@@ -125,10 +126,10 @@ async function shareRoom(): Promise<void> {
   const code = online.room.value?.code
   if (!code) return
   const link = shareLink.value
-  const text = `来打纸上三国，房间号 ${code}`
+  const text = `来打吴魏契约，房间号 ${code}`
   if (navigator.share) {
     try {
-      await navigator.share({ title: '纸上三国', text, url: link })
+      await navigator.share({ title: '吴魏契约', text, url: link })
       return
     } catch (cause) {
       // 用户自己取消的不算失败，不用再弹别的
@@ -239,10 +240,10 @@ onBeforeUnmount(() => {
     :presentation-events="online.room.value!.presentationEvents"
     :timers="online.room.value!.timers ?? []"
     :clock-offset-ms="online.clockOffset.value"
-    :trustee="selfTrustee"
+    :trustee="isSpectator ? null : selfTrustee"
     :trustee-busy="trusteeBusy"
     :connection-statuses="connectionStatuses"
-    :chat="online.room.value!.chat"
+    :chat="isSpectator ? null : online.room.value!.chat"
     :self-user-id="online.session.value?.userId ?? ''"
     :bubbles="bubbleTexts"
     @act="online.act"
@@ -296,20 +297,25 @@ onBeforeUnmount(() => {
         <form @submit.prevent="online.joinRoom(manualCode)">
           <input v-model="manualCode" maxlength="6" autocomplete="off" placeholder="6 位房间号" aria-label="房间号" @input="manualCode = manualCode.toUpperCase()">
           <button type="submit">加入</button>
+          <button type="button" @click="online.joinRoom(manualCode, true)">旁观</button>
         </form>
       </section>
 
       <section class="sgs-online__panel sgs-online__rooms">
         <header><h2>公开房间</h2><button type="button" @click="online.refreshRooms">刷新</button></header>
-        <button v-for="entry in online.rooms.value" :key="entry.code" type="button" :disabled="!entry.joinable" @click="online.joinRoom(entry.code)">
-          <span><b>{{ entry.code }}</b><small>{{ entry.hostNickname }} · {{ entry.occupiedSeats }}/{{ entry.settings.playerCount }} 人</small></span>
-          <em>{{ entry.rejoinable ? '重新进入' : entry.phase === 'lobby' ? '加入' : '进行中' }}</em>
-        </button>
+        <article v-for="entry in online.rooms.value" :key="entry.code" class="sgs-online__room-entry">
+          <button type="button" :disabled="!entry.joinable" @click="online.joinRoom(entry.code)">
+            <span><b>{{ entry.code }}</b><small>{{ entry.hostNickname }} · {{ entry.occupiedSeats }}/{{ entry.settings.playerCount }} 人</small></span>
+            <em>{{ entry.rejoinable ? '重新进入' : entry.phase === 'lobby' ? '加入' : '进行中' }}</em>
+          </button>
+          <button v-if="entry.spectatable" type="button" class="sgs-online__spectate" @click="online.joinRoom(entry.code, true)">旁观</button>
+        </article>
         <p v-if="!online.rooms.value.length">暂无公开房间</p>
       </section>
     </template>
 
     <section v-else-if="online.room.value.phase === 'lobby'" class="sgs-online__panel sgs-online__waiting">
+      <p v-if="isSpectator" class="sgs-online__spectator-note">旁观中 · 不占座位，不能准备、操作或聊天</p>
       <div class="sgs-online__code"><small>房间号</small><strong>{{ online.room.value.code }}</strong><button type="button" @click="shareRoom">分享房间链接</button></div>
       <div v-if="shareState !== 'idle'" class="sgs-online__share">
         <span :class="{ ok: shareState === 'copied' }">{{ shareState === 'copied' ? '链接已复制，发给朋友即可' : '这个浏览器不给复制，长按下面的链接自己复制' }}</span>
@@ -417,7 +423,7 @@ onBeforeUnmount(() => {
 .sgs-online__panel form, .sgs-online__panel label { display: flex; gap: 8px; }.sgs-online__panel label { align-items: center; justify-content: space-between; margin: 8px 0; color: #aab4ac; font-size: 13px; }
 .sgs-online input, .sgs-online select, .sgs-online button { min-height: 42px; border: 1px solid #465049; border-radius: 9px; background: #15201a; color: #e8dfca; font: inherit; }.sgs-online input { min-width: 0; flex: 1; padding: 0 12px; }.sgs-online select, .sgs-online button { padding: 0 13px; }.sgs-online button { cursor: pointer; }.sgs-online button:disabled { opacity: .45; cursor: default; }.sgs-online .primary { border-color: #a88438; background: #5d471f; color: #ffe8aa; }
 .sgs-online__login, .sgs-online__waiting, .sgs-online__choose, .sgs-online__finished { grid-column: 1 / -1; align-self: center; justify-self: center; width: min(680px, 100%); }.sgs-online__login { width: min(430px, 100%); padding: 28px; }.sgs-online__login > strong { display: block; margin-bottom: 18px; color: #efd58c; font-size: 25px; }.sgs-online__login form { display: grid; gap: 12px; }
-.sgs-online__create { grid-column: 1; grid-row: 3 / 5; }.sgs-online__join { grid-column: 2; grid-row: 3; }.sgs-online__rooms { grid-column: 2; grid-row: 4; overflow-y: auto; }.sgs-online__rooms header { display: flex; justify-content: space-between; align-items: center; }.sgs-online__rooms > button { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; text-align: left; }.sgs-online__rooms span { display: grid; }.sgs-online__rooms small { color: #849088; }.sgs-online__rooms em { color: #d0b46c; font-style: normal; }
+.sgs-online__create { grid-column: 1; grid-row: 3 / 5; }.sgs-online__join { grid-column: 2; grid-row: 3; }.sgs-online__rooms { grid-column: 2; grid-row: 4; overflow-y: auto; }.sgs-online__rooms header { display: flex; justify-content: space-between; align-items: center; }.sgs-online__room-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;margin-top:8px}.sgs-online__room-entry>button:first-child{display:flex;justify-content:space-between;align-items:center;text-align:left}.sgs-online__rooms span { display: grid; }.sgs-online__rooms small { color: #849088; }.sgs-online__rooms em { color: #d0b46c; font-style: normal; }.sgs-online__spectate{padding-inline:12px;border-color:#8b7440;color:#e8ce86}.sgs-online__spectator-note{margin:0 0 8px;padding:7px 10px;border:1px solid #8b7440;border-radius:8px;color:#e8ce86;text-align:center}
 .sgs-online__code { display: flex; align-items: center; gap: 12px; }.sgs-online__code strong { font-size: 25px; letter-spacing: .12em; }.sgs-online__code button { margin-left: auto; }.sgs-online__seats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }.sgs-online__seats article { min-height: 78px; display: grid; align-content: center; gap: 3px; padding: 10px; border: 1px solid #465049; border-radius: 10px; }.sgs-online__seats article.empty { color: #6f7b73; border-style: dashed; }.sgs-online__seats small { color: #89968e; }.sgs-online__seats button { min-height: 28px; margin-top: 4px; }.sgs-online__actions { display: flex; justify-content: flex-end; gap: 8px; }.sgs-online__error { position: fixed; left: 50%; bottom: 18px; z-index: 95; transform: translateX(-50%); margin: 0; padding: 10px 14px; border: none; border-radius: 10px; background: #783d36; color: #ffe0db; font: inherit; text-align: left; cursor: pointer; max-width: min(88vw, 420px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
 .sgs-online__mask { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .72); }.sgs-online__confirm { width: min(390px, 100%); padding: 20px; border: 1px solid #5b5040; border-radius: 16px; background: #172019; color: #e8dfca; }.sgs-online__confirm h2 { margin-top: 0; }.sgs-online__confirm p { color: #9ba49d; }.sgs-online__confirm div { display: flex; justify-content: flex-end; gap: 8px; }.sgs-online__confirm button { min-height: 42px; padding: 0 14px; border: 1px solid #485249; border-radius: 9px; background: #202a23; color: #e8dfca; }.sgs-online__confirm .danger { border-color: #8d4c43; background: #62362f; }
 @media (max-width: 620px) and (orientation: portrait) { .sgs-online { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto minmax(0, 1fr); overflow-y: auto; }.sgs-online__identity { padding: 8px 14px; }.sgs-online__identity span { font-size: 11px; }.sgs-online__identity strong { font-size: 14px; }.sgs-online__bar, .sgs-online__identity, .sgs-online__login, .sgs-online__waiting, .sgs-online__choose, .sgs-online__finished, .sgs-online__create, .sgs-online__join, .sgs-online__rooms { grid-column: 1; grid-row: auto; }.sgs-online__login { padding: 20px; }.sgs-online__seats { grid-template-columns: repeat(2, 1fr); }.sgs-online__actions { flex-wrap: wrap; } }

@@ -9,6 +9,8 @@
  * 和 `provideSkillIdsLookup` 是同一套做法，注入在 `data/characters/standard.ts`。
  */
 
+import type { PlayerId, SanguoshaState } from './types'
+
 let lookup: (skillId: string) => boolean = () => false
 
 export function provideLockedSkillLookup(fn: (skillId: string) => boolean): void {
@@ -16,6 +18,9 @@ export function provideLockedSkillLookup(fn: (skillId: string) => boolean): void
 }
 
 /** 未注册的技能一律按非锁定技处理：漏判会少压制一个技能，误判会凭空压制一个锁定技。 */
-export function isLockedSkill(skillId: string): boolean {
+export function isLockedSkill(skillId: string, state?: SanguoshaState, playerId?: PlayerId): boolean {
+  const overrides = (state as (SanguoshaState & { b79?: { nonLockedSkillOverrides?: Record<PlayerId, string[]> } }) | undefined)
+    ?.b79?.nonLockedSkillOverrides?.[playerId ?? '']
+  if (overrides?.includes(skillId)) return false
   return lookup(skillId)
 }

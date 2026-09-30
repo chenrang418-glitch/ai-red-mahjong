@@ -1,7 +1,9 @@
 import { destroyCharacterEquipment, isCharacterEquipment } from './character-equipment'
+import { destroySpecialEquipment, isSpecialEquipment } from './special-equipment'
 import { clearCardColorOverride } from './card-color'
 import { clearGainEntry, recordGainEntry } from './card-gain-provenance'
 import { clearDiscardEntry, recordDiscardEntry, type DiscardReason } from './discard-provenance'
+import { recordTurnCardCategory } from './turn-card-categories'
 import type { CardId, DamageNature, EquipmentSlot, PlayerId, SanguoshaState } from './types'
 
 export type ZoneRef =
@@ -15,6 +17,83 @@ export type ZoneRef =
   | { kind: 'characterPile'; playerId: PlayerId; pile: string }
   /** 私有暂存区，`zoneId` 是 state.privateZones 里那一项的 id。 */
   | { kind: 'privateZone'; zoneId: string }
+
+/** 记录一张牌进入某名角色手牌的轮次。开局分发手牌按第一轮持有处理。 */
+export function recordCardHandEntry(state: SanguoshaState, cardId: CardId, round = state.roundNumber || 1): void {
+  const card = state.cards[cardId]
+  if (card) card.handEnteredRound = Math.max(1, Math.trunc(round))
+}
+
+/** 当前牌已在手牌区经历的轮数；正在结算的牌保留其使用者最后一次入手时间。 */
+export function cardHandRounds(state: SanguoshaState, cardId: CardId): number {
+  const entered = state.cards[cardId]?.handEnteredRound
+  if (!Number.isInteger(entered)) return 1
+  return Math.max(1, Math.trunc(state.roundNumber || 1) - entered! + 1)
+}
+
+export interface CharacterPileMovement {
+  ownerId: PlayerId
+  pile: string
+  direction: 'enter' | 'leave'
+  overflow: boolean
+  /** 公开移动方向摘要，供依赖“获得武将牌上牌”的规则使用；不包含牌面信息。 */
+  destinationKind?: ZoneRef['kind']
+  destinationPlayerId?: PlayerId
+}
+
+const characterPileMoveObservers = new WeakMap<SanguoshaState, (movement: CharacterPileMovement) => void>()
+export interface HandCardLeftMovement { cardId: CardId; playerId: PlayerId; destination: ZoneRef | null }
+const handCardLeftObservers = new WeakMap<SanguoshaState, (movement: HandCardLeftMovement) => void>()
+export interface CardEnteredDiscardMovement { cardId: CardId; from: ZoneRef; reason: DiscardReason }
+const discardEntryObservers = new WeakMap<SanguoshaState, (movement: CardEnteredDiscardMovement) => void>()
+export interface FieldCardEntryMovement { cardId: CardId; playerId: PlayerId; zone: 'equipment' | 'judgingArea'; from: ZoneRef }
+const fieldEntryObservers = new WeakMap<SanguoshaState, (movement: FieldCardEntryMovement) => void>()
+export interface CardZoneMovement { cardId: CardId; from: ZoneRef; to: ZoneRef; color: 'red' | 'black' | null }
+const cardZoneObservers = new WeakMap<SanguoshaState, (movement: CardZoneMovement) => void>()
+
+/** 为单局引擎绑定专属牌堆区域变化监听；状态对象作键，互不串台。 */
+export function observeCharacterPileMoves(
+  state: SanguoshaState,
+  observer: (movement: CharacterPileMovement) => void,
+): void {
+  characterPileMoveObservers.set(state, observer)
+}
+
+/** 监听实体手牌离开原持有者手牌区，供“此牌离开其手牌区时”类规则使用。 */
+export function observeHandCardLeaves(
+  state: SanguoshaState,
+  observer: (movement: HandCardLeftMovement) => void,
+): void {
+  handCardLeftObservers.set(state, observer)
+}
+
+/** 统一监听所有实际进入弃牌堆的牌；来源区域由移动真相入口提供。 */
+export function observeDiscardPileEntries(
+  state: SanguoshaState,
+  observer: (movement: CardEnteredDiscardMovement) => void,
+): void {
+  discardEntryObservers.set(state, observer)
+}
+
+/** 监听实体牌进入任一角色装备区或判定区，用于依赖“进入场上区域”的武将技能。 */
+export function observeFieldCardEntries(
+  state: SanguoshaState,
+  observer: (movement: FieldCardEntryMovement) => void,
+): void {
+  fieldEntryObservers.set(state, observer)
+}
+
+/** Observe every completed zone move with the physical card identity. */
+export function observeCardZoneMoves(
+  state: SanguoshaState,
+  observer: (movement: CardZoneMovement) => void,
+): void {
+  cardZoneObservers.set(state, observer)
+}
+
+export function notifyHandCardLeft(state: SanguoshaState, movement: HandCardLeftMovement): void {
+  handCardLeftObservers.get(state)?.(movement)
+}
 
 function player(state: SanguoshaState, playerId: PlayerId) {
   const found = state.players.find((candidate) => candidate.id === playerId)
@@ -59,7 +138,7 @@ function removeCard(state: SanguoshaState, zone: ZoneRef, cardId: CardId): void 
   cards.splice(index, 1)
 }
 
-function addCard(state: SanguoshaState, zone: ZoneRef, cardId: CardId, toTop: boolean): CardId | null {
+function addCard(state: SanguoshaState, zone: ZoneRef, cardId: CardId, toTop: boolean, toIndex?: number): CardId | null {
   if (zone.kind === 'equipment') {
     const equipment = player(state, zone.playerId).zones.equipment
     const replaced = equipment[zone.slot]
@@ -67,13 +146,16 @@ function addCard(state: SanguoshaState, zone: ZoneRef, cardId: CardId, toTop: bo
     return replaced
   }
   const cards = zoneCards(state, zone)
-  if (zone.kind === 'drawPile' && toTop) cards.unshift(cardId)
+  if (zone.kind === 'drawPile' && toIndex !== undefined) cards.splice(Math.max(0, Math.min(toIndex, cards.length)), 0, cardId)
+  else if (zone.kind === 'drawPile' && toTop) cards.unshift(cardId)
   else cards.push(cardId)
   return null
 }
 
 export interface MoveCardOptions {
   toTop?: boolean
+  /** Insert into the draw pile at an exact zero-based position (top is 0). */
+  toIndex?: number
   replaceEquipmentTo?: ZoneRef
   /**
    * 这张牌进弃牌堆的原因。
@@ -83,14 +165,46 @@ export interface MoveCardOptions {
    * 所以判定那几处要显式说明。见 `engine/discard-provenance.ts`。
    */
   discardReason?: DiscardReason
+  /** 标记专属牌堆移出的规则原因；“堆溢出”不触发离堆奖励。 */
+  characterPileMoveReason?: 'overflow' | 'rule'
 }
 
 /** 单一卡牌移动真相入口；装备替换默认把旧装备移入弃牌堆。 */
 export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, to: ZoneRef, options: MoveCardOptions = {}): void {
   if (!state.cards[cardId]) throw new Error(`未知卡牌：${cardId}`)
+  const sameHand = from.kind === 'hand' && to.kind === 'hand' && from.playerId === to.playerId
+  if (to.kind === 'hand' && !sameHand) recordCardHandEntry(state, cardId)
+  const movedCardColor = state.cardColorOverrides?.[cardId] ?? state.cards[cardId]?.color ?? null
+  if (from.kind === 'hand' && !state.cards[cardId]?.virtual
+    && !(to.kind === 'hand' && to.playerId === from.playerId)) {
+    if (state.handCardLossThisTurn?.turnNumber !== state.turnNumber)
+      state.handCardLossThisTurn = { turnNumber: state.turnNumber, counts: {} }
+    state.handCardLossThisTurn.counts[from.playerId] = (state.handCardLossThisTurn.counts[from.playerId] ?? 0) + 1
+  }
+  const recordRedDiscard = (movedId: CardId, source: ZoneRef, destination: ZoneRef) => {
+    if (destination.kind !== 'discardPile' || source.kind === 'discardPile') return
+    const override = state.cardColorOverrides?.[movedId]
+    const color = override === undefined ? state.cards[movedId]?.color : override
+    if (color !== 'red') return
+    if (state.turnRedDiscardCount?.turnNumber !== state.turnNumber) state.turnRedDiscardCount = { turnNumber: state.turnNumber, count: 0 }
+    state.turnRedDiscardCount.count += 1
+  }
   removeCard(state, from, cardId)
-  const replaced = addCard(state, to, cardId, options.toTop ?? false)
-  if (replaced) addCard(state, options.replaceEquipmentTo ?? { kind: 'discardPile' }, replaced, false)
+  const replaced = addCard(state, to, cardId, options.toTop ?? false, options.toIndex)
+  const virtualDelayedTrickDiscard = from.kind === 'judgingArea' && to.kind === 'discardPile' && Boolean(state.cards[cardId]?.virtual)
+  if (from.kind === 'hand' && !(to.kind === 'hand' && to.playerId === from.playerId)) {
+    const faceUp = state.faceUpHandCards?.[from.playerId]
+    if (faceUp) {
+      state.faceUpHandCards![from.playerId] = faceUp.filter((id) => id !== cardId)
+      if (state.faceUpHandCards![from.playerId].length === 0) delete state.faceUpHandCards![from.playerId]
+    }
+  }
+  recordRedDiscard(cardId, from, to)
+  if (replaced) {
+    const replacedTo = options.replaceEquipmentTo ?? { kind: 'discardPile' }
+    addCard(state, replacedTo, replaced, false)
+    if (to.kind === 'equipment') recordRedDiscard(replaced, to, replacedTo)
+  }
   /*
    * 武将牌变的装备（神典韦【挈挟】）**一离开装备区就销毁**。
    *
@@ -103,8 +217,14 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
    * 进出弃牌堆时维护「它为什么在这儿」的记录：进去时记，离开时清。
    * 清这一步不能省——不清的话，一张被拿走又弃回来的牌会顶着上一次的原因。
    */
-  if (to.kind === 'discardPile') {
+  if (to.kind === 'discardPile' && !virtualDelayedTrickDiscard) {
     recordDiscardEntry(state, cardId, from.kind, 'playerId' in from ? from.playerId : null, options.discardReason)
+    const sourcePlayerId = 'playerId' in from ? from.playerId : null
+    const category = state.cards[cardId]?.category
+    const inferredReason = options.discardReason ?? (from.kind === 'hand' || from.kind === 'equipment' || from.kind === 'judgingArea' ? 'discard' : 'other')
+    if (sourcePlayerId && inferredReason === 'discard' && category && from.kind !== 'privateZone') {
+      recordTurnCardCategory(state, sourcePlayerId, category, 'discarded', cardId)
+    }
   } else {
     clearDiscardEntry(state, cardId)
   }
@@ -118,8 +238,22 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
   } else {
     clearGainEntry(state, cardId)
   }
-  if (to.kind !== 'equipment' && isCharacterEquipment(state, cardId)) destroyCharacterEquipment(state, cardId)
+  // 这类装备只在「离开装备区」时销毁；从牌堆或处理区先进入手牌并不算失去装备。
+  // 天书等效果会先令角色获得特殊装备，再立即使用，必须允许 hand -> processing -> equipment。
+  if (from.kind === 'equipment' && to.kind !== 'equipment' && isCharacterEquipment(state, cardId)) destroyCharacterEquipment(state, cardId)
+  if (from.kind === 'equipment' && to.kind !== 'equipment' && isSpecialEquipment(state, cardId)) {
+    const card = state.cards[cardId]
+    if (to.kind === 'discardPile' && card?.persistInDiscard && card.specialEquipment) {
+      state.specialEquipmentRemoval ??= {}
+      state.specialEquipmentRemoval[cardId] = card.specialEquipment
+      if (card.rank !== undefined) {
+        state.specialEquipmentRemovalRank ??= {}
+        state.specialEquipmentRemovalRank[cardId] = card.rank
+      }
+    } else destroySpecialEquipment(state, cardId)
+  }
   if (replaced && isCharacterEquipment(state, replaced)) destroyCharacterEquipment(state, replaced)
+  if (replaced && isSpecialEquipment(state, replaced)) destroySpecialEquipment(state, replaced)
   // 「当作什么用」只在结算途中有意义。牌回到手牌、弃牌堆或牌堆就该忘掉，
   // 否则下次再摸到它还会顶着上一次的身份。闪电要在判定区之间流转，所以留着。
   if (to.kind !== 'judgingArea' && to.kind !== 'processingArea') {
@@ -128,6 +262,30 @@ export function moveCard(state: SanguoshaState, cardId: CardId, from: ZoneRef, t
     // 颜色改写和「当作什么用」同寿命：牌回到手牌、弃牌堆或牌堆就该忘掉
     clearCardColorOverride(state, cardId)
   }
+  const observe = characterPileMoveObservers.get(state)
+  if (observe && from.kind === 'characterPile') {
+    observe({ ownerId: from.playerId, pile: from.pile, direction: 'leave', overflow: options.characterPileMoveReason === 'overflow',
+      destinationKind: to.kind, destinationPlayerId: 'playerId' in to ? to.playerId : undefined })
+  }
+  if (observe && to.kind === 'characterPile') {
+    observe({ ownerId: to.playerId, pile: to.pile, direction: 'enter', overflow: false })
+  }
+  if (from.kind === 'hand' && !state.cards[cardId]?.virtual
+    && !(to.kind === 'hand' && to.playerId === from.playerId))
+    notifyHandCardLeft(state, { cardId, playerId: from.playerId, destination: structuredClone(to) })
+  if (to.kind === 'discardPile' && from.kind !== 'discardPile' && !virtualDelayedTrickDiscard) {
+    const reason = options.discardReason ?? (from.kind === 'hand' || from.kind === 'equipment' || from.kind === 'judgingArea' ? 'discard' : 'other')
+    discardEntryObservers.get(state)?.({ cardId, from: structuredClone(from), reason })
+  }
+  if (virtualDelayedTrickDiscard) {
+    state.zones.discardPile = state.zones.discardPile.filter((id) => id !== cardId)
+    clearDiscardEntry(state, cardId)
+    delete state.cards[cardId]
+  }
+  if (to.kind === 'equipment' || to.kind === 'judgingArea') {
+    fieldEntryObservers.get(state)?.({ cardId, playerId: to.playerId, zone: to.kind, from: structuredClone(from) })
+  }
+  cardZoneObservers.get(state)?.({ cardId, from: structuredClone(from), to: structuredClone(to), color: movedCardColor })
 }
 
 /** 这张牌当前按什么牌名结算：有转化就用转化后的，否则用牌面上印的。 */
@@ -172,7 +330,17 @@ export function locateOwnedCard(
 }
 
 export function effectiveCardName(state: SanguoshaState, cardId: CardId): string {
-  return state.cardAliases[cardId] ?? state.cards[cardId]?.name ?? ''
+  return state.equipmentTransformations?.[cardId] ?? state.cardAliases[cardId] ?? state.cards[cardId]?.name ?? ''
+}
+
+/** Resolve an equipment card's permanent face modification without changing its physical slot. */
+export function effectiveEquipmentName(state: SanguoshaState, cardId: CardId): string {
+  return state.equipmentTransformations?.[cardId] ?? state.cards[cardId]?.name ?? ''
+}
+
+export function setEquipmentTransformation(state: SanguoshaState, cardId: CardId, name: string): void {
+  state.equipmentTransformations ??= {}
+  state.equipmentTransformations[cardId] = name
 }
 
 /** 记下一张牌「被当作什么用」。和牌面同名时不留记录，免得别名表越积越大。 */

@@ -423,12 +423,12 @@ registerSkillRuntime({
       playerId: ownerId, skillId: XINZHENG, skillName: '新政', result: 'slash', targetIds: [actorId],
       logText: `${actor.nickname}响应【群怒】，对${owner.nickname}使用【杀】`,
     }, { sourceId: actorId, targetId: ownerId, cardIds: [cardId] })
-    host.beginVirtualSlash({ sourceId: actorId, targetId: ownerId, sourceSkillId: XINZHENG, cardId })
+    host.beginVirtualSlash({ sourceId: actorId, targetId: ownerId, sourceSkillId: XINZHENG, cardId, ignoreDistance: true, countUsage: false })
   },
 })
 
 export const YIXING: CharacterDefinition = {
-  id: 'yixing', name: '奕星', kingdom: 'qun', gender: 'male', maxHp: 4, pack: 'entertainment',
+  id: 'yixing', name: '奕星', kingdom: 'le', gender: 'male', maxHp: 4, pack: 'entertainment',
   skills: [
     {
       id: LIGUI, name: '立规',

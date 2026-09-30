@@ -1,10 +1,12 @@
 import { weaponCardsOf } from './equipment-slots'
 import { isArmorSuppressed } from './armor-suppression'
 import type { EventContext, GameEvent, GameEventName } from './events'
-import { cardEffectInvalidBy, skillsOf } from './skills/runtime'
+import { cardEffectInvalidBy, equipmentEffectsSuppressed, skillsOf } from './skills/runtime'
 import { skillIdsOf } from '../data/characters/standard'
 import { skillDisplayName } from './presentation'
-import type { DamageNature, PlayerId, SanguoshaState } from './types'
+import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
+import { effectiveEquipmentName } from './zones'
+import { dispatchHealthColorChange } from './health-color'
 
 /** 装备特效需要的最小宿主：读状态 + 派发事件。 */
 export interface EquipmentHost {
@@ -36,6 +38,11 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return found
 }
 
+function armorSuppressedBySkill(state: SanguoshaState, targetId: PlayerId, sourceId: PlayerId | null | undefined, cardName?: string, cardColor?: 'red' | 'black' | null): boolean {
+  if (sourceId && skillsOf(state, sourceId, skillIdsOf).some((runtime) => runtime.ignoresArmorFor?.(state, sourceId, targetId) === true)) return true
+  return Boolean(cardName && skillsOf(state, targetId, skillIdsOf).some((runtime) => runtime.armorIneffectiveWhenTargeted?.(state, targetId, sourceId ?? null, cardName, cardColor ?? null) === true))
+}
+
 /**
  * 某人是否穿着指定防具。
  *
@@ -48,10 +55,14 @@ export function hasArmor(
   playerId: PlayerId,
   armorName: string,
   againstSourceId?: PlayerId | null,
+  cardName?: string,
+  cardColor?: 'red' | 'black' | null,
+  cardId?: CardId,
 ): boolean {
-  if (isArmorSuppressed(state, playerId, againstSourceId)) return false
+  if (equipmentEffectsSuppressed(state, playerId)) return false
+  if (isArmorSuppressed(state, playerId, againstSourceId, cardId) || armorSuppressedBySkill(state, playerId, againstSourceId, cardName, cardColor)) return false
   const armorId = playerOf(state, playerId).zones.equipment.armor
-  return !!armorId && state.cards[armorId]?.name === armorName
+  return !!armorId && effectiveEquipmentName(state, armorId) === armorName
 }
 
 /** 真实装备优先；只有装备槽为空时技能才可提供没有 CardId 的虚拟防具。 */
@@ -59,11 +70,15 @@ export function effectiveArmorName(
   state: SanguoshaState,
   playerId: PlayerId,
   againstSourceId?: PlayerId | null,
+  cardName?: string,
+  cardColor?: 'red' | 'black' | null,
+  cardId?: CardId,
 ): string | null {
-  if (isArmorSuppressed(state, playerId, againstSourceId)) return null
+  if (equipmentEffectsSuppressed(state, playerId)) return null
+  if (isArmorSuppressed(state, playerId, againstSourceId, cardId) || armorSuppressedBySkill(state, playerId, againstSourceId, cardName, cardColor)) return null
   const owner = playerOf(state, playerId)
   const realArmorId = owner.zones.equipment.armor
-  if (realArmorId) return state.cards[realArmorId]?.name ?? null
+  if (realArmorId) return effectiveEquipmentName(state, realArmorId) || null
   for (const runtime of skillsOf(state, playerId, skillIdsOf)) {
     const virtual = runtime.virtualArmor?.(state, playerId)
     if (virtual) return virtual
@@ -73,8 +88,10 @@ export function effectiveArmorName(
 
 /** 某人是否装备着指定武器。 */
 export function hasWeapon(state: SanguoshaState, playerId: PlayerId, weaponName: string): boolean {
+  if (equipmentEffectsSuppressed(state, playerId)) return false
   // 有第二武器栏时两把都算：装在哪一栏不影响这把武器的效果生不生效
-  return weaponCardsOf(state, playerId).some((cardId) => state.cards[cardId]?.name === weaponName)
+  return weaponCardsOf(state, playerId).some((cardId) => effectiveEquipmentName(state, cardId) === weaponName)
+    || skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.virtualWeapon?.(state, playerId) === weaponName)
 }
 
 /**
@@ -138,16 +155,21 @@ export function isCardIneffective(
   cardColor: 'red' | 'black' | null,
   damageNature: DamageNature,
   sourceId: PlayerId | null = null,
+  cardSuit?: string | null,
+  cardId?: CardId,
 ): boolean {
+  if (cardId && state.invalidatedCardUses?.[cardId]) return true
+  if (skillsOf(state, targetId, skillIdsOf).some((runtime) => runtime.cardIneffectiveForTarget?.(state, targetId, sourceId, cardName, cardId))) return true
   if (cardEffectInvalidBy(state, targetId, sourceId, cardName, cardColor)) return true
   if (cardName === '杀') {
-    if (hasArmor(state, targetId, '仁王盾', sourceId) && cardColor === 'black') return true
+    if (hasArmor(state, targetId, '仁王盾', sourceId, cardName, cardColor, cardId) && cardColor === 'black') return true
+    if (hasArmor(state, targetId, '仁王金刚盾', sourceId, cardName, cardColor, cardId) && (cardColor === 'black' || cardSuit === 'heart')) return true
     // 藤甲只挡普通杀，火杀雷杀照样打得进来
-    if (hasArmor(state, targetId, '藤甲', sourceId) && damageNature === 'normal') return true
+    if ((hasArmor(state, targetId, '藤甲', sourceId, cardName, cardColor, cardId) || hasArmor(state, targetId, '桐油百韧甲', sourceId, cardName, cardColor, cardId)) && damageNature === 'normal') return true
     return false
   }
   if (cardName === '南蛮入侵' || cardName === '万箭齐发') {
-    return hasArmor(state, targetId, '藤甲', sourceId)
+    return hasArmor(state, targetId, '藤甲', sourceId, cardName, cardColor, cardId) || hasArmor(state, targetId, '桐油百韧甲', sourceId, cardName, cardColor, cardId)
   }
   return false
 }
@@ -168,13 +190,17 @@ export function adjustDamageAmount(
   amount: number,
   nature: DamageNature,
   cardName: string | null,
+  cardId?: CardId,
 ): number {
   let adjusted = amount
   if (cardName === '杀' && sourceId && hasWeapon(state, sourceId, '古锭刀')) {
     if (playerOf(state, targetId).zones.hand.length === 0) adjusted += 1
   }
-  if (nature === 'fire' && hasArmor(state, targetId, '藤甲', sourceId)) adjusted += 1
-  if (hasArmor(state, targetId, '白银狮子', sourceId) && adjusted > 1) adjusted = 1
+  if (nature === 'fire' && (hasArmor(state, targetId, '藤甲', sourceId, undefined, undefined, cardId) || hasArmor(state, targetId, '桐油百韧甲', sourceId, undefined, undefined, cardId))) adjusted += 1
+  const boundSlashBonus = cardId ? state.slashDamageBonusCards?.[cardId] : undefined
+  if (cardName === '杀' && sourceId && boundSlashBonus?.sourceId === sourceId
+    && boundSlashBonus.turnNumber === state.turnNumber) adjusted += boundSlashBonus.amount
+  if ((hasArmor(state, targetId, '白银狮子', sourceId, undefined, undefined, cardId) || hasArmor(state, targetId, '照月狮子盔', sourceId, undefined, undefined, cardId)) && adjusted > 1) adjusted = 1
   return adjusted
 }
 
@@ -182,9 +208,19 @@ export function adjustDamageAmount(
  * 出牌阶段【杀】是否不限次。
  * 诸葛连弩和张飞【咆哮】走同一个入口——技能不另写一套出杀次数逻辑。
  */
-export function hasUnlimitedSlash(state: SanguoshaState, playerId: PlayerId): boolean {
-  if (hasWeapon(state, playerId, '诸葛连弩')) return true
-  return skillsOf(state, playerId, skillIdsOf).some((runtime) => runtime.unlimitedSlash)
+export function hasUnlimitedSlash(state: SanguoshaState, playerId: PlayerId, cardId?: CardId): boolean {
+  if (hasWeapon(state, playerId, '诸葛连弩') || hasWeapon(state, playerId, '元戎精械弩')) return true
+  if (cardId && state.players.some((owner) => owner.alive && skillsOf(state, owner.id, skillIdsOf).some((runtime) =>
+    runtime.globalUnlimitedSlashWithCard?.(state, owner.id, playerId, cardId)
+      || runtime.globalUnlimitedCardUses?.(state, owner.id, playerId, cardId)))) return true
+  return skillsOf(state, playerId, skillIdsOf).some((runtime) => (typeof runtime.unlimitedSlash === 'function'
+    ? runtime.unlimitedSlash(state, playerId)
+    : runtime.unlimitedSlash === true)
+    || (typeof runtime.unlimitedCardUses === 'function'
+      ? runtime.unlimitedCardUses(state, playerId, cardId)
+      : runtime.unlimitedCardUses === true)
+    || runtime.slashUseQuotaBypass?.(state, playerId, cardId) === true
+    || runtime.unlimitedSlashFor?.(state, playerId, cardId) === true)
 }
 
 /**
@@ -199,7 +235,10 @@ export function handleEquipmentLost(
   options: { batched?: boolean } = {},
 ): void {
   // 先广播「失去了一张装备」，孙尚香【枭姬】这类技能挂在这个时机上
-  host.dispatch('LoseEquipment', { playerId, cardId }, { targetId: playerId, cardIds: [cardId] })
+  const removedSpecialEquipment = host.state.specialEquipmentRemoval?.[cardId]
+  host.dispatch('LoseEquipment', { playerId, cardId, specialEquipment: removedSpecialEquipment }, { targetId: playerId, cardIds: [cardId] })
+  if (removedSpecialEquipment && host.state.specialEquipmentRemoval) delete host.state.specialEquipmentRemoval[cardId]
+  if (removedSpecialEquipment && host.state.specialEquipmentRemovalRank) delete host.state.specialEquipmentRemovalRank[cardId]
   /*
    * 再广播一条**按原子操作计数**的（凌统【旋风】要的粒度）。
    * `batched` 表示调用方正在成批搬装备，总的那一条由它自己发——
@@ -208,11 +247,16 @@ export function handleEquipmentLost(
   if (!options.batched) {
     host.dispatch('EquipmentZoneLoss', { playerId, cardIds: [cardId] }, { targetId: playerId, cardIds: [cardId] })
   }
-  if (host.state.cards[cardId]?.name !== '白银狮子') return
+  host.dispatch('EquipmentLossSettled', { playerId, cardId }, { targetId: playerId, cardIds: [cardId] })
+  if (equipmentEffectsSuppressed(host.state, playerId)) return
+  if (!['白银狮子', '照月狮子盔'].includes(effectiveEquipmentName(host.state, cardId))) return
   const owner = playerOf(host.state, playerId)
   if (!owner.alive || owner.hp >= owner.maxHp) return
+  const previousHp = owner.hp
+  const previousMaxHp = owner.maxHp
   owner.hp += 1
   host.dispatch('Recover', { playerId, amount: 1, reason: '白银狮子' }, { targetId: playerId })
+  dispatchHealthColorChange(host, playerId, previousHp, previousMaxHp, '白银狮子')
 }
 
 /** 八卦阵：需要打出【闪】时，可以改为判定，红色即视为出了一张【闪】。 */
@@ -222,7 +266,15 @@ export function canInvokeBagua(
   state: SanguoshaState,
   playerId: PlayerId,
   againstSourceId?: PlayerId | null,
+  cardColor?: 'red' | 'black' | null,
+  cardId?: CardId,
 ): boolean {
   // 八卦阵是「防具技能」，被【无前】压制的目标对那个来源用不了它
-  return effectiveArmorName(state, playerId, againstSourceId) === '八卦阵'
+  return ['八卦阵', '先天八卦阵'].includes(effectiveArmorName(state, playerId, againstSourceId, '杀', cardColor, cardId) ?? '')
+}
+
+export function perfectBagua(state: SanguoshaState, playerId: PlayerId): boolean {
+  if (equipmentEffectsSuppressed(state, playerId)) return false
+  const armorId = playerOf(state, playerId).zones.equipment.armor
+  return !!armorId && effectiveEquipmentName(state, armorId) === '先天八卦阵'
 }

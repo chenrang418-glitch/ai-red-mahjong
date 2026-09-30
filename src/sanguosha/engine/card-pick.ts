@@ -1,5 +1,6 @@
 import { hiddenHandSlot } from './cards/host'
 import { handleEquipmentLost, type EquipmentHost } from './equipment'
+import { isCardProtectedFromDiscard } from './skills/runtime'
 import type { CardId, PlayerId, SanguoshaState } from './types'
 import { locateOwnedCard, moveCard, type ZoneRef } from './zones'
 
@@ -19,6 +20,8 @@ import { locateOwnedCard, moveCard, type ZoneRef } from './zones'
 export interface PickableOptions {
   /** 把判定区的牌也列进候选。判定区是公开的，所以直接给真实 cardId。 */
   includeJudgingArea?: boolean
+  /** 这是弃置而非获得/移动时，过滤该角色不能弃置的公开牌。 */
+  discarderId?: PlayerId
 }
 
 export interface PickableCards {
@@ -36,7 +39,8 @@ export function pickableCardsOf(
 ): PickableCards {
   const target = state.players.find((candidate) => candidate.id === targetId)
   if (!target?.alive) return { cardIds: [], hiddenCardSlots: [] }
-  const open = Object.values(target.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId))
+  const open = Object.values(target.zones.equipment).filter((cardId): cardId is CardId => Boolean(cardId)
+    && (!options.discarderId || !isCardProtectedFromDiscard(state, targetId, cardId, options.discarderId)))
   if (options.includeJudgingArea) open.push(...target.zones.judgingArea)
   return {
     cardIds: open,
@@ -85,6 +89,12 @@ export function movePickedCard(
 ): boolean {
   const from = locateOwnedCard(host.state, targetId, cardId)
   if (!from) return false
+  if (to.kind === 'discardPile' && from.kind === 'equipment') {
+    // 技能目标挑牌与普通拆牌共用此出口；出牌阶段由当前行动角色发起，
+    // 技能请求挂起时则以当前技能拥有者为发起者。自弃成本仍可照常支付。
+    const discarderId = host.state.skillResolution?.ownerId ?? host.state.currentPlayerId
+    if (discarderId && discarderId !== targetId && isCardProtectedFromDiscard(host.state, targetId, cardId, discarderId)) return false
+  }
   moveCard(host.state, cardId, from, to)
   if (from.kind === 'equipment') handleEquipmentLost(host, targetId, cardId)
   return true

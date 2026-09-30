@@ -1,3 +1,5 @@
+import { drawCards } from '../../engine/draw'
+import type { GameRng } from '../../engine/rng'
 import { executeUseCardAction } from '../../engine/cards/basic'
 import { instantTrickActions } from '../../engine/cards/tricks'
 import { addForcedAwakening, pendingAwakeningSkills } from '../../engine/forced-awakening'
@@ -129,6 +131,7 @@ function finishHuishi(host: SkillHostLike, ownerId: PlayerId, recipientId: Playe
 
 /** 最小可用的宿主形状：这个文件只用到这几样。 */
 interface SkillHostLike {
+  rng: GameRng
   state: SanguoshaState
   dispatch(name: string, payload?: Record<string, unknown>, metadata?: Record<string, unknown>): unknown
   askSkill(options: { skillId: string; ownerId: PlayerId; step: string; data?: Record<string, unknown>; build(requestId: string): unknown }): void
@@ -384,15 +387,10 @@ function drawFour(host: SkillHostLike, ownerId: PlayerId, targetId: PlayerId): v
   const state = host.state
   const target = playerOf(state, targetId)
   if (!target?.alive) return
-  const drawn: CardId[] = []
-  for (let index = 0; index < 4; index += 1) {
-    const cardId = state.zones.drawPile.shift()
-    if (!cardId) break
-    target.zones.hand.push(cardId)
-    drawn.push(cardId)
-  }
+  const drawn = drawCards(state, host.rng, targetId, 4, (name, payload) => host.dispatch(name,
+    name === 'GainCard' ? { ...payload, reason: HUISHIFADE } : payload,
+    name === 'GainCard' ? { targetId, cardIds: payload.cardIds as CardId[] } : undefined))
   if (drawn.length === 0) return
-  host.dispatch('GainCard', { playerId: targetId, cardIds: drawn, reason: HUISHIFADE }, { targetId, cardIds: drawn })
   host.dispatch('SkillActivated', {
     skillId: HUISHIFADE, skillName: '辉逝', playerId: ownerId,
     logText: `${playerOf(state, ownerId)?.nickname}发动【辉逝】，令${target.nickname}摸四张牌`,

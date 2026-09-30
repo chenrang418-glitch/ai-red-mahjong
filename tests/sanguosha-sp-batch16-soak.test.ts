@@ -7,7 +7,7 @@ import { runSoakGame } from '@/sanguosha/ai/soak'
  * 必然有本批人物在场，再按计数器确认技能真的被发动过。
  */
 
-const ALL_TEN = ['xiahouba', 'zhangyi', 'luoxian', 'furong', 'macheng', 'huojun', 'zhaotong_zhaoguang', 'zhangxun', 'sunyi', 'zhujianping']
+const ALL_TEN = ['xiahouba', 'zhangyi', 'luoxian', 'furong', 'macheng', 'huojun', 'zhaotongzhaoguang', 'zhangxun', 'sunyi', 'zhujianping']
 
 function rotate(offset: number, size: number): string[] {
   return Array.from({ length: size }, (_, index) => ALL_TEN[(offset + index) % ALL_TEN.length])

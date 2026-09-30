@@ -2,11 +2,12 @@ import { clearCardDamage } from '../card-damage-ledger'
 import type { LegalAction } from '../actions'
 import type { EventContext, GameEvent, GameEventName } from '../events'
 import type { GameRng } from '../rng'
-import type { CardId, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from '../types'
+import type { CardId, CardResolutionState, EquipmentSlot, PlayerId, PlayerState, SanguoshaState } from '../types'
 import { resolvedCardRecipientOf, type SkillHost } from '../skills/runtime'
 import { popCardUseTargets, pushCardUseTargets } from '../card-use-targets'
 import { locateOwnedCard, moveCard, type ZoneRef } from '../zones'
 import { skillDisplayName } from '../../data/characters/standard'
+import { clearArmorSuppressionForCard } from '../armor-suppression'
 
 /**
  * 卡牌实现能接触到的最小宿主接口。
@@ -72,15 +73,27 @@ export function beginPhysicalCard(
   targetIds: PlayerId[],
   effectiveName?: string,
   from?: ZoneRef,
+  usedCardIds: readonly CardId[] = [cardId],
+  sourceSkillId?: string,
 ): boolean {
   const sourceZone = from ?? locateOwnedCard(host.state, sourceId, cardId)
   if (!sourceZone || sourceZone.kind === 'judgingArea') throw new Error('卡牌不属于出牌玩家的手牌区或装备区')
   moveCard(host.state, cardId, sourceZone, { kind: 'processingArea' })
+  if (sourceSkillId) {
+    host.state.cardUseSourceSkills ??= {}
+    host.state.cardUseSourceSkills[cardId] = sourceSkillId
+  }
   const card = host.state.cards[cardId]
   const cardName = effectiveName ?? card.name
-  const metadata = { sourceId, targetId: targetIds[0], cardIds: [cardId] }
-  const before = host.dispatch('BeforeCardUse', { cardId, cardName, targetIds }, metadata)
-  if (before.cancelled) {
+  const allCardIds = [...new Set([cardId, ...usedCardIds])]
+  const cardOwnerId = sourceZone.kind === 'hand' ? sourceZone.playerId : sourceId
+  const fromPile = sourceZone.kind === 'characterPile' ? sourceZone.pile : undefined
+  const metadata = { sourceId, targetId: targetIds[0], cardIds: allCardIds, fromKind: sourceZone.kind, ...(fromPile ? { fromPile } : {}),
+    ...(cardOwnerId !== sourceId ? { cardOwnerId } : {}), ...(sourceSkillId ? { sourceSkillId } : {}) }
+  const repeatedEffect = Boolean(host.state.cards[cardId]?.repeatedEffect)
+  const beforeCancelled = !repeatedEffect
+    && host.dispatch('BeforeCardUse', { cardId, cardName, targetIds, cardIds: allCardIds, fromKind: sourceZone.kind, ...(fromPile ? { fromPile } : {}), cardOwnerId }, metadata).cancelled
+  if (beforeCancelled) {
     finishPhysicalCard(host, sourceId, cardId, targetIds, true, cardName)
     return false
   }
@@ -92,7 +105,7 @@ export function beginPhysicalCard(
    * 「这张牌只指定了一个目标」，只能在这里记。
    */
   pushCardUseTargets(host.state, { cardId, sourceId, targetIds })
-  host.dispatch('CardUsed', { cardId, cardName, targetIds }, metadata)
+  if (!repeatedEffect) host.dispatch('CardUsed', { cardId, cardName, targetIds, cardIds: allCardIds, fromKind: sourceZone.kind, ...(fromPile ? { fromPile } : {}), cardOwnerId }, metadata)
   /*
    * 使用时机里的技能可能把牌局直接打完。
    *
@@ -108,23 +121,24 @@ export function beginPhysicalCard(
     finishPhysicalCard(host, sourceId, cardId, targetIds, true, cardName)
     return false
   }
-  host.dispatch('TargetSpecified', { cardId, cardName, targetIds }, metadata)
-  for (const targetId of targetIds) {
-    host.dispatch('TargetConfirmed', { cardId, cardName, targetId }, { sourceId, targetId, cardIds: [cardId] })
+  if (!repeatedEffect) {
+    host.dispatch('TargetSpecified', { cardId, cardName, targetIds, cardIds: allCardIds }, metadata)
+    for (const targetId of targetIds) {
+      host.dispatch('TargetConfirmed', { cardId, cardName, targetId }, { sourceId, targetId, cardIds: [cardId] })
+    }
   }
   return true
 }
 
 /** 结算收束：牌还在处理区就送进弃牌堆，然后派发结束时机。 */
-export function finishPhysicalCard(host: CardEngineHost, sourceId: PlayerId, cardId: CardId, targetIds: PlayerId[], cancelled = false, effectiveName?: string): void {
+export function finishPhysicalCard(host: CardEngineHost, sourceId: PlayerId, cardId: CardId, targetIds: PlayerId[], cancelled = false, effectiveName?: string, resolvedPayload: Record<string, unknown> = {}): void {
   const card = host.state.cards[cardId]
   if (!card) return
   const cardName = effectiveName ?? card.name
   const virtual = Boolean(card.virtual)
-  const sourceSkillId = card.sourceSkillId
+  const sourceSkillId = host.state.cardUseSourceSkills?.[cardId] ?? card.sourceSkillId
   if (card?.virtual) {
     host.state.zones.processingArea = host.state.zones.processingArea.filter((id) => id !== cardId)
-    delete host.state.cards[cardId]
   } else if (host.state.zones.processingArea.includes(cardId)) {
     const recipient = resolvedCardRecipientOf(host.state, { sourceId, cardId, cardName, targetIds, cancelled })
     if (recipient) {
@@ -140,11 +154,50 @@ export function finishPhysicalCard(host: CardEngineHost, sourceId: PlayerId, car
     }
   }
   const metadata = { sourceId, targetId: targetIds[0], cardIds: [cardId] }
-  const payload = { cardId, cardName, targetIds, cancelled, virtual, sourceSkillId }
-  host.dispatch('CardResolved', payload, metadata)
-  host.dispatch('AfterCardUse', payload, metadata)
+  const payload = { cardId, cardName, targetIds, cancelled, virtual, sourceSkillId, ...resolvedPayload }
+  if (card.repeatedEffect) host.dispatch('CardEffectResolved', payload, metadata)
+  else {
+    host.dispatch('CardResolved', payload, metadata)
+    host.dispatch('AfterCardUse', payload, metadata)
+  }
+  clearArmorSuppressionForCard(host.state, sourceId, cardId)
   // 收束之后再弹：结束时机里的技能仍然要看得到这次使用的目标表
   popCardUseTargets(host.state, cardId)
   // 「这次使用造成过伤害吗」同理：疠火挂在 AfterCardUse 上读它，读完才销毁
   clearCardDamage(host.state, cardId)
+  if (host.state.skillCardOwnerOverride?.cardId === cardId) delete host.state.skillCardOwnerOverride
+  if (host.state.cardUseSourceSkills?.[cardId]) delete host.state.cardUseSourceSkills[cardId]
+  const installedVirtualDelayedTrick = virtual && host.state.players.some((player) => player.zones.judgingArea.includes(cardId))
+  if (virtual && !installedVirtualDelayedTrick) delete host.state.cards[cardId]
+}
+
+/** Finish the original physical use after a child resolution substituted its effect. */
+export function finishReplacedCardEffect(host: CardEngineHost, replacement: CardResolutionState): boolean {
+  if (!replacement.effectReplacement) return false
+  const original = host.state.suspendedCardEffectResolution
+  if (!original) throw new Error('替换牌效缺少原始卡牌结算状态')
+  host.state.suspendedCardEffectResolution = null
+  host.state.cardResolution = null
+  const discardExtras = (cardIds: readonly CardId[] | undefined) => {
+    for (const cardId of cardIds ?? []) {
+      if (host.state.zones.processingArea.includes(cardId))
+        moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+    }
+  }
+  if (original.kind === 'trick') {
+    discardExtras(original.extraCardIds)
+    const nullified = replacement.kind === 'trick' ? replacement.nullifiedTargetIds : []
+    const cancelledTargets = replacement.kind === 'trick' ? replacement.cancelledTargetIds : []
+    const suppressed = new Set([...nullified, ...cancelledTargets])
+    finishPhysicalCard(host, original.sourceId, original.cardId, original.targetIds,
+      suppressed.size === original.targetIds.length, original.cardName,
+      { nullifiedTargetIds: nullified, cancelledTargetIds: cancelledTargets })
+  } else {
+    const targets = [...(original.resolvedTargetIds ?? []), original.targetId, ...original.remainingTargetIds]
+    finishPhysicalCard(host, original.sourceId, original.cardId, [...new Set(targets)], false, '杀', {
+      slashUsageCounted: original.usageCounted === true,
+    })
+    discardExtras(original.extraCardIds)
+  }
+  return true
 }

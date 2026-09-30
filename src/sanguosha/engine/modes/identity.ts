@@ -15,11 +15,11 @@ export function identitiesFor(playerCount: number): readonly Identity[] {
 export function checkIdentityVictory(players: readonly PlayerState[]): GameResult | null {
   const lord = players.find((player) => player.identity === 'lord')
   if (!lord) throw new Error('身份局缺少主公')
-  const alive = players.filter((player) => player.alive)
+  const alive = players.filter((player) => player.alive || player.restingUntilRound !== undefined)
   const aliveRebels = alive.filter((player) => player.identity === 'rebel')
   const aliveRenegades = alive.filter((player) => player.identity === 'renegade')
 
-  if (!lord.alive) {
+  if (!lord.alive && lord.restingUntilRound === undefined) {
     if (alive.length === 1 && alive[0].identity === 'renegade') {
       return { winningCamp: 'renegade', winnerIds: [alive[0].id], reason: '内奸清除其他角色后击败主公' }
     }

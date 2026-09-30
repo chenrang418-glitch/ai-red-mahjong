@@ -33,6 +33,7 @@ export type ChooseGeneralRequest = RequestBase<'choose-general'> & {
 }
 export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   cardIds: CardId[]
+  interaction?: { kind: 'zhengxuan-slice' }
   hiddenCardSlots: string[]
   /**
    * **只给这名玩家看、但不能选**的牌。
@@ -48,6 +49,8 @@ export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   min: number
   max: number
   purpose?: 'discard-phase' | 'card-effect' | 'skill' | 'retrial' | 'pindian'
+  /** 选择响应牌后的额外弃牌支付；由引擎恢复原响应请求，不经技能运行时。 */
+  responsePayment?: { responseRequest: RespondCardRequest; responseActionId: string }
   /**
    * 改判专用：当前判定牌的公开信息。
    *
@@ -64,7 +67,15 @@ export type ChooseCardsRequest = RequestBase<'choose-cards'> & {
   }
 }
 export type ChooseTargetsRequest = RequestBase<'choose-targets'> & { candidateIds: PlayerId[]; min: number; max: number }
-export type ChooseOptionRequest = RequestBase<'choose-option'> & { options: Array<{ id: string; label: string }> }
+export type ChooseOptionRequest = RequestBase<'choose-option'> & {
+  options: Array<{ id: string; label: string }>
+  /** Skill-specific interactive panel metadata. */
+  interaction?:
+    | { kind: 'waterwheel'; progress: number[]; active: number[] }
+    | { kind: 'pingcai-scratch'; treasure: 'wolong' | 'fengchu' | 'shuijing' | 'xuanjian'; cellCount: number; success: boolean }
+    | { kind: 'spirit-gathering'; index: number; score: number; cellCount: number; lane: number; fallingLane: number; falling: 'lotus-red' | 'lotus-white' | 'thunder' }
+    | { kind: 'nanhua-flight'; frame: number; courseLength: number; altitude: number; score: number; maxScore: number; nextObstacleFrame: number; gapRow: number; nextStarFrame: number; starRow: number }
+}
 /**
  * 从一组选项里挑**任意多项**（神马超【霆威】的四选任意）。
  *
@@ -80,7 +91,7 @@ export type ChooseOptionsRequest = RequestBase<'choose-options'> & {
   min: number
   max: number
 }
-export type ChooseSuitRequest = RequestBase<'choose-suit'> & { suits: Suit[] }
+export type ChooseSuitRequest = RequestBase<'choose-suit'> & { suits: Suit[]; viewOnlyCardIds?: CardId[] }
 export type ChooseNumberRequest = RequestBase<'choose-number'> & { min: number; max: number }
 export type UseCardRequest = RequestBase<'use-card'> & { actionIds: string[] }
 export type RespondCardRequest = RequestBase<'respond-card'> & {

@@ -5,7 +5,7 @@ import { loseMaxHp } from '../../engine/hp'
 import { recover } from '../../engine/recover'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { grantSkill, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { setCardAlias } from '../../engine/zones'
 import type { CharacterDefinition } from './types'
@@ -64,7 +64,7 @@ registerSkillRuntime({
 
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
-    if (usedThisTurn(state, ownerId, TIAOXIN)) return []
+    if (usedThisPhase(state, ownerId, TIAOXIN)) return []
     if (tiaoxinCandidates(state, ownerId).length === 0) return []
     return [{ id: TIAOXIN_ACTION, label: '挑衅：令一名攻击范围内含有你的角色对你使用【杀】' }]
   },
@@ -94,7 +94,7 @@ registerSkillRuntime({
       const target = playerOf(host.state, targetId)
       if (!target?.alive) return
       // 正式确认目标之后才计次
-      markUsedThisTurn(host.state, ownerId, TIAOXIN)
+      markUsedThisPhase(host.state, ownerId, TIAOXIN)
       host.dispatch('SkillActivated', { playerId: ownerId, skillId: TIAOXIN, targetId }, { sourceId: ownerId, targetId })
 
       /*

@@ -347,11 +347,11 @@ describe('乱击结算', () => {
 })
 
 describe('血裔', () => {
-  it('袁绍是主公时，上限按其他存活群雄数增加（测试 1 / 4 / 5）', () => {
+  it('袁绍是主公时，上限增加其他存活群雄数的两倍（测试 1 / 4 / 5）', () => {
     const game = gameWith({ characters: ['yuanshao', 'zhangjiao', 'zhangfei', 'zhangfei', 'zhangfei'] })
-    expect(xueyiBonus(game.state, 'p0'), '张角是群，其余是蜀').toBe(1)
+    expect(xueyiBonus(game.state, 'p0'), '张角是群，其余是蜀，计数翻倍').toBe(2)
     const owner = game.state.players[0]
-    expect(maxCardsOf(game.state, 'p0'), '基数是当前体力，再加 1').toBe(owner.hp + 1)
+    expect(maxCardsOf(game.state, 'p0'), '基数是当前体力，再加2').toBe(owner.hp + 2)
   })
 
   it('没有其他群雄时不加（测试 3）', () => {
@@ -363,7 +363,7 @@ describe('血裔', () => {
   it('多个群雄按数量累加（测试 5）', () => {
     const game = gameWith({ characters: ['yuanshao', 'zhangjiao', 'yuji', 'huatuo', 'zhangfei'] })
     // 张角、于吉、华佗都是群
-    expect(xueyiBonus(game.state, 'p0')).toBe(3)
+    expect(xueyiBonus(game.state, 'p0')).toBe(6)
   })
 
   it('非群势力角色不计入（测试 6）', () => {
@@ -383,9 +383,9 @@ describe('血裔', () => {
 
   it('群雄阵亡后立刻跟着降，不是开局算一次（测试 7 / 8）', () => {
     const game = gameWith({ characters: ['yuanshao', 'zhangjiao', 'yuji', 'zhangfei', 'zhangfei'] })
-    expect(xueyiBonus(game.state, 'p0')).toBe(2)
+    expect(xueyiBonus(game.state, 'p0')).toBe(4)
     game.state.players[1].alive = false
-    expect(xueyiBonus(game.state, 'p0'), '死人不算').toBe(1)
+    expect(xueyiBonus(game.state, 'p0'), '死人对应的2点加成移除').toBe(2)
     game.state.players[2].alive = false
     expect(xueyiBonus(game.state, 'p0')).toBe(0)
   })

@@ -6,8 +6,8 @@ import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 /**
  * 黄忠【烈弓】。
  *
- * 经典风包版：锁定技，使用【杀】指定目标后，若目标手牌数
- * ≤ 自己体力值 或 ≥ 自己体力上限，该【杀】不可被【闪】响应。
+ * 经典风包版：出牌阶段使用【杀】指定目标后，若目标手牌数
+ * ≥ 自己体力值 或 ≤ 自己攻击范围，可以选择令该【杀】不可被【闪】响应。
  *
  * 这里钉住三件事：条件判对、不可闪时**不发求闪请求**（而不是发了再忽略回答）、
  * 以及不可闪走的仍是 landSlash（寒冰剑这类「伤害前」效果不能被跳过）。
@@ -46,7 +46,7 @@ function giveNamed(game: SanguoshaGame, playerId: PlayerId, cardName: string): s
  * 把 p1 的手牌调成恰好 count 张（全是【闪】，保证「有闪却闪不了」而不是「没闪」），
  * 然后 p0 出杀打 p1。
  */
-function slashWithVictimHand(game: SanguoshaGame, count: number) {
+function slashWithVictimHand(game: SanguoshaGame, count: number, choice: 'yes' | 'no' = 'yes') {
   const slash = giveNamed(game, 'p0', '杀')
   // 清手牌要把牌送进弃牌堆，直接清空数组会破坏牌张守恒
   const victim = game.state.players[1]
@@ -57,13 +57,17 @@ function slashWithVictimHand(game: SanguoshaGame, count: number) {
     && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))
   if (!action) throw new Error('构造不出对 p1 的杀')
   game.act('p0', action.id)
+  const skillChoice = game.state.pendingRequests[0]
+  if (skillChoice?.kind === 'choose-option' && skillChoice.prompt.includes('烈弓')) {
+    game.respond({ requestId: skillChoice.id, playerId: 'p0', payload: { optionId: choice } })
+  }
   return game.state.pendingRequests[0]
 }
 
 const FILLER = ['huangzhong', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei']
 
 describe('烈弓的触发条件', () => {
-  it('目标手牌数小于等于自己体力值：不可闪', () => {
+  it('目标手牌数大于等于自己体力值：可以发动后不可闪', () => {
     const game = gameWith(FILLER)
     game.state.players[0].hp = 3
     const victimHp = game.state.players[1].hp
@@ -76,13 +80,12 @@ describe('烈弓的触发条件', () => {
     assertGameInvariants(game.state)
   })
 
-  it('目标手牌数大于等于自己体力上限：不可闪', () => {
+  it('目标手牌数小于等于自己攻击范围：可以发动后不可闪', () => {
     const game = gameWith(FILLER)
-    game.state.players[0].hp = 1
     const owner = game.state.players[0]
     const victimHp = game.state.players[1].hp
 
-    const request = slashWithVictimHand(game, owner.maxHp)
+    const request = slashWithVictimHand(game, 1)
 
     expect(request?.kind ?? '').not.toBe('respond-card')
     expect(game.state.players[1].hp).toBe(victimHp - 1)
@@ -92,9 +95,8 @@ describe('烈弓的触发条件', () => {
   it('两个条件都不满足时照常求闪', () => {
     const game = gameWith(FILLER)
     const owner = game.state.players[0]
-    owner.hp = 1
-    // 手牌数落在 (体力值, 体力上限) 开区间里才躲得掉；4 血上限时只有 2、3 张可用
-    expect(owner.maxHp).toBe(4)
+    owner.hp = 3
+    // 2 张大于攻击范围1，且小于体力值3。
 
     const request = slashWithVictimHand(game, 2)
 
@@ -103,23 +105,30 @@ describe('烈弓的触发条件', () => {
     assertGameInvariants(game.state)
   })
 
-  it('体力值变化会改变判定结果', () => {
-    // 同样 3 张手牌：黄忠 3 血时命中「≤体力值」，2 血时两个条件都不满足
-    const undodgeable = gameWith(FILLER)
-    undodgeable.state.players[0].hp = 3
-    expect(slashWithVictimHand(undodgeable, 3)?.kind ?? '').not.toBe('respond-card')
+  it('体力值变化会改变“手牌数不少于体力值”的判定', () => {
+    const notQualified = gameWith(FILLER)
+    notQualified.state.players[0].hp = 3
+    expect(slashWithVictimHand(notQualified, 2)?.kind).toBe('respond-card')
 
-    const dodgeable = gameWith(FILLER)
-    dodgeable.state.players[0].hp = 2
-    expect(slashWithVictimHand(dodgeable, 3)?.kind).toBe('respond-card')
+    const qualified = gameWith(FILLER)
+    qualified.state.players[0].hp = 2
+    expect(slashWithVictimHand(qualified, 2)?.kind ?? '').not.toBe('respond-card')
   })
 
-  it('目标空手时命中「≤体力值」', () => {
+  it('目标空手时命中「≤攻击范围」', () => {
     const game = gameWith(FILLER)
     const victimHp = game.state.players[1].hp
     const request = slashWithVictimHand(game, 0)
     expect(request?.kind ?? '').not.toBe('respond-card')
     expect(game.state.players[1].hp).toBe(victimHp - 1)
+  })
+
+  it('符合条件时黄忠可以放弃发动，目标正常获得闪避响应', () => {
+    const game = gameWith(FILLER)
+    game.state.players[0].hp = 3
+    const request = slashWithVictimHand(game, 3, 'no')
+    expect(request?.kind).toBe('respond-card')
+    expect(request.playerId).toBe('p1')
   })
 })
 

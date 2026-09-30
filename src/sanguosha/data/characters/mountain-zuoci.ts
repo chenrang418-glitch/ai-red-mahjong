@@ -23,6 +23,20 @@ function askCharacter(host: SkillHost, ownerId: PlayerId, initial: boolean): voi
   }) })
 }
 
+function askHuashenReroll(host: SkillHost, ownerId: PlayerId, discarded: number): void {
+  const owner = host.state.huashen?.owners[ownerId]
+  const player = playerOf(host.state, ownerId)
+  const cap = player?.characterId ? huashenCharacter(player.characterId)?.huashenRerollUnusedCount ?? 0 : 0
+  const candidates = owner?.characterIds.filter((id) => id !== owner.activeCharacterId) ?? []
+  if (!owner || !player?.alive || discarded >= cap || candidates.length === 0 || host.state.huashen!.remainingCharacterIds.length === 0) return
+  host.askSkill({ skillId: HUASHEN, ownerId, step: 'discard-avatar', data: { discarded }, build: (requestId): ChooseOptionRequest => ({
+    id: requestId, kind: 'choose-option', playerId: ownerId,
+    prompt: `【化身】：可弃置一张未亮出的化身牌并随机获得一张（已更换${discarded}张）`,
+    timeoutMs: 20_000, optional: true,
+    options: [...candidates.map((id) => ({ id, label: `弃置未亮出的【${huashenCharacter(id)?.name ?? id}】` })), { id: 'cancel', label: '结束更换' }],
+  }) })
+}
+
 registerSkillRuntime({
   id: HUASHEN,
   onGameStart(host, ownerId) {
@@ -48,14 +62,35 @@ registerSkillRuntime({
       return
     }
     const timing = prompt.data.timing === 'turn-start' ? '回合开始时' : '回合结束后'
+    const ownerCharacterId = playerOf(host.state, ownerId)?.characterId
+    const reroll = ownerCharacterId ? huashenCharacter(ownerCharacterId)?.huashenRerollUnusedCount ?? 0 : 0
+    const options = [{ id: 'yes', label: '更换亮出的化身' }, { id: 'no', label: '保持当前化身' }]
+    if (reroll > 0 && (host.state.huashen?.remainingCharacterIds.length ?? 0) > 0) options.splice(1, 0, { id: 'reroll', label: '更换未亮出的化身牌' })
     host.askSkill({ skillId: HUASHEN, ownerId, step: 'switch', build: (requestId): ChooseOptionRequest => ({
       id: requestId, kind: 'choose-option', playerId: ownerId, prompt: `${timing}是否更换【化身】或重新选择当前化身技能？`,
-      timeoutMs: 20_000, optional: true, options: [{ id: 'yes', label: '更换化身' }, { id: 'no', label: '保持当前化身' }],
+      timeoutMs: 20_000, optional: true, options,
     }) })
   },
   resume(host, ownerId, resolution, response) {
     if (resolution.step === 'switch') {
-      if ((response.payload as { optionId?: string }).optionId === 'yes') askCharacter(host, ownerId, false)
+      const optionId = (response.payload as { optionId?: string }).optionId
+      if (optionId === 'yes') askCharacter(host, ownerId, false)
+      else if (optionId === 'reroll') askHuashenReroll(host, ownerId, 0)
+      return
+    }
+    if (resolution.step === 'discard-avatar') {
+      const chosenId = (response.payload as { optionId?: string }).optionId
+      if (!chosenId || chosenId === 'cancel') return
+      const owner = host.state.huashen?.owners[ownerId]
+      if (!owner || chosenId === owner.activeCharacterId || !owner.characterIds.includes(chosenId)) return
+      owner.characterIds = owner.characterIds.filter((id) => id !== chosenId)
+      const gained = gainRandomHuashen(host, ownerId)
+      if (!gained) {
+        owner.characterIds.push(chosenId)
+        return
+      }
+      host.dispatch('SkillActivated', { playerId: ownerId, skillId: HUASHEN, result: 'reroll-avatar' }, { sourceId: ownerId })
+      askHuashenReroll(host, ownerId, Number(resolution.data.discarded ?? 0) + 1)
       return
     }
     if (resolution.step === 'character') {

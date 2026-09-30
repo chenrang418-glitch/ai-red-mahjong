@@ -41,6 +41,27 @@ export function inExtraPhase(state: SanguoshaState): boolean {
   return state.extraPhase !== undefined
 }
 
+/** 在当前阶段自然结束后插入一段真实阶段，并在完成后回到指定阶段位。 */
+export function queueExtraPhaseAfterCurrent(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  phase: TurnPhase,
+  skillId: string,
+  resumeSlot: TurnPhase,
+): void {
+  if (playerId !== state.currentPlayerId) throw new Error('额外阶段必须属于当前回合角色')
+  const queue = state.extraPhasesAfterCurrent ??= []
+  queue.push({ phase, resumeSlot, playerId, skillId, instanceId: state.seq + queue.length + 1, preSkipped: false })
+}
+
+/** Queue a true phase after all TurnEnd triggers have resolved, before the next turn starts. */
+export function queueExtraPhaseAfterTurnEnd(state: SanguoshaState, playerId: PlayerId, phase: TurnPhase, skillId: string): number {
+  const queue = state.postTurnExtraPhases ??= []
+  const instanceId = state.seq + queue.length + 1
+  queue.push({ phase, resumeSlot: 'finish', playerId, skillId, instanceId, preSkipped: false, endsTurnAfter: true })
+  return instanceId
+}
+
 /**
  * 回合开始时安排额外阶段。安排上了返回**第一个要跑的阶段**，
  * 调用方据此设置 `state.phase`；没有额外阶段时返回 null。
@@ -50,7 +71,12 @@ export function scheduleTurnStartExtraPhases(
   playerId: PlayerId,
   resumeSlot: TurnPhase,
 ): TurnPhase | null {
-  const extras = extraPhasesAtTurnStart(state, playerId)
+  const scheduled = state.scheduledExtraPhasesByPlayer?.[playerId] ?? []
+  if (state.scheduledExtraPhasesByPlayer?.[playerId]) {
+    delete state.scheduledExtraPhasesByPlayer[playerId]
+    if (Object.keys(state.scheduledExtraPhasesByPlayer).length === 0) delete state.scheduledExtraPhasesByPlayer
+  }
+  const extras = [...scheduled, ...extraPhasesAtTurnStart(state, playerId)]
   if (extras.length === 0) return null
   const entries: ExtraPhaseState[] = extras.map((entry, index) => ({
     phase: entry.phase,
@@ -66,6 +92,18 @@ export function scheduleTurnStartExtraPhases(
   if (rest.length > 0) state.pendingExtraPhases = rest
   else delete state.pendingExtraPhases
   return first.phase
+}
+
+/** Schedule one extra phase for a player's next turn-start phase window. */
+export function scheduleExtraPhaseForPlayer(
+  state: SanguoshaState,
+  playerId: PlayerId,
+  phase: TurnPhase,
+  skillId: string,
+): void {
+  const scheduled = state.scheduledExtraPhasesByPlayer ??= {}
+  const phases = scheduled[playerId] ??= []
+  if (!phases.some((entry) => entry.skillId === skillId && entry.phase === phase)) phases.push({ phase, skillId })
 }
 
 /**
@@ -103,4 +141,5 @@ export function advanceExtraPhase(state: SanguoshaState): TurnPhase | null {
 export function clearExtraPhases(state: SanguoshaState): void {
   delete state.extraPhase
   delete state.pendingExtraPhases
+  delete state.extraPhasesAfterCurrent
 }

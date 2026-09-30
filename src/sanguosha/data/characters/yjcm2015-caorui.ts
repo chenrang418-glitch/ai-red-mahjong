@@ -248,6 +248,12 @@ registerSkillRuntime({
     host.dispatch('QuitDying', { playerId: ownerId, hp: owner?.hp ?? 0 }, { targetId: ownerId })
     host.state.dying = null
     host.resumeAfterDying()
+    // 恢复原濒死流程可能继续推进属性伤害链，并让另一名角色进入濒死。
+    // 兴衰的响应惩罚必须等这些嵌套结算全部结束后才开始。
+    if (host.state.dying || host.state.damageChain) {
+      host.queueSkill({ skillId: XINGSHUAI, ownerId, step: 'punish-continue', data: { responders, index: 0 } })
+      return
+    }
     dealXingshuaiPunishment(host, responders, 0)
   },
 

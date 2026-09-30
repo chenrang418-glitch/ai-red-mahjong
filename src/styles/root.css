@@ -117,6 +117,93 @@ body, #app {
   text-align: center;
 }
 
+.root-loading {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #b8cace;
+}
+
+.root-loading::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  inset: -18px;
+  background-image: var(--loading-bg-desktop);
+  background-position: center;
+  background-size: cover;
+  filter: blur(10px) saturate(.78) brightness(.82);
+  transform: scale(1.04);
+}
+
+.root-loading::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgba(205, 222, 224, .16);
+}
+
+.root-loading__panel {
+  width: min(420px, calc(100vw - 40px));
+  padding: 28px 30px 26px;
+  border: 1px solid rgba(255, 255, 255, .48);
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(238, 247, 248, .22), rgba(153, 177, 181, .16));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .26);
+  -webkit-backdrop-filter: blur(13px) saturate(1.08);
+  backdrop-filter: blur(13px) saturate(1.08);
+  text-align: left;
+}
+
+.root-loading__eyebrow {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(239, 250, 251, .72);
+  font-size: 11px;
+  letter-spacing: .18em;
+}
+
+.root-loading__panel h1 {
+  margin: 0;
+  color: #f7ffff;
+  font-size: clamp(28px, 5vw, 52px);
+  letter-spacing: .06em;
+  text-shadow: 0 2px 12px rgba(21, 55, 61, .45);
+}
+
+.root-loading__panel p {
+  margin: 10px 0 18px;
+  color: rgba(239, 250, 251, .78);
+  font-size: 14px;
+}
+
+.root-loading__dots { display: flex; gap: 6px; }
+.root-loading__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 0 10px rgba(255, 255, 255, .85);
+  animation: root-loading-breathe 1.15s ease-in-out infinite;
+}
+.root-loading__dots i:nth-child(2) { animation-delay: .14s; }
+.root-loading__dots i:nth-child(3) { animation-delay: .28s; }
+
+@keyframes root-loading-breathe {
+  0%, 100% { transform: translateY(0); opacity: .42; }
+  50% { transform: translateY(-3px); opacity: 1; }
+}
+
+@media (max-width: 700px) {
+  .root-loading::before { background-image: var(--loading-bg-mobile); }
+  .root-loading__panel { padding: 24px 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root-loading__dots i { animation: none; }
+}
+
 .root-loading span,
 .root-error section > span { color: #d1ad60; font: 900 34px/1 Georgia, serif; }
 .root-loading p,

@@ -1,7 +1,7 @@
 import { revealTopCards } from '../../engine/draw'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { effectiveCardSuit, registerSkillRuntime, type SkillHost } from '../../engine/skills/runtime'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import type { CardId, PlayerId, SanguoshaState, Suit } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
 import { skillIdsOf } from './standard'
@@ -173,7 +173,7 @@ registerSkillRuntime({
 
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
-    if (usedThisTurn(state, ownerId, GONGXIN)) return []
+    if (usedThisPhase(state, ownerId, GONGXIN)) return []
     if (gongxinTargets(state, ownerId).length === 0) return []
     return [{ id: GONGXIN_ACTION, label: '攻心：观看一名其他角色的手牌' }]
   },
@@ -200,7 +200,7 @@ registerSkillRuntime({
       if (!targetId) return
       const target = playerOf(host.state, targetId)
       if (!target?.alive || target.zones.hand.length === 0) return
-      markUsedThisTurn(host.state, ownerId, GONGXIN)
+      markUsedThisPhase(host.state, ownerId, GONGXIN)
 
       /*
        * **观看全部手牌**。

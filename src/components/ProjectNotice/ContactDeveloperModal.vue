@@ -71,28 +71,28 @@ onBeforeUnmount(() => {
 
 .contact-developer h2 {
   margin: 0 0 10px;
-  color: #f3d67c;
+  color: rgba(255,255,255,.98);
   font-size: 17px;
   font-weight: 800;
 }
 .contact-developer__intro {
   margin: 0 0 16px;
-  color: var(--ink-text-soft);
+  color: rgba(255,255,255,.78);
   font-size: 13px;
   line-height: 1.7;
 }
 .contact-developer__value {
   margin: 0 0 20px;
   padding: 12px 14px;
-  border: 1px solid var(--ink-line);
+  border: 1px solid rgba(255,255,255,.22);
   border-radius: 10px;
-  background: var(--ink-panel-deep);
-  color: var(--ink-text-muted);
+  background: rgba(255,255,255,.09);
+  color: rgba(255,255,255,.76);
   font-size: 14px;
   word-break: break-all;
 }
 /* 号码本身要能被用户手选复制，作为 Clipboard API 失败时的兜底 */
-.contact-developer__value span { color: var(--ink-text); font-weight: 700; user-select: all; }
+.contact-developer__value span { color: rgba(255,255,255,.98); font-weight: 700; user-select: all; }
 
 .contact-developer__actions {
   display: flex;
@@ -107,17 +107,17 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .contact-developer__copy {
-  border: 1px solid #9e7f3c;
-  background: linear-gradient(180deg, #6d5527, #4c3b1a);
-  color: #ffe6a8;
+  border: 1px solid rgba(255,255,255,.32);
+  background: rgba(255,255,255,.16);
+  color: rgba(255,255,255,.96);
 }
 .contact-developer__copy:hover { filter: brightness(1.08); }
-.contact-developer__copy--done { border-color: #4d8f63; background: linear-gradient(180deg, #2f6b46, #1f4a32); color: #d8f5e2; }
+.contact-developer__copy--done { border-color: rgba(255,255,255,.56); background: rgba(255,255,255,.24); color: #fff; }
 .contact-developer__close {
-  border: 1px solid #3a574d;
-  background: #142e26;
-  color: #d5e0da;
+  border: 1px solid rgba(255,255,255,.24);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.9);
 }
-.contact-developer__close:hover { border-color: #4d6f62; }
-.contact-developer__actions button:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.contact-developer__close:hover { border-color: rgba(255,255,255,.54); background: rgba(255,255,255,.14); }
+.contact-developer__actions button:focus-visible { outline: 2px solid rgba(255,255,255,.9); outline-offset: 2px; }
 </style>

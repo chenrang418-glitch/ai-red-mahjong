@@ -1,4 +1,4 @@
-import type { CardId, EquipmentSlot, PlayerId } from './types'
+import type { CardId, DamageNature, EquipmentSlot, PlayerId } from './types'
 
 interface LegalActionBase<K extends string> {
   id: string
@@ -15,6 +15,15 @@ export type LegalAction =
     targetMin: number
     targetMax: number
     asCardName: string
+    sourceSkillId?: string
+    /** Skill that granted this action's explicit optional extra-target choice. */
+    targetExpansionSkillId?: string
+    targetExpansionTargetId?: PlayerId
+    nature?: DamageNature
+    retainMaterial?: boolean
+    retainedMaterialId?: CardId
+    /** 该牌由其他角色的【好施】等公共规则临时共享。 */
+    cardOwnerId?: PlayerId
     targetMode?: 'fixed'
     /**
      * 装到哪个栏。
@@ -23,6 +32,8 @@ export type LegalAction =
      * 引擎不替他挑。其余情况留空，按牌自己的 `equipmentSlot` 走。
      */
     equipmentSlot?: EquipmentSlot
+    /** 已经挂起并续接过的出牌拦截技能；供多技能串行接管同一出牌动作。 */
+    interceptedSkillKeys?: string[]
   })
   | (LegalActionBase<'respond-card'> & { cardIds: CardId[]; asCardName: string })
   | (LegalActionBase<'invoke-skill'> & { skillId: string; cardIds: CardId[]; targetIds: PlayerId[] })

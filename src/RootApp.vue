@@ -5,16 +5,25 @@ import { gameManifest, playableGames, type GameDefinition } from '@/portal/gameM
 import { buildGameUrl, buildPortalUrl, isAdminRoute, resolveAppRoute } from '@/portal/navigation'
 import { LatestGameLoader } from '@/portal/gameLoader'
 import { useServiceStatus } from '@/composables/useServiceStatus'
+import { useScreenWakeLock } from '@/sanguosha/composables/useScreenWakeLock'
 import ProjectNoticeGate from '@/components/ProjectNotice/ProjectNoticeGate.vue'
 import type { Component } from 'vue'
+import mahjongDesktop from '@/assets/portal-backgrounds/mahjong-desktop.png'
+import mahjongMobile from '@/assets/portal-backgrounds/mahjong-mobile.png'
+import sanguoDesktop from '@/assets/portal-backgrounds/sanguo-desktop.png'
+import sanguoMobile from '@/assets/portal-backgrounds/sanguo-mobile.png'
 
 const route = ref(resolveAppRoute(new URL(window.location.href)))
 const adminRoute = ref(isAdminRoute(new URL(window.location.href)))
 
+// 根应用覆盖门户、麻将、吴魏契约及其所有子界面，避免用户停留阅读或等待时息屏。
+// Screen Wake Lock 不支持时由 composable 安静降级，不用循环媒体绕过系统。
+useScreenWakeLock(computed(() => true))
+
 /*
  * 全站停服和常驻公告都在这一层处理，而不是各游戏里各写一份：
- * 门户、麻将、纸上三国共用同一个入口，才不会出现「门户说在维护、
- * 纸上三国大厅说没在维护」这种自相矛盾的界面。
+ * 门户、麻将、吴魏契约共用同一个入口，才不会出现「门户说在维护、
+ * 吴魏契约大厅说没在维护」这种自相矛盾的界面。
  */
 const service = useServiceStatus()
 const noticeEl = ref<HTMLElement | null>(null)
@@ -45,6 +54,16 @@ const activeGame = computed<GameDefinition | null>(() => {
   if (route.value.kind !== 'game') return null
   return playableGames.get(route.value.gameId) ?? null
 })
+const LOADING_MIN_DURATION_MS = 900
+const loadingBackgroundStyle = computed(() => {
+  const mobile = activeGame.value?.id === 'sanguosha' ? sanguoMobile : mahjongMobile
+  const desktop = activeGame.value?.id === 'sanguosha' ? sanguoDesktop : mahjongDesktop
+  return {
+    '--loading-bg-mobile': `url("${mobile}")`,
+    '--loading-bg-desktop': `url("${desktop}")`,
+  }
+})
+const loadingSubtitle = computed(() => activeGame.value?.id === 'sanguosha' ? '风云即将展开' : '牌局即将开始')
 
 function syncRoute() {
   const url = new URL(window.location.href)
@@ -65,7 +84,9 @@ function openGame(game: GameDefinition) {
 }
 
 function returnToPortal() {
-  navigate(buildPortalUrl(new URL(window.location.href)))
+  const id = activeGame.value?.id
+  const portalGame = id === 'mahjong' || id === 'sanguosha' ? id : undefined
+  navigate(buildPortalUrl(new URL(window.location.href), portalGame))
 }
 
 async function loadActiveGame(game: GameDefinition | null) {
@@ -75,9 +96,12 @@ async function loadActiveGame(game: GameDefinition | null) {
   fatalRuntimeError.value = ''
   loadError.value = ''
   if (!game?.loadApp) { loading.value = false; return }
+  const loadingStartedAt = performance.now()
   loading.value = true
   const result = await gameLoader.load(game.loadApp)
   if (result.status === 'stale') return
+  const remaining = Math.max(0, LOADING_MIN_DURATION_MS - (performance.now() - loadingStartedAt))
+  if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining))
   if (result.status === 'success') activeComponent.value = result.value.default
   else loadError.value = import.meta.env.DEV && result.error instanceof Error
     ? `游戏加载失败：${result.error.message}`
@@ -128,7 +152,7 @@ onErrorCaptured((cause) => {
 
 <template>
   <!--
-    全站首次访问门槛必须包在最外层、其它一切之前：门户、麻将、纸上三国
+    全站首次访问门槛必须包在最外层、其它一切之前：门户、麻将、吴魏契约
     的自动建房/加房逻辑都在下面这棵树里，用户点「我知道了」之前
     这棵树根本不会挂载，也就不存在「弹窗还没关就已经在联机了」。
   -->
@@ -155,9 +179,13 @@ onErrorCaptured((cause) => {
 
       <GamePortal v-if="route.kind === 'portal'" :games="gameManifest" @select="openGame" />
 
-      <main v-else-if="loading" class="root-loading" aria-live="polite">
-        <span>CR</span>
-        <p>正在载入{{ activeGame?.name }}…</p>
+      <main v-else-if="loading" class="root-loading" :style="loadingBackgroundStyle" aria-live="polite">
+        <section class="root-loading__panel">
+          <span class="root-loading__eyebrow">游戏中心</span>
+          <h1>{{ activeGame?.name || '游戏中心' }}</h1>
+          <p>{{ loadingSubtitle }}</p>
+          <div class="root-loading__dots" aria-label="加载中"><i></i><i></i><i></i></div>
+        </section>
       </main>
 
       <main v-else-if="fatalRuntimeError || loadError || !activeComponent" class="root-error">

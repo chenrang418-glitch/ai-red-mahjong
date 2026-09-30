@@ -50,8 +50,8 @@ registerSkillRuntime({
     {
       event: 'GainCard',
       handle(host, ownerId, context) {
-        const payload = context.event.payload as { playerId?: PlayerId; reason?: string; cardIds?: CardId[] }
-        if (payload.reason !== 'draw' || (payload.cardIds?.length ?? 0) !== 1 || !payload.playerId) return
+        const payload = context.event.payload as { playerId?: PlayerId; reason?: string; isDraw?: boolean; cardIds?: CardId[] }
+        if ((!payload.isDraw && payload.reason !== 'draw') || (payload.cardIds?.length ?? 0) !== 1 || !payload.playerId) return
         if (!sameKingdom(host.state, payload.playerId, ownerId)) return
         markGoudeItem(host, 1)
       },

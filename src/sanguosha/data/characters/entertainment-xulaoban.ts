@@ -541,7 +541,7 @@ registerSkillRuntime({
 export const XULAOBAN: CharacterDefinition = {
   id: 'xulaoban',
   name: '许老板',
-  kingdom: 'qun',
+  kingdom: 'le',
   gender: 'male',
   maxHp: 4,
   pack: 'entertainment',

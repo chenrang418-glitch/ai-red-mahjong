@@ -1,19 +1,27 @@
 import type { GameEventName } from './events'
-import type { SanguoshaState, TurnPhase } from './types'
+import type { ExtraPhaseState, SanguoshaState, TurnPhase } from './types'
 import { expireArmorSuppressions } from './armor-suppression'
 import { clearForcedIdentities } from './forced-identity'
 import { expireStolenSkills } from './skill-theft-expiry'
 import { clearAttackRangeOverrides } from './attack-range-override'
 import { clearDistanceOverrides } from './distance-override'
 import { clearTurnSlashRules } from './slash-rules'
-import { clearTurnCardCategoryLocks, clearTurnCardColorLocks } from './card-play-lock'
+import { clearTurnCardCategoryLocks, clearTurnCardColorLocks, clearTurnCardUseLocks } from './card-play-lock'
 import { returnDetainedCards } from './turn-bound-pile'
 import { expireOwnerTurnStates, expireTargetStates } from './target-state'
 import { replacementPhaseFor } from './phase-replacement'
 import { clearTurnKills } from './turn-kills'
 import { advanceExtraPhase, clearExtraPhases, scheduleTurnStartExtraPhases } from './extra-phase'
+import { expireSkillSuppressionsAtTurnStart } from './skill-suppression'
+import { expireMilitaryOrderEffects } from './modes/military-order'
 
 export const TURN_PHASES: readonly TurnPhase[] = ['prepare', 'judge', 'draw', 'play', 'discard', 'finish']
+
+function turnPhaseOrder(state: SanguoshaState): readonly TurnPhase[] {
+  const order = state.turnPhaseOrder
+  return order?.length === TURN_PHASES.length && new Set(order).size === TURN_PHASES.length
+    && TURN_PHASES.every((phase) => order.includes(phase)) ? order : TURN_PHASES
+}
 
 export type EmitTurnEvent = (name: GameEventName, payload: Record<string, unknown>) => void
 
@@ -28,7 +36,8 @@ function nextAliveAfter(state: SanguoshaState, fromPlayerId: string): string {
   if (!from) throw new Error('座次游标指向的玩家不存在')
   for (let offset = 1; offset <= state.players.length; offset += 1) {
     const candidate = state.players[(from.seat + offset) % state.players.length]
-    if (candidate.alive) return candidate.id
+    const projectedRound = state.roundNumber + (candidate.seat <= from.seat ? 1 : 0)
+    if (candidate.alive || (candidate.restingUntilRound !== undefined && candidate.restingUntilRound <= projectedRound)) return candidate.id
   }
   throw new Error('没有存活玩家可以开始下一回合')
 }
@@ -93,12 +102,18 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
   if (state.status !== 'choosing-general' && state.status !== 'setup') throw new Error('牌局已经开始')
   state.status = 'playing'
   state.turnNumber = 1
+  state.turnRedDiscardCount = { turnNumber: state.turnNumber, count: 0 }
   state.roundNumber = 1
   state.phase = 'prepare'
   delete state.phaseReplacedFrom
   state.skippedPhases = []
+  state.turnPhaseOrder = [...TURN_PHASES]
+  const scheduledAtGameStart = state.scheduledSkippedPhasesByPlayer?.[state.currentPlayerId] ?? []
+  state.skippedPhases.push(...scheduledAtGameStart)
+  delete state.scheduledSkippedPhasesByPlayer?.[state.currentPlayerId]
   state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0, slashUsesThisTurn: 0 }
+  state.wineBoostedSlashCardIds = []
   state.extraTurns = []
   clearExtraPhases(state)
   // 正常座次游标从主公开始；只有额外回合插队时才需要靠它记住位置
@@ -113,6 +128,13 @@ export function startPlaying(state: SanguoshaState, emit: EmitTurnEvent): void {
 
 export function skipPhase(state: SanguoshaState, phase: TurnPhase): void {
   if (!state.skippedPhases.includes(phase)) state.skippedPhases.push(phase)
+}
+
+/** Queue a phase skip for one player's next turn without affecting intervening turns. */
+export function schedulePhaseSkipForPlayer(state: SanguoshaState, playerId: string, phase: TurnPhase): void {
+  state.scheduledSkippedPhasesByPlayer ??= {}
+  const scheduled = state.scheduledSkippedPhasesByPlayer[playerId] ??= []
+  if (!scheduled.includes(phase)) scheduled.push(phase)
 }
 
 /**
@@ -141,6 +163,8 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   state.currentPlayerId = next.playerId
   state.currentTurnKind = next.kind
   state.turnNumber += 1
+  expireMilitaryOrderEffects(state)
+  state.turnRedDiscardCount = { turnNumber: state.turnNumber, count: 0 }
   /*
    * 轮次只由**正常回合**推进，而且只在座次绕回起点时才 +1。
    *
@@ -152,14 +176,30 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
   if (next.kind === 'normal') {
     const nextSeat = state.players.find((candidate) => candidate.id === next.playerId)?.seat ?? 0
     if (nextSeat <= previousNormalSeat) {
+      emit('RoundEnd', { roundNumber: state.roundNumber })
       state.roundNumber = (state.roundNumber ?? 1) + 1
       emit('RoundStart', { roundNumber: state.roundNumber })
     }
   }
+  const current = state.players.find((player) => player.id === state.currentPlayerId)
+  const returningFromRest = Boolean(current && !current.alive && current.restingUntilRound !== undefined
+    && current.restingUntilRound <= (state.roundNumber ?? 1))
+  if (current && returningFromRest) {
+    current.alive = true
+    current.hp = current.maxHp
+    current.marks = {}
+    delete current.restingUntilRound
+    emit('RestEnd', { playerId: current.id, roundNumber: state.roundNumber })
+  }
   state.skippedPhases = []
+  const scheduledForTurn = state.scheduledSkippedPhasesByPlayer?.[state.currentPlayerId] ?? []
+  state.skippedPhases.push(...scheduledForTurn)
+  delete state.scheduledSkippedPhasesByPlayer?.[state.currentPlayerId]
   state.judgedDelayedCards = []
   state.turnUsage = { slashUses: 0, wineUses: 0, wineDamageBonus: 0, slashUsesThisTurn: 0 }
+  state.wineBoostedSlashCardIds = []
   clearExtraPhases(state)
+  expireSkillSuppressionsAtTurnStart(state, state.currentPlayerId, state.turnNumber)
   emit('TurnStart', {
     playerId: state.currentPlayerId,
     turnNumber: state.turnNumber,
@@ -169,10 +209,10 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
     ...(next.sourcePlayerId ? { sourcePlayerId: next.sourcePlayerId } : {}),
   })
 
-  const current = state.players.find((player) => player.id === state.currentPlayerId)
-  if (current?.faceDown) {
-    current.faceDown = false
-    emit('CharacterFlip', { playerId: current.id, faceDown: false, reason: '回合开始' })
+  const currentPlayer = state.players.find((player) => player.id === state.currentPlayerId)
+  if (currentPlayer?.faceDown) {
+    currentPlayer.faceDown = false
+    emit('CharacterFlip', { playerId: currentPlayer.id, faceDown: false, reason: '回合开始' })
     state.skippedPhases = [...TURN_PHASES]
     state.phase = 'finish'
     return false
@@ -203,12 +243,16 @@ function beginTurn(state: SanguoshaState, emit: EmitTurnEvent): boolean {
  * 找到了就写好 `phase` / `phaseReplacedFrom` 并返回 true；
  * 后面已经没有阶段位了返回 false，由调用方收束这一回合。
  */
-function enterSlotFrom(state: SanguoshaState, startIndex: number): boolean {
+function enterSlotFrom(state: SanguoshaState, startIndex: number, emit: EmitTurnEvent): boolean {
+  const phases = turnPhaseOrder(state)
   let index = Math.max(0, startIndex)
   // 「跳过某阶段」跳的也是位置：乐不思蜀跳的是出牌位
-  while (index < TURN_PHASES.length && state.skippedPhases.includes(TURN_PHASES[index])) index += 1
-  if (index >= TURN_PHASES.length) return false
-  const slot = TURN_PHASES[index]
+  while (index < phases.length && state.skippedPhases.includes(phases[index]!)) {
+    emit('PhaseSkipped', { playerId: state.currentPlayerId, phase: phases[index], turnNumber: state.turnNumber })
+    index += 1
+  }
+  if (index >= phases.length) return false
+  const slot = phases[index]!
   const replacement = replacementPhaseFor(state, state.currentPlayerId, slot)
   if (replacement) state.phaseReplacedFrom = slot
   else delete state.phaseReplacedFrom
@@ -231,6 +275,28 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   if (state.status !== 'playing') throw new Error('牌局尚未进入进行状态')
   if (state.pendingRequests.length > 0) throw new Error('仍有待处理 Request，不能推进阶段')
   emit('PhaseEnd', { playerId: state.currentPlayerId, phase: state.phase })
+  if (state.extraPhase?.endsTurnAfter && !(state.pendingExtraPhases?.length)) {
+    clearExtraPhases(state)
+    // The extra phase belongs after the already-dispatched TurnEnd. Do not emit a
+    // second TurnEnd or replay the old turn's cleanup; wait for PhaseEnd skills,
+    // then continue at the ordinary next-turn transition.
+    state.turnTransitionPending = true
+    return false
+  }
+  const insertedPhases = state.extraPhasesAfterCurrent
+  if (!state.extraPhase && insertedPhases?.length) {
+    const current = state.players.find((player) => player.id === state.currentPlayerId && player.alive)
+    const [next, ...remaining] = insertedPhases
+    if (current && next?.playerId === current.id) {
+      state.extraPhase = next
+      state.phase = next.phase
+      if (remaining.length) state.extraPhasesAfterCurrent = remaining
+      else delete state.extraPhasesAfterCurrent
+      delete state.phaseReplacedFrom
+      return true
+    }
+    delete state.extraPhasesAfterCurrent
+  }
   /*
    * **弃牌阶段的账本不在这里清。**
    *
@@ -269,12 +335,13 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
         return true
       }
       // 额外阶段跑完了，从 resume 这个阶段位**本身**开始（不是它的下一个）
-      if (enterSlotFrom(state, TURN_PHASES.indexOf(resume))) return true
+      if (enterSlotFrom(state, turnPhaseOrder(state).indexOf(resume), emit)) return true
     }
   } else {
-    const currentIndex = TURN_PHASES.indexOf(state.phaseReplacedFrom ?? state.phase)
-    if (current?.alive && currentIndex < TURN_PHASES.length - 1) {
-      if (enterSlotFrom(state, currentIndex + 1)) return true
+    const phases = turnPhaseOrder(state)
+    const currentIndex = phases.indexOf(state.phaseReplacedFrom ?? state.phase)
+    if (current?.alive && currentIndex < phases.length - 1) {
+      if (enterSlotFrom(state, currentIndex + 1, emit)) return true
     }
   }
 
@@ -297,6 +364,7 @@ export function advancePhase(state: SanguoshaState, emit: EmitTurnEvent): boolea
   clearTurnCardColorLocks(state, state.turnNumber)
   // 「直到回合结束」的类别禁令（杨修【鸡肋】）同样统一在这里到期
   clearTurnCardCategoryLocks(state, state.turnNumber)
+  clearTurnCardUseLocks(state, state.turnNumber)
   // 来源绑定的防具失效（神吕布【无前】）也是「直到本回合结束」，同样统一清
   expireArmorSuppressions(state)
   // 龙怒的强制牌身份也是「本回合」，同样统一清
@@ -349,5 +417,26 @@ export function resumeTurnTransition(state: SanguoshaState, emit: EmitTurnEvent)
    * 直接抛「没有存活玩家可以开始下一回合」（压测 seed=ci-8-11）。
    */
   if (state.status !== 'playing') return false
+  let postTurn: ExtraPhaseState | undefined
+  while (state.postTurnExtraPhases?.length && !postTurn) {
+    const next = state.postTurnExtraPhases.shift()!
+    if (state.players.some((candidate) => candidate.id === next.playerId && candidate.alive)) postTurn = next
+  }
+  if (postTurn) {
+    if (state.postTurnExtraPhases?.length === 0) delete state.postTurnExtraPhases
+    const player = state.players.find((candidate) => candidate.id === postTurn.playerId && candidate.alive)
+    if (player) {
+      state.currentPlayerId = player.id
+      state.phase = postTurn.phase
+      state.extraPhase = postTurn
+      const remaining = state.postTurnExtraPhases ?? []
+      if (remaining.length) {
+        state.pendingExtraPhases = remaining.splice(0)
+        delete state.postTurnExtraPhases
+      }
+      return true
+    }
+  }
+  if (state.postTurnExtraPhases?.length === 0) delete state.postTurnExtraPhases
   return beginTurn(state, emit)
 }

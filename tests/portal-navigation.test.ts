@@ -15,7 +15,7 @@ describe('CRPlay 顶层 URL 路由', () => {
     expect(resolveAppRoute(new URL('https://crplay.cn/?room=ABC234'))).toEqual({ kind: 'game', gameId: 'mahjong' })
   })
 
-  it('纸上三国 room 链接归属纸上三国', () => {
+  it('吴魏契约 room 链接归属吴魏契约', () => {
     expect(resolveAppRoute(new URL('https://crplay.cn/?game=sanguosha&room=ABC234'))).toEqual({ kind: 'game', gameId: 'sanguosha' })
   })
 

@@ -66,6 +66,23 @@ export function reshuffleDrawPile(
   return count
 }
 
+/** 将牌堆与弃牌堆合并后整体洗匀；供明确要求“洗牌”的技能使用。 */
+export function shuffleDrawAndDiscardPiles(
+  state: SanguoshaState,
+  rng: GameRng,
+  emit?: (name: GameEventName, payload: Record<string, unknown>) => void,
+): number {
+  const count = state.zones.drawPile.length + state.zones.discardPile.length
+  if (count === 0) return 0
+  state.zones.drawPile = rng.shuffle([...state.zones.drawPile, ...state.zones.discardPile])
+  state.zones.discardPile = []
+  const record = deckReshuffleState(state)
+  record.count += 1
+  record.lastTurnNumber = state.turnNumber
+  emit?.('DeckReshuffled', { count, turnNumber: state.turnNumber, total: record.count, reason: 'full-shuffle' })
+  return count
+}
+
 /**
  * 一张牌在规则里的点数。
  *

@@ -132,6 +132,8 @@ describe('天义的发动条件', () => {
 
     runTianyi(game, 13, 7)
     expect(tianyiAction(game), '拼过就不能再来').toBeUndefined()
+    game.state.extraPhase = { phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1 }
+    expect(tianyiAction(game), '另一个出牌阶段可以再次发动').toBeTruthy()
   })
 })
 

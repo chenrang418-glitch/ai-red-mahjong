@@ -101,10 +101,15 @@ function toggle(): void { sgsAudio.buttonFeedback(); open.value = !open.value }
   .sgs-audio__switch i::after { width: 25px; height: 25px; }
   .sgs-audio__switch input:checked + i::after { transform: translateX(21px); }
   .sgs-audio__slider { height: 26px; }
-  .sgs-audio__trigger { padding: 0 8px; font-size: 10px; }
+  .sgs-audio__trigger { position: relative; padding: 0 8px; font-size: 10px; }
+  .sgs-audio__trigger::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+  .sgs-audio__panel header button { width: 44px; height: 44px; }
+  .sgs-audio__toggle small { font-size: 10px; }
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
+  .sgs-audio__trigger { position: relative; font-size: 10px; }
+  .sgs-audio__trigger::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
   .sgs-audio__panel { left: 50%; right: auto; bottom: auto; top: 50%; width: min(480px, 82vw); padding: 0 14px 14px; border: 1px solid var(--ink-line); border-radius: 16px; transform: translate(-50%, -50%); animation: none; }
   .sgs-audio__panel header { min-height: 44px; margin: 0 -14px 9px; padding: 0 14px; }
   .sgs-audio__heading, .sgs-audio__toggle { min-height: 46px; border-radius: 10px; }

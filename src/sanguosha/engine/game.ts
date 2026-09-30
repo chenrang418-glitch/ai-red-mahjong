@@ -1,23 +1,23 @@
 import { createRulesetV1Deck } from '../data/ruleset-v1/deck'
-import { enterDying, resolveDamage, resolveRescueResponse, resumeDamageChain, type DamageOptions } from './damage'
+import { enterDying, resolveDamage, resolveRescueResponse, resumeDamageChain, resumeDamageSequence, resumeSourceDamagePrevention, resumeTargetDamagePrevention, resumeDamageModifier, settlePendingIdentityVictory, useVirtualPeachDuringDying, type DamageOptions } from './damage'
 import { GameEventBus, type EventContext, type GameEvent, type GameEventName } from './events'
 import { identitiesFor } from './modes/identity'
 import { GameRng } from './rng'
 import { startPlaying } from './turn'
 import { recheckZeroHpAfterSkillLoss } from './skills/runtime'
 import { advanceGamePhase, continuePhaseEntry, continueTurnTransition, recordDiscardPhaseMove, resolveDiscardPhaseResponse } from './phase'
-import { beginVirtualSlash as startVirtualSlash, legalPlayActions, performPlayAction, resolveCardPickResponse, resolveCardResponse, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
+import { beginSkillBasicUse as startSkillBasicUse, beginSkillCardUseFromDiscard as startSkillCardUseFromDiscard, beginSkillCardUseFromOtherHand as startSkillCardUseFromOtherHand, beginSkillDeclaredCardUseFromOtherHand as startSkillDeclaredCardUseFromOtherHand, beginSkillCardUseFromProcessing as startSkillCardUseFromProcessing, beginSkillLightningFromDiscard as startSkillLightningFromDiscard, beginSkillSlashFromDiscard as startSkillSlashFromDiscard, beginSkillSlashFromOtherHand as startSkillSlashFromOtherHand, beginSlashResponseDiscardPayment, beginVirtualBasic as startVirtualBasic, beginVirtualDelayedTrick as startVirtualDelayedTrick, beginVirtualSlash as startVirtualSlash, beginVirtualTrick as startVirtualTrick, legalPlayActions, performPlayAction, performCharacterPileCardUse, resolveCardPickResponse, resolveCardResponse, resolveSlashResponseDiscardPayment, resumeCardResolution, resumeCardTarget as continueCardTarget } from './cards/basic'
 import { resolveBorrowedKnifeTarget, resolveQizhengMode } from './cards/tricks'
 import { resolveJudgmentResponse, resolveRetrialResponse, resumeJudgment } from './judgment'
 import { isGroupDecisionRequest, resolveGroupDecisionResponse } from './group-decision'
 import { isGroupCardDecisionRequest, resolveGroupCardDecisionResponse } from './group-card-decision'
 import { isPindianRequest, resolvePindianResponse } from './pindian'
-import { MULTI_VIEWAS_ACTION, beginMultiCardViewAs } from './multi-card-viewas'
+import { MULTI_VIEWAS_ACTION, MULTI_VIEWAS_WINE_ACTION, beginMultiCardViewAs } from './multi-card-viewas'
 import { GUHUO_RESPOND_ACTION, beginGuhuoRespond, continueGuhuoResponseAfterDying } from './guhuo-response'
 import { WEIJIE_ACTION, beginWeijieRespond } from './weijie-response'
 import { RENNAI_ACTION, RENNAI_SKILL, armRennai } from './rennai'
 import { markUsedThisTurn } from './turn-usage'
-import { emptyEquipment, RULESET_VERSION, type GameSetup, type PlayerState, type SanguoshaState } from './types'
+import { emptyEquipment, RULESET_VERSION, type DamageNature, type DrawOperationReplay, type GameSetup, type PlayerState, type SanguoshaState } from './types'
 import type { GameRequest, GameResponse } from './requests'
 import type { QueuedSkillPrompt, SkillResolutionState } from './types'
 import { validateResponse } from './requests'
@@ -25,6 +25,10 @@ import { allCharacterIds, entertainmentCharacterIds, getCharacter, isEntertainme
 import { getSkillRuntime, initializeGameSkills, registerSkillTriggers } from './skills/runtime'
 import { buildPlayerView } from './view'
 import { skillDisplayName } from './presentation'
+import { recordTurnCardCategory } from './turn-card-categories'
+import { observeCardZoneMoves, observeCharacterPileMoves, observeDiscardPileEntries, observeFieldCardEntries, observeHandCardLeaves, recordCardHandEntry } from './zones'
+import { bindDrawEventEmitter, bindDrawRng, DrawAttemptInterrupted } from './draw'
+import { consumeEquipmentDrawReduction, equipmentEffectsSuppressed, expireEquipmentEffectSuppression } from './equipment-suppression'
 
 export interface SanguoshaGameOptions {
   seed: string
@@ -53,6 +57,7 @@ export class SanguoshaGame {
   /** SkillActivated 的累计条数。兜底横幅靠它判断「resume 期间技能自己报过没有」。 */
   private skillAnnounceCount: number = 0
   private recentAnnounce: { skillId: string; ownerId: string } | null = null
+  private drawOperationDepth = 0
 
   constructor(options: SanguoshaGameOptions) {
     const { setup, seed } = options
@@ -72,6 +77,7 @@ export class SanguoshaGame {
       characterId: null,
       hp: 4,
       maxHp: 4,
+      armorPoints: 0,
       chained: false,
       faceDown: false,
       characterPiles: {},
@@ -142,6 +148,23 @@ export class SanguoshaGame {
       decisions: [],
       result: null,
     }
+    observeCharacterPileMoves(this.state, (movement) => this.dispatch('CharacterPileMoved', { ...movement }))
+    observeHandCardLeaves(this.state, (movement) => this.dispatch('HandCardLeft', { ...movement }))
+    observeFieldCardEntries(this.state, (movement) => this.dispatch('FieldCardEntered', {
+      cardId: movement.cardId, playerId: movement.playerId, zone: movement.zone,
+      fromKind: movement.from.kind, fromPlayerId: 'playerId' in movement.from ? movement.from.playerId : null,
+    }, { targetId: movement.playerId, cardIds: [movement.cardId] }))
+    observeDiscardPileEntries(this.state, (movement) => this.dispatch('CardEnteredDiscardByMove', {
+      cardId: movement.cardId, fromKind: movement.from.kind,
+      fromPlayerId: 'playerId' in movement.from ? movement.from.playerId : null, reason: movement.reason,
+    }, { sourceId: 'playerId' in movement.from ? movement.from.playerId : undefined, cardIds: [movement.cardId] }))
+    observeCardZoneMoves(this.state, ({ cardId, from, to, color }) => this.dispatch('CardZoneMoved', {
+      cardId,
+      fromKind: from.kind, fromPlayerId: 'playerId' in from ? from.playerId : null,
+      toKind: to.kind, toPlayerId: 'playerId' in to ? to.playerId : null, color,
+    }))
+    bindDrawEventEmitter(this.state, (name, payload) => this.dispatch(name, payload))
+    bindDrawRng(this.state, this.rng)
     // 技能触发器是运行时代码，不进 GameState。DO 恢复后必须重新调用这里。
     registerSkillTriggers(this, (event, handler, priority) => { this.events.on(event, handler, priority) }, skillIdsOf)
     this.emit('GameStart', { playerCount: players.length })
@@ -156,6 +179,22 @@ export class SanguoshaGame {
     payload: Record<string, unknown> = {},
     metadata: Omit<GameEvent, 'id' | 'seq' | 'name' | 'payload'> = {},
   ): EventContext {
+    if (payload.revealed === true) {
+      const revealedIds = [
+        ...(Array.isArray(payload.cardIds) ? payload.cardIds : []),
+        ...(typeof payload.cardId === 'string' ? [payload.cardId] : []),
+        ...(metadata.cardIds ?? []),
+      ].filter((cardId): cardId is string => typeof cardId === 'string')
+      if (revealedIds.length) {
+        if (this.state.revealedCardIdsThisTurn?.turnNumber !== this.state.turnNumber)
+          this.state.revealedCardIdsThisTurn = { turnNumber: this.state.turnNumber, cardIds: [] }
+        const known = new Set(this.state.revealedCardIdsThisTurn.cardIds)
+        for (const cardId of revealedIds) if (!known.has(cardId)) {
+          this.state.revealedCardIdsThisTurn.cardIds.push(cardId)
+          known.add(cardId)
+        }
+      }
+    }
     if (name === 'SkillActivated') {
       /*
        * `restore` 用 `Object.create` 绕过构造函数，字段初始化器不会跑，
@@ -171,13 +210,153 @@ export class SanguoshaGame {
       }
     }
     const seq = ++this.state.seq
+    const skillMetrics = this.state.skillEffectMetrics
+    if (skillMetrics) {
+      if (name === 'GainCard' && payload.playerId === skillMetrics.ownerId && payload.isDraw === true) {
+        const cardIds = Array.isArray(payload.cardIds) ? payload.cardIds.filter((id): id is string => typeof id === 'string') : []
+        for (const cardId of cardIds) {
+          const cardName = this.state.cards[cardId]?.name
+          if (cardName) skillMetrics.drawnCardNames.push(cardName)
+        }
+      } else if (name === 'CardUsed' && metadata.sourceId === skillMetrics.ownerId
+        && typeof payload.cardName === 'string') {
+        skillMetrics.usedCardNames.push(payload.cardName)
+      }
+    }
+    if (name === 'CardUsed' && metadata.sourceId) {
+      const cardName = typeof payload.cardName === 'string' ? payload.cardName : null
+      if (cardName) {
+        this.state.cardUseHistory ??= []
+        this.state.cardUseHistory.push({ turnNumber: this.state.turnNumber, turnKind: this.state.currentTurnKind ?? 'normal', sourceId: metadata.sourceId, cardName })
+      }
+      const cardId = typeof payload.cardId === 'string' ? payload.cardId : null
+      const category = cardId ? this.state.cards[cardId]?.category : null
+      if (category) recordTurnCardCategory(this.state, metadata.sourceId, category, 'used', cardId)
+    }
+    if (name === 'CardResponded' && metadata.sourceId) {
+      const cardId = typeof payload.cardId === 'string' ? payload.cardId : null
+      const category = cardId ? this.state.cards[cardId]?.category : null
+      if (category) recordTurnCardCategory(this.state, metadata.sourceId, category, 'responded', cardId)
+    }
+    if (name === 'Damaged' && metadata.targetId) {
+      this.state.damageHistory ??= []
+      this.state.damageHistory.push({ sourceId: metadata.sourceId ?? null, targetId: metadata.targetId, turnNumber: this.state.turnNumber })
+    }
     if (name === 'CardMove') recordDiscardPhaseMove(this.state, payload, seq)
     const event: GameEvent = { id: `event-${seq}`, seq, name, payload, ...metadata }
-    return this.events.emit(event)
+    const context = this.events.emit(event)
+    if (name === 'DrawPhase' && typeof payload.playerId === 'string' && equipmentEffectsSuppressed(this.state, payload.playerId)) {
+      const reduction = consumeEquipmentDrawReduction(this.state, payload.playerId)
+      if (reduction) payload.count = Math.max(0, Number(payload.count ?? 2) - reduction)
+    }
+    if (name === 'TurnEnd' && typeof payload.playerId === 'string')
+      expireEquipmentEffectSuppression(this.state, payload.playerId, Number(payload.turnNumber ?? this.state.turnNumber))
+    if (name === 'DrawAttempt' && context.cancelled) {
+      const replacementCardIds = Array.isArray(payload.replacementCardIds)
+        ? payload.replacementCardIds.filter((cardId): cardId is string => typeof cardId === 'string')
+        : undefined
+      this.state.drawAttemptInterrupt = {
+        attemptIndex: typeof payload.attemptIndex === 'number' ? payload.attemptIndex : -1,
+        ...(replacementCardIds ? { replacementCardIds } : {}),
+      }
+    }
+    return context
   }
 
   damage(options: DamageOptions): void {
-    resolveDamage(this, options)
+    this.runDrawAwareOperation({ kind: 'damage', options: structuredClone(options) }, () => resolveDamage(this, options))
+  }
+
+  /** Resume a pre-draw choice by replaying the original synchronous root operation. */
+  resumeDrawOperation(options: {
+    skillId: string; attemptIndex: number; step: string; playerId: string
+    requestId: string; requestKind: string; payload: unknown
+  }): void {
+    const replay = this.state.drawOperationReplay
+    if (!replay || replay.attemptIndex !== options.attemptIndex) throw new Error('摸牌续接状态与当前技能请求不匹配')
+    const attemptChoices = replay.choices[String(options.attemptIndex)] ??= {}
+    const skillChoices = attemptChoices[options.skillId] ??= {}
+    skillChoices[options.step] = structuredClone(options.payload)
+    replay.responses.push({
+      requestId: options.requestId, playerId: options.playerId,
+      kind: options.requestKind, payload: structuredClone(options.payload),
+    })
+
+    const snapshot = structuredClone(replay.snapshot)
+    const operation = structuredClone(replay.operation)
+    this.replaceState(snapshot)
+    this.state.drawOperationReplay = replay
+    this.state.drawAttemptIndex = 0
+    try {
+      this.executeDrawReplayOperation(operation)
+    } catch (error) {
+      if (error instanceof DrawAttemptInterrupted && this.state.skillResolution
+        && this.state.pendingRequests.some((request) => request.id === this.state.skillResolution?.requestId)) {
+        replay.attemptIndex = error.attemptIndex
+        return
+      }
+      this.replaceState(snapshot)
+      throw error
+    }
+
+    for (const answer of replay.responses) {
+      this.state.decisions.push({
+        index: this.state.decisions.length, requestId: answer.requestId, playerId: answer.playerId,
+        kind: answer.kind as GameRequest['kind'], payload: structuredClone(answer.payload),
+      })
+    }
+    delete this.state.drawOperationReplay
+    delete this.state.drawAttemptIndex
+  }
+
+  private replaceState(snapshot: SanguoshaState): void {
+    const mutable = this.state as unknown as Record<string, unknown>
+    for (const key of Object.keys(mutable)) delete mutable[key]
+    Object.assign(mutable, structuredClone(snapshot))
+    this.rng = new GameRng(`${snapshot.rulesetVersion}:${snapshot.seed}`, snapshot.rngState || undefined)
+    bindDrawRng(this.state, this.rng)
+  }
+
+  private runDrawAwareOperation(operation: DrawOperationReplay['operation'], run: () => void): void {
+    if ((this.drawOperationDepth ?? 0) > 0) { run(); return }
+    if (this.state.drawOperationReplay) throw new Error('有摸牌替代技能正在等待续接')
+    const snapshot = this.serialize()
+    const replay: DrawOperationReplay = {
+      operation: structuredClone(operation), snapshot, attemptIndex: -1, choices: {}, responses: [],
+    }
+    this.state.drawOperationReplay = replay
+    this.state.drawAttemptIndex = 0
+    this.drawOperationDepth = 1
+    try {
+      run()
+      delete this.state.drawOperationReplay
+      delete this.state.drawAttemptIndex
+    } catch (error) {
+      if (error instanceof DrawAttemptInterrupted && this.state.skillResolution
+        && this.state.pendingRequests.some((request) => request.id === this.state.skillResolution?.requestId)) {
+        replay.attemptIndex = error.attemptIndex
+        return
+      }
+      this.replaceState(snapshot)
+      throw error
+    } finally {
+      this.drawOperationDepth = 0
+    }
+  }
+
+  private executeDrawReplayOperation(operation: DrawOperationReplay['operation']): void {
+    this.drawOperationDepth = 1
+    try {
+      switch (operation.kind) {
+        case 'act': this.recentAnnounce = null; performPlayAction(this, operation.playerId, operation.actionId); this.settle(); break
+        case 'respond': this.recentAnnounce = null; this.respondInner(operation.response); settlePendingIdentityVictory(this); this.settle(); break
+        case 'advance-phase': this.recentAnnounce = null; advanceGamePhase(this); this.settle(); break
+        case 'damage': resolveDamage(this, operation.options); break
+        case 'start': this.startInner(); break
+      }
+    } finally {
+      this.drawOperationDepth = 0
+    }
   }
 
   /**
@@ -205,6 +384,10 @@ export class SanguoshaGame {
      */
     if (this.state.status !== 'playing') return
     if (this.state.skillResolution) throw new Error('已有技能正在等待回应')
+    const metrics = this.state.skillEffectMetrics
+    if (!metrics || metrics.skillId !== options.skillId || metrics.ownerId !== options.ownerId) {
+      this.state.skillEffectMetrics = { skillId: options.skillId, ownerId: options.ownerId, drawnCardNames: [], usedCardNames: [] }
+    }
     const requestId = `request-skill-${++this.state.seq}`
     const request = options.build(requestId)
     if (request.id !== requestId) throw new Error('技能 Request id 必须使用引擎分配的值')
@@ -232,22 +415,88 @@ export class SanguoshaGame {
     this.state.pendingRequests.push(request)
   }
 
+  private completeSkillEffectMetrics(skillId: string, ownerId: string, invoked: boolean): void {
+    const metrics = this.state.skillEffectMetrics
+    if (!metrics || metrics.skillId !== skillId || metrics.ownerId !== ownerId) return
+    this.state.skillEffectMetrics = undefined
+    if (invoked) this.dispatch('SkillEffectResolved', {
+      skillId, drawnCardNames: [...metrics.drawnCardNames], usedCardNames: [...metrics.usedCardNames],
+    }, { sourceId: ownerId })
+  }
+
   enterDying(playerId: string): void {
     enterDying(this, playerId)
+  }
+
+  useVirtualPeachDuringDying(sourceId: string, dyingPlayerId: string, reason: string, physicalCardIds?: string[]): boolean {
+    return useVirtualPeachDuringDying(this, sourceId, dyingPlayerId, reason, physicalCardIds)
   }
 
   resumeAfterDying(): void {
     if (this.state.dying) return
     if (continueGuhuoResponseAfterDying(this)) return
     resumeDamageChain(this)
-    if (!this.state.dying && !this.state.damageChain) {
+    if (!this.state.dying && !this.state.damageChain) resumeDamageSequence(this)
+    if (!this.state.dying && !this.state.damageChain && !this.state.damageSequence
+      && !this.state.pendingSourceDamage && !this.state.pendingTargetDamage && !this.state.pendingDamageModifier) {
       resumeJudgment(this)
       if (!this.state.judgment) resumeCardResolution(this)
     }
   }
 
-  beginVirtualSlash(options: { sourceId: string; targetId: string; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder'; cardId?: string; countUsage?: boolean }): boolean {
+  beginVirtualSlash(options: { sourceId: string; targetId?: string; targetIds?: string[]; sourceSkillId: string; nature?: 'normal' | 'fire' | 'thunder'; cardId?: string; countUsage?: boolean; ignoreDistance?: boolean; ignoreArmor?: boolean; maxTargets?: number; damageBonus?: number; responseDiscardCostTargetIds?: string[]; noDodgeTargetIds?: string[]; damageSourceId?: string | null }): boolean {
     return startVirtualSlash(this, options)
+  }
+
+  beginSkillSlashFromOtherHand(options: { sourceId: string; physicalOwnerId: string; cardId: string; targetId: string; sourceSkillId: string }): boolean {
+    return startSkillSlashFromOtherHand(this, options)
+  }
+
+  beginVirtualBasic(options: { sourceId: string; targetIds: string[]; cardName: string; sourceSkillId: string }): boolean {
+    return startVirtualBasic(this, options)
+  }
+
+  beginSkillBasicUse(options: { sourceId: string; cardId: string; cardName: string; targetIds: string[]; sourceSkillId: string }): boolean {
+    return startSkillBasicUse(this, options)
+  }
+
+  beginSkillSlashFromDiscard(options: { sourceId: string; cardId: string; targetId: string; sourceSkillId: string }): boolean {
+    return startSkillSlashFromDiscard(this, options)
+  }
+
+  beginSkillLightningFromDiscard(sourceId: string, cardId: string, sourceSkillId: string): boolean {
+    return startSkillLightningFromDiscard(this, sourceId, cardId, sourceSkillId)
+  }
+
+  beginVirtualTrick(options: { sourceId: string; targetId?: string; targetIds?: string[]; cardName: string; sourceSkillId: string; cardId?: string; extraCardIds?: string[] }): boolean {
+    return startVirtualTrick(this, options)
+  }
+
+  beginVirtualDelayedTrick(options: { sourceId: string; targetId: string; cardName: string; sourceSkillId: string }): boolean {
+    return startVirtualDelayedTrick(this, options)
+  }
+
+  performSkillCardAction(options: { playerId: string; cardOwnerId: string; cardId: string; sourceSkillId: string; actionId: string }): void {
+    performCharacterPileCardUse(this, options.playerId, options.cardOwnerId, options.cardId, options.sourceSkillId, options.actionId)
+  }
+
+  beginSkillCardUseFromProcessing(playerId: string, cardId: string, sourceSkillId: string, actionId: string): boolean {
+    return startSkillCardUseFromProcessing(this, playerId, cardId, sourceSkillId, actionId)
+  }
+
+  beginSkillCardUseFromDiscard(playerId: string, cardId: string, sourceSkillId: string, actionId: string, asCardName?: string,
+    options?: { ignoreDistance?: boolean; ignoreUsageLimits?: boolean }): boolean {
+    return startSkillCardUseFromDiscard(this, playerId, cardId, sourceSkillId, actionId, asCardName, options)
+  }
+
+  beginSkillCardUseFromOtherHand(playerId: string, physicalOwnerId: string, cardId: string | string[], sourceSkillId: string,
+    actionId: string, asCardName?: string, nature?: DamageNature,
+    options?: { allowSelf?: boolean; ignoreDistance?: boolean; ignoreUsageLimits?: boolean }): boolean {
+    return startSkillCardUseFromOtherHand(this, playerId, physicalOwnerId, cardId, sourceSkillId, actionId, asCardName, nature, options)
+  }
+
+  beginSkillDeclaredCardUseFromOtherHand(options: { playerId: string; physicalOwnerId: string; cardId: string; asCardName: string; targetIds: string[]; sourceSkillId: string }): boolean {
+    return startSkillDeclaredCardUseFromOtherHand(this, options)
   }
 
   resumeCardTarget(): void {
@@ -287,11 +536,19 @@ export class SanguoshaGame {
       && !this.state.skillResolution
       && this.state.pendingRequests.length === 0
       && !this.state.dying
-      && !this.state.damageChain
-      && !this.state.cardResolution
+      && (!this.state.damageChain || this.pendingDamageAskSkillId())
+      && (!this.state.cardResolution || this.pendingDamageAskSkillId())
       && !this.state.judgment
     ) {
-      const prompt = this.state.skillQueue.shift()!
+      const pendingDamage = this.pendingDamageAsk()
+      const promptIndex = pendingDamage
+        ? this.state.skillQueue.findIndex((prompt) => prompt.skillId === pendingDamage.skillId
+          && prompt.ownerId === pendingDamage.ownerId
+          && (!pendingDamage.step || prompt.step === pendingDamage.step)) : 0
+      // Only the ask that owns the suspended damage may interrupt card resolution.
+      // Other queued triggers still wait for that card to finish.
+      if (promptIndex < 0) break
+      const [prompt] = this.state.skillQueue.splice(promptIndex, 1)
       const runtime = getSkillRuntime(prompt.skillId)
       const owner = this.state.players.find((candidate) => candidate.id === prompt.ownerId)
       /*
@@ -302,10 +559,59 @@ export class SanguoshaGame {
        * 按「死人一律丢弃」处理的话它一次也不会响。
        * 座位本身必须还在（只是 `alive` 为 false），换将后查不到人仍然丢弃。
        */
-      if (!runtime?.startQueued || !owner) continue
-      if (!owner.alive && !prompt.allowDeadOwner) continue
+      if (!runtime?.startQueued || !owner || (!owner.alive && !prompt.allowDeadOwner)) {
+        if (pendingDamage) {
+          const suspendedCard = this.suspendedDamageCard()
+          const targetAlive = this.state.players.some((player) => player.id === pendingDamage.options.targetId && player.alive)
+          if (pendingDamage.side === 'source') resumeSourceDamagePrevention(this, !targetAlive)
+          else if (pendingDamage.side === 'target') resumeTargetDamagePrevention(this, !targetAlive)
+          else if (!targetAlive) {
+            this.state.pendingDamageModifier = undefined
+            resumeDamageChain(this)
+          }
+          else resumeDamageModifier(this, pendingDamage.skillId!, 0)
+          this.continueSuspendedDamageCard(suspendedCard)
+        }
+        continue
+      }
+      const suspendedCard = this.suspendedDamageCard()
       runtime.startQueued(this, prompt.ownerId, prompt)
+      this.continueSuspendedDamageCard(suspendedCard)
+      if (!this.state.skillResolution
+        && !this.state.skillQueue.some((queued) => queued.skillId === prompt.skillId && queued.ownerId === prompt.ownerId))
+        this.completeSkillEffectMetrics(prompt.skillId, prompt.ownerId, true)
     }
+  }
+
+  private pendingDamageAskSkillId(): string | undefined {
+    return this.pendingDamageAsk()?.skillId
+  }
+
+  private pendingDamageAsk() {
+    const source = this.state.pendingSourceDamage
+    if (source) return { ...source, side: 'source' as const, ownerId: source.ownerId ?? source.options.sourceId }
+    const target = this.state.pendingTargetDamage
+    if (target) return { ...target, side: 'target' as const, ownerId: target.ownerId ?? target.options.targetId }
+    const modifier = this.state.pendingDamageModifier
+    if (modifier) return { ...modifier, side: 'modifier' as const,
+      ownerId: modifier.ownerId ?? (modifier.side === 'source' ? modifier.options.sourceId : modifier.options.targetId) }
+    return undefined
+  }
+
+  private suspendedDamageCard() {
+    const pending = this.pendingDamageAsk()
+    const card = this.state.cardResolution
+    if (!pending || !card || pending.options.cardId !== card.cardId) return undefined
+    return { cardId: card.cardId, target: card.kind === 'trick' ? card.targetIndex : card.targetId }
+  }
+
+  private continueSuspendedDamageCard(suspended: ReturnType<SanguoshaGame['suspendedDamageCard']>): void {
+    const card = this.state.cardResolution
+    if (!suspended || !card || card.cardId !== suspended.cardId
+      || (card.kind === 'trick' ? card.targetIndex : card.targetId) !== suspended.target
+      || this.pendingDamageAsk() || this.state.pendingRequests.length || this.state.skillResolution
+      || this.state.dying || this.state.damageChain || this.state.judgment) return
+    resumeCardResolution(this)
   }
 
   /** 牌局往前走一步之后统一收尾：把排队的技能发问放出去。 */
@@ -369,14 +675,28 @@ export class SanguoshaGame {
   }
 
   respond(response: GameResponse): void {
-    this.recentAnnounce = null
-    this.respondInner(response)
-    this.settle()
+    const resolve = () => {
+      this.recentAnnounce = null
+      this.respondInner(response)
+      settlePendingIdentityVictory(this)
+      this.settle()
+    }
+    if (this.state.drawOperationReplay && this.state.skillResolution?.requestId === response.requestId) {
+      resolve()
+      return
+    }
+    this.runDrawAwareOperation({ kind: 'respond', response: structuredClone(response) }, resolve)
   }
 
   private respondInner(response: GameResponse): void {
     const request = this.state.pendingRequests.find((candidate) => candidate.id === response.requestId)
     if (!request) throw new Error('Request 不存在或已经处理')
+
+    if (request.kind === 'choose-cards' && request.responsePayment) {
+      this.respondInner(resolveSlashResponseDiscardPayment(this, request, response))
+      return
+    }
+    if (request.kind === 'respond-card' && beginSlashResponseDiscardPayment(this, request, response)) return
 
     /*
      * 无亮【忍耐】：**改写成一次普通的「放弃响应」**，然后记一笔账。
@@ -430,12 +750,15 @@ export class SanguoshaGame {
      * 多牌同花色转化（神赵云【龙魂】）也走这条集中认领的路子，理由和蛊惑一样：
      * 求闪 / 求桃 / 无懈 / 锦囊效果四条路径只需要各多挂一条声明动作。
      */
-    if ((response.payload as { actionId?: string })?.actionId === MULTI_VIEWAS_ACTION) {
-      if (!('actionIds' in request) || !request.actionIds.includes(MULTI_VIEWAS_ACTION)) {
+    const multiViewAsActionId = (response.payload as { actionId?: string })?.actionId
+    if (multiViewAsActionId === MULTI_VIEWAS_ACTION || multiViewAsActionId === MULTI_VIEWAS_WINE_ACTION) {
+      if (!('actionIds' in request) || !request.actionIds.includes(multiViewAsActionId)) {
         throw new Error('当前请求不能用多牌转化响应')
       }
       // 要凑成哪张牌由请求自己带（求桃没有这个字段，默认就是【桃】），和蛊惑同一套读法
-      const target = 'requiredCardName' in request ? String(request.requiredCardName) : '桃'
+      const target = multiViewAsActionId === MULTI_VIEWAS_WINE_ACTION
+        ? '酒'
+        : ('requiredCardName' in request ? String(request.requiredCardName) : '桃')
       beginMultiCardViewAs(this, request as unknown as GameRequest, target)
       return
     }
@@ -493,7 +816,9 @@ export class SanguoshaGame {
        * 没有才补。这样技能写不写标签都不会重复。
        */
       const announceBefore = this.skillAnnounceCount ?? 0
+      const suspendedCard = this.suspendedDamageCard()
       runtime.resume(this, skillResolution.ownerId, skillResolution, response)
+      this.continueSuspendedDamageCard(suspendedCard)
       const announcedDuringResume = (this.skillAnnounceCount ?? 0) > announceBefore
         && this.recentAnnounce?.skillId === skillResolution.skillId
       /*
@@ -505,11 +830,15 @@ export class SanguoshaGame {
        */
       // 上面清过一次 skillResolution，TS 会把它收窄成 null；resume 里可能又挂了新的
       const pendingNext = this.state.skillResolution as SkillResolutionState | null
-      const chainContinues = !!pendingNext
+      const queuedContinuation = this.state.skillQueue.some((queued) =>
+        queued.skillId === skillResolution.skillId && queued.ownerId === skillResolution.ownerId)
+      const chainContinues = (!!pendingNext
         && pendingNext.skillId === skillResolution.skillId
-        && pendingNext.ownerId === skillResolution.ownerId
+        && pendingNext.ownerId === skillResolution.ownerId) || queuedContinuation
+      const invoked = skillResponseWasInvoked(request, response)
+      if (!chainContinues) this.completeSkillEffectMetrics(skillResolution.skillId, skillResolution.ownerId, invoked)
       if (!skillResolution.announced && !runtime.announcesSelf && !announcedDuringResume
-        && !chainContinues && skillResponseWasInvoked(request, response)) {
+        && !chainContinues && invoked) {
         this.dispatch('SkillActivated', { skillId: skillResolution.skillId, skillName: skillDisplayName(skillResolution.skillId) }, { sourceId: skillResolution.ownerId })
       }
       return
@@ -542,6 +871,7 @@ export class SanguoshaGame {
        * 写成 `hp = maxHp` 会让他开局变成满血 7，那是错的。
        */
       player.hp = Math.min(player.maxHp, (character.initialHp ?? character.maxHp) + lordBonus)
+      player.armorPoints = Math.max(0, Math.trunc(character.initialArmor ?? 0))
       this.state.pendingRequests = this.state.pendingRequests.filter((candidate) => candidate.id !== request.id)
       // 单机自选可能挑中原本分给 AI 的普通武将。普通武将保持唯一；
       // 娱乐包是固定公共候选，明确允许一桌多人选择同一个。
@@ -591,9 +921,11 @@ export class SanguoshaGame {
   }
 
   advancePhase(): void {
-    this.recentAnnounce = null
-    advanceGamePhase(this)
-    this.settle()
+    this.runDrawAwareOperation({ kind: 'advance-phase' }, () => {
+      this.recentAnnounce = null
+      advanceGamePhase(this)
+      this.settle()
+    })
   }
 
   legalActions(playerId: string) {
@@ -601,9 +933,11 @@ export class SanguoshaGame {
   }
 
   act(playerId: string, actionId: string): void {
-    this.recentAnnounce = null
-    performPlayAction(this, playerId, actionId)
-    this.settle()
+    this.runDrawAwareOperation({ kind: 'act', playerId, actionId }, () => {
+      this.recentAnnounce = null
+      performPlayAction(this, playerId, actionId)
+      this.settle()
+    })
   }
 
   /**
@@ -656,12 +990,33 @@ export class SanguoshaGame {
 
   /** 选将完成后调用；起始手牌在此刻发放，避免选将阶段提前持有私密手牌。 */
   start(): void {
+    this.runDrawAwareOperation({ kind: 'start' }, () => this.startInner())
+  }
+
+  private startInner(): void {
     if (this.state.status !== 'choosing-general') throw new Error('牌局不在选将阶段')
     if (this.state.pendingRequests.some((request) => request.kind === 'choose-general')) throw new Error('还有玩家没有选将')
     if (this.state.players.some((player) => player.zones.hand.length > 0)) throw new Error('起始手牌已经发放')
-    for (let round = 0; round < 4; round += 1) {
-      for (const player of this.state.players) player.zones.hand.push(this.state.zones.drawPile.shift()!)
+    const openingHandCounts = this.state.players.map((player) => {
+      let count = 4
+      for (const skillId of skillIdsOf(player.characterId ?? '')) {
+        const override = getSkillRuntime(skillId)?.initialHandCount?.(this.state, player.id, count)
+        if (override !== null && override !== undefined) count = Math.max(0, Math.trunc(override))
+      }
+      for (const owner of this.state.players) {
+        if (!owner.alive || owner.id === player.id) continue
+        for (const skillId of skillIdsOf(owner.characterId ?? '')) {
+          count += Math.trunc(getSkillRuntime(skillId)?.globalInitialHandModifier?.(this.state, owner.id, player.id) ?? 0)
+        }
+      }
+      return Math.max(0, count)
+    })
+    for (let round = 0; round < Math.max(0, ...openingHandCounts); round += 1) {
+      for (const [index, player] of this.state.players.entries()) {
+        if (round < openingHandCounts[index]) player.zones.hand.push(this.state.zones.drawPile.shift()!)
+      }
     }
+    for (const player of this.state.players) for (const cardId of player.zones.hand) recordCardHandEntry(this.state, cardId, 1)
     /*
      * 开局技能必须在**第一个回合开始之前**跑完。
      *
@@ -774,6 +1129,23 @@ export class SanguoshaGame {
     }
     mutable.rng = new GameRng(`${stored.rulesetVersion}:${stored.seed}`, stored.rngState || undefined)
     mutable.events = new GameEventBus()
+    observeCharacterPileMoves(mutable.state, (movement) => game.dispatch('CharacterPileMoved', { ...movement }))
+    observeHandCardLeaves(mutable.state, (movement) => game.dispatch('HandCardLeft', { ...movement }))
+    observeFieldCardEntries(mutable.state, (movement) => game.dispatch('FieldCardEntered', {
+      cardId: movement.cardId, playerId: movement.playerId, zone: movement.zone,
+      fromKind: movement.from.kind, fromPlayerId: 'playerId' in movement.from ? movement.from.playerId : null,
+    }, { targetId: movement.playerId, cardIds: [movement.cardId] }))
+    observeDiscardPileEntries(mutable.state, (movement) => game.dispatch('CardEnteredDiscardByMove', {
+      cardId: movement.cardId, fromKind: movement.from.kind,
+      fromPlayerId: 'playerId' in movement.from ? movement.from.playerId : null, reason: movement.reason,
+    }, { sourceId: 'playerId' in movement.from ? movement.from.playerId : undefined, cardIds: [movement.cardId] }))
+    observeCardZoneMoves(mutable.state, ({ cardId, from, to, color }) => game.dispatch('CardZoneMoved', {
+      cardId,
+      fromKind: from.kind, fromPlayerId: 'playerId' in from ? from.playerId : null,
+      toKind: to.kind, toPlayerId: 'playerId' in to ? to.playerId : null, color,
+    }))
+    bindDrawEventEmitter(mutable.state, (name, payload) => game.dispatch(name, payload))
+    bindDrawRng(mutable.state, mutable.rng)
     registerSkillTriggers(game, (event, handler, priority) => { game.events.on(event, handler, priority) }, skillIdsOf)
     return game
   }

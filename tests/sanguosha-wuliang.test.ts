@@ -88,9 +88,9 @@ function dodgeRequest(game: SanguoshaGame) {
 }
 
 describe('无亮的基础信息', () => {
-  it('群势力、4 体力、两个技能、娱乐包', () => {
+  it('乐势力、4 体力、两个技能、娱乐包', () => {
     const character = getCharacter('wuliang')!
-    expect(character.kingdom).toBe('qun')
+    expect(character.kingdom).toBe('le')
     expect(character.maxHp).toBe(4)
     expect(character.pack).toBe('entertainment')
     expect(character.skills.map((skill) => skill.id)).toEqual([RENNAI, DUOWEI])

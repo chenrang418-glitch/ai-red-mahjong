@@ -1069,11 +1069,11 @@ registerSkillRuntime({
     {
       event: 'GainCard',
       handle(host, _ownerId, context) {
-        const payload = context.event.payload as { playerId?: PlayerId; reason?: string }
+        const payload = context.event.payload as { playerId?: PlayerId; reason?: string; isDraw?: boolean }
         if (!payload.playerId || host.state.currentPlayerId !== payload.playerId) return
         const player = playerOf(host.state, payload.playerId)
         if (!player) return
-        if (payload.reason === 'draw' && host.state.phase !== 'draw') player.marks.tongguanTurnDrawOutside = 1
+        if ((payload.isDraw || payload.reason === 'draw') && host.state.phase !== 'draw') player.marks.tongguanTurnDrawOutside = 1
       },
     },
     {

@@ -3,7 +3,7 @@ import { flipCharacter } from '../../engine/character-state'
 import { BUQU } from './wind-zhoutai'
 import { GUIDAO, HUANGTIAN, LEIJI } from './wind-zhangjiao'
 import { YUJI } from './wind-yuji'
-import { getDistance } from '../../engine/distance'
+import { getAttackRange, getDistance } from '../../engine/distance'
 import { resolveDamage } from '../../engine/damage'
 import { drawCards } from '../../engine/draw'
 import { handleEquipmentLost } from '../../engine/equipment'
@@ -60,23 +60,42 @@ registerSkillRuntime({
 
 // —— 黄忠【烈弓】——
 //
-// 采用**经典风包版**：锁定技，当你使用【杀】指定一个目标后，
-// 若该角色的手牌数小于等于你的体力值，或大于等于你的体力上限，
-// 则该【杀】不可被【闪】响应。
-// 本项目不采用该变体。
-//
-// 走 `slashUndodgeable` 这个公共入口，和铁骑落到同一个 noDodge 字段上——
-// 不为烈弓单开一条结算分支。
+// 经典风包版：出牌阶段使用【杀】指定目标后，若目标手牌数不小于自身体力值
+// 或不大于自身攻击范围，使用者可以令该目标不能使用【闪】响应这张【杀】。
+// 发动选择由【烈弓】自己的目标后插入流程处理；选中后才写入当前杀结算。
 
 registerSkillRuntime({
   id: 'liegong',
-  slashUndodgeable(state, ownerId, targetId) {
-    const owner = state.players.find((player) => player.id === ownerId)
-    const target = state.players.find((player) => player.id === targetId)
-    if (!owner || !target) return false
-    // 比的是当前手牌数。此刻【杀】已经离手进了处理区，所以两边数的都是「出牌之后」的手牌
-    const handCount = target.zones.hand.length
-    return handCount <= owner.hp || handCount >= owner.maxHp
+  interceptSourceTargetEach(host, ownerId, context) {
+    const owner = host.state.players.find((player) => player.id === ownerId)
+    const target = host.state.players.find((player) => player.id === context.targetId)
+    if (!owner?.alive || !target?.alive || host.state.currentPlayerId !== ownerId || host.state.phase !== 'play') return false
+    const targetHandCount = target.zones.hand.length
+    if (targetHandCount < owner.hp && targetHandCount > getAttackRange(host.state, ownerId)) return false
+    host.askSkill({
+      skillId: 'liegong', ownerId, step: 'target-choice', data: { targetId: target.id },
+      build: (requestId): ChooseOptionRequest => ({
+        id: requestId, kind: 'choose-option', playerId: ownerId,
+        prompt: `【烈弓】：是否令${target.nickname}不能使用【闪】响应此【杀】？`,
+        timeoutMs: 20_000, optional: true,
+        options: [{ id: 'yes', label: '发动烈弓' }, { id: 'no', label: '放弃' }],
+      }),
+    })
+    return true
+  },
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step !== 'target-choice') return
+    const targetId = String(resolution.data.targetId ?? '')
+    const result = response.payload as { optionId?: string }
+    const cardResolution = host.state.cardResolution
+    if (result.optionId === 'yes' && cardResolution?.kind === 'slash'
+      && cardResolution.sourceId === ownerId && cardResolution.targetId === targetId
+      && host.state.players.find((player) => player.id === targetId)?.alive) {
+      cardResolution.noDodgeTargetIds ??= []
+      if (!cardResolution.noDodgeTargetIds.includes(targetId)) cardResolution.noDodgeTargetIds.push(targetId)
+      cardResolution.noDodge = true
+    }
+    host.resumeCardTarget()
   },
 })
 
@@ -336,7 +355,7 @@ registerSkillRuntime({
     }
     if (resolution.step === 'judge-target') {
       const [targetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
-      host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: 'shensu-judge' })
+      host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: 'shensu-judge', ignoreDistance: true })
       return
     }
     if (resolution.step === 'play-ask') {
@@ -376,7 +395,7 @@ registerSkillRuntime({
     moveCard(host.state, cardId, from, { kind: 'discardPile' })
     if (from.kind === 'equipment') handleEquipmentLost(host, ownerId, cardId)
     else host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: '神速' }, { sourceId: ownerId, cardIds: [cardId] })
-    host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: 'shensu-play' })
+    host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: 'shensu-play', ignoreDistance: true })
   },
   startQueued(host, _ownerId, prompt) {
     if (prompt.step === 'advance-play' && host.state.phase === 'play') host.advancePhase()
@@ -518,7 +537,7 @@ export const WIND_CHARACTERS: readonly CharacterDefinition[] = [
     skills: [{
       id: 'liegong',
       name: '烈弓',
-      description: '锁定技，当你使用【杀】指定一个目标后，若该角色的手牌数小于等于你的体力值，或大于等于你的体力上限，则该【杀】不可被【闪】响应。',
+      description: '当你于出牌阶段使用【杀】指定目标后，若其手牌数不小于你的体力值或不大于你的攻击范围，你可以令其不能使用【闪】响应此【杀】。',
     }],
   },
 ] as const

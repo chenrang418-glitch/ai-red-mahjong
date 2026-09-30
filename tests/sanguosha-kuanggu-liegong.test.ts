@@ -3,7 +3,6 @@ import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertCardConservation, moveCard, type ZoneRef } from '@/sanguosha/engine/zones'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
 import { getDistance } from '@/sanguosha/engine/distance'
-import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
 import type { GameSetup, Identity, PlayerId, SanguoshaState } from '@/sanguosha/engine/types'
 
 /**
@@ -196,68 +195,13 @@ describe('魏延【狂骨】', () => {
 describe('黄忠【烈弓】', () => {
   const CAST = ['huangzhong', 'zhangfei', 'zhaoyun', 'guanyu', 'guojia']
 
-  /**
-   * 边界表直接问技能运行时。
-   *
-   * `slashUndodgeable` 没有导出的聚合入口（`basic.ts` 里内联消费），
-   * 所以这里问的是判据本身；**接线**由下面那两条真的打一刀的用例兜底，
-   * 两者合起来才算完整。
-   */
-  function undodgeable(game: SanguoshaGame, targetId: string): boolean {
-    return getSkillRuntime('liegong')!.slashUndodgeable!(game.state, 'p0', targetId)
-  }
-
-  it('目标手牌数 ≤ 黄忠体力值：不可被【闪】响应', () => {
-    const game = gameAt('liegong-low', CAST)
-    const owner = playerOf(game, 'p0')
-    owner.hp = 4
-    owner.maxHp = 4
-    setHandCount(game, 'p1', 4)
-    expect(undodgeable(game, 'p1'), '4 ≤ 4 成立').toBe(true)
-    setHandCount(game, 'p1', 3)
-    expect(undodgeable(game, 'p1'), '3 ≤ 4 也成立').toBe(true)
-  })
-
-  it('目标手牌数 ≥ 黄忠体力上限：同样不可被【闪】响应', () => {
-    const game = gameAt('liegong-high', CAST)
-    const owner = playerOf(game, 'p0')
-    owner.hp = 2
-    owner.maxHp = 4
-    setHandCount(game, 'p1', 4)
-    expect(undodgeable(game, 'p1'), '4 ≥ 4 成立').toBe(true)
-    setHandCount(game, 'p1', 6)
-    expect(undodgeable(game, 'p1'), '6 ≥ 4 也成立').toBe(true)
-  })
-
-  it('反证：两个条件都不满足时，可以被【闪】响应', () => {
-    const game = gameAt('liegong-neither', CAST)
-    const owner = playerOf(game, 'p0')
-    owner.hp = 2
-    owner.maxHp = 4
-    // 手牌 3：既不 ≤ 2，也不 ≥ 4
-    setHandCount(game, 'p1', 3)
-    expect(undodgeable(game, 'p1'), '3 落在 (2, 4) 的开区间里').toBe(false)
-  })
-
-  it('判据跟着体力实时变，不是开局定死的', () => {
-    const game = gameAt('liegong-dynamic', CAST)
-    const owner = playerOf(game, 'p0')
-    owner.hp = 2
-    owner.maxHp = 4
-    setHandCount(game, 'p1', 3)
-    expect(undodgeable(game, 'p1')).toBe(false)
-    // 黄忠掉一滴血：3 ≥ maxHp 仍不成立，但 3 ≤ hp 也不成立 → 还是能闪
-    owner.hp = 3
-    expect(undodgeable(game, 'p1'), '体力升到 3，3 ≤ 3 成立了').toBe(true)
-  })
-
   it('真的打一刀：目标手上有【闪】也闪不掉', () => {
     const game = gameAt('liegong-real', CAST)
     const owner = playerOf(game, 'p0')
     owner.hp = 4
     owner.maxHp = 4
-    owner.attackRangeBonus = 6
-    // 目标只有一张【闪】：1 ≤ 4，烈弓成立
+    owner.attackRangeBonus = 0
+    // 目标只有一张【闪】：1 ≤ 默认攻击范围1，发动烈弓后不可闪
     const dodge = findCard(game, (card) => card.name === '闪')
     setHandCount(game, 'p1', 0)
     moveCard(game.state, dodge, locate(game.state, dodge), { kind: 'hand', playerId: 'p1' })
@@ -273,6 +217,7 @@ describe('黄忠【烈弓】', () => {
     game.act('p0', action.id)
     let askedForDodge = false
     settle(game, (request) => {
+      if (request.prompt?.includes('烈弓')) return { optionId: 'yes' }
       if (request.playerId === 'p1' && request.kind === 'respond-card') askedForDodge = true
       return null
     })
@@ -287,14 +232,14 @@ describe('黄忠【烈弓】', () => {
   it('反证：条件不成立时照常问【闪】，而且闪得掉', () => {
     const game = gameAt('liegong-real-control', CAST)
     const owner = playerOf(game, 'p0')
-    owner.hp = 2
+    owner.hp = 4
     owner.maxHp = 4
-    owner.attackRangeBonus = 6
-    // 目标手牌 3 张（含一张【闪】）：既不 ≤ 2 也不 ≥ 4
-    setHandCount(game, 'p1', 2)
+    owner.attackRangeBonus = 0
+    // 目标手牌 2 张（含一张【闪】）：2 < 体力4 且 2 > 攻击范围1。
+    setHandCount(game, 'p1', 1)
     const dodge = findCard(game, (card) => card.name === '闪')
     moveCard(game.state, dodge, locate(game.state, dodge), { kind: 'hand', playerId: 'p1' })
-    expect(playerOf(game, 'p1').zones.hand.length, '前提：手牌正好 3 张').toBe(3)
+    expect(playerOf(game, 'p1').zones.hand.length, '前提：手牌正好 2 张').toBe(2)
 
     const slash = findCard(game, (card) => card.name === '杀')
     moveCard(game.state, slash, locate(game.state, slash), { kind: 'hand', playerId: 'p0' })

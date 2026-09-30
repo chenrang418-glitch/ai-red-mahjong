@@ -221,7 +221,7 @@
   | 包 | 武将 | 技能 | 文件 |
   |---|---|---|---|
   | 风 | 魏延 | 狂骨（经典风包版：锁定技，对距离 1 以内造成伤害后回等量体力） | `data/characters/wind.ts` |
-  | 风 | 黄忠 | 烈弓（经典风包版：锁定技，手牌数 ≤ 己方体力值或 ≥ 己方体力上限则不可闪） | `data/characters/wind.ts` |
+  | 风 | 黄忠 | 烈弓（出牌阶段使用杀指定目标后，若其手牌数 ≥ 己方体力值或 ≤ 己方攻击范围，可令其不能闪） | `data/characters/wind.ts` |
   | 火 | 典韦 | 强袭（经典火包版：出牌阶段限一次，失去 1 体力或弃武器，对攻击范围内 1 人造成 1 伤害） | `data/characters/fire.ts` |
   | 火 | 庞德 | 马术（复用马超）+ 猛进（杀被闪抵消后，弃自己一张牌，弃对方一张牌） | `data/characters/fire.ts` |
   | 火 | 颜良文丑 | 双雄（摸牌阶段改判定并获得判定牌，本回合异色手牌当决斗） | `data/characters/fire.ts` |
@@ -437,7 +437,7 @@
 | 零体力存活豁免 | `SkillRuntime.survivesAtZeroHp`（不变量的唯一例外） | 周泰【不屈】 |
 | 判定改判 | `SkillRuntime.retrial` | 司马懿【鬼才】、张角【鬼道】 |
 | 主公技授权别人的动作 | `SkillRuntime.grantsPlayActions` / `invokeGrantedAction` | 张角【黄天】 |
-| 不可闪避 | `SkillRuntime.slashUndodgeable` | 马超【铁骑】、黄忠【烈弓】 |
+| 不可闪避 | `SkillRuntime.slashUndodgeable` | 马超【铁骑】；黄忠【烈弓】由自身 `interceptSourceTargetEach` 询问后写入当前目标结算 |
 | 有效花色 | `effectiveCardSuit` | 小乔【红颜】 |
 
 ## 林包引入的公共机制（2026-09-03）

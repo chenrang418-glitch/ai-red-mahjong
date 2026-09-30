@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { assertGameInvariants } from '@/sanguosha/engine/invariants'
+import { moveCard } from '@/sanguosha/engine/zones'
 import type { GameSetup, Identity, PlayerId } from '@/sanguosha/engine/types'
 
 // 填充角色用张飞而不是马超：马超有了【铁骑】之后，每次出杀都会多一个询问，
@@ -182,7 +183,7 @@ describe('主公技', () => {
 })
 
 describe('主公武将的普通技能', () => {
-  it('制衡：弃几张摸几张，每回合限一次', () => {
+  it('制衡：弃几张摸几张，每出牌阶段限一次', () => {
     const game = gameWith(['sunquan', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], LORD_FIRST)
     game.state.currentPlayerId = 'p0'
     game.state.phase = 'play'
@@ -203,7 +204,56 @@ describe('主公武将的普通技能', () => {
     assertGameInvariants(game.state)
   })
 
-  it('仁德：给出两张牌后回复一点体力，同一回合只回一次', () => {
+  it('制衡：可以选择装备区的牌，弃置装备后按实际弃牌数摸牌', () => {
+    const game = gameWith(['sunquan', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], LORD_FIRST)
+    game.state.currentPlayerId = 'p0'
+    game.state.phase = 'play'
+    const owner = game.state.players[0]
+    const equipmentId = game.state.zones.drawPile.find((id) => game.state.cards[id].name === '青釭剑')!
+    expect(equipmentId).toBeTruthy()
+    moveCard(game.state, equipmentId, { kind: 'drawPile' }, { kind: 'equipment', playerId: 'p0', slot: 'weapon' })
+    for (const cardId of [...owner.zones.hand]) {
+      moveCard(game.state, cardId, { kind: 'hand', playerId: 'p0' }, { kind: 'discardPile' })
+    }
+    const handBefore = owner.zones.hand.length
+    const drawBefore = game.state.zones.drawPile.length
+
+    game.act('p0', 'skill:zhiheng')
+    const request = pending(game)
+    expect(request.kind).toBe('choose-cards')
+    expect(request.cardIds).toContain(equipmentId)
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { cardIds: [equipmentId] } })
+
+    expect(owner.zones.equipment.weapon).toBeNull()
+    expect(game.state.zones.discardPile).toContain(equipmentId)
+    expect(owner.zones.hand).toHaveLength(handBefore + 1)
+    expect(game.state.zones.drawPile).toHaveLength(drawBefore - 1)
+    assertGameInvariants(game.state)
+  })
+
+  it('仁德：前一出牌阶段给出的牌不计入后续出牌阶段', () => {
+    const game = gameWith(['liubei', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], LORD_FIRST)
+    game.state.currentPlayerId = 'p0'
+    game.state.phase = 'play'
+    const owner = game.state.players[0]
+    owner.hp = owner.maxHp - 1
+    const initialHp = owner.hp
+
+    game.act('p0', 'skill:rende')
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { cardIds: owner.zones.hand.slice(0, 1) } })
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+    expect(owner.hp).toBe(initialHp)
+
+    game.dispatch('PlayPhase', { playerId: 'p0' }, { sourceId: 'p0', phase: 'play' })
+    game.act('p0', 'skill:rende')
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { cardIds: owner.zones.hand.slice(0, 1) } })
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { targetIds: ['p1'] } })
+
+    expect(owner.hp).toBe(initialHp)
+    assertGameInvariants(game.state)
+  })
+
+  it('仁德：本出牌阶段给出第二张牌后回复一点体力，且只回复一次', () => {
     const game = gameWith(['liubei', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei'], LORD_FIRST)
     game.state.currentPlayerId = 'p0'
     game.state.phase = 'play'

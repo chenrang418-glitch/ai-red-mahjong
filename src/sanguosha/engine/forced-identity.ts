@@ -1,5 +1,5 @@
 import { cardPlayable } from './card-play-lock'
-import { skillForcedCardIdentity } from './skills/runtime'
+import { isResponseCardProhibited, skillForcedCardIdentity } from './skills/runtime'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 
 /**
@@ -126,7 +126,8 @@ export function canUseCardAs(
    * 挂在这里就一次覆盖到位；而且它拿到的是**实体牌**，
    * 所以转化技的子牌同样被拦住——只看转化后那张虚拟牌的花色等于没拦。
    */
-  if (!cardPlayable(state, playerId, cardId)) return false
+  if (!cardPlayable(state, playerId, cardId, { forResponse: true })) return false
+  if (isResponseCardProhibited(state, playerId, cardId, asCardName)) return false
   const forced = forcedIdentityFor(state, playerId, cardId)
   return !forced || forced.asCardName === asCardName
 }

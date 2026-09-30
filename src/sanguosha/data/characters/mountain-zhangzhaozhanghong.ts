@@ -1,4 +1,6 @@
 import { drawCards } from '../../engine/draw'
+import { handleEquipmentLost } from '../../engine/equipment'
+import { equipmentSlotsOf } from '../../engine/equipment-slots'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
 import type { CardId, DiscardPhaseRecord, PlayerId, SanguoshaState } from '../../engine/types'
@@ -18,21 +20,28 @@ function legalCards(state: SanguoshaState, ownerId: PlayerId): CardId[] {
   if (!owner?.alive) return []
   return owner.zones.hand.filter((cardId) => {
     const slot = state.cards[cardId]?.equipmentSlot
-    return Boolean(slot && state.players.some((target) => target.alive && target.id !== ownerId && !target.zones.equipment[slot]))
+    return Boolean(slot && state.players.some((target) => target.alive && target.id !== ownerId && equipmentSlotsOf(state, target.id).includes(slot)))
   })
 }
 
 function legalTargets(state: SanguoshaState, ownerId: PlayerId, cardId: CardId): PlayerId[] {
   const slot = state.cards[cardId]?.equipmentSlot
   if (!slot) return []
-  return state.players.filter((target) => target.alive && target.id !== ownerId && !target.zones.equipment[slot]).map((target) => target.id)
+  return state.players.filter((target) => target.alive && target.id !== ownerId && equipmentSlotsOf(state, target.id).includes(slot)).map((target) => target.id)
 }
 
 registerSkillRuntime({
   id: ZHIJIAN,
+  triggers: [{ event: 'CardUsed', handle(host, ownerId, context) {
+    if (context.event.sourceId !== ownerId || host.state.phase !== 'play' || host.state.currentPlayerId !== ownerId) return
+    const cardId = (context.event.payload as { cardId?: CardId }).cardId ?? context.event.cardIds?.[0]
+    if (cardId && host.state.cards[cardId]?.category === 'equipment') {
+      drawCards(host.state, host.rng, ownerId, 1, (name, payload) => { host.dispatch(name, payload) })
+    }
+  } }],
   activeActions(state, ownerId) {
     if (state.currentPlayerId !== ownerId || state.phase !== 'play' || legalCards(state, ownerId).length === 0) return []
-    return [{ id: ZHIJIAN_ACTION, label: '发动【直谏】：将手牌中的装备置入其他角色的空装备栏' }]
+    return [{ id: ZHIJIAN_ACTION, label: '发动【直谏】：将手牌中的装备置入其他角色装备区' }]
   },
   invokeActive(host, ownerId, actionId) {
     if (actionId !== ZHIJIAN_ACTION) return
@@ -50,7 +59,7 @@ registerSkillRuntime({
       const candidateIds = legalTargets(host.state, ownerId, cardId)
       if (!candidateIds.length) return
       host.askSkill({ skillId: ZHIJIAN, ownerId, step: 'target', data: { cardId }, build: (requestId): ChooseTargetsRequest => ({
-        id: requestId, kind: 'choose-targets', playerId: ownerId, prompt: '【直谏】：选择装备栏对应位置为空的其他角色',
+        id: requestId, kind: 'choose-targets', playerId: ownerId, prompt: '【直谏】：选择一名其他角色',
         timeoutMs: 20_000, optional: true, candidateIds, min: 0, max: 1,
       }) })
       return
@@ -61,8 +70,10 @@ registerSkillRuntime({
     const owner = playerOf(host.state, ownerId)
     const slot = host.state.cards[cardId]?.equipmentSlot
     const target = targetId ? playerOf(host.state, targetId) : undefined
-    if (!owner?.zones.hand.includes(cardId) || !slot || !target?.alive || target.id === ownerId || target.zones.equipment[slot]) return
+    if (!owner?.zones.hand.includes(cardId) || !slot || !target?.alive || target.id === ownerId || !legalTargets(host.state, ownerId, cardId).includes(targetId)) return
+    const replaced = target.zones.equipment[slot]
     moveCard(host.state, cardId, { kind: 'hand', playerId: ownerId }, { kind: 'equipment', playerId: targetId, slot })
+    if (replaced) handleEquipmentLost(host, targetId, replaced)
     host.dispatch('LoseCard', { playerId: ownerId, cardIds: [cardId], reason: ZHIJIAN }, { sourceId: ownerId, cardIds: [cardId] })
     host.dispatch('GainCard', { playerId: targetId, cardIds: [cardId], reason: ZHIJIAN }, { sourceId: ownerId, targetId, cardIds: [cardId] })
     drawCards(host.state, host.rng, ownerId, 1, (name, payload) => { host.dispatch(name, payload) })

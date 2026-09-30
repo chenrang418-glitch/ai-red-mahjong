@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { SanguoshaGame } from '@/sanguosha/engine/game'
 import { ALL_CHARACTERS, allCharacterIds, displayCharacterName, entertainmentCharacterIds, getCharacter, isEntertainmentCharacter, skillIdsOf } from '@/sanguosha/data/characters/standard'
-import { getSkillRuntime } from '@/sanguosha/engine/skills/runtime'
+import { getSkillRuntime, replaceTemporarySkills } from '@/sanguosha/engine/skills/runtime'
 import { getDistance } from '@/sanguosha/engine/distance'
+import { prohibitSlashThisTurn } from '@/sanguosha/engine/slash-rules'
 import { resolveDamage } from '@/sanguosha/engine/damage'
 import type { GameSetup, Identity, SanguoshaState } from '@/sanguosha/engine/types'
 import { assertCardConservation, moveCard, type ZoneRef } from '@/sanguosha/engine/zones'
+
 
 function setup(): GameSetup {
   return {
@@ -179,6 +181,9 @@ describe('诸葛亮【观星】【空城】', () => {
     game.state.currentPlayerId = 'p0'
     game.start()
 
+    const invoke = game.state.pendingRequests[0]
+    expect(invoke).toMatchObject({ kind: 'choose-option', playerId: 'p0', optional: true })
+    game.respond({ requestId: invoke.id, playerId: 'p0', payload: { optionId: 'yes' } })
     const request = game.state.pendingRequests[0]
     expect(request).toMatchObject({ kind: 'arrange-cards', playerId: 'p0', minTop: 0, maxTop: 5, allowBottom: true })
     if (request.kind !== 'arrange-cards') throw new Error('观星没有生成排列请求')
@@ -191,6 +196,24 @@ describe('诸葛亮【观星】【空城】', () => {
     game.respond({ requestId: request.id, playerId: 'p0', payload: { top, bottom } })
     expect(game.state.zones.drawPile.slice(0, top.length)).toEqual(top)
     expect(game.state.zones.drawPile.slice(-bottom.length)).toEqual(bottom)
+  })
+
+  it('观星：可以拒绝观看和调整牌堆', () => {
+    const game = new SanguoshaGame({ seed: 'skill-guanxing-decline', setup: setup() })
+    const identities: Identity[] = ['lord', 'rebel', 'loyalist', 'rebel', 'renegade']
+    game.state.players.forEach((player, index) => {
+      player.identity = identities[index]
+      player.characterId = index === 0 ? 'zhugeliang' : 'guanyu'
+    })
+    game.state.currentPlayerId = 'p0'
+    game.start()
+
+    const ask = game.state.pendingRequests[0]
+    expect(ask).toMatchObject({ kind: 'choose-option', playerId: 'p0', optional: true })
+    const before = [...game.state.zones.drawPile]
+    game.respond({ requestId: ask.id, playerId: 'p0', payload: { optionId: 'no' } })
+    expect(game.state.pendingRequests).toEqual([])
+    expect(game.state.zones.drawPile).toEqual(before)
   })
 
   it('空手时不能成为杀或决斗的目标', () => {
@@ -288,6 +311,22 @@ describe('吕布【无双】', () => {
 })
 
 describe('已登记武将的缺失技能补齐', () => {
+  it('孙尚香【枭姬】失去装备后可选择摸两张或不发动', () => {
+    for (const [seed, optionId, expectedGain] of [['skill-xiaoji-yes', 'yes', 2], ['skill-xiaoji-no', 'no', 0]] as const) {
+      const game = gameWith(seed, { p0: 'sunshangxiang' })
+      const owner = game.state.players[0]
+      const equipment = Object.values(game.state.cards).find((card) => card.category === 'equipment' && game.state.zones.drawPile.includes(card.id))!
+      const before = owner.zones.hand.length
+      game.dispatch('LoseEquipment', { playerId: owner.id, cardId: equipment.id }, { targetId: owner.id, cardIds: [equipment.id] })
+      game.settle()
+      const request = game.state.pendingRequests[0]
+      expect(request).toMatchObject({ kind: 'choose-option', playerId: owner.id, optional: true })
+      expect(request.prompt).toContain('枭姬')
+      game.respond({ requestId: request.id, playerId: owner.id, payload: { optionId } })
+      expect(owner.zones.hand).toHaveLength(before + expectedGain)
+    }
+  })
+
   it('甄姬可用黑色手牌发动倾国响应闪', () => {
     const game = gameWith('skill-qingguo', { p0: 'guanyu', p1: 'zhenji' })
     stripCard(game, '闪')
@@ -302,6 +341,29 @@ describe('已登记武将的缺失技能补齐', () => {
     expect(request.actionIds).toContain(`respond-dodge:${black}`)
     game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-dodge:${black}` } })
     expect(game.state.players[1].hp).toBe(before)
+  })
+
+  it('倾国黑色手牌可在万箭齐发要求使用闪时响应', () => {
+    const game = gameWith('skill-qingguo-use-dodge', { p0: 'guanyu', p1: 'zhenji' })
+    stripCard(game, '无懈可击')
+    stripCard(game, '闪')
+    const barrage = giveNamed(game, 'p0', (card) => card.name === '万箭齐发')
+    const black = giveNamed(game, 'p1', (card) => card.color === 'black' && card.name !== '杀')
+    const hpBefore = game.state.players.map((player) => player.hp)
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(barrage))!
+
+    game.act('p0', action.id)
+    const request = game.state.pendingRequests[0]
+    expect(request).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '闪' })
+    if (request.kind !== 'respond-card') throw new Error('没有生成万箭齐发的闪响应')
+    expect(request.actionIds).toContain(`respond-dodge:${black}`)
+    game.respond({ requestId: request.id, playerId: 'p1', payload: { actionId: `respond-dodge:${black}` } })
+    passAll(game)
+
+    expect(game.state.players[1].hp).toBe(hpBefore[1])
+    expect(game.state.zones.discardPile).toContain(black)
+    expect(game.state.pendingRequests).toEqual([])
+    assertCardConservation(game.state)
   })
 
   it('华佗回合外可将红色手牌当桃用于急救', () => {
@@ -384,7 +446,7 @@ function gameWith(seed: string, assign: Record<string, string>): SanguoshaGame {
   return game
 }
 
-function giveNamed(game: SanguoshaGame, playerId: string, predicate: (card: { name: string; color: string; damageNature?: string }) => boolean): string {
+function giveNamed(game: SanguoshaGame, playerId: string, predicate: (card: { id: string; name: string; color: string; damageNature?: string }) => boolean): string {
   const card = Object.values(game.state.cards).find((candidate) => predicate(candidate))!
   moveCard(game.state, card.id, locate(game.state, card.id), { kind: 'hand', playerId })
   return card.id
@@ -552,6 +614,112 @@ describe('张飞【咆哮】', () => {
     assertCardConservation(game.state)
   })
 
+  it('只解除次数限制，不会让超距离角色变成合法目标', () => {
+    const game = gameWith('skill-paoxiao-range', { p0: 'zhangfei' })
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const farActions = game.legalActions('p0').filter((action) => action.kind === 'use-card'
+      && action.cardIds.includes(slash) && action.targetIds.includes('p2'))
+
+    expect(farActions, '咆哮只豁免次数，基础攻击范围仍生效').toHaveLength(0)
+  })
+
+  it('酒强化的第一张杀仍按正常伤害结算，之后咆哮仍允许再出杀', () => {
+    const game = gameWith('skill-paoxiao-wine', { p0: 'zhangfei' })
+    stripCard(game, '闪')
+    const wine = giveNamed(game, 'p0', (card) => card.name === '酒')
+    const wineAction = game.legalActions('p0').find((action) => action.kind === 'use-card'
+      && action.cardIds.includes(wine) && action.asCardName === '酒')
+    expect(wineAction).toBeTruthy()
+    game.act('p0', wineAction!.id)
+    passAll(game)
+
+    const p1Hp = game.state.players[1].hp
+    const first = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const firstAction = game.legalActions('p0').find((action) => action.kind === 'use-card'
+      && action.cardIds.includes(first) && action.targetIds.includes('p1'))
+    expect(firstAction).toBeTruthy()
+    game.act('p0', firstAction!.id)
+    passAll(game)
+    expect(game.state.players[1].hp).toBe(p1Hp - 2)
+
+    const second = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const secondAction = game.legalActions('p0').find((action) => action.kind === 'use-card'
+      && action.cardIds.includes(second) && action.targetIds.includes('p1'))
+    expect(secondAction, '酒伤害结算后仍能再出杀').toBeTruthy()
+    game.act('p0', secondAction!.id)
+    passAll(game)
+    expect(game.state.players[1].hp).toBe(p1Hp - 3)
+    assertCardConservation(game.state)
+  })
+
+  it('本阶段临时获得和失去咆哮会即时更新剩余杀动作', () => {
+    const game = gameWith('skill-paoxiao-temporary', { p0: 'guanyu' })
+    stripCard(game, '闪')
+    const first = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const second = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature && card.id !== first)
+    const slashAction = (cardId: string) => game.legalActions('p0').find((action) => action.kind === 'use-card'
+      && action.cardIds.includes(cardId) && action.targetIds.includes('p1'))
+
+    const firstAction = slashAction(first)
+    expect(firstAction).toBeTruthy()
+    game.act('p0', firstAction!.id)
+    passAll(game)
+    expect(slashAction(second), '普通次数用完后不能再出').toBeUndefined()
+
+    replaceTemporarySkills(game.state, 'p0', 'paoxiao-audit', ['paoxiao'])
+    expect(slashAction(second), '获得咆哮后应解除次数限制').toBeTruthy()
+    replaceTemporarySkills(game.state, 'p0', 'paoxiao-audit', [])
+    expect(slashAction(second), '失去咆哮后应恢复次数限制').toBeUndefined()
+    assertCardConservation(game.state)
+  })
+
+  it('咆哮也解除武圣视为杀的次数限制', () => {
+    const game = gameWith('skill-paoxiao-viewas', { p0: 'guanyu' })
+    stripCard(game, '闪')
+    replaceTemporarySkills(game.state, 'p0', 'paoxiao-audit', ['paoxiao'])
+    const first = giveNamed(game, 'p0', (card) => card.name === '桃' && card.color === 'red')
+    const second = giveNamed(game, 'p0', (card) => card.id !== first && card.name === '桃' && card.color === 'red')
+    const slashAction = (cardId: string) => game.legalActions('p0').find((action) => action.kind === 'use-card'
+      && action.cardIds.includes(cardId) && action.asCardName === '杀' && action.targetIds.includes('p1'))
+
+    const firstAction = slashAction(first)
+    expect(firstAction).toBeTruthy()
+    game.act('p0', firstAction!.id)
+    passAll(game)
+    expect(slashAction(second), '武圣转换的杀也享受咆哮不限次数').toBeTruthy()
+    assertCardConservation(game.state)
+  })
+
+  it('不限次数的杀仍计入本回合用杀记录', () => {
+    const game = gameWith('skill-paoxiao-count-tracking', { p0: 'lvmeng' })
+    stripCard(game, '闪')
+    replaceTemporarySkills(game.state, 'p0', 'paoxiao-audit', ['paoxiao'])
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card'
+      && candidate.cardIds.includes(slash) && candidate.targetIds.includes('p1'))
+    expect(action).toBeTruthy()
+    game.act('p0', action!.id)
+    passAll(game)
+    expect(game.state.turnUsage.slashUsesThisTurn).toBe(1)
+
+    while (game.state.players[0].zones.hand.length <= game.state.players[0].hp) {
+      const cardId = game.state.zones.drawPile[0]
+      moveCard(game.state, cardId, { kind: 'drawPile' }, { kind: 'hand', playerId: 'p0' })
+    }
+    game.advancePhase()
+    expect(game.state.pendingRequests[0]?.kind).toBe('choose-cards')
+    expect(game.state.pendingRequests[0]?.prompt).not.toContain('克己')
+  })
+
+  it('咆哮不会越过独立的本回合禁杀效果', () => {
+    const game = gameWith('skill-paoxiao-prohibited', { p0: 'zhangfei' })
+    const slash = giveNamed(game, 'p0', (card) => card.name === '杀' && !card.damageNature)
+    prohibitSlashThisTurn(game.state, 'p0')
+
+    expect(game.legalActions('p0').some((action) => action.kind === 'use-card'
+      && action.cardIds.includes(slash) && action.asCardName === '杀')).toBe(false)
+  })
+
   it('没有咆哮的人打完一张就不能再出', () => {
     const game = gameWith('skill-no-paoxiao', { p0: 'guanyu' })
     stripCard(game, '闪')
@@ -614,6 +782,34 @@ describe('关羽【武圣】', () => {
     assertCardConservation(game.state)
   })
 
+  it('红色牌可在决斗响应窗口当【杀】打出，并接续决斗的下一次响应', () => {
+    const game = gameWith('skill-wusheng-duel-response', { p0: 'zhangfei', p1: 'guanyu' })
+    stripCard(game, '杀')
+    const red = giveNamed(game, 'p1', (card) => card.name === '桃' && card.color === 'red')
+    const duel = giveNamed(game, 'p0', (card) => card.name === '决斗')
+    const p0Hp = game.state.players[0].hp
+    const p1Hp = game.state.players[1].hp
+    const action = game.legalActions('p0').find((candidate) => (
+      candidate.kind === 'use-card' && candidate.cardIds.includes(duel) && candidate.targetIds.includes('p1')
+    ))!
+    game.act('p0', action.id)
+    const nullification = game.state.pendingRequests[0]!
+    game.respond({ requestId: nullification.id, playerId: nullification.playerId, payload: { actionId: 'respond-pass' } })
+
+    const response = game.state.pendingRequests[0]
+    expect(response).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '杀' })
+    if (response.kind !== 'respond-card') throw new Error('没有生成决斗杀响应')
+    expect(response.actionIds).toContain(`respond-trick:${red}`)
+    game.respond({ requestId: response.id, playerId: 'p1', payload: { actionId: `respond-trick:${red}` } })
+
+    expect(game.state.pendingRequests[0]).toMatchObject({ kind: 'respond-card', playerId: 'p0', requiredCardName: '杀' })
+    game.respond({ requestId: game.state.pendingRequests[0].id, playerId: 'p0', payload: { actionId: 'respond-pass' } })
+    expect(game.state.players[1].hp).toBe(p1Hp)
+    expect(game.state.players[0].hp).toBe(p0Hp - 1)
+    expect(game.state.zones.discardPile).toContain(red)
+    assertCardConservation(game.state)
+  })
+
   it('黑色牌不能当杀用', () => {
     const game = gameWith('skill-wusheng-black', { p0: 'guanyu' })
     stripCard(game, '杀')
@@ -635,6 +831,15 @@ describe('赵云【龙胆】', () => {
       action.kind === 'use-card' && action.cardIds.includes(dodge) && action.asCardName === '杀'
     ))
     expect(asSlash.length).toBeGreaterThan(0)
+    const action = asSlash.find((candidate) => candidate.targetIds.includes('p1'))!
+    const targetHp = game.state.players[1].hp
+    game.act('p0', action.id)
+    const response = game.state.pendingRequests[0]
+    expect(response).toMatchObject({ kind: 'respond-card', playerId: 'p1', requiredCardName: '闪' })
+    game.respond({ requestId: response.id, playerId: 'p1', payload: { actionId: 'respond-pass' } })
+    expect(game.state.players[1].hp).toBe(targetHp - 1)
+    expect(game.state.zones.discardPile).toContain(dodge)
+    assertCardConservation(game.state)
   })
 
   it('杀可以当闪打出来免伤', () => {
@@ -692,11 +897,29 @@ describe('黄月英【集智】【奇才】', () => {
 
     const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(trick))!
     game.act('p0', action.id)
+    const jizhi = game.state.pendingRequests[0]
+    expect(jizhi).toMatchObject({ kind: 'choose-option', playerId: 'p0', optional: true })
+    game.respond({ requestId: jizhi.id, playerId: 'p0', payload: { optionId: 'yes' } })
     passAll(game)
 
-    // 打出锦囊 -1、无中生有摸 2、集智再摸 1
+    // 打出锦囊 -1、无中生有摸 2、选择发动集智再摸 1
     expect(game.state.players[0].zones.hand.length).toBe(handBefore - 1 + 2 + 1)
     assertCardConservation(game.state)
+  })
+
+  it('使用非延时锦囊后可以拒绝集智，不自动摸牌', () => {
+    const game = gameWith('skill-jizhi-decline', { p0: 'huangyueying' })
+    stripCard(game, '无懈可击')
+    const trick = giveNamed(game, 'p0', (card) => card.name === '无中生有')
+    const handBefore = game.state.players[0].zones.hand.length
+    const action = game.legalActions('p0').find((candidate) => candidate.kind === 'use-card' && candidate.cardIds.includes(trick))!
+    game.act('p0', action.id)
+
+    const jizhi = game.state.pendingRequests[0]
+    expect(jizhi).toMatchObject({ kind: 'choose-option', playerId: 'p0', optional: true })
+    game.respond({ requestId: jizhi.id, playerId: 'p0', payload: { optionId: 'no' } })
+    passAll(game)
+    expect(game.state.players[0].zones.hand.length).toBe(handBefore - 1 + 2)
   })
 
   it('延时锦囊不触发集智', () => {

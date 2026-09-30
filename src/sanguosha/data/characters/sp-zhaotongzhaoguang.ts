@@ -203,7 +203,7 @@ registerSkillRuntime({
 })
 
 export const ZHAOTONG_ZHAOGUANG: CharacterDefinition = {
-  id: 'zhaotong_zhaoguang',
+  id: 'zhaotongzhaoguang',
   name: '赵统赵广',
   kingdom: 'shu',
   gender: 'male',

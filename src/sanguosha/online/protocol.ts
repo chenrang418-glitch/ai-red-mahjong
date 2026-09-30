@@ -83,6 +83,9 @@ export interface SgsRoomView {
   version: number
   phase: 'lobby' | 'playing' | 'finished'
   hostUserId: string
+  /** 当前连接是否是不占座、只读的旁观者。 */
+  isSpectator: boolean
+  spectatorCount: number
   settings: SgsRoomSettings
   seats: Array<{
     seatId: number
@@ -127,6 +130,7 @@ export interface SgsRoomDirectoryEntry {
   settings: SgsRoomSettings
   rejoinable: boolean
   joinable: boolean
+  spectatable: boolean
   updatedAt: number
 }
 

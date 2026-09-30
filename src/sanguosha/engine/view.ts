@@ -4,8 +4,9 @@ import type { LegalAction } from './actions'
 import { legalPlayActions } from './cards/basic'
 import { getAttackRange, getDistance } from './distance'
 import { effectiveGenderOf, effectiveKingdomOf } from './huashen'
-import { ownedSkillIds } from './skills/runtime'
-import { skillDisplayName, skillIdsOf } from '../data/characters/standard'
+import { drawPileTopVisibleCountOf, getSkillRuntime, ownedSkillIds, sharedHandCardSourcesOf } from './skills/runtime'
+import { getCharacter, skillDisplayName, skillIdsOf } from '../data/characters/standard'
+import { effectiveEquipmentName } from './zones'
 
 export interface PlayerPublicView {
   id: PlayerId
@@ -15,10 +16,12 @@ export interface PlayerPublicView {
   identity: Identity | null
   identityHidden: boolean
   characterId: string | null
+  /** 双将规则视图；暗置武将只向本人公开身份，对其他观察者仅显示暗置槽位。 */
+  generalSlots?: Array<{ slot: 'primary' | 'deputy'; characterId: string | null; revealed: boolean }>
   kingdom: Kingdom | null
   gender: 'male' | 'female' | null
   characterSkillsDisabled: boolean
-  skills: Array<{ id: string; name: string }>
+  skills: Array<{ id: string; name: string; description?: string }>
   huashen: {
     activeCharacterId: string | null
     activeSkillId: string | null
@@ -27,10 +30,13 @@ export interface PlayerPublicView {
   } | null
   hp: number
   maxHp: number
+  armorPoints: number
   chained: boolean
   faceDown: boolean
   /** 已被废除的装备栏（神张辽【夺锐】）。界面要灰掉并标注，不是藏起来。 */
   abolishedSlots: string[]
+  /** 判定区是否被胡昭【弥笃】废除。 */
+  judgmentAreaAbolished: boolean
   /** 身上带着的全局 Token（神甘宁的「营」）。 */
   tokens: Array<{ name: string; ownerId: string }>
   /**
@@ -49,6 +55,10 @@ export interface PlayerPublicView {
   characterPileCounts: Record<string, number>
   handCount: number
   hand: PhysicalCard[] | null
+  /** 明置手牌（对其他旁观者公开；拥有者已能看到自己的完整手牌）。 */
+  faceUpHand: PhysicalCard[]
+  /** 仅借牌角色可见、可交互的【好施】共享手牌。 */
+  sharedHands: Array<{ ownerId: PlayerId; nickname: string; cards: PhysicalCard[] }>
   equipment: Array<PhysicalCard>
   judgingArea: Array<PhysicalCard>
   marks: Record<string, number>
@@ -69,6 +79,8 @@ export interface PlayerView {
   rulesetVersion: string
   seq: number
   viewerId: PlayerId
+  /** 旁观视角不属于任何座位，永远不含私有牌或可执行操作。 */
+  spectator?: boolean
   status: string
   players: PlayerPublicView[]
   drawPileCount: number
@@ -81,7 +93,7 @@ export interface PlayerView {
   /** 仅当前请求玩家可见的牌面，例如观星看到的牌堆顶；不会发送给其他玩家。 */
   requestCards: PhysicalCard[]
   dying: { playerId: PlayerId; requiredRecover: number } | null
-  damageChain: { nature: 'fire' | 'thunder'; remainingTargetIds: PlayerId[] } | null
+  damageChain: { nature: 'fire' | 'thunder' | 'ice'; remainingTargetIds: PlayerId[] } | null
   judgment: { playerId: PlayerId; delayedCard: PhysicalCard; stage: 'awaiting-nullification' | 'awaiting-damage' } | null
   cardResolution: {
     kind: 'slash' | 'trick'
@@ -102,15 +114,21 @@ export interface PlayerView {
    */
   mamaBonds: Record<PlayerId, PlayerId>
   result: GameResult | null
+  /** 只属于观察者自己的牌堆顶持续可见窗口（晋司马懿【鹰视】），别人这里永远是空数组。 */
+  drawPileTop: PhysicalCard[]
 }
 
 function cards(state: SanguoshaState, ids: readonly CardId[]): PhysicalCard[] {
-  return ids.map((id) => state.cards[id]).filter((card): card is PhysicalCard => Boolean(card))
+  return ids.map((id) => {
+    const card = state.cards[id]
+    if (!card) return null
+    const transformed = state.equipmentTransformations?.[id]
+    return transformed ? { ...card, name: effectiveEquipmentName(state, id) } : card
+  }).filter((card): card is PhysicalCard => Boolean(card))
 }
 
-export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): PlayerView {
-  if (!state.players.some((player) => player.id === viewerId)) throw new Error('观察者不属于本局')
-  const pendingRequest = state.pendingRequests.find((request) => request.playerId === viewerId) ?? null
+function buildView(state: SanguoshaState, viewerId: PlayerId, spectator: boolean): PlayerView {
+  const pendingRequest = spectator ? null : state.pendingRequests.find((request) => request.playerId === viewerId) ?? null
   /*
    * 请求里引用到的牌面。
    *
@@ -118,18 +136,35 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
    * 神吕蒙【攻心】要看整副手牌，但只有红桃能被选中。漏掉它，
    * 客户端就拿不到那些牌的牌面，只能画一堆牌背。
    */
-  const requestCardIds = pendingRequest && 'cardIds' in pendingRequest
-    ? [...pendingRequest.cardIds, ...('viewOnlyCardIds' in pendingRequest ? pendingRequest.viewOnlyCardIds ?? [] : [])]
+  const requestCardIds = pendingRequest
+    ? [
+      ...('cardIds' in pendingRequest ? pendingRequest.cardIds : []),
+      ...('viewOnlyCardIds' in pendingRequest ? pendingRequest.viewOnlyCardIds ?? [] : []),
+    ]
     : []
+  const hiddenHandOwners = new Set(pendingRequest?.kind === 'choose-cards'
+    ? pendingRequest.hiddenCardSlots.map((slot) => slot.split(':')[1]).filter((id): id is string => Boolean(id))
+    : [])
   return {
     rulesetVersion: state.rulesetVersion,
     seq: state.seq,
     viewerId,
+    ...(spectator ? { spectator: true } : {}),
     status: state.status,
     players: state.players.map((player) => {
-      const maySeeIdentity = player.id === viewerId || player.identity === 'lord' || player.identityRevealed || state.status === 'game-over'
-      const ownHand = player.id === viewerId ? cards(state, player.zones.hand) : null
+      const maySeeIdentity = (!spectator && player.id === viewerId) || player.identity === 'lord' || player.identityRevealed || state.status === 'game-over'
+      const privatelyRevealed = !spectator && (state.privateRevealedHands?.[viewerId] ?? []).includes(player.id)
+      const ownHand = (!spectator && player.id === viewerId) || (state.revealedHands ?? []).includes(player.id) || privatelyRevealed
+        ? cards(state, player.zones.hand)
+        : null
       const huashen = state.huashen?.owners[player.id]
+      const ownsPlayer = !spectator && player.id === viewerId
+      const primaryRevealed = player.primaryGeneralRevealed !== false
+      const deputyRevealed = player.deputyGeneralRevealed === true
+      const maySeePrimary = ownsPlayer || primaryRevealed || state.status === 'game-over'
+      const maySeeDeputy = ownsPlayer || deputyRevealed || state.status === 'game-over'
+      const visibleDeputy = player.deputyCharacterId && (deputyRevealed || state.status === 'game-over')
+        ? getCharacter(player.deputyCharacterId) : undefined
       return {
         id: player.id,
         seat: player.seat,
@@ -137,28 +172,45 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
         alive: player.alive,
         identity: maySeeIdentity ? player.identity : null,
         identityHidden: !maySeeIdentity,
-        characterId: player.characterId,
-        kingdom: effectiveKingdomOf(state, player.id) ?? null,
-        gender: effectiveGenderOf(state, player.id) ?? null,
+        characterId: maySeePrimary ? player.characterId : null,
+        generalSlots: [
+          ...(player.characterId ? [{ slot: 'primary' as const, characterId: maySeePrimary ? player.characterId : null, revealed: primaryRevealed }] : []),
+          ...(player.deputyCharacterId ? [{ slot: 'deputy' as const, characterId: maySeeDeputy ? player.deputyCharacterId : null, revealed: deputyRevealed }] : []),
+        ],
+        kingdom: primaryRevealed || ownsPlayer || state.status === 'game-over'
+          ? effectiveKingdomOf(state, player.id) ?? null
+          : visibleDeputy?.kingdom ?? null,
+        gender: primaryRevealed || ownsPlayer || state.status === 'game-over'
+          ? effectiveGenderOf(state, player.id) ?? null
+          : visibleDeputy?.gender ?? null,
         characterSkillsDisabled: Boolean(player.characterSkillsDisabled),
-        skills: ownedSkillIds(state, player.id, skillIdsOf).map((id) => ({ id, name: skillDisplayName(state, player.id, id) })),
+        skills: ownedSkillIds(state, player.id, skillIdsOf).map((id) => {
+          const description = getSkillRuntime(id)?.descriptionForView?.(state, player.id)
+          return {
+            id,
+            name: skillDisplayName(state, player.id, id),
+            ...(description ? { description } : {}),
+          }
+        }),
         huashen: huashen ? {
           activeCharacterId: player.characterSkillsDisabled ? null : huashen.activeCharacterId,
           activeSkillId: player.characterSkillsDisabled ? null : huashen.activeSkillId,
-          ...(player.id === viewerId ? { ownedCharacterIds: [...huashen.characterIds] } : {}),
+          ...(!spectator && player.id === viewerId ? { ownedCharacterIds: [...huashen.characterIds] } : {}),
         } : null,
         hp: player.hp,
         maxHp: player.maxHp,
+        armorPoints: player.armorPoints ?? 0,
         chained: player.chained,
         faceDown: player.faceDown,
         abolishedSlots: [...(state.abolishedSlots?.[player.id] ?? [])],
+        judgmentAreaAbolished: state.abolishedJudgmentAreas?.includes(player.id) ?? false,
         tokens: (state.globalTokens ?? []).filter((token) => token.carrierId === player.id)
           .map((token) => ({ name: token.name, ownerId: token.ownerId })),
         characterPiles: Object.fromEntries(
           Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [
             pile,
             // 扣置的堆对别人裁成空数组：不是「发了再让前端别显示」，是根本不下发
-            (player.hiddenCharacterPiles ?? []).includes(pile) && player.id !== viewerId
+            (player.hiddenCharacterPiles ?? []).includes(pile) && (spectator || player.id !== viewerId)
               ? []
               : cards(state, ids),
           ]),
@@ -167,17 +219,27 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
           Object.entries(player.characterPiles ?? {}).map(([pile, ids]) => [pile, ids.length]),
         ),
         // 私有区只发给它的主人，别人拿到 null
-        privateCards: player.id === viewerId
+        privateCards: !spectator && player.id === viewerId
           ? Object.fromEntries((state.privateZones ?? [])
             .filter((zone) => zone.ownerId === viewerId)
             .map((zone) => [zone.id, cards(state, zone.cards)]))
           : null,
         handCount: player.zones.hand.length,
         hand: ownHand,
+        faceUpHand: !spectator && player.id === viewerId || hiddenHandOwners.has(player.id)
+          ? []
+          : cards(state, (state.faceUpHandCards?.[player.id] ?? []).filter((cardId) => player.zones.hand.includes(cardId))),
+        sharedHands: !spectator && player.id === viewerId
+          ? sharedHandCardSourcesOf(state, viewerId).map((source) => ({
+            ownerId: source.ownerId,
+            nickname: state.players.find((candidate) => candidate.id === source.ownerId)?.nickname ?? '其他角色',
+            cards: cards(state, source.cardIds),
+          }))
+          : [],
         equipment: cards(state, Object.values(player.zones.equipment).filter((id): id is CardId => Boolean(id))),
         judgingArea: cards(state, player.zones.judgingArea),
         marks: { ...player.marks },
-        distanceFromViewer: player.id !== viewerId && player.alive && state.players.find((candidate) => candidate.id === viewerId)?.alive
+        distanceFromViewer: !spectator && player.id !== viewerId && player.alive && state.players.find((candidate) => candidate.id === viewerId)?.alive
           ? getDistance(state, viewerId, player.id)
           : null,
         attackRange: player.alive ? getAttackRange(state, player.id) : 0,
@@ -208,7 +270,8 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
           sourceId: state.cardResolution.sourceId,
           targetIds: state.cardResolution.kind === 'trick'
             ? [...state.cardResolution.targetIds]
-            : [state.cardResolution.targetId],
+            : !state.cardResolution.privateTargets || viewerId === state.cardResolution.sourceId
+              || viewerId === state.cardResolution.targetId ? [state.cardResolution.targetId] : [],
           /**
            * 当前正在结算/正在问无懈的那个目标。
            *
@@ -218,14 +281,30 @@ export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): Play
            */
           currentTargetId: state.cardResolution.kind === 'trick'
             ? state.cardResolution.targetIds[state.cardResolution.targetIndex] ?? null
-            : state.cardResolution.targetId,
+            : !state.cardResolution.privateTargets || viewerId === state.cardResolution.sourceId
+              || viewerId === state.cardResolution.targetId ? state.cardResolution.targetId : null,
           stage: state.cardResolution.stage,
         }
       : null,
-    legalActions: structuredClone(legalPlayActions(state, viewerId)),
+    legalActions: spectator ? [] : structuredClone(legalPlayActions(state, viewerId)),
     mamaBonds: { ...(state.mamaBonds ?? {}) },
     result: state.result,
+    // 晋司马懿【鹰视】：只在 viewerId === 技能拥有者时非空，绝不广播给其他客户端
+    drawPileTop: spectator ? [] : cards(state, state.zones.drawPile.slice(0, drawPileTopVisibleCountOf(state, viewerId))),
   }
+}
+
+export function buildPlayerView(state: SanguoshaState, viewerId: PlayerId): PlayerView {
+  if (!state.players.some((player) => player.id === viewerId)) throw new Error('观察者不属于本局')
+  return buildView(state, viewerId, false)
+}
+
+/**
+ * 严格旁观视角：只包含公开场面，不借用任何在座玩家身份。
+ * 固定 viewerId 只为满足协议字段，不会参与距离、请求或合法动作计算。
+ */
+export function buildSpectatorView(state: SanguoshaState): PlayerView {
+  return buildView(state, '__spectator__', true)
 }
 
 function player(state: SanguoshaState, playerId: PlayerId) {

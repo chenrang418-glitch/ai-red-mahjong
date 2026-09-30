@@ -102,7 +102,7 @@ registerSkillRuntime({
 })
 
 export const MAXIU_MATIE: CharacterDefinition = {
-  id: 'maxiu_matie',
+  id: 'maxiumatie',
   name: '马休马铁',
   kingdom: 'qun',
   gender: 'male',

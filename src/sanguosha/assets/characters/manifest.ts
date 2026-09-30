@@ -26,7 +26,7 @@ export interface CharacterPortrait {
    */
   src: string
   /**
-   * 艺术集单张查看用的高清图（约 1086×1448 原始分辨率，约 100~270KB）。
+   * 武将册单张查看用的高清图（约 1086×1448 原始分辨率，约 100~270KB）。
    *
    * 只在用户点开某一张时才请求，对局和列表都不会加载它，
    * 所以放大分辨率不会加重日常流量；缺高清图时回退到 `src`。
@@ -2038,6 +2038,12 @@ export const PENDING_PORTRAIT_IDS: readonly string[] = [
   // 历史人物第二十三批：素材目录/项目 portraits 目录都还没有对应文件，走 fallback
   'hujinding', 'caoanmin', 'zhaoang', 'xiahoujie', 'shia',
   'gexuan', 'tongyuan', 'zhaozhi', 'liuye', 'chengui',
+  // 历史人物第二十四批：素材与语音后续接入，当前统一走 fallback
+  'hansui', 'sunliang', 'zhangwen', 'xugong', 'huangquan',
+  'mazhong_shu', 'xizheng', 'tangzi', 'qiaozhou', 'yanghong',
+  // 历史人物第二十五批：素材与语音后续接入，当前统一走 fallback
+  'liuyao', 'buzhi', 'zhanggong', 'wangcan', 'simalang',
+  'hucheer', 'lisu', 'ganfuren', 'yinfuren', 'yanfuren',
 ]
 
 const FILES = import.meta.glob<string>('./portraits/*.webp', { eager: true, import: 'default', query: '?url' })

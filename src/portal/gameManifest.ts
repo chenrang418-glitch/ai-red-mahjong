@@ -27,7 +27,7 @@ export const gameManifest: readonly GameDefinition[] = [
   },
   {
     id: 'sanguosha',
-    name: '纸上三国',
+    name: '吴魏契约',
     subtitle: '经典身份局 · 单机与好友联机',
     status: '可游玩',
     cover: '纸',

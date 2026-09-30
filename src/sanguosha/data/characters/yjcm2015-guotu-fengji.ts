@@ -172,7 +172,7 @@ registerSkillRuntime({
 })
 
 export const GUOTU_FENGJI: CharacterDefinition = {
-  id: 'guotu_fengji',
+  id: 'guotufengji',
   name: '郭图逢纪',
   kingdom: 'qun',
   gender: 'male',

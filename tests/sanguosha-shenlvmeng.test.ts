@@ -251,12 +251,26 @@ describe('攻心：看牌与处置', () => {
       game.respond({ requestId: next.id, playerId: next.playerId, payload })
       guard += 1
     }
-    enterPlay(game, 'p0')
-    playerOf(game, 'p0').turnUsedSkills = ['gongxin']
     expect(
       game.legalActions('p0').some((candidate) => candidate.kind === 'invoke-skill' && candidate.skillId === 'gongxin'),
       '一个出牌阶段只能攻心一次',
     ).toBe(false)
+  })
+
+  it('同一回合的另一个额外出牌阶段可以再次发动', () => {
+    const game = gameWith(FIVE)
+    clearHand(game, 'p1')
+    giveHand(game, 'p1', cardsOfSuit(game, 'heart', 1))
+    invokeGongxin(game, 'p1')
+    let request = pending(game)
+    game.respond({ requestId: request.id, playerId: 'p0', payload: { cardIds: [] } })
+    expect(pending(game), '拒绝展示牌后本次攻心结束').toBeUndefined()
+    expect(game.legalActions('p0').some((action) => action.kind === 'invoke-skill' && action.skillId === 'gongxin')).toBe(false)
+
+    game.state.extraPhase = {
+      phase: 'play', resumeSlot: 'finish', playerId: 'p0', skillId: 'test-extra-play', instanceId: 1,
+    }
+    expect(game.legalActions('p0').some((action) => action.kind === 'invoke-skill' && action.skillId === 'gongxin')).toBe(true)
   })
 
   it('看到的是目标全部手牌里的红桃，且请求只发给神吕蒙', () => {

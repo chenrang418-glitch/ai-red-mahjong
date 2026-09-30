@@ -170,7 +170,7 @@ registerSkillRuntime({
 })
 
 export const CHENGJI_CHENGCUI: CharacterDefinition = {
-  id: 'chengji_chengcui',
+  id: 'chengjichengcui',
   name: '成济成倅',
   kingdom: 'wei',
   gender: 'male',

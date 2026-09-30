@@ -4,10 +4,10 @@ import { flipCharacter } from '../../engine/character-state'
 import { loseHp } from '../../engine/hp'
 import type { ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import { registerSkillRuntime, replaceTemporarySkill } from '../../engine/skills/runtime'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import { resolveDamage } from '../../engine/damage'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import { moveCard } from '../../engine/zones'
-import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
 import type { CharacterDefinition } from './types'
 
 /**
@@ -274,17 +274,17 @@ registerSkillRuntime({
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
     if (rageOf(state, ownerId) < SHENFEN_COST) return []
-    // 出牌阶段限一次，但**不是限定技**：下个出牌阶段攒够 6 枚还能再发动
-    if (usedThisTurn(state, ownerId, SHENFEN)) return []
+    // 出牌阶段限一次，但**不是限定技**：同回合另一个出牌阶段可以再发动
+    if (usedThisPhase(state, ownerId, SHENFEN)) return []
     if (othersFrom(state, ownerId).length === 0) return []
     return [{ id: SHENFEN, label: `神愤（移去 ${SHENFEN_COST} 枚暴怒）` }]
   },
 
   invokeActive(host, ownerId, actionId) {
     if (actionId !== SHENFEN) return
-    if (usedThisTurn(host.state, ownerId, SHENFEN)) return
+    if (usedThisPhase(host.state, ownerId, SHENFEN)) return
     if (!spendRage(host.state, ownerId, SHENFEN_COST)) return
-    markUsedThisTurn(host.state, ownerId, SHENFEN)
+    markUsedThisPhase(host.state, ownerId, SHENFEN)
 
     host.dispatch('SkillActivated', {
       skillId: SHENFEN, skillName: '神愤', playerId: ownerId,

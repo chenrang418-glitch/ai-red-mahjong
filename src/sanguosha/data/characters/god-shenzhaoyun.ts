@@ -1,75 +1,49 @@
 import { finishMultiCardViewAs, type MultiCardViewAsSpec } from '../../engine/multi-card-viewas'
+import { drawCards } from '../../engine/draw'
+import { movePickedCard, pickableCardsOf, resolvePickedCard } from '../../engine/card-pick'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
+import { clearTemporaryCardSkillTag, hasTemporaryCardSkillTag, setTemporaryCardSkillTag } from '../../engine/temporary-card-skill-tags'
+import type { ChooseCardsRequest } from '../../engine/requests'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
 import type { CharacterDefinition } from './types'
 
 /**
- * 神赵云。经典**原版**，2 体力。
+ * 神赵云。按武将册当前采用版本，2 体力。
  *
- * 【绝境】：锁定技，你的摸牌阶段额外摸 X 张牌（X 为你已损失的体力值）；你的手牌上限 +2。
- * 【龙魂】：你可以将 X 张花色相同的牌（X 为你的当前体力值且至少为 1）当作
- *   【桃】（红桃）、火焰【杀】（方块）、【闪】（梅花）、【无懈可击】（黑桃）使用或打出。
+ * 【绝境】：锁定技，手牌上限 +2；进入或脱离濒死时摸一张牌。
+ * 【龙魂】：至多两张同花色牌转化；两张红牌使回复或伤害 +1，两张黑牌弃当前回合角色一张牌。
  *
- * **不采用 2018 重做版。** 那一版有「进入或脱离濒死时摸一张」「龙魂至多两张牌」
- * 「两张红牌伤害/回复 +1」「两张黑牌弃当前回合角色一张牌」——本项目一条都不要。
- *
- * 两个和上一批容易混的地方：
- *
- * - 绝境的手牌上限 +2 **是经典文本确实存在的**，和神诸葛亮【七星】没有手牌上限加成不同。
- * - 龙魂的 X 是**当前体力**，不是已损失体力；濒死时体力 0 或负数，X 仍按至少 1 算，
- *   所以 1 张红桃就能龙魂成【桃】自救。
+ * 主动用牌、响应、两牌奖励分别走共享牌流程与龙魂自身回调；龙魂仍需补足多响应嵌套和死亡等边界验证。
  */
 
 const JUEJING = 'juejing'
 const LONGHUN = 'longhun'
+const LONGHUN_TWO_RED = `${LONGHUN}:two-red`
+const LONGHUN_TWO_BLACK = `${LONGHUN}:two-black`
 
 function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return state.players.find((candidate) => candidate.id === playerId)
 }
 
-/** 龙魂这一刻需要几张同花色的牌。 */
-export function longhunRequiredCount(state: SanguoshaState, playerId: PlayerId): number {
-  const owner = playerOf(state, playerId)
-  if (!owner) return 1
-  // **至少为 1**：0 血和负血濒死时都只要一张
-  return Math.max(1, owner.hp)
-}
-
 registerSkillRuntime({
   id: JUEJING,
 
-  triggers: [{
-    /**
-     * 摸牌阶段额外摸「已损失体力值」张。
-     *
-     * 走公共的「改事件里的 count」约定，**不是**取消 DrawPhase 自己接管摸牌——
-     * 绝境是增加正常摸牌数量，不是替换摸牌阶段。
-     * 摸牌阶段整个被跳过（兵粮寸断、神速）时 `DrawPhase` 根本不会派发，
-     * 于是绝境自然也不会凭空多摸，不需要额外判断。
-     */
-    event: 'DrawPhase',
+  triggers: (['EnterDying', 'QuitDying'] as const).map((event) => ({
+    event,
     handle(host, ownerId, context) {
-      const payload = context.event.payload as { playerId?: PlayerId; count?: number }
+      const payload = context.event.payload as { playerId?: PlayerId }
       if (payload.playerId !== ownerId) return
       const owner = playerOf(host.state, ownerId)
       if (!owner?.alive) return
-      // 按**当前**最大体力算，不写死 2：将来最大体力变化时这里自动跟着变
-      const lost = Math.max(0, owner.maxHp - owner.hp)
-      if (lost <= 0) return
-      payload.count = Math.max(0, Math.trunc(Number(payload.count ?? 2))) + lost
+      drawCards(host.state, host.rng, ownerId, 1, (name, drawPayload) => host.dispatch(name, drawPayload, { sourceId: ownerId }))
       host.dispatch('SkillActivated', {
         skillId: JUEJING, skillName: '绝境', playerId: ownerId,
-        logText: `【绝境】${owner.nickname}额外摸 ${lost} 张牌`,
+        logText: `【绝境】${owner.nickname}摸一张牌`,
       }, { sourceId: ownerId })
     },
-  }],
+  })),
 
-  /**
-   * 手牌上限 +2。
-   *
-   * 这一条经典神赵云**确实有**——和神诸葛亮【七星】没有手牌上限加成不是一回事，
-   * 不要因为上一批的教训就把它一起删掉。
-   */
+  /** 手牌上限 +2。 */
   maxCardsBonus() {
     return 2
   },
@@ -78,16 +52,14 @@ registerSkillRuntime({
 registerSkillRuntime({
   id: LONGHUN,
 
-  /**
-   * 向公共的多牌转化机制报备：需要几张、哪种花色转成什么。
-   *
-   * 引擎据此在求闪 / 求桃 / 无懈 / 锦囊效果里挂出声明动作，
-   * 龙魂本身不碰那四条响应路径。
-   */
-  multiCardViewAs(state, ownerId): MultiCardViewAsSpec {
+  /** 向公共多牌转化机制声明龙魂自己的转化规则。 */
+  multiCardViewAs(_state, _ownerId): MultiCardViewAsSpec {
     return {
       skillId: LONGHUN,
-      requiredCount: longhunRequiredCount(state, ownerId),
+      skillName: '龙魂',
+      requiredCount: 1,
+      maxCount: 2,
+      activePlaySuits: ['heart', 'diamond'],
       suitToCardName: {
         heart: '桃',
         diamond: '杀',
@@ -96,14 +68,93 @@ registerSkillRuntime({
       },
       // 方块转出来的是**火焰**【杀】，不是普通杀
       natureOf: { diamond: 'fire' },
+      onConvert(state, _ownerId, carrierId, cardIds, _asCardName) {
+        if (cardIds.length !== 2) return
+        const colors = cardIds.map((id) => state.cards[id]?.color)
+        if (colors.every((color) => color === 'red')) setTemporaryCardSkillTag(state, carrierId, LONGHUN_TWO_RED)
+        if (colors.every((color) => color === 'black')) setTemporaryCardSkillTag(state, carrierId, LONGHUN_TWO_BLACK)
+      },
     }
   },
 
-  resume(host, _ownerId, resolution, response) {
+  triggers: [
+    {
+      event: 'CardUsed',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { cardId?: CardId }
+        if (!payload.cardId || !hasTemporaryCardSkillTag(host.state, payload.cardId, LONGHUN_TWO_BLACK)) return
+        const targetId = host.state.currentPlayerId
+        if (!targetId || !pickableCardsOf(host.state, targetId, { discarderId: ownerId }).cardIds.length
+          && !pickableCardsOf(host.state, targetId, { discarderId: ownerId }).hiddenCardSlots.length) return
+        host.queueSkill({ skillId: LONGHUN, ownerId, step: 'discard-current-turn', data: { targetId } })
+      },
+    },
+    {
+      event: 'CardResponded',
+      handle(host, ownerId, context) {
+        const payload = context.event.payload as { asking?: boolean; cardId?: CardId; playerId?: PlayerId }
+        if (payload.asking || payload.playerId !== ownerId || !payload.cardId
+          || !hasTemporaryCardSkillTag(host.state, payload.cardId, LONGHUN_TWO_BLACK)) return
+        const targetId = host.state.currentPlayerId
+        if (!targetId) return
+        const pickable = pickableCardsOf(host.state, targetId, { discarderId: ownerId })
+        if (!pickable.cardIds.length && !pickable.hiddenCardSlots.length) return
+        host.queueSkill({ skillId: LONGHUN, ownerId, step: 'discard-current-turn', data: { targetId } })
+      },
+    },
+    {
+      event: 'AfterCardUse',
+      handle(host, _ownerId, context) {
+        const payload = context.event.payload as { cardId?: CardId }
+        const cardId = payload.cardId
+        if (cardId && (hasTemporaryCardSkillTag(host.state, cardId, LONGHUN_TWO_RED)
+          || hasTemporaryCardSkillTag(host.state, cardId, LONGHUN_TWO_BLACK))) clearTemporaryCardSkillTag(host.state, cardId)
+      },
+    },
+  ],
+
+  startQueued(host, ownerId, prompt) {
+    if (prompt.step !== 'discard-current-turn') return
+    const targetId = prompt.data.targetId as PlayerId
+    if (!playerOf(host.state, ownerId)?.alive || !playerOf(host.state, targetId)?.alive) return
+    const pickable = pickableCardsOf(host.state, targetId, { discarderId: ownerId })
+    if (!pickable.cardIds.length && !pickable.hiddenCardSlots.length) return
+    host.askSkill({
+      skillId: LONGHUN, ownerId, step: 'discard-current-turn', data: { targetId },
+      build: (requestId): ChooseCardsRequest => ({
+        id: requestId, kind: 'choose-cards', playerId: ownerId,
+        prompt: `【龙魂】：弃置当前回合角色${playerOf(host.state, targetId)?.nickname ?? '的'}一张牌`,
+        timeoutMs: 25_000, optional: false, purpose: 'skill',
+        cardIds: pickable.cardIds, hiddenCardSlots: pickable.hiddenCardSlots, min: 1, max: 1,
+      }),
+    })
+  },
+
+  resume(host, ownerId, resolution, response) {
+    if (resolution.step === 'discard-current-turn') {
+      const targetId = resolution.data.targetId as PlayerId
+      const picked = ((response.payload as { cardIds?: string[] }).cardIds ?? [])[0]
+      if (!picked) return
+      const cardId = resolvePickedCard(host.state, targetId, picked)
+      if (!cardId || !movePickedCard(host as never, targetId, cardId, { kind: 'discardPile' })) return
+      host.dispatch('LoseCard', { playerId: targetId, cardIds: [cardId], reason: LONGHUN }, { sourceId: ownerId, targetId, cardIds: [cardId] })
+      return
+    }
     if (resolution.step !== 'multi-viewas') return
     const cardIds = ((response.payload as { cardIds?: CardId[] }).cardIds ?? [])
     finishMultiCardViewAs(host, cardIds)
   },
+
+  outgoingDamage(state, _ownerId, context) {
+    if (!context.chainTransfer && context.cardId && hasTemporaryCardSkillTag(state, context.cardId, LONGHUN_TWO_RED))
+      return { amount: context.amount + 1 }
+    return null
+  },
+
+  recoverAmountBonus(state, _targetId, _sourceId, sourceCardId) {
+    return sourceCardId && hasTemporaryCardSkillTag(state, sourceCardId, LONGHUN_TWO_RED) ? 1 : 0
+  },
+
 })
 
 export const SHENZHAOYUN: CharacterDefinition = {
@@ -117,12 +168,12 @@ export const SHENZHAOYUN: CharacterDefinition = {
     {
       id: JUEJING,
       name: '绝境',
-      description: '锁定技，你的摸牌阶段额外摸X张牌（X为你已损失的体力值）；你的手牌上限+2。',
+      description: '锁定技，你的手牌上限+2；当你进入或脱离濒死状态时，你摸一张牌。',
     },
     {
       id: LONGHUN,
       name: '龙魂',
-      description: '你可以将X张花色相同的牌（X为你的当前体力值且至少为1）当作【桃】（红桃）、火【杀】（方块）、【闪】（梅花）或【无懈可击】（黑桃）使用或打出。',
+      description: '你可以将至多两张花色相同的牌按以下规则使用或打出：红桃当【桃】；方块当火【杀】；梅花当【闪】；黑桃当【无懈可击】。若你以此法使用了两张红色牌，则此牌回复值或伤害值+1。若你以此法使用了两张黑色牌，则你弃置当前回合角色一张牌。',
     },
   ],
 }

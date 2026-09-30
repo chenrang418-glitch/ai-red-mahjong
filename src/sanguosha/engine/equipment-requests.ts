@@ -1,6 +1,7 @@
-import { markUsedThisTurn, usedThisTurn } from './turn-usage'
+import { drawCards } from './draw'
+import { markUsedThisPhase, usedThisPhase } from './phase-usage'
 import { performJudgment, registerJudgmentContinuation } from './judgment'
-import { registerSkillRuntime, type SkillHost } from './skills/runtime'
+import { isCardProtectedFromDiscard, registerSkillRuntime, type SkillHost } from './skills/runtime'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from './requests'
 import type { CardId, DamageNature, PlayerId, SanguoshaState } from './types'
 import { hasWeapon } from './equipment'
@@ -34,6 +35,7 @@ function playerOf(state: SanguoshaState, playerId: PlayerId) {
 /** 闪避成功之后，攻击方手上的武器还能做什么。 */
 export interface DodgedSlashFacts {
   sourceId: PlayerId
+  damageSourceId?: PlayerId | null
   targetId: PlayerId
   amount: number
   nature: DamageNature
@@ -130,17 +132,17 @@ export interface EngineCallbacks {
    */
   continueSlash(host: SkillHost): void
   /** 流离：把这张【杀】改指向新目标，然后重新走一遍插入点。 */
-  transferSlashTarget(host: SkillHost, newTargetId: PlayerId): void
+  transferSlashTarget(host: SkillHost, newTargetId: PlayerId, reason?: string): void
   /**
    * 离间：用一张实体牌作为载体，视为 sourceId 对 targetId 使用了某张普通锦囊。
    * `cardOwnerId` 是牌现在在谁手上——发动技能的人，通常不是「使用者」。
    */
-  startVirtualTrick(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId, asName: string, cardOwnerId: PlayerId): void
+  startVirtualTrick(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId, asName: string, cardOwnerId: PlayerId, sourceSkillId?: string): void
   /**
    * 借刀杀人：目标打出的那张【杀】要走完整的杀结算，
    * 否则仁王盾挡不住、无双不生效、流离转不走。牌已经在弃牌堆里。
    */
-  beginBorrowedSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId): void
+  beginBorrowedSlash(host: SkillHost, sourceId: PlayerId, targetId: PlayerId, cardId: CardId | null): void
   /** 装备的主动效果选完牌和目标之后，用它开一次正常的【杀】结算。 */
   beginSlashFromAction(host: SkillHost, sourceId: PlayerId, cardIds: CardId[], targetIds: PlayerId[]): void
 }
@@ -281,7 +283,8 @@ export function askPreDamageWeapon(host: SkillHost, facts: DodgedSlashFacts): bo
   const target = host.state.players.find((player) => player.id === facts.targetId)
   if (!source?.alive || !target?.alive) return false
   // 目标一张牌都没有时，寒冰剑没有可弃的，不如让伤害照常结算
-  if (discardableCards(host.state, facts.targetId).length === 0) return false
+  const initialChoices = foreignCardChoices(host.state, facts.targetId, facts.sourceId)
+  if (initialChoices.cardIds.length + initialChoices.hiddenCardSlots.length === 0) return false
 
   host.askSkill({
     skillId: HANBINGJIAN_SKILL,
@@ -302,16 +305,17 @@ export function askPreDamageWeapon(host: SkillHost, facts: DodgedSlashFacts): bo
 }
 
 /** 别人区域里可以被弃置的牌，手牌用暗槽表示。 */
-function foreignCardChoices(state: SanguoshaState, targetId: PlayerId): { cardIds: CardId[]; hiddenCardSlots: string[] } {
+function foreignCardChoices(state: SanguoshaState, targetId: PlayerId, discarderId: PlayerId): { cardIds: CardId[]; hiddenCardSlots: string[] } {
   const target = playerOf(state, targetId)
   return {
-    cardIds: Object.values(target.zones.equipment).filter((id): id is CardId => Boolean(id)),
+    cardIds: Object.values(target.zones.equipment).filter((id): id is CardId => Boolean(id)
+      && !isCardProtectedFromDiscard(state, targetId, id, discarderId)),
     hiddenCardSlots: target.zones.hand.map((_, index) => `hidden:${targetId}:${index}`),
   }
 }
 
 /** 把某人指定的一张牌弃掉。暗槽按索引还原成真实手牌。 */
-function discardForeignCard(host: SkillHost, targetId: PlayerId, picked: string, reason: string): void {
+function discardForeignCard(host: SkillHost, targetId: PlayerId, picked: string, reason: string, discarderId: PlayerId): void {
   const target = playerOf(host.state, targetId)
   const hiddenIndex = target.zones.hand.findIndex((_, index) => `hidden:${targetId}:${index}` === picked)
   if (hiddenIndex >= 0) {
@@ -322,7 +326,7 @@ function discardForeignCard(host: SkillHost, targetId: PlayerId, picked: string,
   }
   const slot = (Object.keys(target.zones.equipment) as Array<keyof typeof target.zones.equipment>)
     .find((key) => target.zones.equipment[key] === picked)
-  if (!slot) return
+  if (!slot || isCardProtectedFromDiscard(host.state, targetId, picked, discarderId)) return
   moveCard(host.state, picked, { kind: 'equipment', playerId: targetId, slot }, { kind: 'discardPile' })
   host.dispatch('LoseEquipment', { playerId: targetId, cardIds: [picked], reason }, { targetId, cardIds: [picked] })
 }
@@ -349,7 +353,7 @@ registerSkillRuntime({
     }
 
     const [picked] = (response.payload as { cardIds: string[] }).cardIds
-    if (picked && target?.alive) discardForeignCard(host, facts.targetId, picked, '寒冰剑')
+    if (picked && target?.alive) discardForeignCard(host, facts.targetId, picked, '寒冰剑', facts.sourceId)
     const round = Number(resolution.data.round ?? 1)
     // 第二张：目标还有牌才继续问
     if (round === 1 && target?.alive && askHanbingjianCard(host, facts, 2)) return
@@ -360,7 +364,7 @@ registerSkillRuntime({
 
 /** 返回 false 表示没问出去（目标已经没牌了），调用方必须自己收尾。 */
 function askHanbingjianCard(host: SkillHost, facts: DodgedSlashFacts, round: number): boolean {
-  const choices = foreignCardChoices(host.state, facts.targetId)
+  const choices = foreignCardChoices(host.state, facts.targetId, facts.sourceId)
   if (choices.cardIds.length + choices.hiddenCardSlots.length === 0) return false
   host.askSkill({
     skillId: HANBINGJIAN_SKILL,
@@ -432,7 +436,7 @@ registerSkillRuntime({
     if (!picked) return
     const target = host.state.players.find((player) => player.id === facts.targetId)
     if (!target?.alive) return
-    discardForeignCard(host, facts.targetId, picked, '麒麟弓')
+    discardForeignCard(host, facts.targetId, picked, '麒麟弓', facts.sourceId)
   },
 })
 
@@ -520,11 +524,9 @@ registerSkillRuntime({
       }
     } else {
       const source = host.state.players.find((player) => player.id === sourceId)
-      const drawn = source?.alive ? host.state.zones.drawPile.shift() : undefined
-      if (source && drawn) {
-        source.zones.hand.push(drawn)
-        host.dispatch('GainCard', { playerId: sourceId, cardIds: [drawn], reason: '雌雄双股剑' }, { targetId: sourceId, cardIds: [drawn] })
-      }
+      if (source?.alive) drawCards(host.state, host.rng, sourceId, 1, (name, payload) => host.dispatch(name,
+        name === 'GainCard' ? { ...payload, reason: '雌雄双股剑' } : payload,
+        name === 'GainCard' ? { targetId: sourceId, cardIds: payload.cardIds as CardId[] } : undefined))
     }
 
     // 剑的效果结束，回到正常的求闪流程
@@ -538,8 +540,8 @@ export const TIEJI_SKILL = 'tieji'
 /**
  * 马超【铁骑】：使用【杀】指定目标后可以判定，为红则该目标不能用【闪】响应。
  *
- * 挂在杀的拦截链最前面——它是使用者在「指定目标后」立刻发动的，
- * 先于雌雄双股剑和目标方的流离。判定放在 resume 里做，因为发不发动要先问。
+ * 挂在「指定目标后」窗口——目标方的流离先处理，随后询问铁骑，再进入使用结算。
+ * 判定放在 resume 里做，因为发不发动要先问。
  */
 export function askTieji(host: SkillHost, sourceId: PlayerId, targetId: PlayerId): boolean {
   if (host.state.skillResolution) return false
@@ -671,10 +673,10 @@ registerSkillRuntime({
       }
       const target = host.state.players.find((player) => player.id === facts.targetId)
       if (!target?.alive) return bail()
-      if (!hasPickableCards(host.state, facts.targetId)) return bail()
+      if (!hasPickableCards(host.state, facts.targetId, { discarderId: facts.sourceId })) return bail()
       // 手牌是暗的，只给占位槽——不能让庞德先看见点数花色再挑。
       // 这条隐私规则由 engine/card-pick.ts 统一负责，烈刃用的是同一份。
-      const pickable = pickableCardsOf(host.state, facts.targetId)
+      const pickable = pickableCardsOf(host.state, facts.targetId, { discarderId: facts.sourceId })
       host.askSkill({
         skillId: MENGJIN_SKILL,
         ownerId: facts.sourceId,
@@ -834,7 +836,7 @@ registerSkillRuntime({
     }
 
     const [newTargetId] = (response.payload as { targetIds: PlayerId[] }).targetIds
-    callbacks?.transferSlashTarget(host, newTargetId)
+    callbacks?.transferSlashTarget(host, newTargetId, '流离')
   },
 })
 
@@ -856,7 +858,7 @@ function discardOwnCard(host: SkillHost, playerId: PlayerId, cardId: CardId, rea
 export const LIJIAN_SKILL = 'lijian'
 
 /**
- * 貂蝉【离间】：出牌阶段限一次，弃一张牌，令两名男性角色进行【决斗】。
+ * 貂蝉【离间】：出牌阶段限一次，弃一张牌并选两名男性角色，指定其中一人视为对另一人使用【决斗】。
  *
  * 规则上这是一次「视为使用」的决斗，没有实体牌。这里用**被弃置的那张牌**
  * 作为载体走正常的锦囊结算——两者的可观察差别只有一处：
@@ -867,7 +869,7 @@ registerSkillRuntime({
   id: LIJIAN_SKILL,
   activeActions(state, ownerId) {
     const owner = state.players.find((player) => player.id === ownerId)
-    if (!owner?.alive || usedThisTurn(state, ownerId, LIJIAN_SKILL)) return []
+    if (!owner?.alive || state.phase !== 'play' || state.currentPlayerId !== ownerId || usedThisPhase(state, ownerId, LIJIAN_SKILL)) return []
     if (discardableCards(state, ownerId).length === 0) return []
     if (maleTargets(state, ownerId).length < 2) return []
     return [{ id: 'skill:lijian', label: '发动【离间】：弃一张牌，令两名男性角色决斗' }]
@@ -898,7 +900,7 @@ registerSkillRuntime({
       const [cardId] = (response.payload as { cardIds: CardId[] }).cardIds
       const candidateIds = maleTargets(host.state, ownerId)
       if (candidateIds.length < 2) return
-      markUsedThisTurn(host.state, ownerId, LIJIAN_SKILL)
+      markUsedThisPhase(host.state, ownerId, LIJIAN_SKILL)
       // 这张牌先留在原处，等选完目标再作为决斗的载体打出去
       host.askSkill({
         skillId: LIJIAN_SKILL,
@@ -925,7 +927,7 @@ registerSkillRuntime({
     const attacker = host.state.players.find((player) => player.id === attackerId)
     const victim = host.state.players.find((player) => player.id === victimId)
     if (!attacker?.alive || !victim?.alive) return
-    callbacks?.startVirtualTrick(host, attackerId, victimId, cardId, '决斗', ownerId)
+    callbacks?.startVirtualTrick(host, attackerId, victimId, cardId, '决斗', ownerId, LIJIAN_SKILL)
   },
 })
 

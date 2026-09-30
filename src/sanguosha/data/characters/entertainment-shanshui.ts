@@ -178,7 +178,7 @@ registerSkillRuntime({
 })
 
 export const SHANSHUI: CharacterDefinition = {
-  id: 'shanshui', name: '善水', kingdom: 'qun', gender: 'male', maxHp: 4, pack: 'entertainment',
+  id: 'shanshui', name: '善水', kingdom: 'le', gender: 'male', maxHp: 4, pack: 'entertainment',
   skills: [
     {
       id: ZUINAO, name: '醉闹',

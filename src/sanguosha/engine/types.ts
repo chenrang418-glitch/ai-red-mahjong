@@ -18,6 +18,20 @@ export type Rank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13
 export type CardColor = 'red' | 'black'
 export type DamageNature = 'normal' | 'fire' | 'thunder' | 'ice'
 export type CardCategory = 'basic' | 'trick' | 'equipment'
+
+export interface DrawOperationReplay {
+  operation:
+    | { kind: 'act'; playerId: PlayerId; actionId: string }
+    | { kind: 'respond'; response: import('./requests').GameResponse }
+    | { kind: 'advance-phase' }
+    | { kind: 'damage'; options: import('./damage').DamageOptions }
+    | { kind: 'start' }
+  /** Full pre-operation state, retained so synchronous resolution can replay to its exact draw point. */
+  snapshot: SanguoshaState
+  attemptIndex: number
+  choices: Record<string, Record<string, Record<string, unknown>>>
+  responses: Array<{ requestId: string; playerId: PlayerId; kind: string; payload: unknown }>
+}
 /**
  * 装备栏。
  *
@@ -25,7 +39,7 @@ export type CardCategory = 'basic' | 'trick' | 'equipment'
  * （神典韦【捐甲】）才存在这一栏，见 `engine/equipment-slots.ts`。
  * 没有这一栏的人，它既不出现在合法装备目标里，也不参与攻击范围计算。
  */
-export type EquipmentSlot = 'weapon' | 'weapon2' | 'armor' | 'offensiveHorse' | 'defensiveHorse'
+export type EquipmentSlot = 'weapon' | 'weapon2' | 'armor' | 'offensiveHorse' | 'defensiveHorse' | 'treasure'
 export type TurnPhase = 'prepare' | 'judge' | 'draw' | 'play' | 'discard' | 'finish'
 export type GameStatus = 'setup' | 'choosing-general' | 'playing' | 'game-over'
 
@@ -52,8 +66,16 @@ export interface PhysicalCard {
   characterId?: CharacterId
   /** 谁生成了这张非牌堆牌，用于生命周期管理。 */
   generatedBy?: 'character-equipment'
+  /** 最近一次进入手牌时的游戏轮次；离开手牌后保留到本次牌的效果结算完。 */
+  handEnteredRound?: number
   /** 生成这张虚拟牌的技能，用于结算完成后的技能奖励。 */
   sourceSkillId?: string
+  /** Replays an already-used effect without emitting a second set of use/target timings. */
+  repeatedEffect?: boolean
+  /** 不属于牌堆的特殊装备标识；离开装备区后由公共区域入口销毁。 */
+  specialEquipment?: string
+  /** 特殊装备离开装备区进入弃牌堆时保留实体，供明文允许回收的技能使用。 */
+  persistInDiscard?: boolean
 }
 
 export interface EquipmentZone {
@@ -63,6 +85,8 @@ export interface EquipmentZone {
   armor: CardId | null
   offensiveHorse: CardId | null
   defensiveHorse: CardId | null
+  /** 宝物栏；普通角色可用，装备类型仍由卡牌自身声明。 */
+  treasure: CardId | null
 }
 
 export interface PlayerZones {
@@ -77,11 +101,28 @@ export interface PlayerState {
   nickname: string
   isHuman: boolean
   alive: boolean
+  /** 暂时离场后的回归轮次；休整角色不参与普通行动，但仍计入身份局胜负存续。 */
+  restingUntilRound?: number
   identity: Identity
   identityRevealed: boolean
   characterId: CharacterId | null
+  /** 双将规则扩展：主将明置状态。旧模式未显式设置时按明置处理。 */
+  primaryGeneralRevealed?: boolean
+  /** 双将规则扩展：副将及其明置状态；未明置的副将不提供武将技能。 */
+  deputyCharacterId?: CharacterId | null
+  deputyGeneralRevealed?: boolean
+  /** 国战中首次明置后确定的本势力；未确定势力时保持 undefined。 */
+  nationalWarFaction?: import('../shared/factions').Faction
+  /** 国战势力超过半数后，后续明置的该势力角色分别成为野心家。 */
+  nationalWarAmbitious?: boolean
+  /** Optional reserve generals for official modes with a backup area (e.g. 牛金). */
+  reserveCharacterIds?: CharacterId[]
   hp: number
   maxHp: number
+  /** One-effect current-HP ceiling for skills that explicitly set HP above maximum HP (e.g. 武诸葛亮【尽瘁】). */
+  hpCeilingOverride?: number
+  /** 三国杀移动版谋攻篇护甲点数（不属于装备区防具）；每次伤害优先扣减，封顶5。 */
+  armorPoints?: number
   chained: boolean
   faceDown: boolean
   zones: PlayerZones
@@ -128,6 +169,8 @@ export interface PlayerState {
    * 技能归属统一由 `ownedSkillIds` 取「武将自带 + 这里」的并集。
    */
   grantedSkills: string[]
+  /** 永久失去的原生技能；与临时压制分开，重连和后续查询均不恢复。 */
+  permanentlyLostSkills?: string[]
   /** 可替换的来源绑定临时技能（左慈化身）；同一来源原子替换。 */
   temporaryGrantedSkills: Array<{ source: string; skillId: string }>
   /** 断肠等效果永久令该角色失去全部武将技能；装备效果不受影响。 */
@@ -203,6 +246,8 @@ export interface GroupDecisionState {
   responses: Record<PlayerId, string | undefined>
   /** 超时、掉线、中途死亡时替玩家填的默认选项。 */
   defaultOptionId: string
+  /** 按参与者适配的超时默认值；旧存档回退到 `defaultOptionId`。 */
+  defaultOptionIds?: Record<PlayerId, string>
   /** 每个参与者对应的请求 id，用于校验和收尾清理。 */
   requestIds: Record<PlayerId, string>
   /** 续接需要的上下文，必须可序列化。 */
@@ -277,6 +322,11 @@ export interface PindianState {
   /** 技能自带的上下文，原样还给续接。 */
   data: Record<string, unknown>
   requestIds: Record<PlayerId, string>
+  /** Per-player interaction state for optional modifiers before choosing a Pindian card. */
+  selectionState: Partial<Record<PlayerId, 'waiting-skill' | 'ready' | 'requested' | 'done'>>
+  rankAdjustments: Partial<Record<PlayerId, number>>
+    /** Participant-side replacement effects offered only after both hidden cards are committed. */
+    preRevealProcessedIds?: PlayerId[]
   stage: 'selecting' | 'revealing'
 }
 
@@ -350,6 +400,14 @@ export interface GameSetup {
   allowHumanGeneralSelection?: boolean
 }
 
+export type MilitaryOrderEffectKind = 'non-locked-skills-and-hand-cards' | 'recovery'
+export interface MilitaryOrderEffect {
+  targetId: PlayerId
+  sourceId: PlayerId
+  turnNumber: number
+  kind: MilitaryOrderEffectKind
+}
+
 export interface GameDecision {
   index: number
   requestId: string
@@ -365,6 +423,8 @@ export interface DyingState {
   responderOrder: PlayerId[]
   responderIndex: number
   requestId: string | null
+  /** 濒死前的旁观技能介入游标，确保重连/异步选择后不会重复询问。 */
+  assistIndex?: number
 }
 
 /** 主公技代打的询问进度。完全可序列化。 */
@@ -376,11 +436,19 @@ export interface SurrogateProgress {
 
 export interface SlashResolutionState {
   kind: 'slash'
+  /** This resolution borrows the physical use currently suspended in game state. */
+  effectReplacement?: boolean
   cardId: CardId
+  /** Target identities are private to the Slash source and each selected target. */
+  privateTargets?: boolean
   sourceId: PlayerId
+  /** Optional attribution override for effects that use a card but deal source-less damage. */
+  damageSourceId?: PlayerId | null
   targetId: PlayerId
   damageNature: DamageNature
   damageAmount: number
+  /** Whether this Slash consumed the phase and turn usage counters. */
+  usageCounted?: boolean
   /**
    * `awaiting-intercept` 是「成为目标时」插进来的一步：
    * 雌雄双股剑问目标选一项，大乔【流离】把这张【杀】转给别人。
@@ -407,6 +475,18 @@ export interface SlashResolutionState {
    * 寒冰剑 / 麒麟弓不会同时出现——这条互斥让多目标的实现不必和它们纠缠。
    */
   remainingTargetIds: PlayerId[]
+  /** Multi-target Slash target-after-designation effects finish before any target responds. */
+  preparingTargets?: boolean
+  preparedTargets?: Array<{ targetId: PlayerId; noDodge: boolean; cancelled: boolean }>
+  preparedTargetIndex?: number
+  targetPreparationStage?: 'becoming-target' | 'after-target-specified'
+  targetPreparationIndex?: number
+  /** Already settled targets; target-changing skills must not append them a second time. */
+  resolvedTargetIds?: PlayerId[]
+  /** Targets whose extra-settlement effect has already been consumed this use. */
+  repeatedTargetIds?: PlayerId[]
+  /** Remaining complete target-effect repetitions, keyed by target. */
+  repeatEffectsRemainingByTarget?: Partial<Record<PlayerId, number>>
   requestId: string | null
   /** 当前目标还需要打出几张【闪】；无双为 2，普通杀为 1。 */
   dodgeRemaining: number
@@ -417,6 +497,13 @@ export interface SlashResolutionState {
    * 每换一个目标都要重置——铁骑是逐个目标判定的。
    */
   noDodge?: boolean
+  /** 技能牌对指定多个目标不可闪避（势·太史慈【战烈】）。 */
+  noDodgeTargetIds?: PlayerId[]
+  /** 指定目标响应此【杀】前须额外弃置一张牌。 */
+  responseDiscardCostTargetIds?: PlayerId[]
+  /** 可组合的逐项响应弃牌要求（如界马超【铁骑】的判定花色要求）。 */
+  responseDiscardCostRequirements?: Array<{ targetId: PlayerId; suit?: Suit }>
+  responsePaymentAuthorized?: { playerId: PlayerId; actionId: string } | null
   /** “成为目标后”的技能只取消当前目标，不影响这张【杀】的其他目标。 */
   targetCancelled?: boolean
   /**
@@ -440,6 +527,8 @@ export type TrickEffectState =
   | { kind: 'duel'; responderId: PlayerId; otherId: PlayerId; requestId: string; slashRemaining: number }
   /** 过河拆桥 / 顺手牵羊：由使用者从目标区域里挑一张 */
   | { kind: 'pick-card'; targetId: PlayerId; mode: 'discard' | 'steal'; requestId: string }
+  /** 瞒天过海已获得目标区域的牌，等待使用者交给该目标一张手牌。 */
+  | { kind: 'man-tian-give'; targetId: PlayerId; requestId: string }
   /** 五谷丰登：亮出的牌摆在处理区，逐个目标挑走一张 */
   | { kind: 'harvest'; targetId: PlayerId; revealedCardIds: CardId[]; requestId: string }
   /** 火攻第一步：目标展示一张手牌 */
@@ -462,15 +551,23 @@ export type TrickEffectState =
   | { kind: 'qizheng'; targetId: PlayerId; mode: 'qi' | 'zheng'; requestId: string }
   /** 火攻第二步：使用者弃一张同花色的牌才能造成火焰伤害 */
   | { kind: 'fire-discard'; targetId: PlayerId; revealedCardId: CardId; suit: Suit; requestId: string }
+  /** 界卧龙【火计】：随机展示目标手牌后，弃置一张同色牌造成火焰伤害。 */
+  | { kind: 'jie-fire-discard'; targetId: PlayerId; revealedCardId: CardId; color: 'red' | 'black'; requestId: string }
   /** 借刀杀人：目标要对第三人出杀，否则把武器交给使用者 */
   | { kind: 'borrowed-knife'; targetId: PlayerId; victimId: PlayerId; weaponCardId: CardId; requestId: string }
   /** 借刀杀人：目标真的出了杀，轮到受害者出闪 */
 
 export interface TrickResolutionState {
   kind: 'trick'
+  /** This resolution borrows the physical use currently suspended in game state. */
+  effectReplacement?: boolean
   cardId: CardId
   cardName: string
   sourceId: PlayerId
+  /** Skill-created Duel may carry a rule-defined damage value. */
+  damageAmount?: number
+  /** 技能虚拟锦囊的来源技能，用于专属响应规则。 */
+  sourceSkillId?: string
   /**
    * 全部目标，按结算顺序。单目标锦囊只有一个元素。
    * 多目标锦囊每个目标各问一次无懈——无懈取消的是「对某一个目标的效果」，不是整张牌。
@@ -514,6 +611,8 @@ export interface TrickResolutionState {
   effect: TrickEffectState | null
   /** 五谷丰登亮出的牌：整张牌结算期间共用一批，中途不重新亮 */
   harvestPool?: CardId[]
+  /** Remaining complete target-effect repetitions, keyed by target. */
+  repeatEffectsRemainingByTarget?: Partial<Record<PlayerId, number>>
 }
 
 export type CardResolutionState = SlashResolutionState | TrickResolutionState
@@ -546,6 +645,18 @@ export interface DamageChainState {
   cardName: string | null
   redirectedBy: string | null
   remainingTargetIds: PlayerId[]
+}
+
+/** Ordered multi-target damage created by one skill; pauses cleanly across dying/response windows. */
+export interface DamageSequenceState {
+  sourceId: PlayerId | null
+  targetIds: PlayerId[]
+  nextIndex: number
+  amount: number
+  nature: DamageNature
+  cardId: CardId | null
+  cardName: string | null
+  sourceSkillId?: string
 }
 
 export interface JudgmentNullificationState {
@@ -693,6 +804,8 @@ export interface ExtraPhaseState {
   playerId: PlayerId
   skillId: string
   instanceId: number
+  /** This phase occurs after TurnEnd; completing it resumes the next turn instead of the original phase slot. */
+  endsTurnAfter?: boolean
   /**
    * 这个额外阶段开始时，它跑的那个阶段**已经**被标记为跳过了吗。
    *
@@ -746,7 +859,21 @@ export interface SanguoshaState {
   seed: string
   setup: GameSetup
   seq: number
+  /** Cards publicly revealed during the current turn; used by skills that forbid re-showing the same card. */
+  revealedCardIdsThisTurn?: { turnNumber: number; cardIds: CardId[] }
+  /** Present only while a draw-triggered choice is replaying a serialized root operation. */
+  drawOperationReplay?: DrawOperationReplay
+  /** Per-root-operation draw ordinal used to identify the exact synchronous draw call. */
+  drawAttemptIndex?: number
+  /** Immediate signal shared by legacy void-returning draw event callbacks. */
+  drawAttemptInterrupt?: { attemptIndex: number; replacementCardIds?: CardId[] }
   status: GameStatus
+  /** Death 触发技有可回答的身份变更机会时，延后胜负判定到问答结束。 */
+  pendingIdentityVictoryCheck?: boolean
+  /** 已触发野心家规则的原始势力；用于后续同势力明置者。 */
+  nationalWarAmbitiousFactions?: import('../shared/factions').Faction[]
+  /** 蒋琬·改【镇庭】放弃一次延时锦囊介入后，该牌本次继续使用时跳过同一技能重问。 */
+  zhenTingPassThrough?: Record<PlayerId, CardId>
   players: PlayerState[]
   cards: Record<CardId, PhysicalCard>
   zones: GameZones
@@ -773,6 +900,12 @@ export interface SanguoshaState {
   /** 当前回合是正常回合还是插队的额外回合。决定下一个正常回合从哪里数起。 */
   currentTurnKind: 'normal' | 'extra'
   turnNumber: number
+  /** 本回合每名角色从手牌区失去的牌数，由统一牌区移动入口维护。 */
+  handCardLossThisTurn?: { turnNumber: number; counts: Record<PlayerId, number> }
+  /** 本回合实际进入弃牌堆的红色实体牌数；由唯一牌区移动入口记账。 */
+  turnRedDiscardCount?: { turnNumber: number; count: number }
+  /** 本回合各角色已经使用或实际弃置过的牌类别，供定品等规则复用。 */
+  turnCardCategories?: Record<PlayerId, import('./turn-card-categories').TurnCardCategoryHistory>
   /**
    * 第几轮。从 1 开始。
    *
@@ -799,11 +932,15 @@ export interface SanguoshaState {
    * 绑定的是「这一个回合」，不是轮次。
    */
   detainedCards?: import('./turn-bound-pile').DetainedCardEntry[]
+  /** 军令造成的回合内公共限制，按当前 turnNumber 自动失效。 */
+  militaryOrderEffects?: MilitaryOrderEffect[]
   /**
    * 牌的**有效颜色改写**，见 `engine/card-color.ts`。
    * 多张子牌合成的虚拟牌（荀攸【奇策】）靠它表达「全红 / 全黑 / 无色」。
    */
   cardColorOverrides?: Record<string, 'red' | 'black' | null>
+  /** 当前正在结算的用牌被技能整体作废的记录，来源技能在 CardResolved 后消费。 */
+  invalidatedCardUses?: Record<CardId, { sourceId: PlayerId; skillId: string }>
   /**
    * 当前这个阶段是**从哪个阶段位替换来的**（神孙权【持纲】把判定位跑成摸牌阶段）。
    *
@@ -815,6 +952,12 @@ export interface SanguoshaState {
    * 只在替换期间存在的标记没有这个问题——没有替换时它压根不参与计算。
    */
   phaseReplacedFrom?: TurnPhase
+  /** 当前回合阶段位顺序；默认使用标准顺序，阶段交换类技能写入此字段。 */
+  turnPhaseOrder?: TurnPhase[]
+  /** 下一次真实摸牌阶段的额外摸牌量；技能结算写入，阶段引擎消费。 */
+  drawPhaseBonuses?: Record<PlayerId, number>
+  /** 手牌上限的临时通用修正；进入真实弃牌阶段并完成计算后消费。 */
+  maxCardsAdjustments?: Record<PlayerId, number>
   /**
    * 拿到了额外武器栏的角色（神典韦【捐甲】）。
    *
@@ -829,6 +972,12 @@ export interface SanguoshaState {
   deckReshuffle?: import('./deck').DeckReshuffleState
   phase: TurnPhase
   skippedPhases: TurnPhase[]
+  /** One-shot skipped phase slots queued for a specific player's next turn. */
+  scheduledSkippedPhasesByPlayer?: Record<PlayerId, TurnPhase[]>
+  /** Temporary tombstones allow special-equipment loss triggers to resolve after the card instance is destroyed. */
+  specialEquipmentRemoval?: Record<CardId, string>
+  /** Printed rank snapshot for special equipment whose loss effect resolves after the card is destroyed. */
+  specialEquipmentRemovalRank?: Record<CardId, number>
   /**
    * 阶段还没正式开始，正在走「付代价跳过这个阶段」的公共窗口。
    *
@@ -846,6 +995,8 @@ export interface SanguoshaState {
    * 见 `card-damage-ledger.ts`（程普【疠火】读它）。
    */
   cardDamageLedger?: Record<string, number>
+  /** 本回合由【酒】加成的实体/虚拟杀牌，供技能按“酒影响的杀”判定后续时机。 */
+  wineBoostedSlashCardIds?: CardId[]
   /**
    * 这一次使用的属性**被技能改写过**的那几张牌。
    *
@@ -881,6 +1032,12 @@ export interface SanguoshaState {
    * 正确的时机（目标体力值下降后）调用 `clearCardIdLocksOf` 解锁。
    */
   cardIdLocks?: Array<{ targetId: PlayerId; cardId: CardId; sourceId: PlayerId; skillId: string }>
+  /** 技能获得牌的“本回合不能使用”限制；不阻止以该牌响应或打出。 */
+  cardUseLocks?: Array<{ targetId: PlayerId; cardId: CardId; sourceId: PlayerId; skillId: string; turnNumber: number }>
+  /** 绑定于具体下一张【杀】的伤害加成，结算结束即清理。 */
+  slashDamageBonusCards?: Record<CardId, { sourceId: PlayerId; amount: number; turnNumber: number }>
+  /** 每张【杀】真实响应过的实体【闪】，供“忠勇”结算精确关联。 */
+  zhongyongDodgeCards?: Record<CardId, { cardIds: CardId[]; responded: boolean }>
   /**
    * 陈琳【笔伐】暗置在目标武将牌上、等目标下一次回合开始才结算的牌。
    * 键是目标 `playerId`；同一目标同一时刻只保留最新的一份。
@@ -909,6 +1066,12 @@ export interface SanguoshaState {
   extraPhase?: ExtraPhaseState
   /** 还没轮到的额外阶段（同一个回合开始时排了不止一个）。 */
   pendingExtraPhases?: ExtraPhaseState[]
+  /** Character effects may pre-schedule a one-time extra phase for another player's next turn. */
+  scheduledExtraPhasesByPlayer?: Record<PlayerId, Array<{ phase: TurnPhase; skillId: string }>>
+  /** 当前阶段结束后插入的额外阶段；用于结束阶段后产生的额外出牌阶段。 */
+  extraPhasesAfterCurrent?: ExtraPhaseState[]
+  /** Extra phases inserted after TurnEnd skills have fully resolved. */
+  postTurnExtraPhases?: ExtraPhaseState[]
   /**
    * TurnEnd 已发出，但其触发的技能尚未结算完；结算干净后才开始下一回合。
    *
@@ -920,6 +1083,7 @@ export interface SanguoshaState {
   pendingRequests: GameRequest[]
   dying: DyingState | null
   damageChain: DamageChainState | null
+  damageSequence?: DamageSequenceState | null
   judgment: JudgmentState | null
   /** 私有暂存牌区。见 PrivateCardZone 的说明——**不要用处理区代替它**。 */
   privateZones: PrivateCardZone[]
@@ -927,6 +1091,12 @@ export interface SanguoshaState {
   groupDecision: GroupDecisionState | null
   /** 进行中的多人同时秘密选牌；同一时刻最多一个。见 GroupCardDecisionState。 */
   groupCardDecision?: GroupCardDecisionState | null
+  /** 下一次该角色获得牌时的数量倍率；由技能在成功获得牌后建立并消费。 */
+  nextGainCardMultiplier?: Record<PlayerId, number>
+  /** 公开的真实 CardUse 历史，供按真实回合查询牌名的技能使用。 */
+  cardUseHistory?: Array<{ turnNumber: number; turnKind: 'normal' | 'extra'; sourceId: PlayerId; cardName: string }>
+  /** 真实发生过的伤害历史，供死亡后技能查询。 */
+  damageHistory?: Array<{ sourceId: PlayerId | null; targetId: PlayerId; turnNumber: number }>
   /** 进行中的拼点；同一时刻最多一次。 */
   pindian: PindianState | null
   /** 已揭示、等待消费者决定实体牌去向的拼点结算。 */
@@ -947,10 +1117,20 @@ export interface SanguoshaState {
   turnKills: TurnKillRecord[]
   /** 转换技的阴阳状态（神刘备【龙怒】）。见 engine/conversion.ts。 */
   conversionStates: Record<string, 'yang' | 'yin'>
+  /** 宗族【中流】：当前实际使用的非同族手牌所压制的技能结算上下文。 */
+  clanUseSkillMute?: { playerId: PlayerId; cardId: CardId }
+  /** 单次技能授权：本次出牌由另一角色手牌提供的实体牌归属。 */
+  skillCardOwnerOverride?: { playerId: PlayerId; physicalOwnerId: PlayerId; cardId: CardId; cardIds?: CardId[]; sourceSkillId: string }
+  /** Skill provenance for an in-flight physical card, retained through AfterCardUse. */
+  cardUseSourceSkills?: Record<CardId, string>
   /** 本回合被强制改写身份的手牌类别（神刘备【龙怒】）。见 engine/forced-identity.ts。 */
   forcedIdentities: ForcedCardIdentity[]
   /** 被废除的装备栏（神张辽【夺锐】）。见 engine/equipment-slots.ts。 */
   abolishedSlots: Record<PlayerId, EquipmentSlot[]>
+  /** Equipment-effect suppression that expires after the target's next TurnEnd. */
+  equipmentEffectSuppressions?: Array<{ playerId: PlayerId; armedAtTurn: number; drawReductionPending?: number }>
+  /** 胡昭【弥笃】废除的判定区。 */
+  abolishedJudgmentAreas?: PlayerId[]
   /** 单个技能的临时失效（神张辽【夺锐】）。见 engine/skill-suppression.ts。 */
   skillSuppressions: SkillSuppression[]
   /** 带归属的全局唯一 Token（神甘宁的「营」）。见 engine/global-token.ts。 */
@@ -1028,6 +1208,8 @@ export interface SanguoshaState {
    * 没有别的锦囊会用到这个字段。
    */
   suspendedTrickResolution?: TrickResolutionState | null
+  /** A skill replaced one card's effect with another; the original physical use is finished once the replacement settles. */
+  suspendedCardEffectResolution?: CardResolutionState | null
   /**
    * 程昱【设伏】：暗置在「伏兵」堆里的手牌与声明牌名的绑定。
    * 键是程昱的 `playerId`；伏兵牌本体存在 `characterPiles.fubing` 里，
@@ -1144,6 +1326,8 @@ export interface SanguoshaState {
   taoqianZhaohuoDamaged?: { turnNumber: number; players: PlayerId[] }
   /** 陶谦【招祸】：因此获得、本回合不能使用/打出且不计入手牌上限的 Card ID。 */
   taoqianZhaohuoLocked?: Record<PlayerId, { cardIds: CardId[]; turnNumber: number }>
+  /** 技能授予的特殊牌不计入手牌上限；由技能在获得/失去牌时维护实体牌归属。 */
+  skillHandLimitExemptCardIds?: Record<PlayerId, CardId[]>
   /** 张琪瑛【真仪·紫微】：本次判定生效前选择的强制结果。 */
   zhangqiyingZiweiChoice?: { ownerId: PlayerId; cardId: CardId; suit: 'spade' | 'heart' }
   /** 祢衡【狂才】：本回合是否已经使用过牌（含此，避免只记最后一次）。 */
@@ -1216,9 +1400,11 @@ export interface SanguoshaState {
    * 挂起中的"来源侧是否防止这次伤害"发问现场（马谡【制蛮】）。
    * 记录时还没有任何伤害相关状态被改动，续接时原样重新走 `resolveDamage`。
    */
-  pendingSourceDamage?: { options: Record<string, unknown> }
+  pendingSourceDamage?: { options: Record<string, unknown>; skillId?: string; ownerId?: PlayerId; step?: string }
   /** 同上，目标侧版本（杜畿【安东】）。 */
-  pendingTargetDamage?: { options: Record<string, unknown> }
+  pendingTargetDamage?: { options: Record<string, unknown>; skillId?: string; ownerId?: PlayerId; step?: string }
+  /** 交互式伤害数值修正暂存；回答后续接原伤害而不重问同一技能。 */
+  pendingDamageModifier?: { side: 'source' | 'target'; skillId: string; ownerId?: PlayerId; step?: string; options: Record<string, unknown> }
   /** 张宝【咒缚】：本 TurnInstance 内失去过"咒"的角色，TurnEnd 各扣1点体力。 */
   zhangbaoLostCurseTurn?: { turnNumber: number; playerIds: PlayerId[] }
   /** 张宝【影兵】：按"咒"的 Card ID 记录已经触发过几次摸牌。 */
@@ -1342,6 +1528,10 @@ export interface SanguoshaState {
   choufaCardIds?: Record<PlayerId, CardId[]>
   /** 昭然/其它"整手牌公开"效果：当前公开着手牌的角色集合。 */
   revealedHands?: PlayerId[]
+  /** 仅指定观察者可见的手牌（杨修【捷悟】等阶段性观看效果）。 */
+  privateRevealedHands?: Record<PlayerId, PlayerId[]>
+  /** 崔芙【袭裳】：逐张明置的手牌。离开手牌区时由 moveCard 自动清理。 */
+  faceUpHandCards?: Record<PlayerId, CardId[]>
   zhaoranEmptySuits?: { turnNumber: number; suits: Suit[] }
   shirenUsed?: PlayerId[]
   yanxiExempt?: Record<PlayerId, CardId[]>
@@ -1439,6 +1629,8 @@ export interface SanguoshaState {
   /** 傅肜【效死】：出杀之后要等它完全结算完毕才能继续问下一张。 */
   xiaosiPendingNext?: { ownerId: PlayerId; remaining: CardId[] }
   skillResolution: SkillResolutionState | null
+  /** Cards drawn/used during one optional skill-resolution chain, for cross-skill observers. */
+  skillEffectMetrics?: { skillId: string; ownerId: PlayerId; drawnCardNames: string[]; usedCardNames: string[] }
   skillQueue: QueuedSkillPrompt[]
   /**
    * 随机源的当前状态。
@@ -1456,8 +1648,12 @@ export interface SanguoshaState {
    * 普通锦囊不需要它——那条路上转化后的牌名直接存在 `cardResolution.cardName` 里。
    */
   cardAliases: Record<CardId, string>
+  /** Permanent card-face changes for equipment modified by character rules. */
+  equipmentTransformations?: Record<CardId, string>
   /** 本次结算里被临时改写的伤害属性（龙魂的方块火杀）。见 zones.ts。 */
   cardNatures: Record<CardId, DamageNature>
+  /** A skill id temporarily attached to a physical/virtual card for its current resolution only. */
+  temporaryCardSkillTags?: Record<CardId, string>
   decisions: GameDecision[]
   result: GameResult | null
   /** 魏晋—汉末独立人物补完批：各角色的跨阶段/隐匿兼容/记账状态。 */
@@ -1586,5 +1782,5 @@ export interface SanguoshaState {
 }
 
 export function emptyEquipment(): EquipmentZone {
-  return { weapon: null, weapon2: null, armor: null, offensiveHorse: null, defensiveHorse: null }
+  return { weapon: null, weapon2: null, armor: null, offensiveHorse: null, defensiveHorse: null, treasure: null }
 }

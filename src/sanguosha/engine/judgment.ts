@@ -1,7 +1,7 @@
 import { reshuffleDrawPile } from './deck'
 import { canUseCardAs } from './forced-identity'
-import { delayedTrickHits } from './delayed-trick-rules'
-import { multiCardGrantedAs } from './multi-card-viewas'
+import { delayedTrickHitsForPlayer } from './delayed-trick-rules'
+import { MULTI_VIEWAS_ACTION, canMultiCardViewAs, multiCardGrantedAs } from './multi-card-viewas'
 import { resolveDamage } from './damage'
 import type { EventContext, GameEvent, GameEventName } from './events'
 import type { ChooseCardsRequest, GameResponse, RespondCardRequest } from './requests'
@@ -9,10 +9,11 @@ import { validateResponse } from './requests'
 import type { GameRng } from './rng'
 import { retainJudgmentCard, shouldRetainJudgment } from './judgment-retention'
 import { movePickedCard } from './card-pick'
+import { isJudgmentAreaAbolished } from './judgment-area'
 import { skipPhase } from './turn'
 import type { CardId, PlayerId, SanguoshaState, Suit } from './types'
-import { effectiveCardName, moveCard } from './zones'
-import { effectiveCardSuit, effectiveJudgmentRank, skillsOf, type SkillHost } from './skills/runtime'
+import { effectiveCardName, locateOwnedCard, moveCard } from './zones'
+import { effectiveCardSuit, effectiveJudgmentRank, overrideJudgmentSuitOf, skillsOf, type SkillHost } from './skills/runtime'
 import { NULLIFICATION_TIMEOUT_MS, nullificationCardIds } from './nullification'
 import { GUHUO_RESPOND_ACTION, canGuhuoRespond, guhuoGrantedAs } from './guhuo-response'
 import { responseViewAsOptions, skillIdsOf } from '../data/characters/standard'
@@ -111,8 +112,11 @@ export function performJudgment(
 function retrialCandidates(state: SanguoshaState, responderId: PlayerId, judgingPlayerId: PlayerId): CardId[] {
   const responder = state.players.find((candidate) => candidate.id === responderId)
   if (!responder?.alive) return []
-  return skillsOf(state, responderId, skillIdsOf)
-    .flatMap((runtime) => runtime.retrial?.(state, responderId, judgingPlayerId) ?? [])
+  const runtimes = skillsOf(state, responderId, skillIdsOf)
+  const candidates = runtimes.flatMap((runtime) => runtime.retrial?.(state, responderId, judgingPlayerId) ?? [])
+  if (state.zones.drawPile.length && runtimes.some((runtime) => runtime.retrialDrawPileTop?.(state, responderId, judgingPlayerId)))
+    candidates.push(state.zones.drawPile[0])
+  return [...new Set(candidates)]
 }
 
 /** 有没有人强制指定了这次判定牌（张宝【咒缚】）。第一个给出结果的生效。 */
@@ -177,10 +181,29 @@ function askNextRetrial(host: JudgmentEngineHost): void {
 function finishJudgment(host: JudgmentEngineHost): void {
   const retrial = host.state.retrial
   if (!retrial) return
+  const { playerId, judgeCardId } = retrial
+  const suit = overrideJudgmentSuitOf(host.state, playerId, effectiveCardSuit(host.state, playerId, judgeCardId, skillIdsOf), skillIdsOf)
+  for (const owner of host.state.players) {
+    if (!owner.alive || !owner.characterId) continue
+    for (const runtime of skillsOf(host.state, owner.id, skillIdsOf)) {
+      if (runtime.beforeJudgmentResult?.(host, owner.id, judgeCardId, suit)) return
+    }
+  }
+  completeJudgment(host, suit, effectiveJudgmentRank(host.state, playerId, judgeCardId, skillIdsOf))
+}
+
+/** 完成一个已翻开的判定结果；交互式结果改写在回答后从这里续接。 */
+export function resumeJudgmentResult(host: JudgmentEngineHost, suit: Suit): void {
+  const retrial = host.state.retrial
+  if (!retrial) throw new Error('判定结果改写已经过期')
+  completeJudgment(host, overrideJudgmentSuitOf(host.state, retrial.playerId, suit, skillIdsOf), effectiveJudgmentRank(host.state, retrial.playerId, retrial.judgeCardId, skillIdsOf))
+}
+
+function completeJudgment(host: JudgmentEngineHost, suit: Suit, rank: number): void {
+  const retrial = host.state.retrial
+  if (!retrial) return
   const { playerId, reason, judgeCardId, tag, data } = retrial
   const judgeCard = host.state.cards[judgeCardId]
-  const suit = effectiveCardSuit(host.state, playerId, judgeCardId, skillIdsOf)
-  const rank = effectiveJudgmentRank(host.state, playerId, judgeCardId, skillIdsOf)
   const color = suit === 'heart' || suit === 'diamond' ? 'red' : 'black'
   host.dispatch('JudgeResult', { playerId, reason, judgeCardId, suit, rank, color }, { targetId: playerId, cardIds: [judgeCardId] })
   host.dispatch('JudgeEnd', { playerId, reason, judgeCardId }, { targetId: playerId, cardIds: [judgeCardId] })
@@ -219,6 +242,8 @@ export function resolveRetrialResponse(host: JudgmentEngineHost, request: Choose
 
   const replacementId = cardIds[0]
   const sourceId = retrial.sourceId ?? response.playerId
+  const sourceZone = locateOwnedCard(host.state, sourceId, replacementId, { includeCharacterPiles: true })
+  const fromDrawPile = !sourceZone && host.state.zones.drawPile[0] === replacementId
   /*
    * 大多数改判技能（鬼才）只报手牌做候选，这里仍然优先走手牌；
    * 少数技能（神品）候选可以来自装备区，统一交给 movePickedCard 定位，
@@ -227,9 +252,10 @@ export function resolveRetrialResponse(host: JudgmentEngineHost, request: Choose
   // 旧判定牌进弃牌堆，新牌顶上。两张牌都在处理区停留过，牌张守恒不会破
   // 被改判换下来的那一张同样是「因判定进入弃牌堆」
   moveCard(host.state, retrial.judgeCardId, { kind: 'processingArea' }, { kind: 'discardPile' }, { discardReason: 'judgment' })
-  if (!movePickedCard(host, sourceId, replacementId, { kind: 'processingArea' })) throw new Error('改判用的牌不在合法区域里')
+  if (fromDrawPile) moveCard(host.state, replacementId, { kind: 'drawPile' }, { kind: 'processingArea' })
+  else if (!movePickedCard(host, sourceId, replacementId, { kind: 'processingArea' })) throw new Error('改判用的牌不在合法区域里')
   retrial.judgeCardId = replacementId
-  host.dispatch('CardResponded', { playerId: sourceId, cardId: replacementId, cardName: host.state.cards[replacementId].name, reason: '改判' }, { sourceId, targetId: retrial.playerId, cardIds: [replacementId] })
+  host.dispatch('CardResponded', { playerId: sourceId, cardId: replacementId, cardName: host.state.cards[replacementId].name, reason: '改判', fromKind: fromDrawPile ? 'drawPile' : sourceZone?.kind }, { sourceId, targetId: retrial.playerId, cardIds: [replacementId] })
   // 换了牌就重新从头问一遍：别人（以及他自己）可以对新的判定牌再改一次
   retrial.responderIndex = 0
   askNextRetrial(host)
@@ -252,14 +278,16 @@ function nextLightningTarget(state: SanguoshaState, ownerId: PlayerId): PlayerId
   for (let offset = 1; offset < state.players.length; offset += 1) {
     const candidate = state.players[(owner.seat + offset) % state.players.length]
     const hasLightning = candidate.zones.judgingArea.some((cardId) => effectiveCardName(state, cardId) === '闪电')
-    if (candidate.alive && !hasLightning) return candidate.id
+    if (candidate.alive && !isJudgmentAreaAbolished(state, candidate.id) && !hasLightning) return candidate.id
   }
   return ownerId
 }
 
 function moveCancelledDelayed(host: JudgmentEngineHost, ownerId: PlayerId, delayedCardId: CardId): void {
   if (host.state.cards[delayedCardId].name === '闪电') {
-    moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: nextLightningTarget(host.state, ownerId) })
+    const targetId = nextLightningTarget(host.state, ownerId)
+    if (isJudgmentAreaAbolished(host.state, targetId)) moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+    else moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: targetId })
   } else moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
 }
 
@@ -292,7 +320,7 @@ registerJudgmentContinuation(DELAYED_TRICK_TAG, (host, judged, data) => {
   const delayedName = data.delayedName as string
 
   // 命中判断走公共规则，表现层用的是同一份，两边不会漂移
-  const hit = delayedTrickHits(delayedName, judged.suit, judged.rank)
+  const hit = delayedTrickHitsForPlayer(host.state, ownerId, delayedName, judged.suit, judged.rank)
   if (delayedName === '乐不思蜀') {
     if (hit) skipPhase(host.state, 'play')
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
@@ -305,7 +333,9 @@ registerJudgmentContinuation(DELAYED_TRICK_TAG, (host, judged, data) => {
       resolveDamage(host, { targetId: ownerId, amount: 3, nature: 'thunder', cardName: '闪电', cardId: delayedCardId })
       if (!host.state.dying && !host.state.damageChain) finishLightningDamage(host)
     } else {
-      moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: nextLightningTarget(host.state, ownerId) })
+      const targetId = nextLightningTarget(host.state, ownerId)
+      if (isJudgmentAreaAbolished(host.state, targetId)) moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
+      else moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'judgingArea', playerId: targetId })
     }
   } else {
     moveCard(host.state, delayedCardId, { kind: 'processingArea' }, { kind: 'discardPile' })
@@ -343,7 +373,9 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
   ])]
   const canGuhuo = judgment.lastNullifierId !== responderId
     && canGuhuoRespond(host.state, responderId, '无懈可击', skillIdsOf)
-  if (cardIds.length === 0 && !canGuhuo) {
+  const canMultiCardRespond = judgment.lastNullifierId !== responderId
+    && canMultiCardViewAs(host.state, responderId, '无懈可击')
+  if (cardIds.length === 0 && !canGuhuo && !canMultiCardRespond) {
     judgment.responderIndex += 1
     requestCurrentNullification(host)
     return
@@ -353,6 +385,7 @@ function requestCurrentNullification(host: JudgmentEngineHost): void {
     .map((cardId) => `respond-nullification:${cardId}`)
   actionIds.push('respond-pass')
   if (canGuhuo) actionIds.push(GUHUO_RESPOND_ACTION)
+  if (canMultiCardRespond) actionIds.push(MULTI_VIEWAS_ACTION)
   const request: RespondCardRequest = {
     id: `request-judge-${host.state.seq}-${host.state.decisions.length}-${judgment.responderIndex}`,
     kind: 'respond-card',
@@ -415,7 +448,7 @@ export function resolveJudgmentResponse(host: JudgmentEngineHost, request: Respo
   host.state.decisions.push({ index: host.state.decisions.length, requestId: request.id, playerId: response.playerId, kind: request.kind, payload: structuredClone(response.payload) })
   if (cardId) {
     moveCard(host.state, cardId, { kind: 'hand', playerId: response.playerId }, { kind: 'processingArea' })
-    host.dispatch('CardResponded', { playerId: response.playerId, cardId, cardName: '无懈可击' }, { sourceId: response.playerId, targetId: judgment.playerId, cardIds: [cardId] })
+    host.dispatch('CardResponded', { playerId: response.playerId, cardId, cardName: '无懈可击', fromKind: 'hand' }, { sourceId: response.playerId, targetId: judgment.playerId, cardIds: [cardId] })
     moveCard(host.state, cardId, { kind: 'processingArea' }, { kind: 'discardPile' })
     judgment.nullificationCount += 1
     // 记下是谁打的：下一圈跳过他自己，别让人对自己刚打出的无懈再问一次

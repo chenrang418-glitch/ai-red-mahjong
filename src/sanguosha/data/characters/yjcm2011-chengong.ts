@@ -1,10 +1,12 @@
 import { attackRangeCovers } from '../../engine/ask-use-slash'
 import { cardCategoryOfName } from '../../engine/damage-provenance'
 import { drawCards } from '../../engine/draw'
+import { cardDamageDealt } from '../../engine/card-damage-ledger'
 import { giveCards } from '../../engine/hand-transfer'
 import { movePickedCard } from '../../engine/card-pick'
 import { registerSkillRuntime } from '../../engine/skills/runtime'
 import { markUsedThisTurn, usedThisTurn } from '../../engine/turn-usage'
+import { markUsedThisPhase, usedThisPhase } from '../../engine/phase-usage'
 import { effectiveCardName } from '../../engine/zones'
 import type { ChooseCardsRequest, ChooseOptionRequest, ChooseTargetsRequest } from '../../engine/requests'
 import type { CardId, PlayerId, SanguoshaState } from '../../engine/types'
@@ -37,6 +39,7 @@ import type { CharacterDefinition } from './types'
 const MINGCE = 'mingce'
 const ZHICHI = 'zhichi'
 const MINGCE_ACTION = 'mingce-invoke'
+const JIE_CHENGONG_ID = 'jie-chengong-b64'
 
 /** 智迟生效于哪一个回合。存回合序号而不是布尔值，回合一换自然过期。 */
 const ZHICHI_TURN = 'zhichi-turn'
@@ -79,7 +82,8 @@ registerSkillRuntime({
 
   activeActions(state, ownerId) {
     if (state.phase !== 'play' || state.currentPlayerId !== ownerId) return []
-    if (usedThisTurn(state, ownerId, MINGCE)) return []
+    const jieVersion = playerOf(state, ownerId)?.characterId === JIE_CHENGONG_ID
+    if (jieVersion ? usedThisPhase(state, ownerId, MINGCE) : usedThisTurn(state, ownerId, MINGCE)) return []
     if (mingceCards(state, ownerId).length === 0) return []
     if (state.players.filter((candidate) => candidate.alive && candidate.id !== ownerId).length === 0) return []
     return [{ id: MINGCE_ACTION, label: '明策：将一张【杀】或装备牌交给一名其他角色' }]
@@ -102,6 +106,21 @@ registerSkillRuntime({
       }),
     })
   },
+
+  triggers: [{ event: 'AfterCardUse', handle(host, ownerId, context) {
+    if (playerOf(host.state, ownerId)?.characterId !== JIE_CHENGONG_ID) return
+    const payload = context.event.payload as { cardId?: CardId; sourceSkillId?: string }
+    const cardId = payload.cardId
+    if (!cardId) return
+    const state = host.state as SanguoshaState & { jieMingcePending?: { ownerId: PlayerId; userId: PlayerId } }
+    const pending = state.jieMingcePending
+    if (!pending || pending.ownerId !== ownerId || pending.userId !== context.event.sourceId || payload.sourceSkillId !== MINGCE) return
+    delete state.jieMingcePending
+    if (cardDamageDealt(host.state, cardId) <= 0) return
+    for (const playerId of [ownerId, pending.userId]) {
+      if (playerOf(host.state, playerId)?.alive) drawCards(host.state, host.rng, playerId, 1, (name, payload) => host.dispatch(name, payload))
+    }
+  } }],
 
   resume(host, ownerId, resolution, response) {
     const owner = playerOf(host.state, ownerId)
@@ -133,7 +152,8 @@ registerSkillRuntime({
       const user = userId ? playerOf(host.state, userId) : undefined
       if (!owner?.alive || !user?.alive) return
       if (!mingceCards(host.state, ownerId).includes(cardId)) return
-      markUsedThisTurn(host.state, ownerId, MINGCE)
+      if (owner.characterId === JIE_CHENGONG_ID) markUsedThisPhase(host.state, ownerId, MINGCE)
+      else markUsedThisTurn(host.state, ownerId, MINGCE)
 
       /*
        * **真的把牌交过去。**
@@ -161,7 +181,9 @@ registerSkillRuntime({
        */
       const slashTargets = slashTargetsFor(host.state, userId!)
       if (slashTargets.length === 0) {
-        drawCards(host.state, host.rng, userId!, 1, (name, payload) => { host.dispatch(name, payload) })
+        if (owner.characterId === JIE_CHENGONG_ID) {
+          for (const playerId of [ownerId, userId!]) if (playerOf(host.state, playerId)?.alive) drawCards(host.state, host.rng, playerId, 1, (name, payload) => host.dispatch(name, payload))
+        } else drawCards(host.state, host.rng, userId!, 1, (name, payload) => { host.dispatch(name, payload) })
         return
       }
       host.askSkill({
@@ -189,11 +211,13 @@ registerSkillRuntime({
           id: requestId, kind: 'choose-option',
           // 选哪一项是**收牌那个人**的决定
           playerId: userId,
-          prompt: `【明策】：视为对${victim.nickname}使用一张【杀】，或摸一张牌`,
+          prompt: owner?.characterId === JIE_CHENGONG_ID
+            ? `【明策】：视为对${victim.nickname}使用一张【杀】；若造成伤害，你与陈宫各摸一张牌。或你与陈宫各摸一张牌。`
+            : `【明策】：视为对${victim.nickname}使用一张【杀】，或摸一张牌`,
           timeoutMs: 25_000, optional: false,
           options: [
             { id: 'slash', label: `视为对${victim.nickname}使用【杀】` },
-            { id: 'draw', label: '摸一张牌' },
+            { id: 'draw', label: owner?.characterId === JIE_CHENGONG_ID ? '你与陈宫各摸一张牌' : '摸一张牌' },
           ],
         }),
       })
@@ -204,16 +228,20 @@ registerSkillRuntime({
       const userId = resolution.data.userId as PlayerId
       const victimId = resolution.data.victimId as PlayerId
       const user = playerOf(host.state, userId)
-      if (!user?.alive) return
+      if (!owner?.alive || !user?.alive) return
       const optionId = (response.payload as { optionId?: string }).optionId
       if (optionId !== 'slash') {
-        drawCards(host.state, host.rng, userId, 1, (name, payload) => { host.dispatch(name, payload) })
+        if (owner.characterId === JIE_CHENGONG_ID) {
+          for (const playerId of [ownerId, userId]) if (playerOf(host.state, playerId)?.alive) drawCards(host.state, host.rng, playerId, 1, (name, payload) => host.dispatch(name, payload))
+        } else drawCards(host.state, host.rng, userId, 1, (name, payload) => { host.dispatch(name, payload) })
         return
       }
       const victim = playerOf(host.state, victimId)
       if (!victim?.alive) {
         // 发问期间目标没了：退回摸一张，不让这次明策白白落空
-        drawCards(host.state, host.rng, userId, 1, (name, payload) => { host.dispatch(name, payload) })
+        if (owner.characterId === JIE_CHENGONG_ID) {
+          for (const playerId of [ownerId, userId]) if (playerOf(host.state, playerId)?.alive) drawCards(host.state, host.rng, playerId, 1, (name, payload) => host.dispatch(name, payload))
+        } else drawCards(host.state, host.rng, userId, 1, (name, payload) => { host.dispatch(name, payload) })
         return
       }
       /*
@@ -223,7 +251,11 @@ registerSkillRuntime({
        * 不是这一刀的载体。使用者和伤害来源都是 A，完整走公共虚拟杀，
        * 因此求闪、无双、享乐、藤甲、铁骑、马术全都照常。
        */
-      host.beginVirtualSlash({ sourceId: userId, targetId: victimId, sourceSkillId: MINGCE })
+      const jieVersion = owner?.characterId === JIE_CHENGONG_ID
+      const state = host.state as SanguoshaState & { jieMingcePending?: { ownerId: PlayerId; userId: PlayerId } }
+      if (jieVersion) state.jieMingcePending = { ownerId, userId }
+      const started = host.beginVirtualSlash({ sourceId: userId, targetId: victimId, sourceSkillId: MINGCE })
+      if (!started && jieVersion) delete state.jieMingcePending
     }
   },
 })

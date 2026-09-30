@@ -53,12 +53,12 @@ function giveNamed(game: SanguoshaGame, playerId: PlayerId, cardName: string): s
   return cardId
 }
 
-function giveHeart(game: SanguoshaGame, playerId: PlayerId): string {
+function giveDiamond(game: SanguoshaGame, playerId: PlayerId): string {
   const cardId = game.state.zones.drawPile.find((id) => {
     const card = game.state.cards[id]
-    return card.suit === 'heart' && card.name !== '乐不思蜀'
+    return card.suit === 'diamond' && card.name !== '乐不思蜀'
   })
-  if (!cardId) throw new Error('牌堆里没有红桃牌')
+  if (!cardId) throw new Error('牌堆里没有方块牌')
   game.state.zones.drawPile = game.state.zones.drawPile.filter((id) => id !== cardId)
   game.state.players.find((player) => player.id === playerId)!.zones.hand.push(cardId)
   return cardId
@@ -73,34 +73,42 @@ function viewAsAction(game: SanguoshaGame, cardId: string, asName: string, targe
 }
 
 describe('大乔【国色】', () => {
-  it('红桃牌当【乐不思蜀】放进判定区，判定时按乐不思蜀结算', () => {
+  it('方块牌当【乐不思蜀】放进判定区，判定时按乐不思蜀结算', () => {
     const game = gameWith(['daqiao'])
-    const heart = giveHeart(game, 'p0')
+    const diamond = giveDiamond(game, 'p0')
 
-    const action = viewAsAction(game, heart, '乐不思蜀', 'p1')
+    const action = viewAsAction(game, diamond, '乐不思蜀', 'p1')
     expect(action, '国色必须真的产生一条合法动作').toBeTruthy()
     game.act('p0', action!.id)
 
     // 牌进了目标的判定区，并且记住了「当作乐不思蜀」
-    expect(game.state.players[1].zones.judgingArea).toContain(heart)
-    expect(effectiveCardName(game.state, heart)).toBe('乐不思蜀')
-    expect(game.state.cards[heart].name).not.toBe('乐不思蜀')
+    expect(game.state.players[1].zones.judgingArea).toContain(diamond)
+    expect(effectiveCardName(game.state, diamond)).toBe('乐不思蜀')
+    expect(game.state.cards[diamond].name).not.toBe('乐不思蜀')
     assertGameInvariants(game.state)
+  })
+
+  it('红桃牌不能发动国色', () => {
+    const game = gameWith(['daqiao'])
+    const heartId = game.state.zones.drawPile.find((id) => game.state.cards[id].suit === 'heart')!
+    game.state.zones.drawPile = game.state.zones.drawPile.filter((id) => id !== heartId)
+    game.state.players[0].zones.hand.push(heartId)
+    expect(viewAsAction(game, heartId, '乐不思蜀', 'p1')).toBeUndefined()
   })
 
   it('同一个人身上不能叠两张乐不思蜀', () => {
     const game = gameWith(['daqiao'])
-    const first = giveHeart(game, 'p0')
+    const first = giveDiamond(game, 'p0')
     game.act('p0', viewAsAction(game, first, '乐不思蜀', 'p1')!.id)
 
-    const second = giveHeart(game, 'p0')
+    const second = giveDiamond(game, 'p0')
     expect(viewAsAction(game, second, '乐不思蜀', 'p1')).toBeUndefined()
   })
 
   it('别名在牌离开判定区之后就忘掉', () => {
     const game = gameWith(['daqiao'])
-    const heart = giveHeart(game, 'p0')
-    game.act('p0', viewAsAction(game, heart, '乐不思蜀', 'p1')!.id)
+    const diamond = giveDiamond(game, 'p0')
+    game.act('p0', viewAsAction(game, diamond, '乐不思蜀', 'p1')!.id)
 
     // 走完 p1 的判定阶段，牌进弃牌堆
     game.state.currentPlayerId = 'p1'
@@ -110,8 +118,8 @@ describe('大乔【国色】', () => {
       const request = game.state.pendingRequests[0]
       game.respond({ requestId: request.id, playerId: request.playerId, payload: { actionId: 'respond-pass' } })
     }
-    expect(game.state.zones.discardPile).toContain(heart)
-    expect(effectiveCardName(game.state, heart)).toBe(game.state.cards[heart].name)
+    expect(game.state.zones.discardPile).toContain(diamond)
+    expect(effectiveCardName(game.state, diamond)).toBe(game.state.cards[diamond].name)
   })
 })
 
@@ -214,14 +222,28 @@ describe('貂蝉', () => {
     expect(game.legalActions('p0').some((action) => action.id === 'skill:lijian')).toBe(false)
   })
 
-  it('闭月在结束阶段摸一张牌', () => {
+  it('闭月在结束阶段选择发动后摸一张牌', () => {
     const game = gameWith(['diaochan'])
     const owner = game.state.players[0]
     const handBefore = owner.zones.hand.length
     game.state.phase = 'discard'
     game.advancePhase()
     expect(game.state.phase).toBe('finish')
+    expect(pending(game)).toMatchObject({ kind: 'choose-option', optional: true })
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { optionId: 'yes' } })
     expect(owner.zones.hand.length).toBe(handBefore + 1)
+    assertGameInvariants(game.state)
+  })
+
+  it('闭月：可以拒绝发动', () => {
+    const game = gameWith(['diaochan'])
+    const owner = game.state.players[0]
+    const handBefore = owner.zones.hand.length
+    game.state.phase = 'discard'
+    game.advancePhase()
+    expect(pending(game)).toMatchObject({ kind: 'choose-option', optional: true })
+    game.respond({ requestId: pending(game).id, playerId: 'p0', payload: { optionId: 'no' } })
+    expect(owner.zones.hand).toHaveLength(handBefore)
     assertGameInvariants(game.state)
   })
 })

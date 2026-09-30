@@ -75,9 +75,9 @@ function houxiaoAction(game: SanguoshaGame) {
 const FILLER = ['naiwa', 'zhangfei', 'zhangfei', 'zhangfei', 'zhangfei']
 
 describe('奶蛙的基础信息', () => {
-  it('群势力、4 体力、两个技能、娱乐包', () => {
+  it('乐势力、4 体力、两个技能、娱乐包', () => {
     const naiwa = getCharacter('naiwa')!
-    expect(naiwa.kingdom).toBe('qun')
+    expect(naiwa.kingdom).toBe('le')
     expect(naiwa.gender).toBe('male')
     expect(naiwa.maxHp).toBe(4)
     expect(naiwa.pack).toBe('entertainment')

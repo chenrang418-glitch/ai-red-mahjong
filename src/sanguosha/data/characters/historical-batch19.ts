@@ -11,7 +11,8 @@ import { instantTrickActions } from '../../engine/cards/tricks'
 import { executeUseCardAction, legalPlayActions } from '../../engine/cards/basic'
 import { createVirtualTrick } from '../../engine/virtual-trick'
 import { cardDamageDealt } from '../../engine/card-damage-ledger'
-import { getDistance } from '../../engine/distance'
+import { canTarget, getDistance } from '../../engine/distance'
+import { characterSkillIdsOf, isTargetProhibited } from '../../engine/skills/runtime'
 import { effectiveKingdomOf } from '../../engine/huashen'
 import { handleEquipmentLost } from '../../engine/equipment'
 import { registerGroupCardDecision, startGroupCardDecision } from '../../engine/group-card-decision'
@@ -29,6 +30,12 @@ import type { CharacterDefinition } from './types'
 
 function playerOf(state: SanguoshaState, playerId: PlayerId) {
   return state.players.find((candidate) => candidate.id === playerId)
+}
+
+function canSkillUseSlashOn(state: SanguoshaState, sourceId: PlayerId, targetId: PlayerId): boolean {
+  return Boolean(playerOf(state, sourceId)?.alive && playerOf(state, targetId)?.alive
+    && sourceId !== targetId && canTarget(state, sourceId, targetId)
+    && !isTargetProhibited(state, sourceId, targetId, '杀', characterSkillIdsOf))
 }
 
 // ============================== 王昶 ==============================
@@ -136,7 +143,7 @@ registerSkillRuntime({
     if (!owner?.alive) return
     if (prompt.step === 'pick') {
       const { candidateIds, count } = prompt.data as { candidateIds: PlayerId[]; count: number }
-      const alive = candidateIds.filter((id) => playerOf(host.state, id)?.alive)
+      const alive = candidateIds.filter((id) => canSkillUseSlashOn(host.state, ownerId, id))
       if (alive.length === 0) return
       host.askSkill({
         skillId: PINGXI, ownerId, step: 'pick', data: { count },
@@ -171,7 +178,7 @@ registerSkillRuntime({
     if (resolution.step === 'pick') {
       const owner = playerOf(host.state, ownerId)
       const targetIds = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
-      const alive = targetIds.filter((id) => playerOf(host.state, id)?.alive)
+      const alive = targetIds.filter((id) => canSkillUseSlashOn(host.state, ownerId, id))
       if (!owner?.alive || alive.length === 0) return
       host.dispatch('SkillActivated', { skillId: PINGXI, skillName: '平袭', playerId: ownerId, logText: `${owner.nickname}发动【平袭】` }, { sourceId: ownerId })
       host.queueSkill({ skillId: PINGXI, ownerId, step: 'settle', data: { targets: alive, index: 0 } })
@@ -185,7 +192,7 @@ registerSkillRuntime({
       if (owner?.alive && target?.alive && cardId && target.zones.hand.includes(cardId)) {
         moveCard(host.state, cardId, { kind: 'hand', playerId: targetId }, { kind: 'discardPile' })
         host.dispatch('LoseCard', { playerId: targetId, cardIds: [cardId], reason: PINGXI }, { sourceId: ownerId, targetId, cardIds: [cardId] })
-        if (playerOf(host.state, targetId)?.alive) host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: PINGXI, countUsage: false })
+        if (canSkillUseSlashOn(host.state, ownerId, targetId)) host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: PINGXI, countUsage: false })
       }
       host.queueSkill({ skillId: PINGXI, ownerId, step: 'settle', data: { targets, index: index + 1 } })
     }
@@ -278,6 +285,10 @@ registerSkillRuntime({
     if (prompt.step !== 'slash-back') return
     const { targetId } = prompt.data as { targetId: PlayerId }
     if (!playerOf(host.state, targetId)?.alive || !playerOf(host.state, ownerId)?.alive) return
+    // 【忿肆】不授予攻击范围或目标合法性豁免；伤害结算后若其已不能合法指定你，
+    // 这张被迫使用的【杀】不成立，不能让整个牌局因非法目标异常中断。
+    if (!canTarget(host.state, targetId, ownerId)
+      || isTargetProhibited(host.state, targetId, ownerId, '杀', characterSkillIdsOf)) return
     host.beginVirtualSlash({ sourceId: targetId, targetId: ownerId, sourceSkillId: FENSI })
   },
   resume(host, ownerId, resolution, response) {
@@ -688,10 +699,15 @@ registerSkillRuntime({
       const rest = [...target.zones.hand]
       for (const cardId of rest) {
         moveCard(host.state, cardId, { kind: 'hand', playerId: targetId }, { kind: 'discardPile' })
-        const drawn = host.state.zones.drawPile.shift()
-        if (drawn) moveCard(host.state, drawn, { kind: 'drawPile' }, { kind: 'hand', playerId: targetId })
       }
       if (rest.length > 0) host.dispatch('LoseCard', { playerId: targetId, cardIds: rest, reason: HUIYUN }, { sourceId: targetId, cardIds: rest })
+      if (rest.length > 0) drawCards(host.state, host.rng, targetId, rest.length, (name, payload) => {
+        if (name === 'GainCard') {
+          host.dispatch(name, { ...payload, reason: HUIYUN }, {
+            targetId, cardIds: payload.cardIds as CardId[],
+          })
+        } else host.dispatch(name, payload)
+      })
       return
     }
     if (optionId === 2) {
@@ -702,8 +718,13 @@ registerSkillRuntime({
       if (target.zones.hand.includes(shownCardId)) {
         moveCard(host.state, shownCardId, { kind: 'hand', playerId: targetId }, { kind: 'discardPile' })
         host.dispatch('LoseCard', { playerId: targetId, cardIds: [shownCardId], reason: HUIYUN }, { sourceId: targetId, cardIds: [shownCardId] })
-        const drawn = host.state.zones.drawPile.shift()
-        if (drawn) moveCard(host.state, drawn, { kind: 'drawPile' }, { kind: 'hand', playerId: targetId })
+        drawCards(host.state, host.rng, targetId, 1, (name, payload) => {
+          if (name === 'GainCard') {
+            host.dispatch(name, { ...payload, reason: HUIYUN }, {
+              targetId, cardIds: payload.cardIds as CardId[],
+            })
+          } else host.dispatch(name, payload)
+        })
       }
     }
   },
@@ -1003,22 +1024,26 @@ registerSkillRuntime({
       host.dispatch('GainCard', { playerId: targetId, cardIds: actual, reason: ZHUNING }, { sourceId: ownerId, targetId, cardIds: actual })
       host.state.xiCardIds = [...new Set([...(host.state.xiCardIds ?? []), ...actual])]
       host.dispatch('SkillActivated', { skillId: ZHUNING, skillName: '诛佞', playerId: ownerId, targetId, logText: `${owner.nickname}发动【诛佞】，标记${actual.length}张"隙"` }, { sourceId: ownerId, targetId })
+      const slashTargets = host.state.players.filter((candidate) => canSkillUseSlashOn(host.state, ownerId, candidate.id))
+      const damageTrick = availableDamageTrick(host.state, ownerId)
+      const options = [
+        ...(slashTargets.length ? [{ id: 'slash', label: '视为使用一张无次数限制的【杀】' }] : []),
+        ...(damageTrick ? [{ id: 'trick', label: `视为使用【${damageTrick}】` }] : []),
+      ]
+      if (options.length === 0) return
       host.askSkill({
         skillId: ZHUNING, ownerId, step: 'choose-damage', data: {},
         build: (requestId): ChooseOptionRequest => ({
           id: requestId, kind: 'choose-option', playerId: ownerId,
           prompt: '【诛佞】：视为造成伤害的方式', timeoutMs: 20_000, optional: false,
-          options: [
-            { id: 'slash', label: '视为使用一张无次数限制的【杀】' },
-            ...(availableDamageTrick(host.state, ownerId) ? [{ id: 'trick', label: `视为使用【${availableDamageTrick(host.state, ownerId)}】` }] : []),
-          ],
+          options,
         }),
       })
       return
     }
     if (resolution.step === 'choose-damage') {
       const optionId = (response.payload as { optionId?: string }).optionId
-      const candidateIds = host.state.players.filter((candidate) => candidate.alive && candidate.id !== ownerId).map((candidate) => candidate.id)
+      const candidateIds = host.state.players.filter((candidate) => canSkillUseSlashOn(host.state, ownerId, candidate.id)).map((candidate) => candidate.id)
       if (optionId === 'slash') {
         if (candidateIds.length === 0) return
         host.askSkill({
@@ -1041,7 +1066,7 @@ registerSkillRuntime({
     }
     if (resolution.step === 'slash-target') {
       const [targetId] = (response.payload as { targetIds?: PlayerId[] }).targetIds ?? []
-      if (!targetId || !playerOf(host.state, targetId)?.alive) return
+      if (!targetId || !canSkillUseSlashOn(host.state, ownerId, targetId)) return
       host.beginVirtualSlash({ sourceId: ownerId, targetId, sourceSkillId: ZHUNING, countUsage: false })
     }
   },

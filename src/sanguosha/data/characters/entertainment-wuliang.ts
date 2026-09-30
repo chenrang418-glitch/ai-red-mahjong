@@ -257,7 +257,7 @@ registerSkillRuntime({
 export const WULIANG: CharacterDefinition = {
   id: 'wuliang',
   name: '无亮',
-  kingdom: 'qun',
+  kingdom: 'le',
   gender: 'male',
   maxHp: 4,
   pack: 'entertainment',
