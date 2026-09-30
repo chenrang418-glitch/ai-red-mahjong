@@ -1,0 +1,140 @@
+name: Deploy Beta to Cloudflare
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: crplay-beta-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:run
+
+  frontend:
+    name: Frontend typecheck and Beta build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BETA_APP_VERSION: 0.9.0-beta
+      GIT_COMMIT_SHA: ${{ github.sha }}
+      BUILD_TIME: ${{ github.event.head_commit.timestamp }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build:frontend
+      - name: Add Beta warning and build details to the static artifact
+        run: node scripts/inject-beta-build-info.mjs
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: crplay-beta-pages-${{ github.sha }}
+          path: dist
+          if-no-files-found: error
+
+  online:
+    name: Beta Worker verify and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:online
+      - run: npm run build:worker
+      - run: npm run test:online:prepared
+      - name: Validate isolated Beta Worker configuration
+        run: npx wrangler deploy --dry-run --config server/wrangler.beta.jsonc
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: crplay-beta-worker-${{ github.sha }}
+          path: server/dist
+          if-no-files-found: error
+
+  e2e:
+    name: Chromium and WebKit E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: playwright-version
+        shell: bash
+        run: echo "version=$(node -p 'require("./node_modules/@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('package-lock.json') }}
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium webkit
+      - run: npx playwright install-deps chromium webkit
+      - run: npm run test:e2e
+
+  deploy-beta:
+    name: Deploy isolated Beta resources
+    needs:
+      - unit
+      - frontend
+      - online
+      - e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: crplay-beta-pages-${{ github.sha }}
+          path: dist
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: crplay-beta-worker-${{ github.sha }}
+          path: server/dist
+      - name: Apply migrations and deploy Beta Worker
+        uses: cloudflare/wrangler-action@v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.123.0"
+          preCommands: wrangler d1 migrations apply DB --remote --config server/wrangler.beta.jsonc
+          command: deploy --config server/wrangler.beta.jsonc
+      - name: Deploy Beta Pages
+        uses: cloudflare/wrangler-action@v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.123.0"
+          command: pages deploy dist --project-name crplay-beta-pages --branch=dev --config wrangler.beta.jsonc
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify deployed Beta page and API health
+        env:
+          BETA_SMOKE_URL: https://crplay-beta-pages.pages.dev
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: node scripts/beta-deployment-smoke.mjs

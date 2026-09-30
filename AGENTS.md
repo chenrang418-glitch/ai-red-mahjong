@@ -70,3 +70,13 @@ npm run build          npm run build:online
 
 **不得靠删断言、跳过用例、放宽检查来制造通过结果。**
 跑不了的验证如实说明原因和影响，不要虚构结果。
+
+## 六、Beta / Production 环境保护
+
+- 默认开发分支为 `dev`；`main` 对应 Production。
+- 除非用户明确要求，禁止 push、merge、rebase 改写或以其他方式更新远端 `main`。
+- Beta 前端、Worker、D1 和 Durable Objects 必须使用独立资源；Beta Pages 只能绑定 `crplay-beta-api`。
+- Beta Worker 只能使用 `crplay-beta-db` 和其自身的 Durable Object namespace，不得复制或连接 Production 数据、Worker、DO 或 Secrets。
+- `dev` 推送仅允许触发 `.github/workflows/deploy-cloudflare-beta.yml`。Production 部署仅由现有 main 工作流触发。
+- 修改分支前先检查并记录 HEAD、远端基线和工作区状态；不得 reset、clean、覆盖或丢弃用户未提交内容。
+- 只提交当前任务明确涉及的文件；工作区内其他既有修改与临时文件必须保持原样，未经用户确认不得批量纳入提交。
